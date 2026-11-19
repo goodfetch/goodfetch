@@ -101,6 +101,30 @@ reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it
 link = "https://github.com/goodfetch/goodfetch/issues/755"
 
 [[exception]]
+feature = "error:browser_host_unreachable"
+evidence = "none"
+reason = "Declared with the missing Error codes (#2949), but nothing raises it yet: an operator's hosted Browser host whose link is lost fails the call with this code in #756, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/756"
+
+[[exception]]
+feature = "error:challenge_unsolved"
+evidence = "none"
+reason = "Declared with the missing Error codes (#2949), but nothing raises it yet: the Challenge ladder that ends without passing raises it with its steps in #1058, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/1058"
+
+[[exception]]
+feature = "error:confinement_unavailable"
+evidence = "none"
+reason = "Declared with the missing Error codes (#2949), but nothing raises it yet: a Plugin the host cannot confine is refused with this code in #816, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/816"
+
+[[exception]]
+feature = "error:plugin_crashed"
+evidence = "none"
+reason = "Declared with the missing Error codes (#2949), but nothing raises it yet: a Plugin instance that crashes fails its in-flight reads with this code in #837, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/837"
+
+[[exception]]
 feature = "error:hook_duplicate"
 evidence = "none"
 reason = "Declared for ADR 0104's Hooks in code (#2339), but nothing raises it yet: a crawl's second Hook of one name fails its declaration with this code in #1481, whose test removes this exception."

@@ -98,6 +98,14 @@ class BrowserHostOutdatedError(UnavailableError):
         super().__init__(message, code="browser_host_outdated", group="unavailable", retryable=False, **fields)
 
 
+class BrowserHostUnreachableError(UnavailableError):
+    """The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="browser_host_unreachable", group="unavailable", retryable=True, **fields)
+
+
 class BrowserLaunchFailedError(UnavailableError):
     """The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended."""
 
@@ -162,12 +170,28 @@ class CertificateInvalidError(PageError):
         super().__init__(message, code="certificate_invalid", group="page", retryable=False, **fields)
 
 
+class ChallengeUnsolvedError(PageError):
+    """The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="challenge_unsolved", group="page", retryable=False, **fields)
+
+
 class ClosedError(ProgramError):
     """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="closed", group="program", retryable=False, **fields)
+
+
+class ConfinementUnavailableError(RefusedError):
+    """The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="confinement_unavailable", group="refused", retryable=False, **fields)
 
 
 class ConnectionLostError(UnavailableError):
@@ -504,6 +528,14 @@ class PersonRequiredError(RefusedError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="person_required", group="refused", retryable=False, **fields)
+
+
+class PluginCrashedError(UnavailableError):
+    """The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_crashed", group="unavailable", retryable=True, **fields)
 
 
 class PolicyConflictError(RefusedError):
@@ -850,6 +882,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "body_not_found": BodyNotFoundError,
     "body_unavailable": BodyUnavailableError,
     "browser_host_outdated": BrowserHostOutdatedError,
+    "browser_host_unreachable": BrowserHostUnreachableError,
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
     "browser_sandbox_unavailable": BrowserSandboxUnavailableError,
@@ -858,7 +891,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "cdp_url_not_allowed": CDPURLNotAllowedError,
     "certificate_changed": CertificateChangedError,
     "certificate_invalid": CertificateInvalidError,
+    "challenge_unsolved": ChallengeUnsolvedError,
     "closed": ClosedError,
+    "confinement_unavailable": ConfinementUnavailableError,
     "connection_lost": ConnectionLostError,
     "connection_overloaded": ConnectionOverloadedError,
     "daemon_draining": DaemonDrainingError,
@@ -901,6 +936,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "path_unsafe": PathUnsafeError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
+    "plugin_crashed": PluginCrashedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,

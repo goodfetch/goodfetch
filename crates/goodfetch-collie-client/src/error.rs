@@ -13,12 +13,13 @@ use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails,
 };
 use goodfetch_protocol::connection::{
-    CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, INTERNAL,
+    CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, Form, INTERNAL,
 };
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
 use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
+use goodfetch_protocol::naming;
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingLimit};
@@ -311,7 +312,42 @@ impl Error {
     /// Connection fails with it too.
     #[must_use]
     pub fn closed() -> Self {
-        Self::of(&CLOSED, "the Connection is closed".to_owned())
+        Self::of_runtime(
+            &CLOSED,
+            "the Connection, or the value the call was made on, is closed",
+            "Connect again, or open the value again: a closed one never reopens.",
+        )
+    }
+
+    /// The engine ended the Connection, as a Daemon that dropped it, before
+    /// it answered the call: `closed`, since the Connection is.
+    pub(crate) fn dropped() -> Self {
+        Self::of_runtime(
+            &CLOSED,
+            "the engine ended the Connection before it answered",
+            "Connect again: a closed Connection never reopens.",
+        )
+    }
+
+    /// The error, which the runtime raised, as the call `operation`, a
+    /// catalog name, fails with it (ADRs 0079 and 0099): its message
+    /// headed by the operation in Rust's spelling, and `operation` set to
+    /// the catalog's name. An error the engine answered with, or one that
+    /// already names its operation, stays as it is.
+    #[must_use]
+    pub(crate) fn in_call(mut self, operation: &str) -> Self {
+        if self.0.answered || self.0.data.contains_key("operation") {
+            return self;
+        }
+        self.0.message = format!(
+            "{}: {}",
+            naming::operation(Form::Rust, operation),
+            self.0.message
+        );
+        self.0
+            .data
+            .insert("operation".to_owned(), operation.to_owned().into());
+        self
     }
 
     /// The call's timeout ran out before its reply came:
@@ -413,6 +449,15 @@ impl Error {
             self = self.caused_by(cause);
         }
         self
+    }
+
+    /// A failure the runtime raises itself, of the code `defined`, in ADR
+    /// 0079's layout: what failed, then `fix`, which its field holds too.
+    /// [`Error::in_call`] heads it with the call's operation.
+    fn of_runtime(defined: &ErrorCodeDefinition, what_failed: &str, fix: &str) -> Self {
+        let mut error = Self::of(defined, format!("{what_failed}. {fix}"));
+        error.0.data.insert("fix".to_owned(), fix.into());
+        error
     }
 
     /// A failure of the SDK's own of the code `defined`.

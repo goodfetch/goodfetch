@@ -1,7 +1,8 @@
 //! A linked connection whose `hello` needs a Product its engine does not
 //! contain, as a Foxhound program that met a Collie engine would: the
 //! engine refuses it at connect with `not_in_product` (ADRs 0087, 0090 and
-//! 0095).
+//! 0095). A linked connection's close returns once its engine has stopped
+//! (ADR 0078).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -53,4 +54,25 @@ fn a_connection_that_needs_foxhound_fails_on_a_collie_engine_with_not_in_product
         )
     );
     assert!(details.fix.contains(&install), "{details:?}");
+}
+
+/// A linked connection's close returns only once its engine has stopped:
+/// the task the engine serves its Connection on has ended, its running Run
+/// stopped first.
+/// Covers: story:11-19
+#[test]
+fn a_linked_close_returns_once_its_engine_has_stopped() {
+    let env = TestEnv::new();
+    let options = ConnectOptions::default().environment(env.env_os());
+
+    let stopped = real_time_runtime().block_on(async {
+        let linked = LinkedConnection::connect(Composed::COLLIE, options)
+            .await
+            .unwrap();
+        let _run = linked.connection().start().await.unwrap();
+        linked.close().await.unwrap();
+        linked.engine.tasks.is_empty()
+    });
+
+    assert!(stopped, "the close returned before its engine stopped");
 }

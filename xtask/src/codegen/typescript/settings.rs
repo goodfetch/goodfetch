@@ -166,7 +166,7 @@ fn area_type(level: &BTreeMap<String, Node<'_>>, indent: &str) -> Result<String>
     for (name, _, node) in spelled(level)? {
         match node {
             Node::Setting(setting) => {
-                text.push_str(&doc(&inner, setting)?);
+                text.push_str(&doc(&inner, setting));
                 let _ = writeln!(text, "{inner}readonly {name}?: {};", value_type(setting)?);
             }
             Node::Area(children) => {
@@ -183,7 +183,7 @@ fn area_type(level: &BTreeMap<String, Node<'_>>, indent: &str) -> Result<String>
 }
 
 /// A setting's `TSDoc`: its description and its wire key.
-fn doc(indent: &str, setting: &Setting) -> Result<String> {
+fn doc(indent: &str, setting: &Setting) -> String {
     let mut text = format!("{indent}/**\n");
     for line in setting.description.replace("*/", "*\\/").lines() {
         let _ = writeln!(text, "{indent} * {line}");
@@ -193,7 +193,7 @@ fn doc(indent: &str, setting: &Setting) -> Result<String> {
         "{indent} *\n{indent} * `{}`.\n{indent} */",
         setting.name
     );
-    Ok(text)
+    text
 }
 
 /// The spelling tree's literal: each segment's wire name, an area's with
@@ -339,11 +339,10 @@ fn object_type(object: &Map<String, Value>) -> Result<String> {
         }
     }
     match object.get("additionalProperties") {
-        Some(Value::Bool(false)) => {}
         Some(Value::Bool(true)) | None if members.is_empty() => {
             members.push("readonly [key: string]: unknown".to_owned());
         }
-        Some(Value::Bool(true)) | None => {}
+        Some(Value::Bool(_)) | None => {}
         Some(schema) => members.push(format!(
             "readonly [key: string]: {}",
             union(schema_members(schema)?)

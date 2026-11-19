@@ -717,21 +717,18 @@ fn signature(
     }
     for name in &parameters.optional {
         let given = format!("options.{}", camel(name));
-        match settings_type.filter(|_| name == SETTINGS) {
-            Some(settings) => {
-                options.push(format!("readonly {}?: {settings} | undefined", camel(name)));
-                entries.push(format!("{name}: {SETTINGS_ON_WIRE}({given})"));
-            }
-            None => {
-                options.push(format!(
-                    "readonly {}?: types.{type_name}[{name:?}] | undefined",
-                    camel(name)
-                ));
-                entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
-                    Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
-                    None => format!("{name}: {given}"),
-                });
-            }
+        if let Some(settings) = settings_type.filter(|_| name == SETTINGS) {
+            options.push(format!("readonly {}?: {settings} | undefined", camel(name)));
+            entries.push(format!("{name}: {SETTINGS_ON_WIRE}({given})"));
+        } else {
+            options.push(format!(
+                "readonly {}?: types.{type_name}[{name:?}] | undefined",
+                camel(name)
+            ));
+            entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
+                Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
+                None => format!("{name}: {given}"),
+            });
         }
     }
     if cancellable {
@@ -912,10 +909,10 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     let settings = if scoped.is_empty() {
         String::new()
     } else {
-        let types: Vec<String> = scoped.iter().map(|name| format!("type {name}")).collect();
+        let imported: Vec<String> = scoped.iter().map(|name| format!("type {name}")).collect();
         format!(
             "import {{ {SETTINGS_ON_WIRE}, {} }} from \"./settings.ts\";\n",
-            types.join(", ")
+            imported.join(", ")
         )
     };
     format!(

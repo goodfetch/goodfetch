@@ -1,0 +1,100 @@
+{
+  "description": "A Collie Client starts a Run and closes while the Run's finish is in flight: the close aborts the Run first, then cancels the finish, and the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    }
+  ]
+}

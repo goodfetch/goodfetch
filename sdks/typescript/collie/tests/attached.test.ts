@@ -73,7 +73,7 @@ describe("a Collie Connection on an Attached engine", () => {
 
   test(
     "stops a Run its program closes unfinished, so a start under its Run ID resumes it",
-    { tags: ["story:11-17"] },
+    { tags: ["story:11-17", "story:11-18"] },
     async ({ env }) => {
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env });

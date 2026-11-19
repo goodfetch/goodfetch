@@ -397,6 +397,7 @@ impl Completeness {
 /// Why a Run stopped (ADRs 0029, 0080 and 0102).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum StopReason {
     /// Its program, a person or a Client aborted it, a Connection's close
     /// included (ADR 0078).

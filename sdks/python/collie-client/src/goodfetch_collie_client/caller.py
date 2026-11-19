@@ -27,6 +27,7 @@ from typing import (
 from pydantic import AwareDatetime, BaseModel, RootModel
 
 from goodfetch_collie_client.point_in_time import point_in_time
+from goodfetch_collie_client.unknown_member import UnknownMember
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -58,8 +59,9 @@ def result_of(model: type[_Model], result: object) -> _Model:
     models, the one whose tag and required fields the value carries. Nothing
     is validated, so a field, value or variant a newer engine added never
     raises (ADR 0082): an unknown field stays in its model's `model_extra`,
-    and a value no declared type matches, such as a variant the SDK does not
-    know, stays as the engine sent it.
+    a member of an open tagged union the SDK does not know is the union's
+    `unknown` member, with the tag it was sent in `tag` (ADR 0079), and any
+    other value no declared type matches stays as the engine sent it.
     """
     return model.model_construct(**_fields(model, cast("dict[str, object]", result)))
 
@@ -139,7 +141,48 @@ def _build_one_of(builds: list[tuple[object, _Build | None]], value: object) -> 
     for member, build in builds:
         if _matches(member, value):
             return value if build is None else build(value)
-    return value
+    if not isinstance(value, dict):
+        return value
+    sent = cast("dict[str, object]", value)
+    for member, _ in builds:
+        if (unknown := _unknown_member(member)) is not None:
+            known = [other for other, _ in builds if other is not member]
+            return _build_unknown(*unknown, known, sent)
+    return sent
+
+
+def _unknown_member(member: object) -> tuple[type[UnknownMember], str] | None:
+    """An open union's `unknown` member and the field that tags the union."""
+    if not (isinstance(member, type) and issubclass(member, UnknownMember)):
+        return None
+    for key, field in _fields_by_key(member).items():
+        if get_origin(field.annotation) is Literal and get_args(field.annotation) == (
+            "unknown",
+        ):
+            return member, key
+    return None
+
+
+def _build_unknown(
+    member: type[UnknownMember], tag: str, known: list[object], value: dict[str, object]
+) -> object:
+    """A member the SDK does not know as the `unknown` one, its tag in `tag`.
+
+    A value tagged by a member it knows, which matched none for another
+    reason, stays as sent, as any other value no declared type matches.
+    """
+    sent = value.get(tag)
+    if not isinstance(sent, str) or any(_tagged(other, tag, sent) for other in known):
+        return value
+    return _build_model(member, {**value, tag: "unknown", "tag": sent})
+
+
+def _tagged(member: object, tag: str, sent: str) -> bool:
+    """Whether a member of a union is the one `sent` names in its field `tag`."""
+    if not (isinstance(member, type) and issubclass(member, BaseModel)):
+        return False
+    field = _fields_by_key(member).get(tag)
+    return field is not None and _matches(field.annotation, sent)
 
 
 def _build_list(build: _Build, value: object) -> object:

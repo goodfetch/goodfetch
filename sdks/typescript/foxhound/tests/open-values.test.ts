@@ -1,7 +1,9 @@
 // A newer engine's values (ADR 0079): an outcome kind, skip reason, Block
 // cause, Hook stage, Verdict, Usage kind or Limit scope this package does not
 // know reads as the string the engine sent, typed by its open enumeration,
-// and an unknown Verdict is never `verified`. Foxhound's values of a type
+// a member of an open tagged union it does not know reads as its `unknown`
+// member with the tag it received, and an unknown Verdict is never
+// `verified`. Foxhound's values of a type
 // both Products share reach a Collie program the same way (ADR 0095).
 import type {
   LimitScope as CollieLimitScope,
@@ -44,6 +46,53 @@ describe("a value a newer engine adds", () => {
         { kind: "skipped", reason: "a_newer_reason" },
         { kind: "blocked", cause: "a_newer_cause" },
       ],
+    });
+  });
+
+  test("in a tagged union reads as its `unknown` member, keeping the tag and the rest", () => {
+    const sent = {
+      outcomes: [
+        {
+          kind: "a_newer_kind",
+          attempts: 1,
+          request: { id: "r1", url: "https://shop.test/", label: "page" },
+          ended_at: "2026-11-19T08:00:00Z",
+          its_own_field: "kept",
+        },
+        {
+          kind: "skipped",
+          reason: "duplicate",
+          request: { id: "r2", url: "https://shop.test/2", label: "page" },
+          ended_at: "2026-11-19T08:00:00Z",
+        },
+      ],
+    };
+    const report = { run_id: "run-1", stop_reason: { kind: "a_newer_reason", by_whom: "x" } };
+
+    const outcomes = fromWire(sent, foxhoundWire.results["run.outcomes"], foxhoundWire.types);
+    const read = fromWire(report, { type: "CrawlRunReport" }, foxhoundWire.types);
+
+    expect(outcomes).toStrictEqual({
+      outcomes: [
+        {
+          kind: "unknown",
+          tag: "a_newer_kind",
+          attempts: 1,
+          request: { id: "r1", url: "https://shop.test/", label: "page" },
+          endedAt: new Date("2026-11-19T08:00:00.000Z"),
+          its_own_field: "kept",
+        },
+        {
+          kind: "skipped",
+          reason: "duplicate",
+          request: { id: "r2", url: "https://shop.test/2", label: "page" },
+          endedAt: new Date("2026-11-19T08:00:00.000Z"),
+        },
+      ],
+    });
+    expect(read).toStrictEqual({
+      runId: "run-1",
+      stopReason: { kind: "unknown", tag: "a_newer_reason", by_whom: "x" },
     });
   });
 

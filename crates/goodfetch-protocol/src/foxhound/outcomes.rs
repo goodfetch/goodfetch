@@ -184,6 +184,7 @@ pub struct NotAddedAtCommit {
 /// How a crawl request ended, with what that ending carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum Ending {
     /// Its handler returned, and what it staged was committed.
     Succeeded {

@@ -7,21 +7,35 @@
 // and where a point in time sits. Only those fields are renamed: the keys of
 // a map or of a free value are data and keep their spelling, `__proto__`
 // included, and a field no table knows passes as it is, since results are
-// neither validated nor stripped (ADR 0082). Sending a point in time needs
-// nothing, since `Date.toJSON` writes RFC 3339 in UTC.
+// neither validated nor stripped (ADR 0082). A member of an open tagged
+// union that the table does not know, which a newer engine may send, reads as
+// the union's `unknown` member, the tag it was sent in `tag` (ADR 0079).
+// Sending a point in time needs nothing, since `Date.toJSON` writes RFC 3339
+// in UTC.
 import { isRecord } from "./framing.ts";
 
 /**
  * Where a value holds fields to rename or points in time: `"time"` for one, a
- * named type of the table, an object's fields, a list's items or a map's
- * values.
+ * named type of the table, an object's fields, a list's items, a map's values
+ * or an open tagged union.
  */
 export type WirePath =
   | "time"
   | { readonly type: string }
   | { readonly fields: Readonly<Record<string, WireField>> }
   | { readonly items: WirePath }
-  | { readonly values: WirePath };
+  | { readonly values: WirePath }
+  | { readonly union: WireUnion };
+
+/**
+ * An open tagged union (ADR 0079): the field that tags it, the tag of each
+ * member the table knows, and where its members hold something.
+ */
+export interface WireUnion {
+  readonly tag: string;
+  readonly known: readonly string[];
+  readonly path?: WirePath;
+}
 
 /**
  * A field of a `WirePath`, keyed by the engine's name: its camelCase name, or
@@ -163,6 +177,9 @@ export function fromWire(value: unknown, path: WirePath | undefined, types: Wire
   if ("type" in path) {
     return fromWire(value, named(path, types), types);
   }
+  if ("union" in path) {
+    return asMember(value, fromWire(value, path.union.path, types), path.union);
+  }
   if ("items" in path) {
     return Array.isArray(value)
       ? value.map((item: unknown) => fromWire(item, path.items, types))
@@ -188,6 +205,28 @@ export function fromWire(value: unknown, path: WirePath | undefined, types: Wire
   return read;
 }
 
+/**
+ * `read`, the value `sent` read, as its union's `unknown` member when `sent`
+ * is tagged by a member the table does not know: the tag `unknown`, the tag
+ * it was sent in `tag`, and the rest as read.
+ */
+function asMember(sent: unknown, read: unknown, union: WireUnion): unknown {
+  if (!isRecord(sent) || !isRecord(read) || !Object.hasOwn(sent, union.tag)) {
+    return read;
+  }
+  const tag = sent[union.tag];
+  if (typeof tag !== "string" || union.known.includes(tag)) {
+    return read;
+  }
+  const member: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(read)) {
+    setOwn(member, key, item);
+  }
+  setOwn(member, union.tag, "unknown");
+  setOwn(member, "tag", tag);
+  return member;
+}
+
 /** Whether `value` is an object a program wrote as a literal, not a class's instance. */
 function isPlain(value: unknown): value is Readonly<Record<string, unknown>> {
   if (!isRecord(value)) {
@@ -209,6 +248,9 @@ export function toWire(value: unknown, path: WirePath | undefined, types: WireTy
   }
   if ("type" in path) {
     return toWire(value, named(path, types), types);
+  }
+  if ("union" in path) {
+    return toWire(value, path.union.path, types);
   }
   if ("items" in path) {
     return Array.isArray(value)

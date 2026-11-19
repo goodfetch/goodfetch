@@ -170,6 +170,14 @@ export type CrawlRequestOutcome1 =
        */
       cause: BlockCause;
       kind: "blocked";
+    }
+  | {
+      kind: "unknown";
+      /**
+       * The tag the engine sent.
+       */
+      tag: string;
+      [k: string]: unknown;
     };
 /**
  * Why the Frontier did not add a request (ADRs 0093 and 0120).

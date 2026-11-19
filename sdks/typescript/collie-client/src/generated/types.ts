@@ -1088,6 +1088,14 @@ export type StopReason =
        * The resource that ran out.
        */
       resource: Resource;
+    }
+  | {
+      kind: "unknown";
+      /**
+       * The tag the engine sent.
+       */
+      tag: string;
+      [k: string]: unknown;
     };
 /**
  * An opaque text a Run is tagged with (ADR 0036).

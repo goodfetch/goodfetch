@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.open_values import Verdict
 from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_collie_client.unknown_member import UnknownMember
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
@@ -3095,6 +3096,17 @@ class StopReason10(BaseModel):
     """The resource that ran out."""
 
 
+class StopReason11(UnknownMember):
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, and what else it carries as sent (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unknown"]
+    tag: str
+    """The tag the engine sent."""
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
@@ -5874,6 +5886,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     ]
 ):
     root: (
@@ -5887,6 +5900,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 

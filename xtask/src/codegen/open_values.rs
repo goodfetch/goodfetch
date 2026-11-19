@@ -1,13 +1,19 @@
-//! The open enumerations of the protocol (ADR 0079): a `snake_case` string
-//! type whose schema says `"open": true`, such as a Verdict or a Block
-//! cause, to which a newer engine may add a value. The SDKs keep such a
-//! value as received, so each layer types it as its known values or any
-//! other string: `Known | (string & {})` in TypeScript and
-//! `Literal[...] | str` in Python, never a closed union or enum.
+//! The open enumerations and tagged unions of the protocol (ADR 0079): a
+//! type whose schema says `"open": true`, to which a newer engine may add a
+//! value or a member. An open enumeration is a `snake_case` string type,
+//! such as a Verdict or a Block cause: the SDKs keep its value as received,
+//! so each layer types it as its known values or any other string:
+//! `Known | (string & {})` in TypeScript and `Literal[...] | str` in Python,
+//! never a closed union or enum. An open tagged union, such as a Stop
+//! reason, gets an `unknown` member, which a member the SDK does not know
+//! reads as, with the tag it was sent in `tag` and the rest as sent: adding
+//! `{ kind: string }` to a TypeScript union instead would end narrowing on
+//! its known members.
 
 use std::fmt::Write as _;
 
-use serde_json::{Map, Value};
+use anyhow::{Result, bail};
+use serde_json::{Map, Value, json};
 
 /// The schema keyword that marks an enumeration open.
 const OPEN: &str = "open";
@@ -63,6 +69,133 @@ impl OpenValues {
             .map(|(value, _)| format!("{value:?}"))
             .collect()
     }
+}
+
+/// An open tagged union: the field its members are told apart by, and the
+/// tag of each member it knows, in order.
+pub(super) struct OpenUnion {
+    pub(super) tag: String,
+    pub(super) known: Vec<String>,
+}
+
+/// The member a member the SDK does not know reads as, and the field that
+/// keeps the tag it was sent.
+const UNKNOWN: &str = "unknown";
+const TAG: &str = "tag";
+
+impl OpenUnion {
+    /// `schema`'s, when it is an open tagged union: a `oneOf` of objects
+    /// marked `"open": true`, each naming itself by a constant of one field
+    /// they share.
+    pub(super) fn of(schema: &Value) -> Option<Self> {
+        let schema = schema.as_object()?;
+        if schema.get(OPEN).and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        let members = schema.get("oneOf")?.as_array()?;
+        let tags: Vec<Vec<(&String, &str)>> = members
+            .iter()
+            .map(|member| {
+                member
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .map(|properties| {
+                        properties
+                            .iter()
+                            .filter_map(|(key, property)| {
+                                Some((key, property.get("const")?.as_str()?))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        let first = tags.first()?;
+        let mut shared = first.iter().map(|(key, _)| *key).filter(|key| {
+            tags.iter()
+                .all(|member| member.iter().any(|(other, _)| other == key))
+        });
+        let tag = shared.next()?;
+        if shared.next().is_some() {
+            return None;
+        }
+        let known = tags
+            .iter()
+            .map(|member| {
+                member
+                    .iter()
+                    .find(|(key, _)| *key == tag)
+                    .map(|(_, value)| (*value).to_owned())
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self {
+            tag: tag.clone(),
+            known,
+        })
+    }
+
+    /// Its `unknown` member: the tag `unknown`, the tag it was sent in
+    /// `tag`, and any other field as sent; built on `base` where the layer
+    /// names one.
+    fn unknown_member(&self, base: Option<&str>) -> Value {
+        let mut member = json!({
+            "description": "A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, and what else it carries as sent (ADR 0079).",
+            "type": "object",
+            "properties": {
+                (self.tag.clone()): { "const": UNKNOWN, "type": "string" },
+                TAG: { "description": "The tag the engine sent.", "type": "string" },
+            },
+            "required": [self.tag, TAG],
+            "additionalProperties": true,
+        });
+        if let Some(base) = base {
+            member["customBasePath"] = Value::String(base.to_owned());
+        }
+        member
+    }
+}
+
+/// Adds its `unknown` member to each open tagged union among `input`'s
+/// definitions, built on `base` where the layer names one. Refuses a schema
+/// marked open that is neither an enumeration nor a tagged union, and a
+/// union whose members already use the name `unknown` or the field `tag`.
+pub(super) fn unknown_members(input: &mut Value, base: Option<&str>) -> Result<()> {
+    let Some(definitions) = input.get_mut("$defs").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    for (name, schema) in definitions.iter_mut() {
+        if schema.get(OPEN).and_then(Value::as_bool) != Some(true)
+            || OpenValues::of(schema).is_some()
+        {
+            continue;
+        }
+        let Some(union) = OpenUnion::of(schema) else {
+            bail!("`{name}` is marked open but is neither an enumeration nor a tagged union");
+        };
+        if union.tag == TAG || union.known.iter().any(|known| known == UNKNOWN) {
+            bail!("the open union `{name}` already uses the member `{UNKNOWN}` or the tag `{TAG}`");
+        }
+        let field = format!("/properties/{TAG}");
+        if schema.pointer(&field).is_some() {
+            bail!(
+                "the open union `{name}` has a field `{TAG}`, which its `unknown` member keeps the tag in"
+            );
+        }
+        let members = schema
+            .get_mut("oneOf")
+            .and_then(Value::as_array_mut)
+            .expect("invariant: an open union has a `oneOf`");
+        if members
+            .iter()
+            .any(|member| member.pointer(&field).is_some())
+        {
+            bail!(
+                "a member of the open union `{name}` has a field `{TAG}`, which its `unknown` member keeps the tag in"
+            );
+        }
+        members.push(union.unknown_member(base));
+    }
+    Ok(())
 }
 
 /// The open enumerations among `definitions`, by name.

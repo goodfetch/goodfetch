@@ -1,0 +1,95 @@
+{
+  "description": "A Collie Client whose logger records `trace` sends that level in `hello`, and the engine sends a `$/log` event at each level (ADR 0078): an error, a warning that counts 3 dropped events, an info, a debug and a trace, which the SDK hands to the host's logger.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "trace"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "error",
+            "target": "goodfetch::rpc::dispatch",
+            "message": "A call failed.",
+            "fields": {
+              "operation": "run.start"
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "warn",
+            "target": "goodfetch::page",
+            "message": "A page was slow.",
+            "dropped": 3
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "info",
+            "target": "goodfetch::run",
+            "message": "A Run started."
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "debug",
+            "target": "goodfetch::rpc::dispatch",
+            "message": "A request arrived.",
+            "fields": {
+              "method": "run.start",
+              "id": 7
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "trace",
+            "target": "goodfetch::page::cdp",
+            "message": "A frame was read."
+          }
+        }
+      }
+    }
+  ]
+}

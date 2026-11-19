@@ -54,6 +54,11 @@ export interface ChannelOwner {
   readonly serve?:
     | ((method: string, params: unknown, signal: AbortSignal) => Promise<unknown> | undefined)
     | undefined;
+  /**
+   * Hears each notification that names no call, such as the engine's
+   * `$/log`; when left out, they are dropped.
+   */
+  readonly notified?: ((method: string, params: unknown) => void) | undefined;
 }
 
 /** What a Connection lets wait before it refuses a new call with `connection_overloaded`. */
@@ -418,6 +423,7 @@ export class Channel {
           typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
         const id = typeof named === "number" || typeof named === "string" ? named : undefined;
         if (id === undefined) {
+          this.#owner.notified?.(message.method, params);
           return;
         }
         // The engine's `$/cancel` names a request of its own, whose ids are

@@ -18,12 +18,35 @@ export type BlockCause =
  */
 export type CertificateExceptionKind = "trust_on_first_use" | "any";
 /**
+ * Which pages a code-free crawl fetches beyond its seeds.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExtractionFollow".
+ */
+export type ExtractionFollow = "scope" | "sitemap" | "none";
+/**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "HttpBody".
  */
 export type HttpBody = string;
+/**
+ * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HttpMethod".
+ */
+export type HttpMethod = string;
+/**
+ * A proxy tier of ADR 0021's ladder, from the cheapest up: a Session
+ * binds one proxy of its tier, and a block that escalates moves its
+ * domain one tier up, its replacement opening there.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ProxyTier".
+ */
+export type ProxyTier = "none" | "datacenter" | "isp" | "residential" | "mobile";
 /**
  * A tier that fetches a crawl request's document (ADR 0020), from the
  * cheapest up.
@@ -58,6 +81,9 @@ export type CrawlRequestOutcome = {
    * `after` takes.
    */
   position: number;
+  /**
+   * The request it ends.
+   */
   request: OutcomeRequest;
 } & CrawlRequestOutcome1;
 export type CrawlRequestOutcome1 =
@@ -79,7 +105,10 @@ export type CrawlRequestOutcome1 =
       records: DatasetRecords[];
     }
   | {
-      error: AttemptError1;
+      /**
+       * The last attempt's error.
+       */
+      error: AttemptError;
       kind: "failed";
     }
   | {
@@ -91,25 +120,38 @@ export type CrawlRequestOutcome1 =
       /**
        * Why.
        */
-      reason:
-        | "out_of_scope"
-        | "domain_policy"
-        | "duplicate"
-        | "robots_txt"
-        | "crawl_delay"
-        | "use_signals"
-        | "hook"
-        | "handler"
-        | "model_allowance"
-        | "content_type";
+      reason: SkipReason;
     }
   | {
       /**
        * Why the site refused it.
        */
-      cause: "challenge" | "captcha" | "rate_limit" | "ip_block" | "decoy" | "payment_required" | "consent_required";
+      cause: BlockCause;
       kind: "blocked";
     };
+/**
+ * Why the Frontier did not add a request (ADRs 0093 and 0120).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "NotAddedReason".
+ */
+export type NotAddedReason =
+  | "duplicate"
+  | "out_of_scope"
+  | "domain_policy"
+  | "max_depth"
+  | "max_requests"
+  | "unsupported_scheme"
+  | "invalid_url"
+  | "max_url_length"
+  | "max_path_segments"
+  | "max_segment_repeats"
+  | "max_sitemap_nesting"
+  | "path_budget"
+  | "trap_path"
+  | "no_rule"
+  | "trap_link"
+  | "link_limit";
 /**
  * Why a succeeded request committed no Record (ADR 0103).
  *
@@ -117,6 +159,23 @@ export type CrawlRequestOutcome1 =
  * via the `definition` "NothingCommitted".
  */
 export type NothingCommitted = "none_pushed" | "none_kept" | "records_off";
+/**
+ * Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SkipReason".
+ */
+export type SkipReason =
+  | "out_of_scope"
+  | "domain_policy"
+  | "duplicate"
+  | "robots_txt"
+  | "crawl_delay"
+  | "use_signals"
+  | "hook"
+  | "handler"
+  | "model_allowance"
+  | "content_type";
 /**
  * Two spellings of one host's URLs a learned `equivalent_form` merges
  * (ADR 0120), each learned on evidence: a redirect from one to the
@@ -128,9 +187,26 @@ export type NothingCommitted = "none_pushed" | "none_kept" | "records_off";
  */
 export type EquivalentForm = "www" | "scheme" | "trailing_slash" | "index_html" | "index_php";
 /**
- * The requests the crawl starts from.
+ * What a learned URL rule learned (ADRs 0005 and 0120).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LearnedRuleKind".
+ */
+export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
+/**
+ * A Sink's delivery status (ADRs 0026 and 0103).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkStatus".
+ */
+export type SinkStatus = "complete" | "complete_with_rejections" | "behind" | "failed" | "inactive";
+/**
+ * A crawl's seeds, at least one.
  *
  * @minItems 1
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "Seeds".
  */
 export type Seeds = [Seed, ...Seed[]];
 /**
@@ -179,12 +255,33 @@ export type ResponseOrigin =
  */
 export type RobotsTxtMark = "ignored";
 /**
+ * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "TierChosen".
+ */
+export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
+/**
  * Which scope's `fetch.tier` forced a tier.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ForcedBy".
  */
 export type ForcedBy = "run" | "label";
+/**
+ * One of the engine's closed list of Value transforms (ADR 0123).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ValueTransform".
+ */
+export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+/**
+ * A Wall's kind (ADR 0052).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "WallKind".
+ */
+export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 /**
  * A condition on one top-level field of a Record.
  *
@@ -222,6 +319,13 @@ export type FieldFilter1 =
  */
 export type WallFilter = "with" | "without";
 /**
+ * A sort's direction.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SortDirection".
+ */
+export type SortDirection = "ascending" | "descending";
+/**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
  *
@@ -246,23 +350,7 @@ export type Enqueued =
       /**
        * Why.
        */
-      reason:
-        | "duplicate"
-        | "out_of_scope"
-        | "domain_policy"
-        | "max_depth"
-        | "max_requests"
-        | "unsupported_scheme"
-        | "invalid_url"
-        | "max_url_length"
-        | "max_path_segments"
-        | "max_segment_repeats"
-        | "max_sitemap_nesting"
-        | "path_budget"
-        | "trap_path"
-        | "no_rule"
-        | "trap_link"
-        | "link_limit";
+      reason: NotAddedReason;
       /**
        * Its URL as it was given.
        */
@@ -291,23 +379,7 @@ export type EnqueuedLink =
       /**
        * Why.
        */
-      reason:
-        | "duplicate"
-        | "out_of_scope"
-        | "domain_policy"
-        | "max_depth"
-        | "max_requests"
-        | "unsupported_scheme"
-        | "invalid_url"
-        | "max_url_length"
-        | "max_path_segments"
-        | "max_segment_repeats"
-        | "max_sitemap_nesting"
-        | "path_budget"
-        | "trap_path"
-        | "no_rule"
-        | "trap_link"
-        | "link_limit";
+      reason: NotAddedReason;
       /**
        * Its `href`, as written.
        */
@@ -332,6 +404,15 @@ export type EnqueuedLink =
  */
 export type ExportCompression = "none" | "gzip" | "zstd";
 /**
+ * An Export of a Run, named by the engine when its file is whole:
+ * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
+ * hexadecimal, so two Exports of the same bytes are one file.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportId".
+ */
+export type ExportId = string;
+/**
  * An Export's format, named, never inferred from a file name (ADR 0103).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -350,59 +431,6 @@ export type ExportFormat =
   | "arrow_ipc"
   | "rss"
   | "atom";
-/**
- * An Export of a Run, named by the engine when its file is whole:
- * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
- * hexadecimal, so two Exports of the same bytes are one file.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "ExportId".
- */
-export type ExportId = string;
-/**
- * Which pages a code-free crawl fetches beyond its seeds.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "ExtractionFollow".
- */
-export type ExtractionFollow = "scope" | "sitemap" | "none";
-/**
- * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "HttpMethod".
- */
-export type HttpMethod = string;
-/**
- * What a learned URL rule learned (ADRs 0005 and 0120).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "LearnedRuleKind".
- */
-export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
-/**
- * Why the Frontier did not add a request (ADRs 0093 and 0120).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "NotAddedReason".
- */
-export type NotAddedReason =
-  | "duplicate"
-  | "out_of_scope"
-  | "domain_policy"
-  | "max_depth"
-  | "max_requests"
-  | "unsupported_scheme"
-  | "invalid_url"
-  | "max_url_length"
-  | "max_path_segments"
-  | "max_segment_repeats"
-  | "max_sitemap_nesting"
-  | "path_budget"
-  | "trap_path"
-  | "no_rule"
-  | "trap_link"
-  | "link_limit";
 /**
  * The word `now`: from the next commit on.
  *
@@ -423,77 +451,7 @@ export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked";
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "OutcomesAfter".
  */
-export type OutcomesAfter = number | "now";
-/**
- * A proxy tier of ADR 0021's ladder, from the cheapest up: a Session
- * binds one proxy of its tier, and a block that escalates moves its
- * domain one tier up, its replacement opening there.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "ProxyTier".
- */
-export type ProxyTier = "none" | "datacenter" | "isp" | "residential" | "mobile";
-/**
- * A crawl's seeds, at least one.
- *
- * @minItems 1
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "Seeds".
- */
-export type Seeds1 = [Seed, ...Seed[]];
-/**
- * A Sink's delivery status (ADRs 0026 and 0103).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SinkStatus".
- */
-export type SinkStatus = "complete" | "complete_with_rejections" | "behind" | "failed" | "inactive";
-/**
- * Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SkipReason".
- */
-export type SkipReason =
-  | "out_of_scope"
-  | "domain_policy"
-  | "duplicate"
-  | "robots_txt"
-  | "crawl_delay"
-  | "use_signals"
-  | "hook"
-  | "handler"
-  | "model_allowance"
-  | "content_type";
-/**
- * A sort's direction.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SortDirection".
- */
-export type SortDirection = "ascending" | "descending";
-/**
- * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "TierChosen".
- */
-export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
-/**
- * One of the engine's closed list of Value transforms (ADR 0123).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "ValueTransform".
- */
-export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
-/**
- * A Wall's kind (ADR 0052).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "WallKind".
- */
-export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
+export type OutcomesAfter = number | Now;
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -540,7 +498,7 @@ export interface CertificateExceptionMark {
   /**
    * The kind of exception.
    */
-  kind: "trust_on_first_use" | "any";
+  kind: CertificateExceptionKind;
   /**
    * The SHA-256 of the public key of the certificate it accepted, as
    * `sha256/<base64>`, the known-certificates store's spelling.
@@ -592,7 +550,7 @@ export interface CrawlExtraction {
   /**
    * Which pages the crawl fetches beyond its seeds: `scope` by default.
    */
-  follow?: "scope" | "sitemap" | "none";
+  follow?: ExtractionFollow & string;
   /**
    * The formats each page's Record holds, as `page.formats` takes them.
    */
@@ -620,7 +578,7 @@ export interface CrawlRequest {
   /**
    * The method it is sent with.
    */
-  method: string;
+  method: HttpMethod;
   /**
    * Its Payload.
    */
@@ -740,7 +698,7 @@ export interface CrawlRequestEnqueueParams {
   /**
    * The method it is sent with: `GET` by default.
    */
-  method?: string;
+  method?: HttpMethod;
   /**
    * The data the program attaches for its handler.
    */
@@ -789,7 +747,10 @@ export interface CrawlRequestHandleParams {
    * Which attempt this is, from 1.
    */
   attempt: number;
-  crawl_request: CrawlRequest1;
+  /**
+   * The work item.
+   */
+  crawl_request: CrawlRequest;
   /**
    * The lease's epoch, which only goes up (ADR 0003).
    */
@@ -811,6 +772,9 @@ export interface CrawlRequestHandleParams {
    * The crawl's Run.
    */
   run_id: RunId;
+  /**
+   * The Session of the crawl's Session pool that serves the attempt.
+   */
   session: ServingSession;
   /**
    * The tier that serves the request's page (`fetch.tier`): the engine
@@ -819,38 +783,10 @@ export interface CrawlRequestHandleParams {
   tier?: FetchTier | null;
 }
 /**
- * The work item.
- */
-export interface CrawlRequest1 {
-  /**
-   * The body it is sent with, if any.
-   */
-  body?: HttpBody | null;
-  /**
-   * Its ID within the Run.
-   */
-  id: string;
-  /**
-   * Its Label.
-   */
-  label: string;
-  /**
-   * The method it is sent with.
-   */
-  method: string;
-  /**
-   * Its Payload.
-   */
-  payload?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
- * The Session of the crawl's Session pool that serves the attempt.
+ * The Session of the crawl's Session pool that serves one attempt.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ServingSession".
  */
 export interface ServingSession {
   /**
@@ -860,7 +796,7 @@ export interface ServingSession {
   /**
    * The proxy tier it opened at.
    */
-  proxy_tier: "none" | "datacenter" | "isp" | "residential" | "mobile";
+  proxy_tier: ProxyTier;
   /**
    * Whether this is its first page since the crawl resumed, which
    * revalidates the Session's login before the page is trusted.
@@ -983,7 +919,10 @@ export interface CrawlRequestLinksParams {
   run_id: RunId;
 }
 /**
- * The request it ends.
+ * The crawl request an outcome ends.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "OutcomeRequest".
  */
 export interface OutcomeRequest {
   /**
@@ -1027,23 +966,7 @@ export interface NotAddedAtCommit {
   /**
    * Why the commit did not add it.
    */
-  reason:
-    | "duplicate"
-    | "out_of_scope"
-    | "domain_policy"
-    | "max_depth"
-    | "max_requests"
-    | "unsupported_scheme"
-    | "invalid_url"
-    | "max_url_length"
-    | "max_path_segments"
-    | "max_segment_repeats"
-    | "max_sitemap_nesting"
-    | "path_budget"
-    | "trap_path"
-    | "no_rule"
-    | "trap_link"
-    | "link_limit";
+  reason: NotAddedReason;
   /**
    * Its URL, as parsed.
    */
@@ -1073,31 +996,6 @@ export interface DatasetRecords {
    * How many the Dataset's schema rejected.
    */
   rejected: number;
-}
-/**
- * The last attempt's error.
- */
-export interface AttemptError1 {
-  /**
-   * Which attempt it was, from 1.
-   */
-  attempt: number;
-  /**
-   * Its Error code.
-   */
-  code: string;
-  /**
-   * The error's own details, as its Error code defines them, such as the
-   * time a site's `Retry-After` asked for and a `fix`; left out when it
-   * has none.
-   */
-  details?: {
-    [k: string]: unknown;
-  };
-  /**
-   * What it said.
-   */
-  message: string;
 }
 /**
  * One page of `run.outcomes`.
@@ -1311,7 +1209,7 @@ export interface LearnedRule {
   /**
    * What it learned.
    */
-  kind: "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
+  kind: LearnedRuleKind;
   /**
    * Each URL it merged with another or refused, in the order the crawl
    * met them, a pending request it ended `skipped` with `duplicate`
@@ -1398,7 +1296,7 @@ export interface SinkReport {
   /**
    * Its delivery status.
    */
-  status: "complete" | "complete_with_rejections" | "behind" | "failed" | "inactive";
+  status: SinkStatus;
   /**
    * For an inactive Sink, the Dataset names it gave that the crawl does
    * not declare.
@@ -1518,6 +1416,9 @@ export interface CrawlStartParams {
    * The Run's ID, as `run.start` takes it.
    */
   run_id?: string | null;
+  /**
+   * The requests the crawl starts from.
+   */
   seeds: Seeds;
   /**
    * The Run's settings, nested by key: the run layer (ADR 0083).
@@ -1582,7 +1483,11 @@ export interface LabelDeclaration {
   };
 }
 /**
- * One request.
+ * One request a crawl starts from (ADR 0093): a URL, the Label that picks
+ * its handler and its Payload, and how it is sent and identified.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RequestSeed".
  */
 export interface RequestSeed {
   /**
@@ -1608,7 +1513,7 @@ export interface RequestSeed {
   /**
    * The method it is sent with: `GET` by default.
    */
-  method?: string;
+  method?: HttpMethod;
   /**
    * The data the program attaches for its handler.
    */
@@ -1627,8 +1532,20 @@ export interface RequestSeed {
   url: string;
 }
 /**
- * The entries of a sitemap, or of the sitemaps a site's robots.txt
- * names.
+ * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+ * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+ * are read. The engine reads it, and every sitemap index it nests, once
+ * the Run is running, through the domain policy, Politeness and robots.txt,
+ * running no handler; each entry is checked as an enqueue is, at depth 0,
+ * with the Label of the first rule whose pattern matches its URL and no
+ * Payload, and one no rule matches is not added, with `no_rule`. The seed
+ * widens the crawl's scope by the host of the URL it names, and an entry
+ * outside the scope is not added, with `out_of_scope`, so a robots.txt
+ * seed admits its own host's entries from a sitemap on another host it
+ * names, and no other host's.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapSeed".
  */
 export interface SitemapSeed {
   /**
@@ -1754,6 +1671,9 @@ export interface DatasetRecord {
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  /**
+   * How it was obtained (ADR 0123's Provenance of a Record).
+   */
   provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
@@ -1771,7 +1691,10 @@ export interface DatasetRecord {
   };
 }
 /**
- * How it was obtained (ADR 0123's Provenance of a Record).
+ * How one committed Record was obtained.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordProvenance".
  */
 export interface RecordProvenance {
   /**
@@ -1895,16 +1818,18 @@ export interface TierProvenance {
   /**
    * How it was chosen.
    */
-  chosen: "forced" | "compared" | "sample" | "escalation" | "race";
+  chosen: TierChosen;
   /**
    * What forced it, when `chosen` is `forced`.
    */
   forced_by?: ForcedBy | null;
   /**
-   * A tier that fetches a crawl request's document (ADR 0020), from the
-   * cheapest up.
+   * The tier that sent the document's request, whoever chose it:
+   * `browser_fetch` when it left from inside the Session's browser, as
+   * under `auto`, and `http` when the Session's own HTTP transport sent
+   * it.
    */
-  tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+  tier: FetchTier;
 }
 /**
  * How a Value transform gave one field (ADR 0123).
@@ -1941,7 +1866,7 @@ export interface TransformProvenance {
   /**
    * The transform.
    */
-  transform: "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+  transform: ValueTransform;
 }
 /**
  * The `wall` marker of a Record whose page was read past a Wall (ADR
@@ -1954,7 +1879,7 @@ export interface WallMarker {
   /**
    * The Wall's kind.
    */
-  kind: "paywall" | "consent_wall" | "ad_blocker_wall";
+  kind: WallKind;
   /**
    * The vendor detected, when one was.
    */
@@ -2031,7 +1956,7 @@ export interface RecordSort {
   /**
    * Its direction.
    */
-  direction: "ascending" | "descending";
+  direction: SortDirection;
   /**
    * The field's name.
    */
@@ -2121,27 +2046,15 @@ export interface Export {
   /**
    * Its compression.
    */
-  compression: "none" | "gzip" | "zstd";
+  compression: ExportCompression;
   /**
    * The Export, which `export.save_as` and `export.stream` take.
    */
-  export_id: string;
+  export_id: ExportId;
   /**
    * Its format.
    */
-  format:
-    | "json"
-    | "jsonl"
-    | "csv"
-    | "xlsx"
-    | "html_table"
-    | "markdown"
-    | "xml"
-    | "parquet"
-    | "avro"
-    | "arrow_ipc"
-    | "rss"
-    | "atom";
+  format: ExportFormat;
   /**
    * The number of the last Record it holds, 0 when it holds none.
    */
@@ -2169,7 +2082,7 @@ export interface ExportSaveAsParams {
   /**
    * The Export.
    */
-  export_id: string;
+  export_id: ExportId;
   /**
    * The program's path, absolute, which an Attached engine writes
    * itself; any other engine leaves it to the SDK and sends the file's
@@ -2209,7 +2122,7 @@ export interface ExportStreamParams {
   /**
    * The Export.
    */
-  export_id: string;
+  export_id: ExportId;
 }
 /**
  * What `export.stream` answers once it sent every byte.
@@ -2240,30 +2153,6 @@ export interface FailedRequests {
   requests: CrawlRequestOutcome[];
 }
 /**
- * The crawl request an outcome ends.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "OutcomeRequest".
- */
-export interface OutcomeRequest1 {
-  /**
-   * How many links away from a seed it is: 0 for a seed.
-   */
-  depth: number;
-  /**
-   * Its ID within the Run.
-   */
-  id: string;
-  /**
-   * Its Label.
-   */
-  label: string;
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
  * One way a Record does not hold for its Dataset.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2278,70 +2167,6 @@ export interface RecordIssue {
    * Where in the Record, a JSON Pointer: empty for the Record itself.
    */
   path: string;
-}
-/**
- * How one committed Record was obtained.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "RecordProvenance".
- */
-export interface RecordProvenance1 {
-  /**
-   * The exception of `tls.accept_invalid_certs` its document's host was
-   * reached through; none where its certificate verified.
-   */
-  certificate_exception?: CertificateExceptionMark | null;
-  /**
-   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
-   * whose Run trace names their date and the release that applied them.
-   */
-  clean_up_rules?: string | null;
-  /**
-   * The encoding the document was read in, and where it came from;
-   * none for a request with no document.
-   */
-  encoding?: EncodingProvenance | null;
-  /**
-   * The Response cache or Response recording that answered in place of
-   * the network; none when the network did.
-   */
-  origin?: ResponseOrigin | null;
-  /**
-   * The payment of a Paid fetch of its page; none where nothing was
-   * paid.
-   */
-  payment?: PaymentMark | null;
-  /**
-   * The ID of the crawl request whose attempt produced it.
-   */
-  request_id: string;
-  /**
-   * `ignored` when its page was fetched while
-   * `site_preferences.respect_robots_txt` was off and
-   * `site_preferences.mark_robots_txt_ignored` on, from a URL its
-   * origin's robots.txt disallows, so a result taken against a site's
-   * stated preferences can be found and removed; none otherwise.
-   */
-  robots_txt?: RobotsTxtMark | null;
-  /**
-   * The tier that fetched that request's document, and how it was
-   * chosen; none where no document was fetched.
-   */
-  tier?: TierProvenance | null;
-  /**
-   * Each field of a code-free crawl the page did not give, null in the
-   * Record, with why; absent where every field was read.
-   */
-  unread_fields?: UnreadField[];
-  /**
-   * Each field whose value an engine Value transform gave, in the
-   * order read; empty where the program parsed its own values.
-   */
-  value_transforms?: TransformProvenance[];
-  /**
-   * The Wall its page was read past; none where no Wall was met.
-   */
-  wall?: WallMarker | null;
 }
 /**
  * What `run.records` answers once it sent the last Record: how many it
@@ -2424,55 +2249,6 @@ export interface RejectedRecords {
   records: RejectedRecord[];
 }
 /**
- * One request a crawl starts from (ADR 0093): a URL, the Label that picks
- * its handler and its Payload, and how it is sent and identified.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "RequestSeed".
- */
-export interface RequestSeed1 {
-  /**
-   * The body it is sent with, if any.
-   */
-  body?: HttpBody | null;
-  /**
-   * Whether it goes ahead of every request its domain holds pending,
-   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
-   * such requests, the later goes first; `false` by default.
-   */
-  forefront?: boolean;
-  /**
-   * Its identity in the Frontier, declared by the program in place of
-   * its method, its URL's key and its body's hash: a canonicalization
-   * of the program's own, which always wins (ADR 0005).
-   */
-  key?: string | null;
-  /**
-   * Its Label.
-   */
-  label: string;
-  /**
-   * The method it is sent with: `GET` by default.
-   */
-  method?: string;
-  /**
-   * The data the program attaches for its handler.
-   */
-  payload?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Its priority among the requests of its domain: higher goes first,
-   * and a priority never orders requests of different domains (ADR
-   * 0004); 0 by default.
-   */
-  priority?: number;
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
  * What `run.retry_failed` answers.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2502,10 +2278,9 @@ export interface RunAddSeedParams {
    */
   run_id: RunId;
   /**
-   * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
-   * seeds the entries of a site's sitemaps.
+   * The seed.
    */
-  seed: RequestSeed | SitemapSeed;
+  seed: Seed;
 }
 /**
  * The attempt a seed is added from: a handler's `ctx.run`, which is bound
@@ -2555,19 +2330,7 @@ export interface RunExportParams {
   /**
    * The format.
    */
-  format:
-    | "json"
-    | "jsonl"
-    | "csv"
-    | "xlsx"
-    | "html_table"
-    | "markdown"
-    | "xml"
-    | "parquet"
-    | "avro"
-    | "arrow_ipc"
-    | "rss"
-    | "atom";
+  format: ExportFormat;
   /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
@@ -2827,52 +2590,4 @@ export interface SamplePageFilterAdmitResult {
    * Whether the sample crawl visits the page.
    */
   admitted: boolean;
-}
-/**
- * The Session of the crawl's Session pool that serves one attempt.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "ServingSession".
- */
-export interface ServingSession1 {
-  /**
-   * Its ID within the Run.
-   */
-  id: SessionId;
-  /**
-   * The proxy tier it opened at.
-   */
-  proxy_tier: "none" | "datacenter" | "isp" | "residential" | "mobile";
-  /**
-   * Whether this is its first page since the crawl resumed, which
-   * revalidates the Session's login before the page is trusted.
-   */
-  revalidate: boolean;
-}
-/**
- * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
- * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
- * are read. The engine reads it, and every sitemap index it nests, once
- * the Run is running, through the domain policy, Politeness and robots.txt,
- * running no handler; each entry is checked as an enqueue is, at depth 0,
- * with the Label of the first rule whose pattern matches its URL and no
- * Payload, and one no rule matches is not added, with `no_rule`. The seed
- * widens the crawl's scope by the host of the URL it names, and an entry
- * outside the scope is not added, with `out_of_scope`, so a robots.txt
- * seed admits its own host's entries from a sitemap on another host it
- * names, and no other host's.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SitemapSeed".
- */
-export interface SitemapSeed1 {
-  /**
-   * The rules that give each entry its Label, in order: the first whose
-   * pattern matches the entry's URL wins.
-   */
-  rules: SitemapRule[];
-  /**
-   * The URL of the sitemap, or of the site's robots.txt.
-   */
-  sitemap: string;
 }

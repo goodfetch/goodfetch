@@ -7,6 +7,8 @@ import type { Logger } from "@goodfetch/collie-client";
 export function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
   const warned: string[] = [];
   const logger: Logger = {
+    // It asks for none of the engine's log events: `hello` says `off`, as the scripts expect.
+    level: "off",
     debug: () => {},
     info: () => {},
     warn: (message) => {

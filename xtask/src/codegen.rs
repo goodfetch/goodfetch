@@ -147,6 +147,18 @@ enum Generator {
 }
 
 impl Generator {
+    /// The text of `input`, the JSON Schema this generator reads. Every
+    /// `json-schema-to-typescript` input has each `$ref` beside other
+    /// keywords moved into an `allOf` first.
+    fn input_text(self, mut input: Value) -> Result<Vec<u8>> {
+        if let Self::Json2ts = self
+            && let Some(definitions) = input.get_mut("$defs")
+        {
+            refs_beside_siblings_into_all_of(definitions);
+        }
+        json_text(&input)
+    }
+
     /// The tools whose versions shape this generator's output, each with the
     /// lockfile that pins it: `datamodel-code-generator` formats its output
     /// with ruff.
@@ -264,6 +276,31 @@ const JSON2TS_OPTIONS: [&str; 5] = [
     "--maxItems",
     "-1",
 ];
+
+/// Moves every `$ref` that has sibling keywords into an `allOf` beside them,
+/// as JSON Schema 2020-12 reads them. `json-schema-to-typescript` reads a
+/// `$ref` as draft-07 does: it drops the siblings, and once its referent is
+/// also referred to bare, it gives the property the referent's description
+/// in place of its own (issue 2895).
+fn refs_beside_siblings_into_all_of(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.len() > 1
+                && let Some(reference) = object.remove("$ref")
+            {
+                object.insert(
+                    "allOf".to_owned(),
+                    Value::Array(vec![serde_json::json!({ "$ref": reference })]),
+                );
+            }
+            object
+                .values_mut()
+                .for_each(refs_beside_siblings_into_all_of);
+        }
+        Value::Array(items) => items.iter_mut().for_each(refs_beside_siblings_into_all_of),
+        _ => {}
+    }
+}
 
 /// What one language's generator gives for one package's layer.
 struct Generated {
@@ -420,11 +457,12 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         for (name, text) in generated.files {
             files.insert(format!("{}/{name}", package.folder), text.into_bytes());
         }
+        let generator = package.language.generator();
         externals.push(External {
             output: format!("{}/{}", package.folder, generated.types.output),
-            generator: package.language.generator(),
+            generator,
             input_name: layer::input_name(package.product),
-            input: json_text(&generated.types.input)?,
+            input: generator.input_text(generated.types.input)?,
             prefix: generated.types.prefix,
             header: generated.types.header,
         });

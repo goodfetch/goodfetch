@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "18"
+version = "19"
 
 [[capability]]
 name = "lifecycle"
@@ -294,5 +294,26 @@ modes = ["attached"]
 [[capability.case]]
 id = "non-json-value-refused"
 covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# The host's logger (ADR 0078; issue 1269): the level of the engine's logs a
+# Connection receives follows what the program's logger records, sent in
+# `hello` and again by `connection.set_log_level` when a Run starts and the
+# level changed, never by polling; and each `$/log` event reaches the logger
+# at its level. TypeScript leads; Python (issue 2903) and Rust (issue 2904)
+# join by adding their surfaces.
+[[capability]]
+name = "logging"
+
+[[capability.case]]
+id = "log-level-follows-the-logger"
+covers = ["story:11-26"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "engine-logs-reach-the-logger"
+covers = ["story:11-25"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]

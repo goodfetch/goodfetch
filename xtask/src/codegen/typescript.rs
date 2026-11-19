@@ -23,7 +23,7 @@ use super::{Generated, TypesFile};
 mod markers;
 mod times;
 
-use markers::{CLIENT_RUNTIME, MARKERS_MODULE, deprecation_message, markers_import, warnings};
+use markers::{CLIENT_RUNTIME, MARKERS_MODULE, markers_import, warnings};
 
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
@@ -130,7 +130,7 @@ fn doc(
     if let Some(deprecated) = deprecated {
         lines.push(format!(
             "@deprecated {}",
-            deprecation_message(deprecated).replace("*/", "*\\/")
+            deprecated.message().replace("*/", "*\\/")
         ));
     }
     let mut text = format!("{indent}/**\n");
@@ -402,12 +402,7 @@ fn events(layer: &Layer) -> String {
     for event in &layer.events {
         let deprecated = event.deprecated.as_ref().map_or_else(
             || "undefined".to_owned(),
-            |deprecated| {
-                format!(
-                    "{:?}",
-                    format!("Since {}: {}", deprecated.since, deprecated.note)
-                )
-            },
+            |deprecated| format!("{:?}", deprecated.message()),
         );
         let _ = writeln!(
             text,

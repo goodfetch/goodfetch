@@ -5,11 +5,11 @@ use goodfetch_test_support::logged;
 
 use super::warn;
 
+/// How many times the captured `log` holds `text`.
 fn count(log: &[u8], text: &str) -> usize {
     String::from_utf8_lossy(log).matches(text).count()
 }
 
-/// Covers: story:11-182
 #[test]
 fn a_deprecated_entry_warns_once_per_process_through_tracing() {
     let ((), log) = logged(|| {
@@ -17,16 +17,16 @@ fn a_deprecated_entry_warns_once_per_process_through_tracing() {
         warn("fixture.old", false, Some("Since 0.1: use `fixture.new`."));
     });
 
-    let log = String::from_utf8_lossy(&log);
+    let shown = String::from_utf8_lossy(&log);
     assert_eq!(
         count(
-            log.as_bytes(),
+            &log,
             "`fixture.old` is deprecated. Since 0.1: use `fixture.new`."
         ),
         1,
-        "{log}"
+        "{shown}"
     );
-    assert!(log.contains("WARN"), "{log}");
+    assert!(shown.contains("WARN"), "{shown}");
 }
 
 /// Covers: story:11-184
@@ -37,16 +37,16 @@ fn an_experimental_entry_warns_once_per_process_through_tracing() {
         warn("fixture.trial", true, None);
     });
 
-    let log = String::from_utf8_lossy(&log);
+    let shown = String::from_utf8_lossy(&log);
     assert_eq!(
         count(
-            log.as_bytes(),
+            &log,
             "`fixture.trial` is Experimental: outside semver until it is promoted (ADR 0030)."
         ),
         1,
-        "{log}"
+        "{shown}"
     );
-    assert!(log.contains("WARN"), "{log}");
+    assert!(shown.contains("WARN"), "{shown}");
 }
 
 /// An entry both deprecated and Experimental warns once of each.

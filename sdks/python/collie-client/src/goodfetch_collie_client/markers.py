@@ -5,6 +5,9 @@ process per name and marker, through `warnings`, the host's channel (ADR
 0078), attributed to the line that used the member, so the host's filters
 decide what shows: Python hides a `DeprecationWarning` outside `__main__`
 and its tests by default, and `ExperimentalWarning` is a `UserWarning`. The
+first use is the one warning, whether a filter shows it or not: a deprecated
+member first used from a library module stays silent when `__main__` uses
+it later. The
 type-level marker, PEP 702's `@deprecated` with no category of its own, and
 the docstring line are the member's own.
 """

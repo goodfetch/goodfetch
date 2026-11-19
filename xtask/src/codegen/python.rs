@@ -237,16 +237,12 @@ fn docstring(
     text
 }
 
-fn deprecation_message(deprecated: &Deprecation) -> String {
-    format!("Since {}: {}", deprecated.since, deprecated.note)
-}
-
 /// PEP 702's marker of a deprecated member: with no category, so it warns
 /// nothing at run time and the member's [`warnings`] warn once per process.
 fn deprecated_decorator(deprecated: &Deprecation) -> String {
     format!(
         "    @deprecated({:?}, category=None)\n",
-        deprecation_message(deprecated)
+        deprecated.message()
     )
 }
 
@@ -269,7 +265,7 @@ fn warnings(
         let _ = writeln!(
             text,
             "        warn_deprecated({name:?}, {:?})",
-            deprecation_message(deprecated)
+            deprecated.message()
         );
     }
     text
@@ -509,12 +505,7 @@ fn events(layer: &Layer) -> String {
     text.push_str("\nDEPRECATED_EVENTS: Final[Mapping[str, str]] = {\n");
     for event in &layer.events {
         if let Some(deprecated) = &event.deprecated {
-            let _ = writeln!(
-                text,
-                "    {:?}: {:?},",
-                event.name,
-                deprecation_message(deprecated)
-            );
+            let _ = writeln!(text, "    {:?}: {:?},", event.name, deprecated.message());
         }
     }
     text.push_str("}\n\"\"\"Each deprecated event, with its deprecation.\"\"\"\n");

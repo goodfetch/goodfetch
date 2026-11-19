@@ -431,12 +431,7 @@ fn warning(name: &str, stability: Stability, deprecated: Option<&Deprecation>) -
     }
     let deprecation = deprecated.map_or_else(
         || "None".to_owned(),
-        |deprecated| {
-            format!(
-                "Some({:?})",
-                format!("Since {}: {}", deprecated.since, deprecated.note)
-            )
-        },
+        |deprecated| format!("Some({:?})", deprecated.message()),
     );
     Some(format!(
         "crate::markers::warn({name:?}, {experimental}, {deprecation});"

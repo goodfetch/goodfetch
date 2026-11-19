@@ -48,6 +48,14 @@ pub(super) struct Deprecation {
     pub(super) note: String,
 }
 
+impl Deprecation {
+    /// The deprecation's one text, which each SDK's type-level marker and
+    /// its run-time warning carry (ADR 0099).
+    pub(super) fn message(&self) -> String {
+        format!("Since {}: {}", self.since, self.note)
+    }
+}
+
 /// A reference to a type of the bundle, `{"$ref": "#/$defs/<name>"}`.
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "Reference")]

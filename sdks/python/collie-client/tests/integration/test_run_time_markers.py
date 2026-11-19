@@ -4,7 +4,8 @@
 Experimental. Each program runs in a process of its own, since the warning
 comes once per process, and prints what Python's own warning channel shows
 under `-W always`, which repeats a warning at every call. TypeScript's
-`markers.test.ts` and Rust's `markers/tests.rs` are its twins.
+`markers.test.ts` and Rust's `markers/tests.rs` are its twins. Story 11-182
+is declared with its release-notes list (issue 1256).
 """
 
 from __future__ import annotations
@@ -42,7 +43,6 @@ def shown(program: str) -> list[str]:
     return [line for line in ran.stderr.splitlines() if "Warning: " in line]
 
 
-@pytest.mark.covers("story:11-182")
 @pytest.mark.covers("story:11-184")
 def test_a_deprecated_experimental_member_warns_once_of_each_per_process() -> None:
     """Two calls show one `DeprecationWarning` and one `ExperimentalWarning`."""

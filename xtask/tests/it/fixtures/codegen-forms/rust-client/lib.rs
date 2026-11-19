@@ -15,6 +15,16 @@ mod generated {
     pub(crate) mod handles;
 }
 
+mod markers {
+    /// ADR 0030's run-time warning of a deprecated or Experimental entry.
+    pub(crate) fn warn(
+        _name: &'static str,
+        _experimental: bool,
+        _deprecation: Option<&'static str>,
+    ) {
+    }
+}
+
 /// What a call fails with.
 #[derive(Debug)]
 pub struct Error;

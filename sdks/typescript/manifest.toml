@@ -409,6 +409,24 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "warnDeprecated"
+entry = "none"
+reason = "ADR 0030's run-time warning of a deprecated entry, once per process through `process.emitWarning` (ADR 0099), which Foxhound's generated members call."
+words = ["warn", "deprecated"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "warnExperimental"
+entry = "none"
+reason = "ADR 0030's run-time warning of an Experimental entry, once per process through `process.emitWarning` (ADR 0099), which Foxhound's generated members call."
+words = ["warn", "experimental"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "FileSaving"
 member = "create"
 entry = "none"

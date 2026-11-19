@@ -21,8 +21,9 @@ static WARNED: Mutex<BTreeSet<(Marker, &'static str)>> = Mutex::new(BTreeSet::ne
 
 /// Warns, the first time in the process for each marker, that the entry
 /// `name` is Experimental, when `experimental` says so, and that it is
-/// deprecated, when it has a `deprecation`: its deprecation's one text, as
-/// its `#[deprecated]` renders it.
+/// deprecated, when it has a `deprecation`: its deprecation's one text,
+/// `Since <version>: <note>`, which the TypeScript and Python SDKs' markers
+/// carry too.
 pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&'static str>) {
     if experimental && first(Marker::Experimental, name) {
         tracing::warn!(

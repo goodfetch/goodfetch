@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use super::super::layer::{Deprecation, Operation, Stability};
+use super::super::layer::{Operation, Stability};
 
 /// The hand-written module of Collie's client package whose functions give
 /// ADR 0030's run-time warning of a deprecated or Experimental member.
@@ -27,7 +27,7 @@ pub(super) fn warnings(operation: &Operation) -> String {
             text,
             "    warnDeprecated({:?}, {:?});",
             operation.name,
-            deprecation_message(deprecated)
+            deprecated.message()
         );
     }
     text
@@ -53,10 +53,4 @@ pub(super) fn markers_import<'a>(
     }
     let names: Vec<&str> = names.into_iter().collect();
     format!("import {{ {} }} from \"{module}\";\n", names.join(", "))
-}
-
-/// A deprecation's one text, which its `@deprecated` and its run-time
-/// warning share.
-pub(super) fn deprecation_message(deprecated: &Deprecation) -> String {
-    format!("Since {}: {}", deprecated.since, deprecated.note)
 }

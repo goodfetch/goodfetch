@@ -774,6 +774,26 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
     ))
 }
 
+/// The classes of `handle`'s sub-objects (ADR 0099), each holding the
+/// host of the `class` it belongs to.
+fn sub_object_classes(class: &str, host: &str, handle: &Handle<'_>) -> Result<String> {
+    let mut text = String::new();
+    for sub_object in &handle.sub_objects {
+        let sub_class = format!("{class}{}", pascal(sub_object.name));
+        let _ = write!(
+            text,
+            "\n/** The `{}` of a `{class}` (ADR 0099). */\nexport class {sub_class} {{\n  readonly #host: {host};\n\n  /** @internal A `{class}` holds its own; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n  }}\n",
+            camel(sub_object.name)
+        );
+        for held in &sub_object.members {
+            text.push('\n');
+            text.push_str(&member(held, &handle.id)?);
+        }
+        text.push_str("}\n");
+    }
+    Ok(text)
+}
+
 /// The handles of Collie's client package (ADR 0099): one class a
 /// namespace, with its members in the form their kind gives them, the
 /// values it builds without a call and its sub-objects.
@@ -786,19 +806,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
             "HandleHost<types.{}, {operation_types}>",
             handle.id.type_name
         );
-        for sub_object in &handle.sub_objects {
-            let sub_class = format!("{class}{}", pascal(sub_object.name));
-            let _ = write!(
-                text,
-                "\n/** The `{}` of a `{class}` (ADR 0099). */\nexport class {sub_class} {{\n  readonly #host: {host};\n\n  /** @internal A `{class}` holds its own; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n  }}\n",
-                camel(sub_object.name)
-            );
-            for held in &sub_object.members {
-                text.push('\n');
-                text.push_str(&member(held, &handle.id)?);
-            }
-            text.push_str("}\n");
-        }
+        text.push_str(&sub_object_classes(&class, &host, handle)?);
         let implements = if handle.closes() {
             " implements AsyncDisposable"
         } else {

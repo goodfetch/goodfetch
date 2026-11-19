@@ -2,9 +2,11 @@
 //! case: `call(operation).params(…)` on the Connection and on each value
 //! reaches an operation the SDK does not generate, here Foxhound's from a
 //! Collie program, its params and result the wire's JSON in snake case,
-//! under the main path's protections. The Daemon is the Scripted engine as
-//! a Foxhound engine, playing the case's script without the signal, which
-//! Rust has no option for, as Python's twin plays it; it fails on a
+//! under the main path's protections. Rust's `linked` mode plays the
+//! case's Collie part on a real engine. Foxhound's operation and the
+//! deadline only the Scripted engine plays, reached as a Daemon and posing
+//! as a Foxhound engine, playing the case's script without the signal,
+//! which Rust has no option for, as Python's twin plays it; it fails on a
 //! message it does not expect and on a step left unused, so its clean
 //! exit says nothing was retried or sent unasked. TypeScript's
 //! `raw-call.test.ts` and Python's `test_raw_call.py` are its twins.
@@ -31,7 +33,9 @@ struct Played {
     failed: Result<Value, Error>,
     named: Result<Value, Error>,
     other_namespace: Result<Value, Error>,
-    own_param: Result<Value, Error>,
+    /// Params naming the value's own parameter, params that are no
+    /// object, and a `timeout` given in both the params and the option.
+    refused: [Result<Value, Error>; 3],
     deadline: Result<Value, Error>,
     reloaded: Result<Value, Error>,
     clicked: Result<Value, Error>,
@@ -99,9 +103,12 @@ fn assert_played(played: &Played) {
         "an operation of another namespace fails before it is sent"
     );
     assert_eq!(
-        code(&played.own_param).as_str(),
-        "invalid_params",
-        "the value's own parameter is the value's to fill"
+        played
+            .refused
+            .each_ref()
+            .map(|refused| code(refused).as_str().to_owned()),
+        ["invalid_params"; 3],
+        "params the call cannot send as they are fail before they are sent"
     );
     assert_eq!(
         code(&played.deadline),
@@ -141,10 +148,16 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
             .call("page.goto")
             .params(json!({ "url": "https://shop.test/" }))
             .await;
-        let own_param = run
-            .call("run.usage")
-            .params(json!({ "run_id": "another" }))
-            .await;
+        let refused = [
+            run.call("run.usage")
+                .params(json!({ "run_id": "another" }))
+                .await,
+            run.call("run.usage").params(json!(["another"])).await,
+            run.call("run.finish")
+                .params(json!({ "timeout": 2 }))
+                .timeout(Duration::from_millis(2))
+                .await,
+        ];
         let deadline = run
             .call("run.finish")
             .timeout(Duration::from_millis(2))
@@ -162,7 +175,7 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
             failed,
             named,
             other_namespace,
-            own_param,
+            refused,
             deadline,
             reloaded,
             clicked,
@@ -199,10 +212,16 @@ fn the_blocking_raw_call_reaches_operations_the_sdk_does_not_generate() {
         .call("page.goto")
         .params(json!({ "url": "https://shop.test/" }))
         .send();
-    let own_param = run
-        .call("run.usage")
-        .params(json!({ "run_id": "another" }))
-        .send();
+    let refused = [
+        run.call("run.usage")
+            .params(json!({ "run_id": "another" }))
+            .send(),
+        run.call("run.usage").params(json!(["another"])).send(),
+        run.call("run.finish")
+            .params(json!({ "timeout": 2 }))
+            .timeout(Duration::from_millis(2))
+            .send(),
+    ];
     let deadline = run
         .call("run.finish")
         .timeout(Duration::from_millis(2))
@@ -222,10 +241,61 @@ fn the_blocking_raw_call_reaches_operations_the_sdk_does_not_generate() {
         failed,
         named,
         other_namespace,
-        own_param,
+        refused,
         deadline,
         reloaded,
         clicked,
         on_closed: [on_closed_run, on_closed_page, on_closed_connection],
+    });
+}
+
+/// The case's Collie part on Rust's `linked` mode: the Connection's call
+/// answers the engine's JSON, a Run's fills its own parameter, an
+/// operation of another namespace fails before it is sent, and a closed
+/// value's call fails with `closed`.
+/// Covers: story:11-181
+#[test]
+fn the_raw_call_reaches_a_linked_engine() {
+    let env = TestEnv::new();
+
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let listed = collie
+            .call("run.list")
+            .params(json!({ "lifecycle": "running" }))
+            .await;
+        let usage = run.call("run.usage").await;
+        let other_namespace = run
+            .call("page.goto")
+            .params(json!({ "url": "https://shop.test/" }))
+            .await;
+        run.close().await.unwrap();
+        let on_closed_run = run.call("run.usage").await;
+        collie.close().await.unwrap();
+        let on_closed_connection = collie.call("run.list").await;
+
+        let listed = listed.unwrap();
+        assert_eq!(
+            listed["runs"]
+                .as_array()
+                .map(|runs| runs.iter().map(|run| &run["run_id"]).collect::<Vec<_>>()),
+            Some(vec![&json!(run.id())]),
+            "the Connection's call answers the engine's JSON, in snake case: {listed}"
+        );
+        assert!(
+            usage.as_ref().is_ok_and(Value::is_object),
+            "a Run's call fills its own parameter: {usage:?}"
+        );
+        assert_eq!(
+            code(&other_namespace).as_str(),
+            "invalid_params",
+            "an operation of another namespace fails before it is sent"
+        );
+        assert_eq!(
+            [&on_closed_run, &on_closed_connection].map(code),
+            [ErrorCode::CLOSED; 2],
+            "a call on a closed value fails with closed, unsent"
+        );
     });
 }

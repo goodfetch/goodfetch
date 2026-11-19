@@ -13,20 +13,13 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 
-use crate::call::{Call, Reply};
+use crate::call::{Call, Note, Reply, Timeout, WIRE_TIMEOUT};
 use crate::error::Error;
 use crate::rpc::Sender;
-
-/// The name of the params member an operation's own `timeout` travels in
-/// (ADR 0080).
-const WIRE_TIMEOUT: &str = "timeout";
 
 /// What a handle's raw call checks when it is awaited: whether its value
 /// is closed.
 type Closed = Box<dyn FnOnce() -> bool + Send + 'static>;
-
-/// What a Run's handle notes of a reply: that its Run ended.
-pub(crate) type RawNote = Box<dyn FnOnce(&Value) + Send + 'static>;
 
 /// The value a handle's raw call acts on.
 pub(crate) struct RawValue {
@@ -39,29 +32,23 @@ pub(crate) struct RawValue {
     /// Whether it is closed, read when the call is awaited.
     pub(crate) closed: Closed,
     /// What its handle notes of the reply, if anything.
-    pub(crate) note: Option<RawNote>,
-}
-
-/// The operation's own `timeout` the program gave (ADR 0080).
-#[derive(Clone, Copy, Debug)]
-enum Timeout {
-    /// None: sent as `null`.
-    Off,
-    /// At most this long, sent in milliseconds, rounded up.
-    After(Duration),
+    pub(crate) note: Option<Note>,
 }
 
 /// A raw call of an operation, its params and its result the wire's JSON
 /// (ADR 0099). Nothing is sent until it is awaited; then an operation of
-/// another namespace than the value's, or params naming the value's own
-/// parameter, fail with `invalid_params` before anything is sent, as does
-/// a call on a closed value with `closed`. It is never retried.
+/// another namespace than the value's, or params that are no object, name
+/// the value's own parameter or give `timeout` beside the option, fail
+/// with `invalid_params` before anything is sent, as does a call on a
+/// closed value with `closed`. It is never retried.
 #[must_use = "a call is sent only when it is awaited"]
 pub struct RawCall {
     sender: Sender,
     operation: String,
     params: Value,
-    timeout: Option<Timeout>,
+    /// The operation's own `timeout`, sent only when the program gave it
+    /// (ADR 0080).
+    timeout: Timeout,
     value: Option<RawValue>,
 }
 
@@ -73,7 +60,7 @@ impl RawCall {
             sender,
             operation: operation.to_owned(),
             params: Value::Object(Map::new()),
-            timeout: None,
+            timeout: Timeout::Default,
             value,
         }
     }
@@ -91,14 +78,14 @@ impl RawCall {
     /// `deadline_exceeded` past it. Without it, the operation's setting
     /// decides, or a `timeout` in the params.
     pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(Timeout::After(timeout));
+        self.timeout = Timeout::After(timeout);
         self
     }
 
     /// Sends the operation's own `timeout` as `null`: it waits as long as
     /// it takes.
     pub fn no_timeout(mut self) -> Self {
-        self.timeout = Some(Timeout::Off);
+        self.timeout = Timeout::Off;
         self
     }
 
@@ -140,7 +127,7 @@ impl RawCall {
                 ));
             }
         }
-        if timeout.is_some() && params.contains_key(WIRE_TIMEOUT) {
+        if timeout != Timeout::Default && params.contains_key(WIRE_TIMEOUT) {
             return Err(Error::refused(
                 &operation,
                 "`timeout` is given both in its params and as its option",
@@ -157,9 +144,9 @@ impl RawCall {
         }
         let call = Call::new(sender, &operation, Ok(Value::Object(params)));
         let call = match timeout {
-            None => call,
-            Some(Timeout::Off) => call.no_timeout().wire_timeout(),
-            Some(Timeout::After(after)) => call.timeout(after).wire_timeout(),
+            Timeout::Default => call,
+            Timeout::Off => call.no_timeout().wire_timeout(),
+            Timeout::After(after) => call.timeout(after).wire_timeout(),
         };
         Ok(match note {
             Some(note) => call.note(note),

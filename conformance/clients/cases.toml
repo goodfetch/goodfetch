@@ -104,7 +104,10 @@ modes = ["attached", "linked"]
 # The raw catalog call (ADR 0099, G8; issue 1254): `call` on the Connection
 # and on each value reaches an operation the SDK does not generate, its
 # params and result the wire's JSON, under the main path's protections.
-# Rust's is a `call` builder (issue 2966).
+# Rust's is a `call` builder (issue 2966), linked, where a real engine
+# plays the case's Collie part, while Foxhound's operation and the
+# deadline only the Scripted engine plays, reached by Rust as a Daemon:
+# Rust's `daemon` mode, which the case's other surfaces do not list yet.
 [[capability.case]]
 id = "raw-call"
 covers = ["story:11-181"]

@@ -224,10 +224,12 @@ impl RawCall {
     ///
     /// # Errors
     ///
-    /// As awaiting [`crate::RawCall`]: `invalid_params` for an operation
-    /// of another namespace than its value's, `closed` once its value or
-    /// the Connection is closed, the engine's error, and
-    /// `deadline_exceeded` once its timeout runs out.
+    /// As awaiting [`crate::RawCall`]: `invalid_params` when it is refused
+    /// before it is sent (an operation of another namespace than its
+    /// value's, params that are no object, name the value's own parameter
+    /// or give `timeout` beside the option), `closed` once its value or the
+    /// Connection is closed, the engine's error, and `deadline_exceeded`
+    /// once its timeout runs out.
     pub fn send(self) -> Result<Value, Error> {
         self.connection.wait(self.raw.into_future())
     }

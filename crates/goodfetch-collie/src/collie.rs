@@ -157,13 +157,25 @@ impl Collie {
     /// added: its params and its result are the wire's JSON, in
     /// snake case, and awaiting sends it.
     ///
-    /// ```no_run
-    /// # async fn listed(connection: &Collie) -> Result<(), goodfetch_collie::Error> {
+    /// ```
+    /// use goodfetch_collie::{ConnectOptions, Collie};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let home = tempfile::tempdir()?;
+    /// # let options = ConnectOptions::default()
+    /// #     .environment([("GOODFETCH_HOME".into(), home.path().into())].into());
+    /// # goodfetch_runtime::current_thread().enable_all().build()?.block_on(async {
+    /// let connection = Collie::connect(options).await?;
     /// let listed = connection
     ///     .call("run.list")
     ///     .params(serde_json::json!({ "lifecycle": "running" }))
     ///     .await?;
-    /// # Ok(()) }
+    /// assert_eq!(listed["runs"], serde_json::json!([]));
+    /// connection.close().await?;
+    /// # Ok::<(), goodfetch_collie::Error>(())
+    /// # })?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// Once the connection is closed it fails with `closed`; the engine's

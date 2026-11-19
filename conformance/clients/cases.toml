@@ -288,12 +288,23 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python SDK's Run has no
-# Key-value store yet, so `sdk-python` joins these cases with the ticket that
-# adds it; `xtask clients check` only notes `sdk-rust` until its runner
-# writes a case log (M2).
+# and Rust it fails with `value_invalid`. The Python SDK's Run has only
+# `keys` yet, so `sdk-python` joins these cases with the ticket that adds the
+# rest; `xtask clients check` only notes `sdk-rust` until its runner writes a
+# case log (M2).
 [[capability]]
 name = "key-value-store"
+
+# A sequence read to its end is an iterator (ADR 0081; issue 2973): `keys`
+# read with `async for` on asyncio and Trio and with `for` in the sync API.
+# Leaving the loop, `close()` and `aclose()` cancel its call before the Run's
+# next call, which is answered. Python's sequence is the Key-value store's
+# keys, the first it reads, until events-by-meaning have one.
+[[capability.case]]
+id = "a-sequence-is-an-iterator-that-stops-on-break-and-close"
+covers = ["story:11-61", "story:11-62", "operation:key_value_store.keys"]
+surfaces = ["sdk-python"]
+modes = ["attached"]
 
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"

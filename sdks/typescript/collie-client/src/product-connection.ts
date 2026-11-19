@@ -17,6 +17,7 @@ import {
   type Product,
   type RunLimit,
 } from "./generated/index.ts";
+import { timeoutOf } from "./handle.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
 import { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
@@ -50,6 +51,15 @@ export interface ConnectOverOptions {
    * its error.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * How long the opening waits for the engine to answer `hello`, in
+   * milliseconds (ADRs 0080 and 0083): `timeout.connect`'s 30 s when left
+   * out, none for `null`. Past it, the opening fails with
+   * `deadline_exceeded` naming `timeout.connect`; 0, a negative, a
+   * fractional or a non-finite value fails it with `setting_invalid`
+   * before the engine starts.
+   */
+  readonly timeout?: number | null | undefined;
   /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, an Attached engine's stderr lines
@@ -268,6 +278,7 @@ interface Opening {
   readonly bounds: ChannelBounds;
   readonly signal: AbortSignal | undefined;
   readonly limits: readonly RunLimit[];
+  readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
 }
 
@@ -275,7 +286,8 @@ interface Opening {
  * The common Connection's part of `options`.
  *
  * @throws {SettingInvalidError} when a bound is no whole number of 1 or more,
- * or a Limit's amount does not turn exactly into the wire's.
+ * a Limit's amount does not turn exactly into the wire's, or the `timeout`
+ * is 0, negative, fractional or not finite.
  */
 function opening(options: ConnectOverOptions): Opening {
   const { signal, maxPendingCalls, maxQueuedWriteBytes, logger } = options;
@@ -283,6 +295,7 @@ function opening(options: ConnectOverOptions): Opening {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
     signal,
     limits: limitList(options.limits),
+    timeout: timeoutOf(options.timeout, "timeout.connect"),
     logger,
   };
 }

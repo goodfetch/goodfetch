@@ -788,6 +788,9 @@ impl WaitedFor {
     pub const RUN_SAFE_POINT: Self = Self::named("Run's next safe point");
     /// A call's answer, which an enclosing call's end came before.
     pub const ANSWER: Self = Self::named("answer");
+    /// The engine's answer to `hello`, which opening a Connection waits
+    /// for within `timeout.connect` (ADR 0083).
+    pub const HELLO: Self = Self::named("hello");
     /// A locator's matches to number what its count allows.
     pub const TARGET_COUNT: Self = Self::named("target_count");
     /// A locator's target to be detached.

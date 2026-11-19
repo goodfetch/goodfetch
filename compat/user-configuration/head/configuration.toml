@@ -5,6 +5,7 @@ lowest_minor = 0
 hello = 30000
 secret = 30000
 run = 30000
+connect = 30000
 close = 30000
 action = 30000
 navigation = 30000

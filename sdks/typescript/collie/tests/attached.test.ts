@@ -293,6 +293,78 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
   );
 
   test(
+    "fails a connect whose hello is unanswered past its timeout, and waits with none",
+    {
+      tags: [
+        "client_case/connect-timeout-three-states",
+        "attached",
+        "story:11-41",
+        "story:11-42",
+        "setting:timeout.connect",
+        "error:deadline_exceeded",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
+      const { logger, warned } = recordingLogger();
+      // The first engine never answers `hello`; the second, whose script
+      // replaces the first's in the home once the first has ended, answers it.
+      const silent = scriptedEngineEnv(testEnv, "collie", "connect/hello-never-answered.json");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const late = await failure(Collie.connect({ env: silent, logger, timeout: 200 }));
+      const answering = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const none = await Collie.connect({ env: answering, logger, timeout: null });
+      await none.close();
+
+      await clientCase.check(
+        "a hello unanswered past the connect's own timeout fails it, naming timeout.connect given as an argument",
+        () =>
+          expect(late).toMatchObject({
+            code: "deadline_exceeded",
+            limit: { key: "timeout.connect", value: 200, layer: "run", origin: "argument" },
+            details: { waited_for: "hello" },
+          }),
+      );
+      await clientCase.check("both scripts played to their end, so no engine wrote a failure", () =>
+        expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test.for([
+    { name: "0", timeout: 0 },
+    { name: "a negative", timeout: -1 },
+    { name: "an infinite", timeout: Number.POSITIVE_INFINITY },
+  ])(
+    "refuses a connect timeout of $name before the engine starts",
+    {
+      tags: [
+        "client_case/connect-timeout-three-states",
+        "attached",
+        "story:11-42",
+        "setting:timeout.connect",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ timeout }, { testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/hello-never-answered.json");
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const refused = await failure(Collie.connect({ env, timeout }));
+
+      await clientCase.check(
+        "a connect timeout of 0 or less, or not finite, is refused, naming timeout.connect and the null form",
+        () =>
+          expect(refused).toMatchObject({
+            code: "setting_invalid",
+            fix: expect.stringContaining("`timeout: null`"),
+            limit: { key: "timeout.connect", value: timeout, layer: "run", origin: "argument" },
+          }),
+      );
+    },
+  );
+
+  test(
     "runs beside another Connection in the same process",
     { tags: ["client_case/two-connections-at-once", "attached"] },
     async ({ testEnv, clientCase }) => {

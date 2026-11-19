@@ -342,6 +342,31 @@ impl Error {
         )
     }
 
+    /// A Session's stream of `event` held as many unread events as its
+    /// queue takes, then lost `lost` more of its own (ADR 0081):
+    /// `listener_events_lost`, whose details name both.
+    pub(crate) fn listener_events_lost(event: &str, lost: u64) -> Self {
+        let mut error = Self::of(
+            &goodfetch_protocol::events::LISTENER_EVENTS_LOST,
+            format!(
+                "the stream of `{event}` held as many unread events as its queue takes, so it lost {lost} more and ended"
+            ),
+        );
+        let details = goodfetch_protocol::events::ListenerEventsLostDetails {
+            event: event.to_owned(),
+            lost,
+        };
+        if let Ok(Value::Object(details)) = serde_json::to_value(details) {
+            error.0.data.extend(details);
+        }
+        error.0.data.insert(
+            "fix".to_owned(),
+            "Read the stream sooner, or raise `max_listener_queue` where the connection opens, then ask for the events again."
+                .into(),
+        );
+        error
+    }
+
     /// A call's params or result did not fit its type: `internal`, with
     /// serde's error as its cause.
     pub(crate) fn shape(source: serde_json::Error) -> Self {

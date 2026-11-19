@@ -10,7 +10,9 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
+use goodfetch_collie_client::{
+    ClientConnection, ConnectionRuntime, Error, ErrorCode, ListenerQueue,
+};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -388,6 +390,7 @@ fn open_within_against(
                 &Endpoint::InMemory,
                 hello(),
                 timeout,
+                ListenerQueue::DEFAULT,
             )
             .await;
             match opened {

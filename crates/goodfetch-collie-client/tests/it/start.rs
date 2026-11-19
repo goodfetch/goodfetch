@@ -10,9 +10,11 @@
 //! Covers: story:11-126, story:11-127
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
-use goodfetch_protocol::run::{RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags};
+use goodfetch_protocol::run::{
+    ReachedLimit, RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags,
+};
 use goodfetch_test_support::{
     RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, logged, reported_address,
     tools,
@@ -64,32 +66,22 @@ fn daemon(env: &TestEnv) -> (goodfetch_test_support::Process, DaemonEndpoint) {
     (process, endpoint)
 }
 
-/// The failure `result` holds, as its code, whether it may be retried, and
-/// its details.
-fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> (String, bool, Value) {
-    let Err(Error::Failed(failure)) = result else {
+/// The failure `result` holds.
+fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
+    let Err(failure) = result else {
         panic!("{result:?}");
     };
-    (
-        failure.data.code,
-        failure.data.retryable,
-        Value::Object(failure.data.details),
-    )
-}
-
-/// Reads `details` as the code's own details type.
-fn details<T: serde::de::DeserializeOwned>(details: &Value) -> T {
-    serde_json::from_value(details.clone()).unwrap()
+    failure
 }
 
 /// What each step of the script answered.
 struct Played {
     started_as: [StartedAs; 3],
     named: RunId,
-    no_work: (String, bool, Value),
-    in_use: (String, bool, Value),
-    conflict: (String, bool, Value),
-    reached: (String, bool, Value),
+    no_work: Error,
+    in_use: Error,
+    conflict: Error,
+    reached: Error,
 }
 
 /// Plays the script's steps on a Connection to the Daemon at `endpoint`.
@@ -177,27 +169,27 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
     assert_start_lines(&String::from_utf8(log).unwrap());
     assert_eq!(
         (
-            no_work.0.as_str(),
-            no_work.1,
-            details::<RunDetails>(&no_work.2).run_id
+            no_work.code(),
+            no_work.retryable(),
+            no_work.details::<RunDetails>().unwrap().run_id
         ),
-        ("run_ended", false, id("nightly"))
+        (ErrorCode::RUN_ENDED, false, id("nightly"))
     );
     assert_eq!(
         (
-            in_use.0.as_str(),
-            in_use.1,
-            details::<RunDetails>(&in_use.2).run_id
+            in_use.code(),
+            in_use.retryable(),
+            in_use.details::<RunDetails>().unwrap().run_id
         ),
-        ("run_in_use", true, id("busy"))
+        (ErrorCode::RUN_IN_USE, true, id("busy"))
     );
     assert_eq!(
         (
-            conflict.0.as_str(),
-            details::<RunConflictDetails>(&conflict.2)
+            conflict.code(),
+            conflict.details::<RunConflictDetails>().unwrap()
         ),
         (
-            "run_conflict",
+            ErrorCode::RUN_CONFLICT,
             RunConflictDetails {
                 run_id: id("crawled"),
                 differences: vec![
@@ -209,18 +201,19 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
             }
         )
     );
+    let reached_limit: ReachedLimit = reached.details().unwrap();
     assert_eq!(
         (
-            reached.0.as_str(),
-            &reached.2["scope"],
-            &reached.2["usage_kind"],
-            &reached.2["resets_at"],
+            reached.code(),
+            serde_json::to_value(&reached_limit.scope).unwrap(),
+            reached_limit.usage_kind.as_str(),
+            serde_json::to_value(reached_limit.resets_at).unwrap(),
         ),
         (
-            "limit_reached",
-            &json!({ "kind": "run", "id": "capped" }),
-            &json!("requests"),
-            &json!("2026-02-01T00:00:00Z"),
+            ErrorCode::LIMIT_REACHED,
+            json!({ "kind": "run", "id": "capped" }),
+            "requests",
+            json!("2026-02-01T00:00:00Z"),
         )
     );
     let status = process.child().wait().unwrap();

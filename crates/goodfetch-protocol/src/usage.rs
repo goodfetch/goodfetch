@@ -12,6 +12,9 @@
 //! [`Reach::PersonOnly`], so it is offered only in the Kennel and the
 //! interactive CLI prompt, and refused elsewhere with `person_required`.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +22,7 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, SharedType, SharedTypeValue, Stability, schema_of,
 };
-use crate::run::{LimitScope, LimitSetter, Period, PointInTime};
+use crate::run::{LimitScope, LimitSetter, Period};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -134,13 +137,21 @@ pub struct LimitUsage {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub left: u64,
     /// When the current period started; none for a Limit without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub period_started_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub period_started_at: Option<SystemTime>,
     /// When the next period starts; none for a Limit without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub resets_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<SystemTime>,
     /// The major of the managed Operator policy whose row it is; none for
     /// a row no managed policy wrote.
     #[serde(default, skip_serializing_if = "Option::is_none")]

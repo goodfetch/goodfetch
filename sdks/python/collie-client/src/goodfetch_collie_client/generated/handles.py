@@ -12,10 +12,11 @@ from pydantic import BaseModel
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
-from goodfetch_collie_client.markers import warn_experimental
+from goodfetch_collie_client.markers import warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 
 from . import models
+from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS
 
 
 class AsyncRun(AsyncHandle):
@@ -209,6 +210,7 @@ class AsyncSession(AsyncHandle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.on")
+        warn_entry("session.page", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(AsyncPage(self._host.child(opened.page_id))))
 
     async def __aenter__(self) -> Self:
@@ -478,6 +480,7 @@ class AsyncPage(AsyncHandle):
         """
         warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
+        warn_entry(f"page.{listened}", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
     def locator(self, selector: str) -> AsyncLocator:
@@ -782,6 +785,7 @@ class Session(Handle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.on")
+        warn_entry("session.page", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(Page(self._host.child(opened.page_id))))
 
     def __enter__(self) -> Self:
@@ -1034,6 +1038,7 @@ class Page(Handle):
         """
         warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
+        warn_entry(f"page.{listened}", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
     def locator(self, selector: str) -> Locator:

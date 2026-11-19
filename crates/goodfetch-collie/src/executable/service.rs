@@ -25,6 +25,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
+use std::time::SystemTime;
 
 use goodfetch_engine::browser_cache;
 use goodfetch_engine::daemon::service::{
@@ -269,7 +270,9 @@ fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
         // Daemon; the next connection starts one that takes the new token.
         machine.stop()?;
     }
-    Ok(TokenRotated { rotated_at })
+    Ok(TokenRotated {
+        rotated_at: SystemTime::from(rotated_at),
+    })
 }
 
 /// Removes `service`: stops and unregisters it, removes its files and
@@ -346,7 +349,7 @@ fn record_copy(
                 .map(|artifact| artifact.id)
                 .collect(),
             copy: Some(copy.clone()),
-            last_seen: machine.now(),
+            last_seen: SystemTime::from(machine.now()),
         })
         .map_err(unavailable(
             "the list of installed executables cannot be written",

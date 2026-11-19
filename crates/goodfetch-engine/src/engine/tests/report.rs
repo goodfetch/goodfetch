@@ -277,7 +277,7 @@ impl ReportPart for Seeded {
             crawl_request: None,
             reason: "sent".to_owned(),
             first_command: Some("Input.dispatchMouseEvent".to_owned()),
-            since: report.started_at.clone(),
+            since: report.started_at,
         }]);
         report
             .kind_parts

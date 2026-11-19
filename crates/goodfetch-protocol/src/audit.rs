@@ -22,6 +22,9 @@
 //! registers its own; this module lists the security area's and the
 //! Audit log's own.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,7 +34,7 @@ use crate::catalog::{
     SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
 };
 use crate::connection::Surface;
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::settings::SettingsLayer;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -69,8 +72,9 @@ pub struct AuditEntry {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sequence: u64,
     /// When it was recorded.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub time: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub time: SystemTime,
     /// Its kind, a value of the shared type `audit_kind`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub kind: String,

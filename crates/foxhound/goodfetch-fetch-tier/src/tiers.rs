@@ -2956,7 +2956,7 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
             )
         })
         .and_then(|asked| match asked {
-            RetryAfter::Until(until) => jiff::Timestamp::try_from(until).ok(),
+            RetryAfter::Until(until) => Some(until),
             RetryAfter::NoWait | RetryAfter::Unparsable => None,
         });
     CallError::new(

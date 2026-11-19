@@ -37,7 +37,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures_util::StreamExt as _;
 use goodfetch_clean_up_rules::list::List;
@@ -46,7 +46,7 @@ use goodfetch_clean_up_rules::rules::{
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
-use goodfetch_engine::clock::Clock;
+use goodfetch_engine::clock::{self, Clock};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Digest;
 use goodfetch_engine::response_limits::Limits;
@@ -169,7 +169,7 @@ impl Version {
     fn expired(&self, now: jiff::Timestamp) -> bool {
         self.manifest
             .expires_at
-            .is_some_and(|expires_at| expires_at <= now)
+            .is_some_and(|expires_at| expires_at <= SystemTime::from(now))
     }
 
     /// Whether it is older than [`STALE_AFTER`] at `now`, which its Run's
@@ -178,7 +178,7 @@ impl Version {
         self.manifest
             .published_at
             .checked_add(STALE_AFTER)
-            .is_ok_and(|stale_from| stale_from <= now)
+            .is_some_and(|stale_from| stale_from <= SystemTime::from(now))
     }
 }
 
@@ -606,7 +606,7 @@ impl Versions {
             "action": "clean_up_rules",
             "digest": version.digest,
             "source": version.manifest.source,
-            "published_at": version.manifest.published_at,
+            "published_at": clock::rfc3339(version.manifest.published_at),
             "applied_by": { "product": context.product, "product_version": context.product_version },
             "update": get_or_default::<&str>(
                 context.settings.map(RunSettings::resolved),
@@ -623,7 +623,7 @@ impl Versions {
             warn_of(run, &fallback).await;
         }
         if version.stale(now) {
-            let published = version.manifest.published_at;
+            let published = clock::rfc3339(version.manifest.published_at);
             let warning = RunWarning {
                 code: CLEAN_UP_RULES_STALE.to_owned(),
                 message: format!(

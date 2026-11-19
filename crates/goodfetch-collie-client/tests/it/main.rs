@@ -14,11 +14,13 @@ mod connection_type;
 #[cfg(unix)]
 mod daemon;
 mod duration;
+mod error;
 mod events;
 mod file_saving;
 mod forms;
 mod handler_requests;
 mod limits;
 mod navigations;
+mod points_in_time;
 mod scripted_daemon;
 mod start;

@@ -5,13 +5,14 @@
 //!
 //! Covers: story:11-205, story:11-206
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli::{REFUSED_AT_HELLO, exit_code_table};
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::run::{
-    Completeness, EndingError, Lifecycle, PointInTime, RunId, RunReport, RunUsage, Verdict,
+    Completeness, EndingError, Lifecycle, RunId, RunReport, RunUsage, Verdict,
 };
 use rstest::rstest;
 
@@ -115,8 +116,8 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         verdict_reasons: Vec::new(),
         completeness: Completeness::Complete,
         completeness_reasons: Vec::new(),
-        started_at: PointInTime::from_rfc3339("2026-10-22T06:00:00Z".to_owned()),
-        ended_at: PointInTime::from_rfc3339("2026-10-22T06:00:01Z".to_owned()),
+        started_at: point_in_time::from_rfc3339("2026-10-22T06:00:00Z").unwrap(),
+        ended_at: point_in_time::from_rfc3339("2026-10-22T06:00:01Z").unwrap(),
         usage: RunUsage::default(),
         weakened: Vec::new(),
         plan: None,

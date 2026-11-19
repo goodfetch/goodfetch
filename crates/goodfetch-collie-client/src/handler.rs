@@ -17,9 +17,10 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
-use crate::error::Error;
+use crate::error::{BoxError, Error};
 use crate::line;
 use crate::sync::{Mutex, MutexGuard};
+use goodfetch_protocol::error_code::ErrorCode;
 
 /// The streams the engine's requests go to, by method, or `None` once the
 /// Connection has ended, which ends every stream.
@@ -40,15 +41,13 @@ impl Streams {
     pub(crate) fn open(&self, method: &str) -> Result<HandlerRequests, Error> {
         let mut served = self.served();
         let Some(streams) = served.as_mut() else {
-            return Err(Error::Closed);
+            return Err(Error::closed());
         };
         if streams
             .get(method)
             .is_some_and(|stream| !stream.is_closed())
         {
-            return Err(Error::AlreadyServed {
-                method: method.to_owned(),
-            });
+            return Err(Error::already_served(method));
         }
         // Unbounded because the engine bounds it: it sends a Client at most
         // `crawl.handler.concurrency` requests at once, so the SDK keeps no
@@ -151,7 +150,7 @@ impl HandlerCall {
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] when the Connection has ended, so the engine never
+    /// `closed` when the Connection has ended, so the engine never
     /// reads the answer.
     pub fn answer(mut self, result: Value) -> Result<(), Error> {
         let id = self.id.clone();
@@ -162,18 +161,22 @@ impl HandlerCall {
         })
     }
 
-    /// Answers the request with the failure `error`.
+    /// Answers the request with the program's own error `error`, as ADR
+    /// 0109 reads it: a Goodfetch [`Error`] keeps its code, and any other
+    /// error fails with `own`, the code of the place that called the
+    /// program, such as a handler's `handler_failed` (see
+    /// [`Error::of_program`]).
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] when the Connection has ended, so the engine never
+    /// `closed` when the Connection has ended, so the engine never
     /// reads the answer.
-    pub fn fail(mut self, error: ErrorObject) -> Result<(), Error> {
+    pub fn fail(mut self, error: impl Into<BoxError>, own: ErrorCode) -> Result<(), Error> {
         let id = Some(self.id.clone());
         self.send(&ErrorResponse {
             jsonrpc: Version,
             id,
-            error,
+            error: Error::of_program(error.into(), own).to_object(),
         })
     }
 
@@ -200,9 +203,9 @@ impl HandlerCall {
     /// Writes `answer` as the request's one answer.
     fn send(&mut self, answer: &impl Serialize) -> Result<(), Error> {
         self.answered = true;
-        let line = line::encode(answer).map_err(Error::Shape)?;
-        let lines = self.lines.upgrade().ok_or(Error::Closed)?;
-        lines.send(line).map_err(|_closed| Error::Closed)
+        let line = line::encode(answer).map_err(Error::shape)?;
+        let lines = self.lines.upgrade().ok_or_else(Error::closed)?;
+        lines.send(line).map_err(|_closed| Error::closed())
     }
 }
 

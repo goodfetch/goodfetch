@@ -8,6 +8,8 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -69,8 +71,9 @@ pub struct InstalledExecutable {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub size: u64,
     /// When its file was last modified then, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub modified_at: jiff::Timestamp,
+    pub modified_at: SystemTime,
     /// The browser builds and other cache downloads its version pins, its
     /// versioned copy included once a Daemon runs from it.
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -81,8 +84,9 @@ pub struct InstalledExecutable {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub copy: Option<ArtifactId>,
     /// When it last ran, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub last_seen: jiff::Timestamp,
+    pub last_seen: SystemTime,
 }
 
 /// What an installed executable is (ADR 0098).

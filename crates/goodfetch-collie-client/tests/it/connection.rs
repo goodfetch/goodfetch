@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -21,8 +21,11 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer, InMemoryNetwork};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{
+    DeadlineExceededDetails, HelloParams, ProductVersion, Surface,
+};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
+use goodfetch_protocol::settings::SettingInvalidDetails;
 use tempfile::TempDir;
 
 /// The Product version both ends speak.
@@ -130,7 +133,10 @@ fn a_connection_says_hello_calls_and_closes_on_the_paused_runtime() {
         let after: Result<EngineInfo, Error> = connection
             .call(ENGINE_INFO.name, &EngineInfoParams::default())
             .await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -337,7 +343,10 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
         };
         let ((expired, answered), ()) = tokio::join!(client, peer);
 
-        assert!(matches!(expired, Err(Error::TimedOut)), "{expired:?}");
+        assert!(
+            matches!(&expired, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+            "{expired:?}"
+        );
         assert_eq!(answered.unwrap().product, Product::Collie);
     });
 }
@@ -392,11 +401,11 @@ fn open_within_against(
 
 /// The `deadline_exceeded` details of a failed opening.
 fn deadline_details(opened: Result<(), Error>) -> serde_json::Value {
-    let Err(Error::Failed(error)) = opened else {
+    let Err(error) = opened else {
         panic!("the opening should fail with deadline_exceeded: {opened:?}");
     };
-    assert_eq!(error.data.code, "deadline_exceeded", "{error:?}");
-    serde_json::Value::Object(error.data.details)
+    assert_eq!(error.code(), ErrorCode::DEADLINE_EXCEEDED, "{error:?}");
+    serde_json::to_value(error.details::<DeadlineExceededDetails>().unwrap()).unwrap()
 }
 
 /// The Client conformance case `connect-timeout-three-states`, at the
@@ -440,13 +449,14 @@ fn an_unanswered_hello_fails_the_opening_past_its_timeout_in_its_three_states() 
 #[test]
 fn a_zero_connect_timeout_is_refused_before_hello() {
     let refused = goodfetch_collie_client::ConnectTimeout::After(Duration::ZERO).check();
-    let Err(Error::Failed(error)) = refused else {
+    let Err(error) = refused else {
         panic!("a zero timeout should be refused: {refused:?}");
     };
-    assert_eq!(error.data.code, "setting_invalid");
-    assert_eq!(error.data.details["key"], "timeout.connect");
+    assert_eq!(error.code(), ErrorCode::SETTING_INVALID);
+    let details: SettingInvalidDetails = error.details().unwrap();
+    assert_eq!(details.key, "timeout.connect");
     assert_eq!(
-        error.data.details["fix"],
-        "give at least 1 ms, or `.no_timeout()` for no timeout"
+        details.fix.as_deref(),
+        Some("give at least 1 ms, or `.no_timeout()` for no timeout")
     );
 }

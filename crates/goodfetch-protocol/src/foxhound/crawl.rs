@@ -189,10 +189,11 @@ pub struct LabelDeclaration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
-    /// Its settings, nested by key: today `fetch.tier`, `session.page_check`,
-    /// which judges its pages in place of the Run's, and `session.source`,
-    /// which gives the Label a Session pool of its own (ADR 0093), any other
-    /// key refused with `setting_not_applicable`.
+    /// Its settings, nested by key: those whose scopes include `label`
+    /// (ADR 0093), such as `fetch.tier`, `session.page_check`, which judges
+    /// its pages in place of the Run's, and `session.source`, which gives
+    /// the Label a Session pool of its own; any other key is refused with
+    /// `setting_not_applicable`.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: serde_json::Map<String, Value>,

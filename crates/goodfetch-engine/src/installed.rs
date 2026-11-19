@@ -17,6 +17,7 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
@@ -224,14 +225,14 @@ fn same_executable(stored: &Value, executable: &InstalledExecutable) -> bool {
 /// # Errors
 ///
 /// When the file's metadata cannot be read.
-pub fn fingerprint(path: &Path) -> io::Result<(u64, jiff::Timestamp)> {
+pub fn fingerprint(path: &Path) -> io::Result<(u64, SystemTime)> {
     let metadata = fs::metadata(path)?;
     let modified = jiff::Timestamp::try_from(metadata.modified()?)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     // Whole seconds, so a file system with coarser times reads the same.
     let modified = jiff::Timestamp::from_second(modified.as_second())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    Ok((metadata.len(), modified))
+    Ok((metadata.len(), SystemTime::from(modified)))
 }
 
 /// Whether the file at the entry's path is still the executable it
@@ -244,15 +245,17 @@ pub fn still_at_path(entry: &InstalledExecutable) -> bool {
 /// at its path at its version, or it was seen within `max_unused_age`.
 pub fn counts_as_installed(
     still_at_path: bool,
-    last_seen: jiff::Timestamp,
+    last_seen: SystemTime,
     now: jiff::Timestamp,
     max_unused_age: MaxUnusedAge,
 ) -> bool {
     if still_at_path {
         return true;
     }
-    let elapsed = now.duration_since(last_seen);
-    elapsed.is_negative() || elapsed.unsigned_abs() < max_unused_age.counting()
+    match SystemTime::from(now).duration_since(last_seen) {
+        Ok(elapsed) => elapsed < max_unused_age.counting(),
+        Err(_) => true,
+    }
 }
 
 /// One entry of the list as the machine shows it now.

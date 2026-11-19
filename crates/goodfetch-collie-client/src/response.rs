@@ -98,12 +98,12 @@ impl Response {
     ///
     /// # Errors
     ///
-    /// [`Error::Failed`] with `response_truncated` for a body that broke
+    /// `response_truncated` for a body that broke
     /// off, never returned as whole, and with `body_unavailable` for a body
     /// the browser no longer holds, as after the page navigated away, or a
     /// redirect's, which has none: the engine keeps the body of a response
     /// obtained through `page.wait_for_request_finished` or `page.request`,
-    /// which its fix names. [`Error::BodyUnreadable`] when the file the
+    /// which its fix names. `body_unavailable` when the file the
     /// engine keeps it in cannot be read, and the errors of any call.
     pub fn body(&self) -> Reply<Vec<u8>> {
         let connection = self.host.connection().clone();
@@ -160,14 +160,14 @@ impl Response {
     /// # Errors
     ///
     /// Those of [`Self::body`], `response_truncated` for a body that broke
-    /// off included, and [`Error::ResponseNotJson`] for a body that is not
+    /// off included, and `response_not_json` for a body that is not
     /// JSON, or not the JSON `T` reads.
     pub fn json<T: DeserializeOwned + Send + 'static>(&self) -> Reply<T> {
         let body = self.body();
         let url = self.response.url.clone();
         Box::pin(async move {
             let body = body.await?;
-            decoding::json(&body).map_err(|source| Error::ResponseNotJson { url, source })
+            decoding::json(&body).map_err(|source| Error::response_not_json(url, source))
         })
     }
 }

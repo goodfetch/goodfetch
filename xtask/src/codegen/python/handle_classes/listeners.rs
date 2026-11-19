@@ -16,7 +16,7 @@ use super::super::super::handles::{Handle, Listened, Listener};
 use super::super::super::layer::Layer;
 use super::super::super::naming::{pascal, snake};
 use super::super::{deprecated_decorator, docstring, warnings};
-use super::{ASYNC, Imports, Mode, Wrapped, wrapped};
+use super::{ASYNC, Imports, Mode, WARN_ENTRY, Wrapped, wrapped};
 
 /// The name of the map that names each of a handle's events: `_PAGE_EVENTS`
 /// for `page`.
@@ -54,8 +54,10 @@ pub(super) fn declarations(handle: &Handle<'_>, imports: &mut Imports) -> String
 }
 
 /// A handle's `on` in `mode` (ADR 0081), if it has a listener: the method
-/// that registers `listener` and returns the `Subscription` that removes
-/// it, overloaded once per type its listener gets when there are several.
+/// that warns of the markers of the event listened to, once per process
+/// (ADR 0030), registers `listener` and returns the `Subscription` that
+/// removes it, overloaded once per type its listener gets when there are
+/// several.
 pub(super) fn member(
     layer: &Layer,
     handle: &Handle<'_>,
@@ -68,13 +70,14 @@ pub(super) fn member(
         })?;
         let _ = writeln!(
             text,
-            "        listened, payload = {}[event]\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
+            "        listened, payload = {}[event]\n        warn_entry(f\"{namespace}.{{listened}}\", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
             events_constant(handle),
             listener.operation.name,
             imports.model(&listener.operation.params.0),
             handle.id.param,
             listener.param,
             handle.namespace,
+            namespace = handle.namespace,
         );
         return Ok(text);
     }
@@ -85,9 +88,11 @@ pub(super) fn member(
 }
 
 /// A handle's `on` whose events the engine publishes on its event stream
-/// (ADR 0081): it registers `listener` on the Connection's own Subscription
-/// for the events whose payload names the handle, sends the call that arms
-/// it, and returns the `Subscription` that removes it. A payload an opener
+/// (ADR 0081): it warns of the markers of the event listened to, once per
+/// process (ADR 0030), registers `listener` on the Connection's own
+/// Subscription for the events whose payload names the handle, sends the
+/// call that arms it, and returns the `Subscription` that removes it. A
+/// payload an opener
 /// of another handle answers reaches the listener as that handle, built in
 /// `mode`.
 fn published_member(
@@ -108,7 +113,8 @@ fn published_member(
             operation.name
         );
     };
-    let listen = |listened: &Listened, imports: &mut Imports| {
+    imports.markers.insert(WARN_ENTRY);
+    let listen = |listened: &Listened, indent: &str, imports: &mut Imports| {
         let heard = listened.builds.map_or_else(
             || "listener".to_owned(),
             |namespace| {
@@ -120,7 +126,9 @@ fn published_member(
             },
         );
         format!(
-            "return self._host.listen_published({:?}, {params}({id}=self._host.id, {}={event}({:?})), \"{}.{}\", {id:?}, {}, {heard})",
+            "{indent}warn_entry(\"{}.{}\", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)\n{indent}return self._host.listen_published({:?}, {params}({id}=self._host.id, {}={event}({:?})), \"{}.{}\", {id:?}, {}, {heard})",
+            handle.namespace,
+            listened.wire,
             operation.name,
             listener.param,
             listened.wire,
@@ -133,12 +141,12 @@ fn published_member(
     for listened in others {
         let _ = writeln!(
             text,
-            "        if event == {:?}:\n            {}",
+            "        if event == {:?}:\n{}",
             listened.joined(),
-            listen(listened, imports)
+            listen(listened, "            ", imports)
         );
     }
-    let _ = writeln!(text, "        {}", listen(last, imports));
+    let _ = writeln!(text, "{}", listen(last, "        ", imports));
     Ok(text)
 }
 

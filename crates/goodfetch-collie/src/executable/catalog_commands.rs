@@ -36,7 +36,8 @@
 //! `stopped`, and under its `--require-verified` `21` for a Verdict other
 //! than `verified`. An interrupt exits with [`exit_codes::INTERRUPTED`],
 //! `SIGTERM` with [`exit_codes::TERMINATED`]. A deprecated command warns on
-//! stderr with ADR 0030's text, which its `--help` shows too.
+//! stderr with its deprecation's one text (ADR 0099), which its `--help`
+//! shows too.
 //!
 //! Size: one concern, a catalog entry turned into a command and its call:
 //! the schema readers that give each command its flags, its offer and its
@@ -52,9 +53,7 @@ use std::sync::{Arc, OnceLock};
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches, Subcommand};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::catalog::{
-    Deprecation, Operation, OperationKind, Product, Reach, SDK_ONLY,
-};
+use goodfetch_protocol::catalog::{Operation, OperationKind, Product, Reach, SDK_ONLY};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::events::EVENTS;
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -611,18 +610,9 @@ fn command(operation: &'static Operation, own: Option<&'static OwnCommand>) -> C
         // of their own.
         .about(about);
     match operation.deprecated {
-        Some(deprecated) => command.after_help(deprecation(deprecated)),
+        Some(deprecated) => command.after_help(format!("Deprecated. {}", deprecated.message())),
         None => command,
     }
-}
-
-/// ADR 0030's text for a deprecation, which the warning and `--help` share:
-/// since when, the earliest removal, and the note naming the replacement.
-fn deprecation(deprecated: Deprecation) -> String {
-    format!(
-        "Deprecated since protocol {}, and removed no earlier than the next major: {}",
-        deprecated.since, deprecated.note
-    )
 }
 
 /// A call's timeout as the command line gives it (ADR 0080): `none` for no
@@ -1025,7 +1015,10 @@ impl Call {
     ) -> ExitCode {
         let words = command_words(self.operation.name);
         if let Some(deprecated) = self.operation.deprecated {
-            human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
+            human.warning(&format!(
+                "`{words}` is deprecated. {}",
+                deprecated.message()
+            ));
         }
         if let Some(own) = self.own.take() {
             return own.run(&self, engine, dependencies, machine, human);

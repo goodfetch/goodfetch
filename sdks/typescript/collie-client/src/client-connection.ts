@@ -53,9 +53,9 @@ const EXIT_GRACE = 2_000;
 /** The notification that carries one of the engine's log events, `goodfetch-protocol`'s `log::LOG`. */
 const LOG = "$/log";
 
-/** The engine a Connection reached, fixed when it opened (G6). */
+/** The engine a Connection reached, fixed when it opened (G6). It never holds a Daemon's token. */
 export interface EngineInfo {
-  /** How it is reached; an Attached engine is the one kind so far. */
+  /** How it is reached: an Attached engine the Connection started, the Daemon of this machine, or a remote Daemon. */
   readonly kind: "attached" | "daemon" | "remote";
   /** The engine's Product: `foxhound` serves a Collie Connection too (ADR 0095). A newer one is kept. */
   readonly product: Product | (string & {});
@@ -63,8 +63,23 @@ export interface EngineInfo {
   readonly version: string;
   /** The protocol version `major.minor` it speaks. */
   readonly protocolVersion: string;
+  /** The project file the engine read, or `null` when it read none. */
+  readonly projectFile: string | null;
+  /** The Goodfetch home the engine runs in, or `null` for a remote Daemon, or when none is known. */
+  readonly home: string | null;
   /** The executable started, or `null` when none was. */
   readonly enginePath: string | null;
+  /** Where a Daemon was reached: a remote one's URL, or this machine's socket path or loopback address; `null` for an Attached engine. */
+  readonly url: string | null;
+  /** Why `auto` ran another engine than the Daemon it found, and what to do; `null` when it ran the one it chose. */
+  readonly fallback: { readonly cause: string; readonly fix: string } | null;
+}
+
+/** How a Connection's engine was reached, which `engine()` reports. */
+export interface Reached {
+  readonly kind: EngineInfo["kind"];
+  readonly home: string | null;
+  readonly url: string | null;
 }
 
 /** What starting a Run takes (ADR 0102). */
@@ -95,6 +110,10 @@ export interface ClientConnectionOptions {
   readonly transport: Transport;
   /** The Attached engine whose stdio `transport` is, when the Connection started one. */
   readonly engine?: AttachedEngine | undefined;
+  /** How the engine was reached; an Attached engine with no home known when left out. */
+  readonly reached?: Reached | undefined;
+  /** The Daemon's token `hello` carries, which nothing else holds. */
+  readonly token?: string | undefined;
   /** The Product the Client needs, which `hello` names. */
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
@@ -136,12 +155,14 @@ export class ClientConnection implements AsyncDisposable {
   readonly #served = new Map<string, Served>();
   /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
   #logLevel: LogLevel;
+  readonly #reached: Reached;
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
+    this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
     const { errorClasses } = options;
@@ -211,7 +232,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.signal);
+      await connection.#hello(options.needs, options.token, options.signal);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -408,13 +429,18 @@ export class ClientConnection implements AsyncDisposable {
     }
   }
 
-  async #hello(needs: Product, signal: AbortSignal | undefined): Promise<void> {
+  async #hello(
+    needs: Product,
+    token: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
     const params: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
       surface: "sdk_typescript",
       needs,
       product_version: PRODUCT_VERSION,
       log_level: this.#logLevel,
+      ...(token === undefined ? {} : { token }),
     };
     const answer = await this.#channel.call("hello", params, { signal });
     const spoken = protocolVersionOf(answer);
@@ -438,11 +464,15 @@ export class ClientConnection implements AsyncDisposable {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
     const result = answer as HelloResult;
     this.#info = {
-      kind: "attached",
+      kind: this.#reached.kind,
       product: result.product,
       version: result.product_version,
       protocolVersion: result.protocol_version,
+      projectFile: null,
+      home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
+      url: this.#reached.url,
+      fallback: null,
     };
   }
 

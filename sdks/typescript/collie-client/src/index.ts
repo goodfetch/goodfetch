@@ -13,6 +13,7 @@
 export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
 export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts";
+export type { EngineChoice, RemoteEngine } from "./engine-choice.ts";
 export type { Limits, Money } from "./limits.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";

@@ -28,7 +28,7 @@ export { collieTimes, type CollieTimeType } from "./generated/times.ts";
 export { withTimes, type TimePath, type Times } from "./times.ts";
 export {
   locateEngine,
-  openAttached,
+  openEngine,
   openOver,
   type EngineLocation,
   type ProductPackage,

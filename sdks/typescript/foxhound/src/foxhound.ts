@@ -19,7 +19,7 @@ import type {
 import { RunNotFoundError } from "@goodfetch/collie-client";
 import {
   holdInRealm,
-  openAttached,
+  openEngine,
   openOver,
   type ClientConnection,
   type Transport,
@@ -128,7 +128,7 @@ export class Foxhound implements Connection {
    * fails it with the signal's reason, leaving no engine behind.
    */
   static async connect(options: FoxhoundConnectOptions = {}): Promise<Foxhound> {
-    return open(await openAttached(foxhound, options));
+    return open(await openEngine(foxhound, options));
   }
 
   /** The engine reached: its kind, Product, Product version and protocol version. Read without a round trip. */

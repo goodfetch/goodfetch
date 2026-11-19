@@ -1,14 +1,18 @@
-// What a Product's package builds its Connection type on (ADRs 0024, 0090
-// and 0095): it finds the Product's executable, the one its engine-path
-// variable names or else its platform package's, starts it as an Attached
-// engine with exactly the program's environment map, and finishes `hello`,
-// naming the Product. The other Product's variable is never read here.
+// What a Product's package builds its Connection type on (ADRs 0024, 0078,
+// 0090 and 0095): it reaches the engine `engine` chooses (`engine-choice`),
+// a Daemon or, finding the Product's executable, the one its engine-path
+// variable names or else its platform package's, an Attached engine started
+// with exactly the program's environment map; finishes `hello`, naming the
+// Product; and logs the engine reached at info. The other Product's
+// variable is never read here.
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
-import { ClientConnection } from "./client-connection.ts";
+import { ClientConnection, type EngineInfo } from "./client-connection.ts";
+import { reachEngine, type EngineChoice, type Reach } from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
 import {
+  EngineExitedError,
   EngineNotFoundError,
   SettingInvalidError,
   type Product,
@@ -61,6 +65,16 @@ export interface ConnectOverOptions {
 
 /** Options of `connect()`. */
 export interface ConnectOptions extends ConnectOverOptions {
+  /**
+   * The engine to reach (ADR 0078): `auto` when left out, which takes the
+   * remote Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token, else
+   * a Daemon running in the Goodfetch home, else an Attached engine;
+   * `attached` starts an Attached engine; `daemon` reaches the Daemon,
+   * starting it when none runs; `{ url, token }` reaches that remote Daemon,
+   * `ws://` on loopback until the Daemon terminates TLS. A value here beats
+   * `GOODFETCH_URL` (ADR 0083). `engine()` says which was reached.
+   */
+  readonly engine?: EngineChoice | undefined;
   /**
    * The environment map, read here and never at import: the process's own
    * when left out (ADRs 0062, 0083). Only the Product's own engine-path
@@ -144,33 +158,95 @@ export function locateEngine(
 }
 
 /**
- * Starts `product`'s engine as an Attached engine and finishes `hello`,
- * naming the Product, so a missing executable (`engine_not_found`) or a
- * refused Product (`not_in_product`) or version fails here, with a `fix`,
- * leaving no engine behind.
+ * Reaches the engine `options.engine` chooses for `product` and finishes
+ * `hello`, naming the Product, so a missing executable (`engine_not_found`),
+ * an unreachable Daemon (`daemon_unreachable`) or a refused Product
+ * (`not_in_product`) or version fails here, with a `fix`, leaving no engine
+ * behind; then logs the engine reached at info.
  */
-export async function openAttached(
+export async function openEngine(
   product: ProductPackage,
   options: ConnectOptions,
 ): Promise<ClientConnection> {
   options.signal?.throwIfAborted();
-  // Read before the engine starts, so a refused option leaves none behind.
+  // Read before an engine starts, so a refused option leaves none behind.
   const common = opening(options);
   const env = options.env ?? processEnvironment();
+  const reach = await reachEngine(options.engine ?? "auto", {
+    env,
+    executable: () => locateEngine(env, product).path,
+  });
+  const connection =
+    reach.kind === "attached"
+      ? await openAttached(product, env, reach.home, common)
+      : await openDaemon(product, reach, common);
+  const engine = connection.engine();
+  options.logger?.info(reachedText(product, engine), { engine });
+  return connection;
+}
+
+/** Starts `product`'s engine as an Attached engine with `env` and finishes `hello`. */
+async function openAttached(
+  product: ProductPackage,
+  env: Readonly<Record<string, string>>,
+  home: string | null,
+  common: Opening,
+): Promise<ClientConnection> {
   const location = locateEngine(env, product);
   const engine = await AttachedEngine.start({
     path: location.path,
     env,
     notFoundFix: location.notFoundFix,
-    logger: options.logger,
+    logger: common.logger,
   });
   return ClientConnection.open({
     transport: engine.transport,
     engine,
+    reached: { kind: "attached", home, url: null },
     needs: product.needs,
     errorClasses: product.errorClasses,
     ...common,
   });
+}
+
+/**
+ * Finishes `hello` with a Daemon, its token in it: one that closes the
+ * Connection before it answers fails with `daemon_unreachable`.
+ */
+async function openDaemon(
+  product: ProductPackage,
+  reach: Exclude<Reach, { kind: "attached" }>,
+  common: Opening,
+): Promise<ClientConnection> {
+  try {
+    return await ClientConnection.open({
+      transport: reach.transport,
+      reached: { kind: reach.kind, home: reach.home, url: reach.url },
+      token: reach.token,
+      needs: product.needs,
+      errorClasses: product.errorClasses,
+      ...common,
+    });
+  } catch (error) {
+    throw error instanceof EngineExitedError ? reach.closedAtHello() : error;
+  }
+}
+
+/** The line logged once `connect()` reached `engine`. */
+function reachedText(product: ProductPackage, engine: EngineInfo): string {
+  const version = `${engine.product} ${engine.version}`;
+  switch (engine.kind) {
+    case "attached":
+      return `${product.name} connected to an Attached engine, ${version}, started from ${engine.enginePath ?? "its executable"}`;
+    case "daemon":
+      return `${product.name} connected to the Daemon at ${engine.url ?? "its endpoint"}, ${version}`;
+    case "remote":
+      return `${product.name} connected to the remote Daemon at ${engine.url ?? "its address"}, ${version}`;
+    default: {
+      const unknown: never = engine.kind;
+      return unknown;
+    }
+  }
 }
 
 /**
@@ -191,18 +267,21 @@ export function openOver(
   });
 }
 
+/** The common Connection's part of a Product's options. */
+interface Opening {
+  readonly bounds: ChannelBounds;
+  readonly signal: AbortSignal | undefined;
+  readonly limits: readonly RunLimit[];
+  readonly logger: Logger | undefined;
+}
+
 /**
  * The common Connection's part of `options`.
  *
  * @throws {SettingInvalidError} when a bound is no whole number of 1 or more,
  * or a Limit's amount does not turn exactly into the wire's.
  */
-function opening(options: ConnectOverOptions): {
-  readonly bounds: ChannelBounds;
-  readonly signal: AbortSignal | undefined;
-  readonly limits: readonly RunLimit[];
-  readonly logger: Logger | undefined;
-} {
+function opening(options: ConnectOverOptions): Opening {
   const { signal, maxPendingCalls, maxQueuedWriteBytes, logger } = options;
   return {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),

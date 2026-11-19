@@ -7,7 +7,7 @@
 
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{ConnectOptions, EngineInfo};
-use goodfetch_collie_client::{ClientConnection, Connection, Error, Start, UsageKind};
+use goodfetch_collie_client::{ClientConnection, Connection, Error, RawCall, Start, UsageKind};
 use goodfetch_protocol::catalog::Product;
 
 /// Foxhound's linked engine: Foxhound, of [`crate::composition`].
@@ -134,6 +134,40 @@ impl Foxhound {
         self.linked.engine()
     }
 
+    /// The raw call of `operation` (ADR 0099, G8), the way down to an
+    /// operation the SDK does not generate, such as one a newer engine
+    /// added: its params and its result are the wire's JSON, in
+    /// snake case, and awaiting sends it.
+    ///
+    /// ```
+    /// use goodfetch_foxhound::{ConnectOptions, Foxhound};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let home = tempfile::tempdir()?;
+    /// # let options = ConnectOptions::default()
+    /// #     .environment([("GOODFETCH_HOME".into(), home.path().into())].into());
+    /// # goodfetch_runtime::current_thread().enable_all().build()?.block_on(async {
+    /// let connection = Foxhound::connect(options).await?;
+    /// let listed = connection
+    ///     .call("run.list")
+    ///     .params(serde_json::json!({ "lifecycle": "running" }))
+    ///     .await?;
+    /// assert_eq!(listed["runs"], serde_json::json!([]));
+    /// connection.close().await?;
+    /// # Ok::<(), goodfetch_foxhound::Error>(())
+    /// # })?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Once the connection is closed it fails with `closed`; the engine's
+    /// error, such as `invalid_params`, and `deadline_exceeded` past
+    /// `.timeout(d)`, which is sent as the operation's own, fail it too.
+    /// It is never retried.
+    pub fn call(&self, operation: &str) -> RawCall {
+        self.linked.connection().raw_call(operation)
+    }
+
     /// The start of a Run the program drives (`run.start`), which awaiting
     /// sends.
     pub fn start(&self) -> Start {
@@ -169,13 +203,17 @@ impl Connection for Foxhound {
         Foxhound::start(self)
     }
 
+    fn call(&self, operation: &str) -> RawCall {
+        Foxhound::call(self, operation)
+    }
+
     async fn close(&self) -> Result<(), Error> {
         Foxhound::close(self).await
     }
 }
 
-/// The client crate's connection, the way down to its `call` (ADR 0099)
-/// until the public `call` joins the Connection with its own ticket.
+/// The client crate's connection, the way down to its typed `call` of a
+/// runtime method, which the raw `call` (ADR 0099) does not type.
 impl AsRef<ClientConnection> for Foxhound {
     fn as_ref(&self) -> &ClientConnection {
         self.linked.connection()

@@ -48,6 +48,12 @@ impl ClientConnection {
         }
     }
 
+    /// The raw call of `operation`, as
+    /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
+    pub fn raw_call(&self, operation: &str) -> RawCall {
+        RawCall::new(self.0.raw_call(operation), &self.0)
+    }
+
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
     /// `finish()` ends it. The start of a Run this Connection drives
     /// (`run.start`), which `send()` sends.
@@ -99,6 +105,10 @@ pub trait Connection {
     /// The start of a Run, as [`crate::Connection::start`]'s, which
     /// `send()` sends.
     fn start(&self) -> Start;
+
+    /// The raw call of `operation`, as [`crate::Connection::call`]'s,
+    /// which `send()` sends.
+    fn call(&self, operation: &str) -> RawCall;
 
     /// Closes the connection as [`crate::Connection::close`] does, and
     /// returns once it is closed.
@@ -173,6 +183,64 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
     /// fit `T`.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.call.into_future())
+    }
+}
+
+/// A raw call of an operation, as [`crate::RawCall`], its params and its
+/// result the wire's JSON. Nothing is sent until [`RawCall::send`].
+#[must_use = "a call is sent only by send()"]
+pub struct RawCall {
+    raw: crate::RawCall,
+    connection: crate::ClientConnection,
+}
+
+impl RawCall {
+    /// The blocking face of `raw`, sent on `connection`'s runtime.
+    pub(crate) fn new(raw: crate::RawCall, connection: &crate::ClientConnection) -> Self {
+        Self {
+            raw,
+            connection: connection.clone(),
+        }
+    }
+
+    /// Sends `params`, as [`crate::RawCall::params`] does.
+    pub fn params(self, params: Value) -> Self {
+        Self {
+            raw: self.raw.params(params),
+            ..self
+        }
+    }
+
+    /// Sends `timeout` as the operation's own, as
+    /// [`crate::RawCall::timeout`] does.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self {
+            raw: self.raw.timeout(timeout),
+            ..self
+        }
+    }
+
+    /// Sends the operation's own `timeout` as `null`, as
+    /// [`crate::RawCall::no_timeout`] does.
+    pub fn no_timeout(self) -> Self {
+        Self {
+            raw: self.raw.no_timeout(),
+            ..self
+        }
+    }
+
+    /// Sends the call and blocks the calling thread until its reply.
+    ///
+    /// # Errors
+    ///
+    /// As awaiting [`crate::RawCall`]: `invalid_params` when it is refused
+    /// before it is sent (an operation of another namespace than its
+    /// value's, params that are no object, name the value's own parameter
+    /// or give `timeout` beside the option), `closed` once its value or the
+    /// Connection is closed, the engine's error, and `deadline_exceeded`
+    /// once its timeout runs out.
+    pub fn send(self) -> Result<Value, Error> {
+        self.connection.wait(self.raw.into_future())
     }
 }
 
@@ -527,5 +595,6 @@ const _: () = {
     send_static::<Call<RunReport>>();
     send_static::<Query<Value>>();
     send_static::<Start>();
+    send_static::<RawCall>();
     send_static::<SaveFile<serde_json::Value>>();
 };

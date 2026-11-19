@@ -636,7 +636,7 @@ form = "closer"
 
 # The raw catalog call (ADR 0099, G8; issue 1254): the way down to an
 # operation the SDK does not generate, its params and result the wire's
-# JSON. Rust's `call` builder joins with its part of issue 1254.
+# JSON.
 
 [[member]]
 package = "@goodfetch/collie"
@@ -655,7 +655,6 @@ entry = "none"
 reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
 words = ["call"]
 form = "round_trip"
-only = "Rust's raw call, a `call` builder (ADR 0099), joins with its part of issue 1254."
 
 [[member]]
 package = "@goodfetch/collie-client"

@@ -27,7 +27,7 @@ type Read<T> = Box<dyn FnOnce(Value) -> Result<T, Error> + Send + 'static>;
 
 /// What the handle a call came from notes of its reply's JSON before the
 /// caller reads it: a Run notes that it ended.
-type Note = Box<dyn FnOnce(&Value) + Send + 'static>;
+pub(crate) type Note = Box<dyn FnOnce(&Value) + Send + 'static>;
 
 /// What answers a call before it is sent, so that it is not: a close of a
 /// value already closed answers at once.
@@ -35,11 +35,11 @@ type Settled = Box<dyn FnOnce() -> Option<Value> + Send + 'static>;
 
 /// The name of the params member an operation's own `timeout` travels in
 /// (ADR 0080).
-const WIRE_TIMEOUT: &str = "timeout";
+pub(crate) const WIRE_TIMEOUT: &str = "timeout";
 
 /// How long a call waits for its reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Timeout {
+pub(crate) enum Timeout {
     /// The engine's default for an operation that takes its own `timeout`;
     /// for any other, as long as the Connection lasts, until the
     /// Connection takes a scope's default (spec #606).

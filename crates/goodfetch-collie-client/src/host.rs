@@ -20,10 +20,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize as _, Serialize};
 use serde_json::Value;
 
-use crate::call::{Call, Query};
+use crate::call::{Call, Note, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
 use crate::event_stream::EventStream;
+use crate::raw_call::{RawCall, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 
 /// What a handle reaches its engine through: the Run it belongs to and its
@@ -90,12 +91,44 @@ impl<Id> Host<Id> {
         P: Serialize + Send + 'static,
     {
         let call = Call::new(self.connection().sender(), method, self.open(params));
-        if self.value.is_none() {
-            let run = Arc::clone(&self.run);
-            call.note(move |reply| run.note(reply))
-        } else {
-            call
+        match self.note() {
+            Some(note) => call.note(note),
+            None => call,
         }
+    }
+
+    /// What the handle notes of a reply: a Run's, that its Run ended; a
+    /// value's, nothing.
+    fn note(&self) -> Option<Note> {
+        self.value.is_none().then(|| {
+            let run = Arc::clone(&self.run);
+            Box::new(move |reply: &Value| run.note(reply)) as Note
+        })
+    }
+
+    /// The raw call of `operation` on the handle's value (ADR 0099), of
+    /// the namespace `namespace`, its ID filling `param`. Whether the value
+    /// is closed is read when it is awaited, and a reply that says the Run
+    /// ended notes it, as for [`Host::call`].
+    pub(crate) fn raw(
+        &self,
+        operation: &str,
+        namespace: &'static str,
+        param: &'static str,
+    ) -> RawCall
+    where
+        Id: Serialize,
+    {
+        let (run, value) = (Arc::clone(&self.run), self.value.clone());
+        let note = self.note();
+        let value = RawValue {
+            namespace,
+            param,
+            id: serde_json::to_value(&self.id).map_err(Error::shape),
+            closed: Box::new(move || closed(&run, value.as_deref())),
+            note,
+        };
+        RawCall::new(self.connection().sender(), operation, Some(value))
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.

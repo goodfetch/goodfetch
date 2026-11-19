@@ -24,6 +24,8 @@ export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
 export { idOfLocator } from "./generated/handles.ts";
+export { collieTimes } from "./generated/times.ts";
+export { withTimes, type TimePath, type Times } from "./times.ts";
 export {
   locateEngine,
   openAttached,

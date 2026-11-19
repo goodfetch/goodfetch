@@ -34,6 +34,7 @@ import {
   type FoxhoundOperationTypes,
   type RequestSeed,
 } from "./generated/index.ts";
+import { foxhoundTimes } from "./generated/times.ts";
 import { foxhound } from "./product.ts";
 
 /**
@@ -101,7 +102,7 @@ export class Foxhound implements Connection {
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
-    const calls = connection.caller<FoxhoundOperationTypes>();
+    const calls = connection.caller<FoxhoundOperationTypes>(foxhoundTimes);
     this.#operations = new FoxhoundOperations(calls);
     this.#crawlHost = {
       connection,

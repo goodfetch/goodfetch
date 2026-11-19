@@ -88,7 +88,7 @@ export type PeriodLength = "day" | "week" | "month";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PointInTime".
  */
-export type PointInTime = string;
+export type PointInTime = Date;
 /**
  * Who set a Limit, which decides whether it allows paying (ADR 0045).
  *

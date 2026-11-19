@@ -9,49 +9,41 @@ use std::collections::BTreeMap;
 use goodfetch_engine::CallError;
 use goodfetch_extractor::fields::{FieldElement, Found};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::read::PageField;
+use goodfetch_protocol::page::read::{FieldFind, PageField};
 use serde_json::{Value, json};
 
 /// The page function that finds each declared field's elements, called
 /// with [`argument`]'s; [`answered`] reads what it answers.
 pub const READ: &str = include_str!("fields/read.js");
 
-/// What [`READ`] is called with for `fields`: each, in the order of their
-/// names, `{ name, kind, locator }` once per rung of its locator ladder
-/// (issue 1972), `kind` being `one`, `list` or `rows`, and rows' `fields`
-/// each `{ name, locator }` once per rung of its ladder, in the order of
-/// their names: one find per rung, as the extractor's `Fields` reads them.
+/// What [`READ`] is called with for `fields`: each find of their reads
+/// (`PageField::finds`, one per rung of a locator ladder, issue 1972), in
+/// the order of their names, `{ name, kind, locator }`, `kind` being `one`,
+/// `list` or `rows`, and rows' `fields` each `{ name, locator }`.
 #[must_use]
 pub fn argument(fields: &BTreeMap<String, PageField>) -> Value {
-    let mut declared = Vec::with_capacity(fields.len());
-    for (name, field) in fields {
-        match field {
-            PageField::Value(field) => declared.extend(
-                field
-                    .rungs()
-                    .map(|rung| json!({ "name": name, "kind": "one", "locator": rung })),
-            ),
-            PageField::List(list) => declared.extend(
-                list.list
-                    .rungs()
-                    .map(|rung| json!({ "name": name, "kind": "list", "locator": rung })),
-            ),
-            PageField::Rows(rows) => declared.push(json!({
-                "name": name,
-                "kind": "rows",
-                "locator": rows.rows,
-                "fields": rows
-                    .fields
-                    .iter()
-                    .flat_map(|(name, field)| {
-                        field
-                            .rungs()
-                            .map(move |rung| json!({ "name": name, "locator": rung }))
-                    })
-                    .collect::<Vec<_>>(),
-            })),
-        }
-    }
+    let declared: Vec<Value> = fields
+        .iter()
+        .flat_map(|(name, field)| {
+            field.finds().into_iter().map(move |find| match find {
+                FieldFind::One(locator) => {
+                    json!({ "name": name, "kind": "one", "locator": locator })
+                }
+                FieldFind::List(locator) => {
+                    json!({ "name": name, "kind": "list", "locator": locator })
+                }
+                FieldFind::Rows { rows, fields } => json!({
+                    "name": name,
+                    "kind": "rows",
+                    "locator": rows,
+                    "fields": fields
+                        .into_iter()
+                        .map(|(name, locator)| json!({ "name": name, "locator": locator }))
+                        .collect::<Vec<_>>(),
+                }),
+            })
+        })
+        .collect();
     json!({ "fields": declared })
 }
 
@@ -118,21 +110,13 @@ fn answer_of(answer: &Value, fields: &BTreeMap<String, PageField>) -> Option<Ans
     }
     let mut answers = answer.get("found")?.as_array()?.iter();
     let mut found = Vec::with_capacity(fields.len());
-    for field in fields.values() {
-        match field {
-            PageField::Value(field) => {
-                for _ in field.rungs() {
-                    found.push(Found::One(element(answers.next()?).ok()?));
-                }
-            }
-            PageField::List(list) => {
-                for _ in list.list.rungs() {
-                    found.push(Found::List(elements(answers.next()?)?));
-                }
-            }
-            PageField::Rows(_) => found.push(Found::Rows(
-                answers
-                    .next()?
+    for find in fields.values().flat_map(PageField::finds) {
+        let answer = answers.next()?;
+        found.push(match find {
+            FieldFind::One(_) => Found::One(element(answer).ok()?),
+            FieldFind::List(_) => Found::List(elements(answer)?),
+            FieldFind::Rows { .. } => Found::Rows(
+                answer
                     .as_array()?
                     .iter()
                     .map(|row| {
@@ -142,8 +126,8 @@ fn answer_of(answer: &Value, fields: &BTreeMap<String, PageField>) -> Option<Ans
                             .collect()
                     })
                     .collect::<Option<_>>()?,
-            )),
-        }
+            ),
+        });
     }
     if answers.next().is_some() {
         return None;

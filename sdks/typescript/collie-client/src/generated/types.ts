@@ -5295,9 +5295,9 @@ export interface RowsField {
  * ladder finds in the page, its locator tried first, then each of its
  * `fallbacks` in turn until one finds an element; its text, its runs of
  * white space read as one space and trimmed, or one of its attributes, an
- * `href` or `src` resolved against the document's base URL; optionally a capture group of a regular
- * expression over that text; then its Value transform. A field the page
- * does not give is null, with why.
+ * `href` or `src` resolved against the document's base URL; optionally a
+ * capture group of a regular expression over that text; then its Value
+ * transform. A field the page does not give is null, with why.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ValueField".

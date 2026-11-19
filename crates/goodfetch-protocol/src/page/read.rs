@@ -68,9 +68,9 @@ pub struct RowsField {
 /// ladder finds in the page, its locator tried first, then each of its
 /// `fallbacks` in turn until one finds an element; its text, its runs of
 /// white space read as one space and trimmed, or one of its attributes, an
-/// `href` or `src` resolved against the document's base URL; optionally a capture group of a regular
-/// expression over that text; then its Value transform. A field the page
-/// does not give is null, with why.
+/// `href` or `src` resolved against the document's base URL; optionally a
+/// capture group of a regular expression over that text; then its Value
+/// transform. A field the page does not give is null, with why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ValueField {
@@ -104,6 +104,47 @@ impl ValueField {
     /// `locator`, then each of its `fallbacks`.
     pub fn rungs(&self) -> impl Iterator<Item = &FieldLocator> {
         std::iter::once(&self.locator).chain(&self.fallbacks)
+    }
+}
+
+/// One find a field's read makes in a page, every tier finding each of a
+/// field's in turn and the extractor keeping, of a ladder's, the first
+/// rung's that found an element (issue 1972).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FieldFind<'field> {
+    /// The first element a rung of a value field's ladder finds.
+    One(&'field FieldLocator),
+    /// Every element a rung of a list's ladder finds.
+    List(&'field FieldLocator),
+    /// Every element `rows` finds, and under each, the first element each
+    /// of `fields` finds.
+    Rows {
+        /// What finds each row's element.
+        rows: &'field FieldLocator,
+        /// Each rung of each of the row's fields' ladders, by the field's
+        /// name, in the order of their names, then in the order of its
+        /// rungs.
+        fields: Vec<(&'field str, &'field FieldLocator)>,
+    },
+}
+
+impl PageField {
+    /// The finds its read makes, in order: one per rung of a value field's
+    /// or a list's ladder, and rows' one.
+    #[must_use]
+    pub fn finds(&self) -> Vec<FieldFind<'_>> {
+        match self {
+            Self::Value(field) => field.rungs().map(FieldFind::One).collect(),
+            Self::List(list) => list.list.rungs().map(FieldFind::List).collect(),
+            Self::Rows(rows) => vec![FieldFind::Rows {
+                rows: &rows.rows,
+                fields: rows
+                    .fields
+                    .iter()
+                    .flat_map(|(name, field)| field.rungs().map(move |rung| (name.as_str(), rung)))
+                    .collect(),
+            }],
+        }
     }
 }
 

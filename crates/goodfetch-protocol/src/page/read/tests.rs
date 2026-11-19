@@ -1,9 +1,11 @@
 //! The field declaration `page.read` and the code-free crawl take (ADR 0147).
 
+use std::collections::BTreeMap;
+
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{FieldLocator, FieldTransform, ListField, PageField, RowsField, ValueField};
+use super::{FieldFind, FieldLocator, FieldTransform, ListField, PageField, RowsField, ValueField};
 
 fn css(selector: &str) -> FieldLocator {
     FieldLocator::Css {
@@ -72,25 +74,83 @@ fn a_declaration_that_is_none_of_the_three_is_refused(#[case] declared: Value) {
 }
 
 /// A field with no `fallbacks` writes none, so its declaration reads as it
-/// did before ladders (issue 1972); its rungs are its locator alone.
+/// did before ladders (issue 1972).
 #[test]
-fn a_field_without_fallbacks_writes_none_and_its_rungs_are_its_locator() {
-    let field = text("h1");
-    let laddered = ValueField {
-        fallbacks: vec![css("h2")],
-        ..text("h1")
-    };
-
+fn a_field_without_fallbacks_writes_none() {
     assert_eq!(
+        serde_json::to_value(text("h1")).unwrap(),
+        json!({ "locator": { "kind": "css", "selector": "h1" }, "transform": { "kind": "text" } }),
+    );
+}
+
+/// A field's read finds once per rung of its ladder, its locator first, a
+/// field with no `fallbacks` once, and rows once, holding each rung of each
+/// of their fields, by name then rung (issue 1972).
+#[test]
+fn a_fields_read_finds_once_per_rung_and_rows_once() {
+    let fields = BTreeMap::from([
+        ("heading".to_owned(), PageField::Value(text("h1"))),
         (
-            serde_json::to_value(&field).unwrap(),
-            field.rungs().collect::<Vec<_>>(),
-            laddered.rungs().collect::<Vec<_>>(),
+            "names".to_owned(),
+            PageField::List(ListField {
+                list: ValueField {
+                    fallbacks: vec![css("li a")],
+                    ..text("li b")
+                },
+            }),
         ),
         (
-            json!({ "locator": { "kind": "css", "selector": "h1" }, "transform": { "kind": "text" } }),
-            vec![&css("h1")],
-            vec![&css("h1"), &css("h2")],
-        )
+            "offers".to_owned(),
+            PageField::Rows(RowsField {
+                rows: css("li"),
+                fields: BTreeMap::from([
+                    (
+                        "price".to_owned(),
+                        ValueField {
+                            fallbacks: vec![css(".price")],
+                            ..text(".cost")
+                        },
+                    ),
+                    ("name".to_owned(), text("a")),
+                ]),
+            }),
+        ),
+        (
+            "title".to_owned(),
+            PageField::Value(ValueField {
+                fallbacks: vec![css("h2"), css(".title")],
+                ..text("h3")
+            }),
+        ),
+    ]);
+    let (h1, li_b, li_a, li, a, cost, price, h3, h2, title) = (
+        css("h1"),
+        css("li b"),
+        css("li a"),
+        css("li"),
+        css("a"),
+        css(".cost"),
+        css(".price"),
+        css("h3"),
+        css("h2"),
+        css(".title"),
+    );
+
+    let finds: Vec<FieldFind<'_>> = fields.values().flat_map(PageField::finds).collect();
+
+    assert_eq!(
+        finds,
+        vec![
+            FieldFind::One(&h1),
+            FieldFind::List(&li_b),
+            FieldFind::List(&li_a),
+            FieldFind::Rows {
+                rows: &li,
+                fields: vec![("name", &a), ("price", &cost), ("price", &price)],
+            },
+            FieldFind::One(&h3),
+            FieldFind::One(&h2),
+            FieldFind::One(&title),
+        ]
     );
 }

@@ -13,6 +13,10 @@ fn declared(fields: Value) -> BTreeMap<String, PageField> {
     serde_json::from_value(fields).unwrap()
 }
 
+fn css(selector: &str) -> Value {
+    json!({ "kind": "css", "selector": selector })
+}
+
 fn element(tag: &str, text: &str) -> FieldElement {
     FieldElement {
         tag: tag.to_owned(),
@@ -102,7 +106,6 @@ fn an_answer_the_page_never_gives_reads_as_none(#[case] answer: Value) {
 /// rung as it reads one locator.
 #[test]
 fn a_ladder_sends_one_entry_per_rung_and_a_field_without_one_its_locator() {
-    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
     let fields = declared(json!({
         "names": { "list": { "locator": css("li b"), "fallbacks": [css("li a")] } },
         "offers": {
@@ -135,7 +138,6 @@ fn a_ladder_sends_one_entry_per_rung_and_a_field_without_one_its_locator() {
 /// one the page never gives.
 #[test]
 fn a_ladders_answer_holds_one_find_per_rung() {
-    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
     let fields = declared(json!({
         "title": { "locator": css("h2"), "fallbacks": [css("h1")] },
     }));

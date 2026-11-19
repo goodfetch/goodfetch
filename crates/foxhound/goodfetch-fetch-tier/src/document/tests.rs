@@ -10,8 +10,8 @@ use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use serde_json::json;
 
 use super::{
-    LocatorInvalid, Matched, SelectorInvalid, check_fields, check_selector, check_xpath,
-    first_elements_in, found, locating, matched, value_locators,
+    LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath, first_elements_in,
+    found, locating, matched, value_locators,
 };
 
 /// Counts no test of this file reads.
@@ -45,6 +45,12 @@ fn first_elements(
         .map(|locator| locating(locator, work))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(first_elements_in(document, &locating))
+}
+
+fn css(selector: &str) -> FieldLocator {
+    FieldLocator::Css {
+        selector: selector.to_owned(),
+    }
 }
 
 fn xpath(selector: &str) -> FieldLocator {
@@ -397,38 +403,21 @@ fn a_ladder_finds_once_per_rung_in_order() {
 }
 
 /// The locators an untouched page's readers read for value fields are
-/// each field's rungs in order (issue 1972); a field with no `fallbacks`
-/// gives its one locator, as before, and a start checks every rung.
+/// each field's rungs in order (issue 1972), a field with no `fallbacks`
+/// giving its one locator, as before.
 #[test]
 fn value_fields_give_their_rungs_and_one_locator_each_without_fallbacks() {
-    let css = |selector: &str| FieldLocator::Css {
-        selector: selector.to_owned(),
-    };
-    let declared = |fields: serde_json::Value| -> std::collections::BTreeMap<String, PageField> {
-        serde_json::from_value(fields).unwrap()
-    };
-    let plain = declared(json!({
-        "name": { "locator": { "kind": "css", "selector": "h1" } },
-        "price": { "locator": { "kind": "xpath", "selector": "//span" } },
-    }));
-    let laddered = declared(json!({
+    let fields: std::collections::BTreeMap<String, PageField> = serde_json::from_value(json!({
         "name": {
             "locator": { "kind": "css", "selector": "h2" },
             "fallbacks": [{ "kind": "css", "selector": "h1" }],
         },
         "price": { "locator": { "kind": "xpath", "selector": "//span" } },
-    }));
+    }))
+    .unwrap();
 
     assert_eq!(
-        (
-            value_locators(&plain),
-            value_locators(&laddered),
-            check_fields(&laddered, &no_counts()),
-        ),
-        (
-            Some(vec![css("h1"), xpath("//span")]),
-            Some(vec![css("h2"), css("h1"), xpath("//span")]),
-            Ok(()),
-        )
+        value_locators(&fields),
+        Some(vec![css("h2"), css("h1"), xpath("//span")]),
     );
 }

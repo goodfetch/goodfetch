@@ -952,9 +952,9 @@ test-affected suite *change:
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
 
 # xtask's codegen tests (xtask/tests/it/codegen.rs) when the change reaches
-# what only they check (`xtask affected`'s `codegen-tests=true`): the
-# emitter, the protocol crate's files their fixture holds as they are, and
-# their own fixture and snapshots. They are `tests/` tests, which the Quick
+# what only they check (`xtask affected`'s `codegen-tests=true`, from
+# `CODEGEN_TEST_INPUTS` in xtask/src/affected/selection.rs): the emitter and
+# what it renders the tests' fixture from. They are `tests/` tests, which the Quick
 # suite never runs, so `just quick` and the quick gate run them on their own
 # and a change like that cannot merge with them red (issue 2892); the
 # Pre-merge suite runs them with every test. The change as `just

@@ -167,20 +167,36 @@ fn is_visual_input(path: &RepoPath) -> bool {
 }
 
 /// What only xtask's codegen tests (`xtask/tests/it/codegen.rs`) check, as
-/// `tests/` tests the Quick suite never runs: the emitter, the protocol
-/// crate's files their fixture holds as they are, and their own test file,
-/// fixture and snapshots. A change to one leaves the fixture's copy, its
-/// committed outputs or the SDK layer snapshots stale without a red Quick
-/// suite, as commit f6abad1cf did (issue 2892).
-const CODEGEN_TEST_INPUTS: [&str; 8] = [
+/// `tests/` tests the Quick suite never runs. `xtask codegen` writes their
+/// fixture's committed outputs and SDK layers from xtask's own code and the
+/// protocol crate's, and the fixture holds some of the protocol crate's files
+/// as they are: the emitter and the xtask modules it renders through
+/// (Feature schemas and inventory, the licence allowlist, the refusal
+/// samples, the Products' folders), the protocol files the fixture copies,
+/// those whose items the emitter writes into the fixture (the Attached
+/// engine's name, the engine path variables, the format and refusal types),
+/// and the tests' own file and fixture. A change to one can leave the
+/// fixture's copy, its committed outputs or the SDK layer snapshots stale
+/// without a red Quick suite, as commit f6abad1cf did (issue 2892).
+const CODEGEN_TEST_INPUTS: [&str; 18] = [
     "xtask/src/codegen.rs",
     "xtask/src/codegen",
+    "xtask/src/features.rs",
+    "xtask/src/features",
+    "xtask/src/license_allowlist.rs",
+    "xtask/src/compat/refusals.rs",
+    "xtask/src/products.rs",
     "crates/goodfetch-protocol/src/catalog.rs",
     "crates/goodfetch-protocol/src/catalog",
     "crates/goodfetch-protocol/src/wire_name.rs",
     "crates/goodfetch-protocol/src/secret_reference.rs",
+    "crates/goodfetch-protocol/src/cli.rs",
+    "crates/goodfetch-protocol/src/settings/deployment.rs",
+    "crates/goodfetch-protocol/src/formats.rs",
+    "crates/goodfetch-protocol/src/refusals.rs",
     "xtask/tests/it/codegen.rs",
     "xtask/tests/it/fixtures/codegen",
+    "xtask/tests/it/workspace.rs",
 ];
 
 /// The file-name prefix of the codegen tests' insta snapshots.

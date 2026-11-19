@@ -372,8 +372,9 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
 
 // xtask's codegen tests are `tests/` tests, which the Quick suite never
 // runs, so a change to what they alone check selects them beside it: the
-// emitter, the protocol crate's files their fixture holds as they are, and
-// their own fixture, test file and snapshots. Commit f6abad1cf changed the
+// emitter and the xtask modules it renders through, the protocol crate's
+// files their fixture holds as they are or whose items the emitter writes
+// into it, and their own fixture, test file and snapshots. Commit f6abad1cf changed the
 // emitter and the catalog's sections and merged on the quick gate with 37 of
 // them red (issue 2892). Another change to the protocol crate, to xtask or
 // to xtask's other tests leaves them to the Pre-merge suite.
@@ -386,11 +387,23 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
 #[case::the_catalogs_settings(&["crates/goodfetch-protocol/src/catalog/setting.rs"], "true")]
 #[case::wire_names(&["crates/goodfetch-protocol/src/wire_name.rs"], "true")]
 #[case::secret_references(&["crates/goodfetch-protocol/src/secret_reference.rs"], "true")]
+#[case::feature_schemas(&["xtask/src/features/files.rs"], "true")]
+#[case::the_feature_inventory(&["xtask/src/features.rs"], "true")]
+#[case::the_licence_allowlist(&["xtask/src/license_allowlist.rs"], "true")]
+#[case::the_refusal_samples(&["xtask/src/compat/refusals.rs"], "true")]
+#[case::the_products_folders(&["xtask/src/products.rs"], "true")]
+#[case::the_attached_engines_name(&["crates/goodfetch-protocol/src/cli.rs"], "true")]
+#[case::the_engine_path_variables(&["crates/goodfetch-protocol/src/settings/deployment.rs"], "true")]
+#[case::the_format_types(&["crates/goodfetch-protocol/src/formats.rs"], "true")]
+#[case::the_refusal_types(&["crates/goodfetch-protocol/src/refusals.rs"], "true")]
 #[case::the_tests(&["xtask/tests/it/codegen.rs"], "true")]
+#[case::their_workspace_helper(&["xtask/tests/it/workspace.rs"], "true")]
 #[case::their_fixture(&["xtask/tests/it/fixtures/codegen/crates/goodfetch-protocol/generated/catalog.json"], "true")]
 #[case::their_snapshot(&["xtask/tests/it/snapshots/it__codegen__sdks__typescript__collie-client__src__generated.snap"], "true")]
 #[case::another_protocol_module(&["crates/goodfetch-protocol/src/foxhound.rs"], "false")]
 #[case::another_xtask_module(&["xtask/src/gate/plan.rs"], "false")]
+#[case::another_compat_module(&["xtask/src/compat.rs"], "false")]
+#[case::another_settings_module(&["crates/goodfetch-protocol/src/settings.rs"], "false")]
 #[case::another_xtask_test(&["xtask/tests/it/affected.rs"], "false")]
 #[case::another_tests_snapshot(&["xtask/tests/it/snapshots/it__affected__selection.snap"], "false")]
 #[case::a_crate(&["crates/goodfetch-engine/src/lib.rs"], "false")]

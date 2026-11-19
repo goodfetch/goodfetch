@@ -122,12 +122,13 @@ impl Contract {
     }
 
     /// The params of a notification the engine sends: the connection's
-    /// `$/events`, `$/chunk` or `$/log`, or an event by its catalog name.
+    /// `$/events`, `$/chunk`, `$/key` or `$/log`, or an event by its catalog name.
     fn event(&self, name: &str) -> Option<Value> {
         match name {
             // The connection's notifications the engine sends: a sequence's
-            // items, an enqueue's answers and the engine's log events.
-            "$/events" | "$/chunk" | "$/record" | "$/enqueued" | "$/log" => {
+            // items, a Key-value store's keys, an enqueue's answers and the
+            // engine's log events.
+            "$/events" | "$/chunk" | "$/record" | "$/key" | "$/enqueued" | "$/log" => {
                 Some(self.connection[name.trim_start_matches("$/")]["params"].clone())
             }
             _ => self

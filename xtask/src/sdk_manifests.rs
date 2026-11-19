@@ -16,8 +16,9 @@
 //! A receiver is the same across SDKs within the same package, the
 //! `@goodfetch/` or `goodfetch-` prefix aside; a Rust `blocking::` twin is
 //! its async receiver, and a Rust crate's root is a TypeScript module's.
-//! Matching a manifest to the members an SDK exports, their doc text and
-//! markers, and the Python SDK's manifest are issue 2920's.
+//! `xtask sdk-exports` matches a manifest to the members its SDK exports
+//! ([`exports`]); their doc text and markers, and the Python SDK's manifest,
+//! are issue 2920's next parts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -31,6 +32,8 @@ use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::codegen;
+
+pub(crate) mod exports;
 
 /// The catalog `xtask codegen` emits from `goodfetch-protocol`'s types.
 const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
@@ -137,6 +140,16 @@ struct Listed {
     members: Vec<Member>,
 }
 
+/// The lines of the manifest at `manifest`, relative to `root`.
+fn read(root: &Path, manifest: &str) -> Result<Vec<Member>> {
+    let path = root.join(manifest);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let parsed: Manifest =
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    Ok(parsed.members)
+}
+
 fn subject(path: &str, member: &Member) -> String {
     format!("{path} {}.{}", member.receiver, member.name)
 }
@@ -157,8 +170,10 @@ fn spelling(language: Language, member: &Member) -> Option<String> {
 }
 
 /// Whether `member`, which serves no entry, is spelled from its words:
-/// TypeScript's constructor from its receiver's, as `new Crawl(…)` is, and
-/// its disposal from `close`, as ADR 0078's scoped form is.
+/// TypeScript's constructor from its receiver's, as `new Crawl(…)` is, its
+/// disposal from `close`, as ADR 0078's scoped form is, and another
+/// well-known symbol's member from that symbol's words, as
+/// `[Symbol.asyncIterator]` is from `async iterator`.
 fn spelled(language: Language, member: &Member) -> bool {
     match (language, member.name.as_str()) {
         (Language::TypeScript, "constructor") => {
@@ -166,6 +181,9 @@ fn spelled(language: Language, member: &Member) -> bool {
         }
         (Language::TypeScript, "[Symbol.asyncDispose]" | "[Symbol.dispose]") => {
             member.words == ["close"]
+        }
+        (Language::TypeScript, name) if name.starts_with("[Symbol.") => {
+            name == format!("[Symbol.{}]", codegen::camel(&member.joined()))
         }
         _ => spelling(language, member).as_deref() == Some(member.name.as_str()),
     }
@@ -193,15 +211,10 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let generated = codegen::handle_members(root)?;
     let mut listed = Vec::new();
     for (manifest, language) in MANIFESTS {
-        let path = root.join(manifest);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let parsed: Manifest =
-            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         listed.push(Listed {
             path: manifest,
             language,
-            members: parsed.members,
+            members: read(root, manifest)?,
         });
     }
     let mut findings = Vec::new();

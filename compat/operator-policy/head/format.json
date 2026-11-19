@@ -920,6 +920,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "connect": {
+                "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "dataset_query": {
                 "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
@@ -3764,6 +3769,11 @@
               },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connect": {
+                "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -6727,6 +6737,11 @@
               },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connect": {
+                "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                 "minimum": 0,
                 "type": "integer"
               },

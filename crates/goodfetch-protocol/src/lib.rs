@@ -41,6 +41,7 @@ pub mod model;
 pub mod needs_you;
 pub mod ops;
 pub mod page;
+pub mod plugin;
 pub mod politeness;
 pub mod refusals;
 pub mod releases;

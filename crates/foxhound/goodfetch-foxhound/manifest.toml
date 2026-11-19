@@ -4,9 +4,10 @@
 # spelled from, in the forms of `sdks/typescript/manifest.toml`, whose header
 # says what `xtask sdk-manifests` refuses. The values a connection hands out
 # are the Collie client crate's, re-exported, and listed with it. A
-# `blocking::` receiver is its async receiver's twin. Matching this manifest
-# to what the crate exports is issue 2920's; until then a member added by
-# hand gets its line here.
+# `blocking::` receiver is its async receiver's twin. `xtask sdk-exports`
+# matches TypeScript's manifest to what its packages export; matching this
+# one to what the crate exports is issue 2920's, and until then a member
+# added by hand gets its line here.
 
 [[member]]
 crate = "goodfetch-foxhound"

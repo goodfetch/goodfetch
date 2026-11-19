@@ -77,22 +77,31 @@ class AsyncCollie(AsyncConnection):
 
     @staticmethod
     def connect(
-        *, env: Mapping[str, str] | None = None, limits: Limits | None = None
+        *,
+        env: Mapping[str, str] | None = None,
+        limits: Limits | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
     ) -> Connecting:
         """Starts Collie's engine as an Attached engine and finishes `hello`.
 
         Await it, or open it with `async with`, which closes it. `env` is
         the environment map, read here and never at import: the process's
         own when left out. `limits` caps the Connection (ADR 0080); it only
-        lowers what covers its work. An amount the SDK cannot turn exactly
-        (`setting_invalid`), a missing executable (`engine_not_found`), a
-        refused Product (`not_in_product`) or version, or a refused Limit
-        raises here, with a `fix`, leaving no engine behind; so does a
-        cancelled opening. The engine sends its logs from the effective
-        level of `goodfetch.engine`, read here (ADR 0078).
+        lowers what covers its work. `timeout` is how long `hello` waits for
+        the engine's answer: `timeout.connect`'s 30 s when left out, none for
+        `None`; past it, `DeadlineExceededError` naming `timeout.connect`
+        raises (ADR 0083). An amount the SDK cannot turn exactly or a
+        `timeout` of zero or less (`setting_invalid`), a missing executable
+        (`engine_not_found`), a refused Product (`not_in_product`) or
+        version, or a refused Limit raises here, with a `fix`, leaving no
+        engine behind; so does a cancelled opening. The engine sends its
+        logs from the effective level of `goodfetch.engine`, read here
+        (ADR 0078).
         """
         return Connecting(
-            functools.partial(open_attached, COLLIE, env=env, limits=limits)
+            functools.partial(
+                open_attached, COLLIE, env=env, limits=limits, connect_timeout=timeout
+            )
         )
 
     @property
@@ -211,22 +220,31 @@ class Collie(Connection):
 
     @staticmethod
     def connect(
-        *, env: Mapping[str, str] | None = None, limits: Limits | None = None
+        *,
+        env: Mapping[str, str] | None = None,
+        limits: Limits | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
     ) -> Collie:
         """Starts Collie's engine as an Attached engine and finishes `hello`.
 
         Open it with `with`, which closes it. `env` is the environment map,
         read here and never at import: the process's own when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
-        its work. An amount the SDK cannot turn exactly (`setting_invalid`),
-        a missing executable (`engine_not_found`), a refused Product
-        (`not_in_product`) or version, or a refused Limit raises here, with a
-        `fix`, leaving neither engine nor thread behind. The engine sends its
+        its work. `timeout` is how long `hello` waits for the engine's
+        answer: `timeout.connect`'s 30 s when left out, none for `None`;
+        past it, `DeadlineExceededError` naming `timeout.connect` raises
+        (ADR 0083). An amount the SDK cannot turn exactly or a `timeout` of
+        zero or less (`setting_invalid`), a missing executable
+        (`engine_not_found`), a refused Product (`not_in_product`) or
+        version, or a refused Limit raises here, with a `fix`, leaving
+        neither engine nor thread behind. The engine sends its
         logs from the effective level of `goodfetch.engine`, read here
         (ADR 0078).
         """
         return _open_sync(
-            functools.partial(open_attached, COLLIE, env=env, limits=limits)
+            functools.partial(
+                open_attached, COLLIE, env=env, limits=limits, connect_timeout=timeout
+            )
         )
 
     @property

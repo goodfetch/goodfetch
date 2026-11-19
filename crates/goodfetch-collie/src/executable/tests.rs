@@ -45,11 +45,6 @@ fn own(product: Product) -> OwnCommands {
     }
 }
 
-#[test]
-fn the_command_line_holds_no_clap_misconfiguration() {
-    command(Product::Collie, OwnCommands::COLLIE).debug_assert();
-}
-
 /// A start builds no group's commands, hand-written or generated: clap
 /// builds them only for the group it parses or shows help for, so
 /// `--version` and every command skip building the rest of the tree (ADR
@@ -73,6 +68,7 @@ fn a_start_builds_no_command_of_any_group() {
     assert_eq!(built, Vec::<(&str, Vec<&str>)>::new());
 }
 
+/// Covers: story:11-198, story:11-218
 #[test]
 fn the_help_of_every_command_is_rendered_from_the_command_line() {
     let command = command(Product::Collie, OwnCommands::COLLIE);

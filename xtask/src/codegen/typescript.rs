@@ -780,7 +780,9 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
     } else {
         String::new()
     };
-    let listens = handles.iter().any(|handle| handle.listener.is_some());
+    let listens = handles
+        .iter()
+        .any(|handle| handle.listener.is_some() || handle.published_listener.is_some());
     let markers = markers_import(
         handles.iter().flat_map(|handle| {
             handle
@@ -788,6 +790,13 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
                 .iter()
                 .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
                 .map(|member| member.operation)
+                .chain(
+                    handle
+                        .listener
+                        .iter()
+                        .chain(&handle.published_listener)
+                        .map(|listener| listener.operation),
+                )
         }),
         MARKERS_MODULE,
         if listens { &[WARN_ENTRY] } else { &[] },
@@ -845,7 +854,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         } else {
             ""
         };
-        let (listened, on) = listeners::emit(&class, handle, &events);
+        let (listened, on) = listeners::emit(&class, handle, &host, &events);
         text.push_str(&listened);
         let id_type = format!("types.{}", handle.id.type_name);
         let _ = write!(

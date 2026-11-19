@@ -111,11 +111,23 @@ pub enum RunOrigin {
     Flag,
     /// An Integration's form.
     Form,
+    /// A program's only SDK handler of a kind that one setting chooses,
+    /// registered on its connection: the lowest of the run layer's origins,
+    /// which every other replaces and configuration does not. A lock wins
+    /// over it with no refusal, since the program never wrote the key (ADR
+    /// 0104's amendment of ADR 0083).
+    Registered,
 }
 
 impl RunOrigin {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 4] = [Self::Argument, Self::Settings, Self::Flag, Self::Form];
+    pub const ALL: [Self; 5] = [
+        Self::Argument,
+        Self::Settings,
+        Self::Flag,
+        Self::Form,
+        Self::Registered,
+    ];
 
     /// Its name as the wire and messages write it.
     pub fn as_str(self) -> &'static str {
@@ -1011,6 +1023,21 @@ pub const TIMEOUT_RUN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.connect` (ADRs 0080 and 0083), which `connect()` and the CLI
+/// read from the project file before they connect.
+pub const TIMEOUT_CONNECT: Setting = Setting {
+    name: "timeout.connect",
+    description: "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::ProjectFileAlone,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.close` (ADRs 0080 and 0083).
 pub const TIMEOUT_CLOSE: Setting = Setting {
     name: "timeout.close",
@@ -1238,6 +1265,7 @@ pub const ENTRIES: Entries = Entries {
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_CONNECT,
         TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,

@@ -219,6 +219,39 @@ describe("the generated error classes", () => {
     },
   );
 
+  // The codes areas 5, 7 and 8 add, and the CLI's `person_required`, each
+  // with its own class under the group its ADRs fix (ADRs 0033, 0035, 0039,
+  // 0079 and 0092). Windows' refusal to start a file is
+  // `executable_blocked_by_smart_app_control` (ADR 0039's note of 2026-10-20).
+  test.for([
+    ["browser_host_unreachable", "BrowserHostUnreachableError", "unavailable", true],
+    ["browser_host_outdated", "BrowserHostOutdatedError", "unavailable", false],
+    [
+      "executable_blocked_by_smart_app_control",
+      "ExecutableBlockedBySmartAppControlError",
+      "refused",
+      false,
+    ],
+    ["confinement_unavailable", "ConfinementUnavailableError", "refused", false],
+    ["challenge_unsolved", "ChallengeUnsolvedError", "page", false],
+    ["plugin_crashed", "PluginCrashedError", "unavailable", true],
+    ["person_required", "PersonRequiredError", "refused", false],
+  ] as const)(
+    "raise %s as %s under its group",
+    { tags: ["story:11-190"] },
+    ([code, className, group, retryable]) => {
+      const known = collieErrorClasses[code];
+      const error = known === undefined ? undefined : new known("failed");
+
+      expect({
+        name: error?.name,
+        isGroupClass: error instanceof errorGroupClasses[group],
+        group: error?.group,
+        retryable: error?.retryable,
+      }).toEqual({ name: className, isGroupClass: true, group, retryable });
+    },
+  );
+
   test("tell a code Collie does not know from Collie's own, whatever the class", () => {
     const error = new ProgramError("failed", {
       code: "some_future_code",

@@ -17,6 +17,7 @@ import anyio
 import pytest
 import trio.testing
 from collie_tracer import start_and_finish
+from connection_library import finish_one_run
 from goodfetch_collie import (
     AsyncCollie,
     AsyncConnection,
@@ -130,6 +131,45 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> 
             "requests": 0,
         },
     }
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-180")
+@three_ways
+async def test_a_library_on_the_client_package_range_takes_the_programs_connection(
+    way: Way,
+) -> None:
+    """A library that takes the client package by a range runs on its copy.
+
+    `connection_library`'s helper, typed for the client package's
+    `AsyncConnection`, finishes a Run on the program's Connection.
+    """
+    collie, played = await collie_on(way, "run/started-and-finished.json")
+
+    report = await finish_one_run(collie)
+
+    assert not isinstance(report, str)
+    assert report.lifecycle == "finished"
+    await collie.close()
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-180")
+@three_ways
+async def test_a_library_on_the_client_package_range_catches_its_closed_error(
+    way: Way,
+) -> None:
+    """The library's own `except ClosedError` catches what a closed Connection raises.
+
+    It holds only while the program and the library share one copy of the
+    client package.
+    """
+    collie, played = await collie_on(way, "connect/accepted-by-foxhound.json")
+    await collie.close()
+
+    answer = await finish_one_run(collie)
+
+    assert answer == "closed"
     assert played.done() == Finished()
 
 
@@ -348,6 +388,41 @@ async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
     assert isinstance(finished, ClosedError)
     assert isinstance(started, ClosedError)
     assert (finished.group, started.group) == ("program", "program")
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers(
+    "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
+)
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "anyio_backend",
+    # Trio's clock jumps ahead whenever every task waits; the sync way's
+    # private loop keeps real time.
+    [
+        pytest.param(
+            ("trio", {"clock": trio.testing.MockClock(autojump_threshold=0)}), id="trio"
+        )
+    ],
+)
+async def test_fails_the_connect_once_timeout_connects_default_passes() -> None:
+    """With `timeout` left out, an unanswered `hello` fails it after 30 s."""
+    played = play_script("sdk-python/connect/hello-never-answered.json")
+
+    error = await failure(async_connect_over(played.transport))
+
+    assert isinstance(error, DeadlineExceededError)
+    assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.connect",
+        "value": 30_000,
+        "layer": "default",
+    }
+    assert error.details == {
+        "elapsed": 30_000,
+        "waited_for": "hello",
+    }
     assert played.done() == Finished()
 
 

@@ -21,7 +21,10 @@ members = [
 # `rs-trafilatura` and the two crates rs-trafilatura reads trees with, which
 # `[patch.crates-io]` below carries: crates of their own, not members. The
 # Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
+# The library Foxhound's tests use stays outside the workspace, as a library
+# serving both Products is (story 11-180).
 exclude = [
+  "crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library",
   "kennel",
   "vendor/dom_smoothie",
   "vendor/html-cleaning",

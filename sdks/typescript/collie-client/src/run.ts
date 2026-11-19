@@ -26,12 +26,13 @@ import {
 import { Page } from "./generated/handles.ts";
 import type { HandleHost, Listener, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
-import { subscribe } from "./listeners.ts";
+import { subscribe, subscribePublished, type Listening } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
 import type { RawSend } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
+import type { SharedSubscription } from "./shared-subscription.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
@@ -43,6 +44,8 @@ export interface RunHost {
   reachable(): boolean;
   /** Sends a call the engine streams to, such as a listener's `on`. */
   stream(method: string, params: unknown, options: ChannelOpenOptions): Stream;
+  /** The Connection's own Subscription, which its listeners of published events share. */
+  readonly published: SharedSubscription;
   /** Forgets a closed Run. */
   forget(run: Run): void;
   /** Its Key-value store's calls. */
@@ -51,8 +54,8 @@ export interface RunHost {
   readonly logger: Logger | undefined;
 }
 
-/** What the handles of a Run reach the engine through: its host's calls, streams and logger. */
-type HandlesHost = Pick<RunHost, "calls" | "raw" | "stream" | "logger">;
+/** What the handles of a Run reach the engine through: its host's calls, streams, Subscription and logger. */
+type HandlesHost = Pick<RunHost, "calls" | "raw" | "stream" | "published" | "logger">;
 
 /** A listener that threw, which `listener_failed` has not yet raised. */
 interface ListenerFailure {
@@ -223,6 +226,54 @@ function hostIn<Id>(
       throw failed;
     }
   };
+  // A listener is registered only where a call could be sent, and its
+  // handle is then watched, so a failure nothing raised is logged once the
+  // program releases it.
+  const ensureListenable = (operation: string): void => {
+    ensureCallable(operation);
+    if (value !== undefined && !value.watched) {
+      value.watched = true;
+      released.register(host, { run, value, logger: reach.logger });
+    }
+  };
+  // What a listener of `event` registered through `operation` tells `value`.
+  const listeningTo = <Payload>(
+    operation: string,
+    event: string,
+    listener: Listener<Payload>,
+  ): Listening<Payload> => ({
+    event,
+    listener,
+    failed: (cause) => {
+      const error = new ListenerFailedError(
+        `${operation}: the listener of \`${event}\` threw, so it was removed`,
+        {
+          fix: "Fix the listener, then listen again with `on`.",
+          details: { event },
+          cause,
+        },
+      );
+      // Released first, nothing could raise it: it is logged.
+      if (value?.released === true) {
+        logFailures(reach.logger, [error]);
+      } else {
+        run.failures.push({ value, error });
+      }
+    },
+    // A call its Connection's close cancelled, or that stopped as its
+    // value closed (a handler's attempt ending), ended with everything
+    // else; any other error, such as `page_events_lost`, ended this
+    // listener alone, and nothing else would say so.
+    ended: (error) => {
+      if (error instanceof CallCancelledError || error instanceof ClosedError) {
+        return;
+      }
+      logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {
+        event,
+        error,
+      });
+    },
+  });
   // The Run's own calls also read their answer, since a Run report says when the Run ended.
   const sent = async <Result>(operation: string, send: () => Promise<Result>): Promise<Result> => {
     ensureCallable(operation);
@@ -277,44 +328,30 @@ function hostIn<Id>(
       event: string,
       listener: Listener<Payload>,
     ): Subscription {
-      ensureCallable(operation);
-      if (value !== undefined && !value.watched) {
-        value.watched = true;
-        released.register(host, { run, value, logger: reach.logger });
-      }
-      return subscribe((options) => reach.stream(operation, params, options), {
-        event,
-        listener,
-        failed: (cause) => {
-          const error = new ListenerFailedError(
-            `${operation}: the listener of \`${event}\` threw, so it was removed`,
-            {
-              fix: "Fix the listener, then listen again with `on`.",
-              details: { event },
-              cause,
-            },
-          );
-          // Released first, nothing could raise it: it is logged.
-          if (value?.released === true) {
-            logFailures(reach.logger, [error]);
-          } else {
-            run.failures.push({ value, error });
-          }
-        },
-        // A call its Connection's close cancelled, or that stopped as its
-        // value closed (a handler's attempt ending), ended with everything
-        // else; any other error, such as `page_events_lost`, ended this
-        // listener alone, and nothing else would say so.
-        ended: (error) => {
-          if (error instanceof CallCancelledError || error instanceof ClosedError) {
-            return;
-          }
-          logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {
-            event,
-            error,
-          });
-        },
-      });
+      ensureListenable(operation);
+      return subscribe(
+        (options) => reach.stream(operation, params, options),
+        listeningTo(operation, event, listener),
+      );
+    },
+    listenPublished<Name extends keyof CollieOperationTypes, Payload>(
+      operation: Name,
+      params: CollieOperationTypes[Name]["params"],
+      event: string,
+      param: string,
+      listener: Listener<Payload>,
+    ): Subscription {
+      ensureListenable(operation);
+      return subscribePublished(
+        (options) => reach.stream(operation, params, options),
+        reach.published,
+        (data) =>
+          typeof data === "object" &&
+          data !== null &&
+          param in data &&
+          Reflect.get(data, param) === id,
+        listeningTo(operation, event, listener),
+      );
     },
   };
   return host;
@@ -380,6 +417,7 @@ export class Run extends RunMembers implements AsyncDisposable {
                 ...options,
                 signal: alsoStoppedBy(options.signal, signal),
               }),
+            published: run.#host.published,
             logger: run.#host.logger,
           },
           run.#scope,

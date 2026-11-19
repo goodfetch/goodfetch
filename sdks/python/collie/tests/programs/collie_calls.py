@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from goodfetch_collie import AsyncCollie, Collie, GoodfetchError
+from goodfetch_collie_client.handle import NotGiven, not_given
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
+    from datetime import timedelta
 
     from goodfetch_collie import Limits
     from goodfetch_test_support import Way
@@ -23,12 +25,15 @@ CLIENT_LOGGER = "goodfetch.client"
 
 
 async def open_collie(
-    way: Way, env: Mapping[str, str], limits: Limits | None = None
+    way: Way,
+    env: Mapping[str, str],
+    limits: Limits | None = None,
+    connect_timeout: timedelta | NotGiven | None = not_given,
 ) -> AsyncCollie:
     """A Connection this way opened on the Attached engine `env` names."""
     return await way.open(
-        lambda: AsyncCollie.connect(env=env, limits=limits),
-        lambda: Collie.connect(env=env, limits=limits),
+        lambda: AsyncCollie.connect(env=env, limits=limits, timeout=connect_timeout),
+        lambda: Collie.connect(env=env, limits=limits, timeout=connect_timeout),
     )
 
 

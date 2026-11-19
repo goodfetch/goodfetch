@@ -10540,6 +10540,11 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        },
+        {
+          "const": "registered",
+          "description": "A program's only SDK handler of a kind that one setting chooses,\nregistered on its connection: the lowest of the run layer's origins,\nwhich every other replaces and configuration does not. A lock wins\nover it with no refusal, since the program never wrote the key (ADR\n0104's amendment of ADR 0083).",
+          "type": "string"
         }
       ]
     },
@@ -14774,6 +14779,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_host_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
       "exit_code": null,
       "group": "unavailable",
@@ -14864,6 +14879,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "challenge_unsolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.",
       "exit_code": null,
       "group": "unavailable",
@@ -14879,6 +14904,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "closed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "confinement_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -15471,6 +15506,16 @@
       "name": "person_required",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_crashed",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -24999,6 +25044,27 @@
         "connection",
         "run"
       ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "project_file_alone",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+      "fixed_for_run": false,
+      "name": "timeout.connect",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,

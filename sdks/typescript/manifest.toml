@@ -7,15 +7,18 @@
 # member with no entry not spelled from its words and form, a line naming a
 # member the generator writes, and a member whose words another SDK's
 # manifest lacks on a receiver both manifests list unless its `only` says
-# why that SDK lacks it. Matching this manifest to what the packages export is issue
-# 2920's; until then a member added by hand gets its line here.
+# why that SDK lacks it. `xtask sdk-exports` refuses a public hand-written
+# member a package's entry exports that no line lists on an entry exporting
+# it, and a line naming no such member; a member the language's library
+# declares, such as `Disposable`'s `[Symbol.dispose]`, may have a line.
 #
 # Forms: `opener` (a round trip that returns a value the caller closes),
 # `round_trip`, `read` (answered by the SDK without a round trip), `closer`
 # (the idempotent `close()` and its scoped form), `runtime` (what a
 # Product's package builds its Connection on, from
-# `@goodfetch/collie-client/runtime`, never for programs), `type` (a type
-# or class the generated layer builds on and re-exports) and `constant` (a
+# `@goodfetch/collie-client/runtime`, or a Client in a browser, from
+# `@goodfetch/collie-client/browser`, never for programs), `type` (a type
+# or class an entry exports) and `constant` (a
 # value, its words in capitals). `constructor` is spelled from its
 # receiver's words and `[Symbol.asyncDispose]` from `close`.
 
@@ -311,15 +314,6 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
-member = "openAttached"
-entry = "none"
-reason = "What each Product's `connect()` is: it starts the Product's Attached engine (ADRs 0024 and 0078) and opens the common Connection on it, `hello` naming the Product (ADR 0095); the Connection's `engine`, `start` and `close` are `Connection`'s."
-words = ["open", "attached"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
 member = "openOver"
 entry = "none"
 reason = "What each Product's `connectOver` is: the common Connection opened over a transport a test holds, `hello` naming the Product (ADRs 0069 and 0095)."
@@ -333,15 +327,6 @@ member = "pageOf"
 entry = "none"
 reason = "The Collie `Page` a Product's handler is served, bound to its Run and its attempt's signal (ADR 0093)."
 words = ["page", "of"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "idOfLocator"
-entry = "none"
-reason = "The `{page_id, selector}` a Collie `Locator`'s calls carry, which a Product's own calls name, such as a crawl's `crawl_request.enqueue_links` (ADR 0093)."
-words = ["id", "of", "locator"]
 form = "runtime"
 
 [[member]]
@@ -717,3 +702,1328 @@ entry = "none"
 reason = "Lets a Product's handle that extends another take its own namespace's operations in its raw call, as a crawl's Run takes `crawl`'s beside a Run's (ADR 0099)."
 words = ["also", "in", "namespace"]
 form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "code"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its Error code."
+words = ["code"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "group"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its code's group."
+words = ["group"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "retryable"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: whether the call may be retried."
+words = ["retryable"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "operation"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the operation the call made."
+words = ["operation"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "callId"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the call's ID in the Run trace."
+words = ["call", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "runId"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the Run the call belonged to."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "target"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what the call acted on."
+words = ["target"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "url"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the page's URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "observed"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what was there instead."
+words = ["observed"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "limit"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the setting that decided the outcome."
+words = ["limit"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "fix"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what to do about it."
+words = ["fix"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "callLog"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the engine's steps for the call."
+words = ["call", "log"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "usage"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the usage of the model calls the call made (ADR 0101)."
+words = ["usage"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "agentTask"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what `page.agent`'s task did before it failed (ADR 0100)."
+words = ["agent", "task"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "details"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its code's details, in wire names."
+words = ["details"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "GoodfetchError"
+member = "constructor"
+entry = "none"
+reason = "What each generated error class calls with its identity and fields (ADR 0079); the SDK raises errors, a program never constructs one."
+words = ["goodfetch", "error"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Connection"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095)."
+words = ["connection"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "EngineInfo"
+entry = "none"
+reason = "The engine a Connection reached, from the engine's reply to `hello` (ADR 0095)."
+words = ["engine", "info"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "StartOptions"
+entry = "none"
+reason = "What starting a Run takes (ADR 0102), shaped by the SDK around `run.start`'s params."
+words = ["start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ConnectOptions"
+entry = "none"
+reason = "The options of `connect()`, which no catalog entry shapes (ADR 0078)."
+words = ["connect", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ConnectOverOptions"
+entry = "none"
+reason = "The options of `connectOver()`, which no catalog entry shapes (ADR 0078)."
+words = ["connect", "over", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "EngineChoice"
+entry = "none"
+reason = "The engine `connect()` reaches: an Attached engine, a Daemon or a remote one (ADR 0078)."
+words = ["engine", "choice"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RemoteDaemon"
+entry = "none"
+reason = "A remote Daemon and the token its `hello` takes, which `connect()` reaches."
+words = ["remote", "daemon"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Limits"
+entry = "none"
+reason = "The Limits a program sets at `connect()` or on a Run's start (ADR 0080), which the SDK sends as `usage.set`."
+words = ["limits"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Money"
+entry = "none"
+reason = "A price of a Limit (ADR 0080): a decimal amount as a string, and its currency."
+words = ["money"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Logger"
+entry = "none"
+reason = "The host program's logger, which the SDK writes through and nowhere else."
+words = ["logger"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Logger"
+member = "debug"
+entry = "none"
+reason = "A method the host program's logger implements, which the SDK calls to write at level `debug`."
+words = ["debug"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Logger"
+member = "info"
+entry = "none"
+reason = "A method the host program's logger implements, which the SDK calls to write at level `info`."
+words = ["info"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Logger"
+member = "warn"
+entry = "none"
+reason = "A method the host program's logger implements, which the SDK calls to write at level `warn`."
+words = ["warn"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Logger"
+member = "error"
+entry = "none"
+reason = "A method the host program's logger implements, which the SDK calls to write at level `error`."
+words = ["error"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Logger"
+member = "level"
+entry = "none"
+reason = "The lowest level the host program's logger records, which the SDK reads to ask the engine for its logs at that level."
+words = ["level"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Run"
+entry = "none"
+reason = "The Run the Connection's start opens (ADR 0102), which the generated handle of `run` extends."
+words = ["run"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "keyValueStore"
+entry = "none"
+reason = "The Run's Key-value store, opened with the Run, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "constructor"
+entry = "none"
+reason = "The Connection's start opens a Run; a program never constructs one."
+words = ["run"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Handle"
+member = "constructor"
+entry = "none"
+reason = "What a generated handle calls with its host, its namespace and the parameter its ID fills; a program never constructs one."
+words = ["handle"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "next"
+entry = "none"
+reason = "The async iterator protocol's step: the next item the engine streamed, or the end."
+words = ["next"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "return"
+entry = "none"
+reason = "The async iterator protocol's early end, which `for await`'s `break` calls: it stops reading as `close()` does."
+words = ["return"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "[Symbol.asyncIterator]"
+entry = "none"
+reason = "Makes the sequence what `for await` reads."
+words = ["async", "iterator"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "constructor"
+entry = "none"
+reason = "A Product's package makes it, for the method that reads the sequence; a program never constructs one."
+words = ["sequence"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "KeyValueStore"
+entry = "none"
+reason = "A Run's Key-value store: `run.keyValueStore`, whose methods serve the `key_value_store` operations."
+words = ["key", "value", "store"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "set"
+entry = "key_value_store.set"
+words = ["set"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "getBytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "setBytes"
+entry = "key_value_store.set_bytes"
+words = ["set", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "delete"
+entry = "key_value_store.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "constructor"
+entry = "none"
+reason = "A Run opens its store; a program never constructs one."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "StoredBytes"
+entry = "none"
+reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
+words = ["stored", "bytes"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "StoredValue"
+entry = "none"
+reason = "What the Key-value store keeps: any JSON value but a top-level null."
+words = ["stored", "value"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "JSONObject"
+entry = "none"
+reason = "A JSON object, which the SDK's hand-written types name."
+words = ["json", "object"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "JSONValue"
+entry = "none"
+reason = "A JSON value, which the SDK's hand-written types name."
+words = ["json", "value"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "JSONSchema"
+entry = "none"
+reason = "A JSON Schema document written by hand, which a call taking a schema accepts."
+words = ["json", "schema"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Schema"
+entry = "none"
+reason = "A schema a call takes: a typed one, or a JSON Schema written by hand."
+words = ["schema"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SchemaInput"
+entry = "none"
+reason = "What a program sends under a schema: its input type, or a JSON value."
+words = ["schema", "input"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SchemaOutput"
+entry = "none"
+reason = "What a program receives under a schema: its output type, or a JSON value."
+words = ["schema", "output"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "StandardJSONSchemaV1"
+entry = "none"
+reason = "The Standard JSON Schema interface, version 1, which a typed schema implements."
+words = ["standard", "json", "schema", "v1"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "StandardSchemaV1"
+entry = "none"
+reason = "The Standard Schema interface, version 1, which a typed schema implements."
+words = ["standard", "schema", "v1"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "TypedSchema"
+entry = "none"
+reason = "A schema in the program's own types: Standard Schema with Standard JSON Schema."
+words = ["typed", "schema"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "FieldValue"
+entry = "none"
+reason = "The value one field declaration answers (ADR 0147), typed from the declaration."
+words = ["field", "value"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "FieldValues"
+entry = "none"
+reason = "Each field's value under its name, typed from the field declarations (ADR 0147)."
+words = ["field", "values"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "(module)"
+member = "Collie"
+entry = "none"
+reason = "Collie's Connection, the entry point (ADR 0078)."
+words = ["collie"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "Channel"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): one transport's calls."
+words = ["channel"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "ended"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the error every call fails with once the transport ended."
+words = ["ended"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "call"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): sends a request and answers its result."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "open"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): sends a request the engine streams to and answers its id at once."
+words = ["open"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "notify"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): sends a notification, such as `$/credit`."
+words = ["notify"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "cancelAll"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): fails every waiting call, sending each its `$/cancel`."
+words = ["cancel", "all"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "close"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): ends the Client's side of the transport."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "abandon"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): ends the Client's side without waiting for what is still to be written."
+words = ["abandon"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "constructor"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): opens the calls of one transport."
+words = ["channel"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "ChannelCallOptions"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the options of one call."
+words = ["channel", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "ChannelOpenOptions"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the options of a call the engine streams to."
+words = ["channel", "open", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "ChannelOwner"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what a channel's owner decides about its end and its replies."
+words = ["channel", "owner"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "ChannelOwner"
+member = "ended"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what the owner gives the channel: the error every call fails with once the transport ended."
+words = ["ended"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "ChannelOwner"
+member = "failure"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what the owner gives the channel: the error a JSON-RPC `error` reply raises."
+words = ["failure"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "ChannelOwner"
+member = "serve"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what the owner gives the channel: serves a request the engine sent, such as Foxhound's `crawl_request.handle`."
+words = ["serve"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "ChannelOwner"
+member = "notified"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what the owner gives the channel: hears each notification that names no call, such as `$/log`."
+words = ["notified"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "OpenCall"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): a call in flight: its id and its answer."
+words = ["open", "call"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Transport"
+entry = "none"
+reason = "The bytes a Connection runs over, newline-delimited JSON-RPC each way: an Attached engine's stdio or the Scripted engine's player."
+words = ["transport"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "TransportEnd"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): how the engine's side of a transport ended."
+words = ["transport", "end"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "encodeMessage"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the bytes of one message, its line ended."
+words = ["encode", "message"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "parseLine"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the JSON-RPC message one line holds."
+words = ["parse", "line"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "Message"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): one message the engine sent."
+words = ["message"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "MessageId"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): a JSON-RPC request or reply id."
+words = ["message", "id"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "subscribeEvents"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): subscribes to the event stream, granting it credits."
+words = ["subscribe", "events"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "EventsSubscription"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): an event stream's subscription in flight."
+words = ["events", "subscription"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscription"
+member = "id"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): its call's id, which its batches and credits name."
+words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscription"
+member = "ended"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): settles once the subscription ends."
+words = ["ended"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscription"
+member = "grant"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): lets the engine send more events."
+words = ["grant"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "EventsSubscriptionOptions"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): how to subscribe to the event stream."
+words = ["events", "subscription", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscriptionOptions"
+member = "after"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the subscription's option of the event to resume after."
+words = ["after"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscriptionOptions"
+member = "signal"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the subscription's option of what ends the subscription with `$/cancel`."
+words = ["signal"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "EventsSubscriptionOptions"
+member = "received"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the subscription's option of what hears each batch."
+words = ["received"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "LastRead"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the last event a Client read: its engine instance and its position."
+words = ["last", "read"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "StreamedEvent"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): one event of a `$/events` batch, as the wire carries it."
+words = ["streamed", "event"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "(module)"
+member = "errorOfReply"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): the error a JSON-RPC `error` reply raises."
+words = ["error", "of", "reply"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "ErrorClasses"
+entry = "none"
+reason = "The error classes a Connection raises by code, its Product's own, which a Product's package gives `openEngine`."
+words = ["error", "classes"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "Caller"
+member = "call"
+entry = "none"
+reason = "What the generated operations send each call through (ADR 0038), which a Product's Connection implements."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "ClientConnection"
+entry = "none"
+reason = "The common Connection under each Product's Connection type (ADR 0095)."
+words = ["client", "connection"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "engine"
+entry = "none"
+reason = "The Attached engine the common Connection started, which a Product's Connection waits for at its close."
+words = ["engine"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "close"
+entry = "none"
+reason = "Closes the common Connection's Runs, cancels its calls, then ends its Attached engine (ADR 0078); a Product's `close()` is it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "[Symbol.asyncDispose]"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "open"
+entry = "none"
+reason = "Opens the common Connection over a transport and finishes `hello` and its Limits, which `openEngine` and `openOver` call."
+words = ["open"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Served"
+entry = "none"
+reason = "What serves one kind of the engine's requests, which `ClientConnection.serve` takes."
+words = ["served"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Stream"
+entry = "none"
+reason = "A call the engine streams to, which `ClientConnection.stream` answers."
+words = ["stream"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "result"
+entry = "none"
+reason = "The streamed call's answer, once the engine has sent what it streams."
+words = ["result"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "grant"
+entry = "none"
+reason = "Grants the engine credits for more notifications of the streamed call."
+words = ["grant"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "FileSaving"
+entry = "none"
+reason = "ADR 0116's writer of one path from bytes that arrive in parts."
+words = ["file", "saving"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "FileWriteOptions"
+entry = "none"
+reason = "What a write names in its errors' `fix`, which `writeFileWhole` and `FileSaving.create` take."
+words = ["file", "write", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Saved"
+entry = "none"
+reason = "What a Product's save call answers: whether the engine wrote the path itself."
+words = ["saved"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "ensureRunOpen"
+entry = "none"
+reason = "Fails a call a Product's Run type adds once the Run is closed, as each of a Run's own calls does."
+words = ["ensure", "run", "open"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "RunHost"
+entry = "none"
+reason = "What a Run reaches its engine through: its Connection, which a Product's Run type is built on."
+words = ["run", "host"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "calls"
+entry = "none"
+reason = "What a Run reaches through its Connection: the Connection's calls."
+words = ["calls"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "raw"
+entry = "none"
+reason = "What a Run reaches through its Connection: the Connection's raw calls (ADR 0099)."
+words = ["raw"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "reachable"
+entry = "none"
+reason = "What a Run reaches through its Connection: whether the Connection can still reach the engine."
+words = ["reachable"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "stream"
+entry = "none"
+reason = "What a Run reaches through its Connection: sends a call the engine streams to."
+words = ["stream"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "published"
+entry = "none"
+reason = "What a Run reaches through its Connection: the Connection's own Subscription, which its listeners of published events share."
+words = ["published"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "forget"
+entry = "none"
+reason = "What a Run reaches through its Connection: forgets a closed Run."
+words = ["forget"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "keyValueStore"
+entry = "none"
+reason = "What a Run reaches through its Connection: its Key-value store's calls."
+words = ["key", "value", "store"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "logger"
+entry = "none"
+reason = "What a Run reaches through its Connection: the host program's logger."
+words = ["logger"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "SequenceOptions"
+entry = "none"
+reason = "What a Product's sequence reads, and how, which `Sequence`'s maker takes."
+words = ["sequence", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "TimePath"
+entry = "none"
+reason = "Where a value holds points in time, which `withTimes` reads."
+words = ["time", "path"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Times"
+entry = "none"
+reason = "A Product's table of where its types and results hold points in time, which `withTimes` reads."
+words = ["times"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "openEngine"
+entry = "none"
+reason = "What each Product's `connect()` is: it reaches the engine its options choose and finishes `hello`, naming the Product (ADR 0078)."
+words = ["open", "engine"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "EngineLocation"
+entry = "none"
+reason = "Where to start a Product's engine, which `openEngine` and `locateEngine` take."
+words = ["engine", "location"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "ProductPackage"
+entry = "none"
+reason = "What tells one Product's package from the other's when it connects, which `openEngine` takes."
+words = ["product", "package"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Foxhound"
+entry = "none"
+reason = "Foxhound's Connection, the entry point (ADR 0078)."
+only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FoxhoundConnectOptions"
+entry = "none"
+reason = "The options of `Foxhound.connect()`, with Foxhound's Limits."
+only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+words = ["foxhound", "connect", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FoxhoundConnectOverOptions"
+entry = "none"
+reason = "The options of `connectOver()`, with Foxhound's Limits."
+only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+words = ["foxhound", "connect", "over", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FoxhoundLimits"
+entry = "none"
+reason = "Foxhound's Limits (ADR 0080): Collie's, and Paid fetches."
+only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+words = ["foxhound", "limits"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FoxhoundStartOptions"
+entry = "none"
+reason = "What starting a Run takes, with Foxhound's Limits."
+only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+words = ["foxhound", "start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "StartCrawlOptions"
+entry = "none"
+reason = "What `Foxhound.startCrawl` takes (ADR 0093)."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["start", "crawl", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Crawl"
+entry = "none"
+reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["crawl"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Dataset"
+entry = "none"
+reason = "A Dataset a crawl's handlers push Records to (ADR 0103)."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["dataset"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Label"
+entry = "none"
+reason = "A kind of page a crawl handles (ADR 0093)."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["label"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "CrawlContext"
+entry = "none"
+reason = "What a handler's attempt holds (ADR 0093): its page and the calls that add to the crawl."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["crawl", "context"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "DatasetOptions"
+entry = "none"
+reason = "What `crawl.dataset` takes."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["dataset", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "EnqueueLinksOptions"
+entry = "none"
+reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["enqueue", "links", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Handler"
+entry = "none"
+reason = "What handles one Label's pages, for each `crawl_request.handle` (ADR 0093)."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["handler"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "LabelOptions"
+entry = "none"
+reason = "What `crawl.label` takes."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["label", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RequestOptions"
+entry = "none"
+reason = "What `context.enqueue` and `seed` take besides the URL, the Label and the Payload."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["request", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "CrawlRun"
+entry = "none"
+reason = "A crawl's Run, which `Foxhound.startCrawl` opens (ADR 0102)."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["crawl", "run"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordsOptions"
+entry = "none"
+reason = "What `CrawlRun.records()` takes."
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
+words = ["records", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Dataset"
+member = "constructor"
+entry = "none"
+reason = "`crawl.dataset` declares a Dataset; a program never constructs one."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Label"
+member = "constructor"
+entry = "none"
+reason = "`crawl.label` declares a Label; a program never constructs one."
+words = ["label"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "constructor"
+entry = "none"
+reason = "`Foxhound.startCrawl` opens a crawl's Run; a program never constructs one."
+words = ["crawl", "run"]
+form = "read"

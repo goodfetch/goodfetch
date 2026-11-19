@@ -31,6 +31,7 @@ from collie_tracer import Traced, start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
     ClosedError,
+    DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
     EngineOutputInvalidError,
@@ -377,6 +378,97 @@ async def test_sends_a_timeout_in_its_three_states(
         "the script played to its end, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers(
+    "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
+)
+@pytest.mark.client_case(id="connect-timeout-three-states", mode="attached")
+@three_ways
+async def test_fails_a_connect_whose_hello_is_unanswered_past_its_timeout(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Past `connect()`'s own `timeout`, an unanswered `hello` fails the connect.
+
+    The first script never answers `hello`; with `timeout=None`, the second
+    answers it and the connect waits with no deadline (ADR 0083).
+    """
+    silent = scripted_engine_env(
+        test_env, product, "sdk-python/connect/hello-never-answered.json"
+    )
+    late = await failure(
+        open_collie(way, silent, connect_timeout=timedelta(milliseconds=200))
+    )
+    # The second script replaces the first in the home once its engine ended.
+    answering = scripted_engine_env(
+        test_env, product, "sdk-python/run/started-and-finished.json"
+    )
+    none = await open_collie(way, answering, connect_timeout=None)
+    await (await none.start()).finish()
+    await none.close()
+
+    with client_case.check(
+        "a hello unanswered past the connect's own timeout fails it, naming"
+        " timeout.connect given as an argument"
+    ):
+        assert isinstance(late, DeadlineExceededError)
+        assert late.limit is not None
+        assert (
+            late.limit.key,
+            late.limit.value,
+            late.limit.layer,
+            late.limit.origin,
+        ) == ("timeout.connect", 200, "run", "argument")
+        assert late.details["waited_for"] == "hello"
+    with client_case.check(
+        "both scripts played to their end, so no engine wrote a failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-42", "setting:timeout.connect")
+@pytest.mark.client_case(id="connect-timeout-three-states", mode="attached")
+@pytest.mark.parametrize(
+    ("given", "value"),
+    [
+        pytest.param(timedelta(0), 0, id="zero"),
+        pytest.param(timedelta(seconds=-1), -1000, id="negative"),
+    ],
+)
+@three_ways
+async def test_refuses_a_connect_timeout_of_zero_or_less_before_the_engine_starts(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    given: timedelta,
+    value: float,
+) -> None:
+    """The refused connect starts no engine, so its script plays nothing."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/hello-never-answered.json"
+    )
+
+    refused = await failure(open_collie(way, env, connect_timeout=given))
+
+    with client_case.check(
+        "a connect timeout of zero or less is refused, naming timeout.connect"
+        " and the null form"
+    ):
+        assert isinstance(refused, SettingInvalidError)
+        assert refused.limit is not None
+        assert (
+            refused.limit.key,
+            refused.limit.value,
+            refused.limit.layer,
+            refused.limit.origin,
+        ) == ("timeout.connect", value, "run", "argument")
+        assert refused.fix is not None
+        assert "`timeout=None`" in refused.fix
 
 
 @pytest.mark.covers("story:11-40", "story:11-42")

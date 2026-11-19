@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "module": "nodenext",
+    "target": "es2024",
+    "lib": ["es2024", "esnext.disposable"],
+    "types": []
+  },
+  "include": ["src"]
+}

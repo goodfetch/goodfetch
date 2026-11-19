@@ -163,6 +163,31 @@ export class Run extends Handle {
   }
 }
 
+/** The events a `Session` listens to with `on`, under Playwright's names (ADR 0081), and what its listener gets of each. */
+export interface SessionEvents {
+  /**
+   * A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.
+   */
+  readonly page: Page;
+}
+
+/** The payload the engine publishes for each of `SessionEvents`. */
+interface SessionPayloads {
+  readonly page: types.PageOpened;
+}
+
+/** The value `session.on` names each of `SessionEvents` by. */
+const SESSION_EVENTS = {
+  page: "page",
+} as const satisfies { readonly [Name in keyof SessionEvents]: types.SessionOnParams["event"] };
+
+/** What builds each of `SessionEvents` from its payload, with the host of the `session` that listens. */
+const SESSION_EVENTS_VALUES: {
+  readonly [Name in keyof SessionEvents]: (host: HandleHost<types.SessionId, CollieOperationTypes>, payload: SessionPayloads[Name]) => SessionEvents[Name];
+} = {
+  page: (host, payload) => new Page(host.child(payload.page_id)),
+};
+
 let idInSession: (handle: Session) => types.SessionId;
 
 /** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
@@ -213,6 +238,19 @@ export class Session extends Handle implements AsyncDisposable {
   async pages(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.SessionPages["pages"]> {
     warnExperimental("session.pages");
     return (await this.#host.call("session.pages", { session_id: this.#host.id }, { signal: options.signal })).pages;
+  }
+
+  /**
+   * Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+   *
+   * @experimental
+   */
+  on<Name extends keyof SessionEvents>(event: Name, listener: Listener<SessionEvents[Name]>): Subscription {
+    warnExperimental("session.on");
+    const listened = SESSION_EVENTS[event];
+    warnEntry(collieEvents, `session.${listened}`);
+    const build = SESSION_EVENTS_VALUES[event];
+    return this.#host.listenPublished("session.on", { session_id: this.#host.id, event: listened }, `session.${listened}`, "session_id", (payload: SessionPayloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -465,6 +503,7 @@ export class Page extends Handle implements AsyncDisposable {
    * @experimental
    */
   on<Name extends keyof PageEvents>(event: Name, listener: Listener<PageEvents[Name]>): Subscription {
+    warnExperimental("page.on");
     const listened = PAGE_EVENTS[event];
     warnEntry(collieEvents, `page.${listened}`);
     return this.#host.listen("page.on", { page_id: this.#host.id, event: listened }, `page.${listened}`, listener);

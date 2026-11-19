@@ -308,7 +308,9 @@ pub(crate) enum Finding {
 
 /// How each of `fields` finds its elements, in the order of their names,
 /// each field checked as the engine reads it on every tier: its locators,
-/// then what the extractor's `fields::check` refuses.
+/// then what the extractor's `fields::check` refuses. A field's locator
+/// ladder (issue 1972) finds once per rung, as the extractor's `Fields`
+/// reads it: [`finding`].
 ///
 /// # Errors
 ///
@@ -317,37 +319,54 @@ pub(crate) fn findings(
     fields: &BTreeMap<String, PageField>,
     work: &CountedWork,
 ) -> Result<Vec<Finding>, String> {
-    fields
-        .iter()
-        .map(|(name, field)| {
-            let finding = finding(name, field, work)?;
-            declared::check(name, field, work)?;
-            Ok(finding)
-        })
-        .collect()
+    let mut findings = Vec::with_capacity(fields.len());
+    for (name, field) in fields {
+        finding(name, field, work, &mut findings)?;
+        declared::check(name, field, work)?;
+    }
+    Ok(findings)
 }
 
-/// How the field `name` finds its elements, its locators read through
-/// `work`'s cache and nothing else of it checked.
+/// How the field `name` finds its elements, pushed onto `findings`, its
+/// locators read through `work`'s cache and nothing else of it checked: a
+/// value field's or a list's one finding per rung of its locator ladder,
+/// in order, and rows' one, which finds each rung of each of its fields
+/// under each row.
 ///
 /// # Errors
 ///
 /// The sentence refusing a locator the engine does not read.
-fn finding(name: &str, field: &PageField, work: &CountedWork) -> Result<Finding, String> {
+fn finding(
+    name: &str,
+    field: &PageField,
+    work: &CountedWork,
+    findings: &mut Vec<Finding>,
+) -> Result<(), String> {
     let locate = |name: &str, locator: &FieldLocator| {
         locating(locator, work).map_err(|invalid| format!("The field `{name}`'s {invalid}."))
     };
-    Ok(match field {
-        PageField::Value(field) => Finding::One(locate(name, &field.locator)?),
-        PageField::List(list) => Finding::List(locate(name, &list.list.locator)?),
-        PageField::Rows(rows) => Finding::Rows(
-            locate(name, &rows.rows)?,
-            rows.fields
-                .iter()
-                .map(|(row_field, field)| locate(&format!("{name}/{row_field}"), &field.locator))
-                .collect::<Result<_, _>>()?,
-        ),
-    })
+    match field {
+        PageField::Value(field) => {
+            for rung in field.rungs() {
+                findings.push(Finding::One(locate(name, rung)?));
+            }
+        }
+        PageField::List(list) => {
+            for rung in list.list.rungs() {
+                findings.push(Finding::List(locate(name, rung)?));
+            }
+        }
+        PageField::Rows(rows) => {
+            let mut rungs = Vec::new();
+            for (row_field, field) in &rows.fields {
+                for rung in field.rungs() {
+                    rungs.push(locate(&format!("{name}/{row_field}"), rung)?);
+                }
+            }
+            findings.push(Finding::Rows(locate(name, &rows.rows)?, rungs));
+        }
+    }
+    Ok(())
 }
 
 /// Refuses `fields` when the engine could never read one of them, as
@@ -365,18 +384,21 @@ pub fn check_fields(
     findings(fields, work).map(drop)
 }
 
-/// Each of `fields`' locators, in the order of their names, when every one
-/// is a value field: what an untouched page's readers find as they read it
-/// (the `untouched` module); `None` when one is a list or rows.
+/// Each of `fields`' locators, in the order of their names, each one's
+/// locator ladder's rungs in order (issue 1972), when every one is a value
+/// field: what an untouched page's readers find as they read it (the
+/// `untouched` module), one find per rung, as the extractor's `Fields`
+/// reads them; `None` when one is a list or rows.
 #[must_use]
 pub fn value_locators(fields: &BTreeMap<String, PageField>) -> Option<Vec<FieldLocator>> {
-    fields
-        .values()
-        .map(|field| match field {
-            PageField::Value(field) => Some(field.locator.clone()),
-            PageField::List(_) | PageField::Rows(_) => None,
-        })
-        .collect()
+    let mut locators = Vec::with_capacity(fields.len());
+    for field in fields.values() {
+        match field {
+            PageField::Value(field) => locators.extend(field.rungs().cloned()),
+            PageField::List(_) | PageField::Rows(_) => return None,
+        }
+    }
+    Some(locators)
 }
 
 /// What each of a crawl's `fields` finds in `document`, a served page's
@@ -391,10 +413,10 @@ pub(crate) fn found(
     fields: &BTreeMap<String, PageField>,
     work: &CountedWork,
 ) -> Result<Vec<Found>, String> {
-    let findings = fields
-        .iter()
-        .map(|(name, field)| finding(name, field, work))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut findings = Vec::with_capacity(fields.len());
+    for (name, field) in fields {
+        finding(name, field, work, &mut findings)?;
+    }
     Ok(found_in(document, &findings))
 }
 

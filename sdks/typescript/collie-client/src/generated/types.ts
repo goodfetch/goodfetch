@@ -3919,7 +3919,17 @@ export interface ValueField {
    */
   attribute?: string | null;
   /**
-   * What finds its element.
+   * Its locator ladder's further rungs: when `locator` finds no
+   * element, the first of these, in order, that finds one supplies it;
+   * in a list, the first that finds any; in rows, the first that finds
+   * one under the row's element. Each is checked as `locator` is when
+   * the call or crawl starts.
+   */
+  fallbacks?: FieldLocator[];
+  /**
+   * What finds a field's element, named by `kind`: a CSS selector or an
+   * `XPath` expression, each read alike on every tier, a page a fetch tier
+   * serves from its document reading it as a browser reads it.
    */
   locator:
     | {
@@ -5179,7 +5189,17 @@ export interface ValueField1 {
    */
   attribute?: string | null;
   /**
-   * What finds its element.
+   * Its locator ladder's further rungs: when `locator` finds no
+   * element, the first of these, in order, that finds one supplies it;
+   * in a list, the first that finds any; in rows, the first that finds
+   * one under the row's element. Each is checked as `locator` is when
+   * the call or crawl starts.
+   */
+  fallbacks?: FieldLocator[];
+  /**
+   * What finds a field's element, named by `kind`: a CSS selector or an
+   * `XPath` expression, each read alike on every tier, a page a fetch tier
+   * serves from its document reading it as a browser reads it.
    */
   locator:
     | {
@@ -5250,7 +5270,9 @@ export interface RowsField {
     [k: string]: ValueField2;
   };
   /**
-   * What finds each row's element.
+   * What finds a field's element, named by `kind`: a CSS selector or an
+   * `XPath` expression, each read alike on every tier, a page a fetch tier
+   * serves from its document reading it as a browser reads it.
    */
   rows:
     | {
@@ -5269,10 +5291,11 @@ export interface RowsField {
       };
 }
 /**
- * A value field (ADRs 0123 and 0147): the first element its locator finds
- * in the page, its text, its runs of white space read as one space and
- * trimmed, or one of its attributes, an `href` or `src` resolved against
- * the document's base URL; optionally a capture group of a regular
+ * A value field (ADRs 0123 and 0147): the first element its locator
+ * ladder finds in the page, its locator tried first, then each of its
+ * `fallbacks` in turn until one finds an element; its text, its runs of
+ * white space read as one space and trimmed, or one of its attributes, an
+ * `href` or `src` resolved against the document's base URL; optionally a capture group of a regular
  * expression over that text; then its Value transform. A field the page
  * does not give is null, with why.
  *
@@ -5285,7 +5308,17 @@ export interface ValueField2 {
    */
   attribute?: string | null;
   /**
-   * What finds its element.
+   * Its locator ladder's further rungs: when `locator` finds no
+   * element, the first of these, in order, that finds one supplies it;
+   * in a list, the first that finds any; in rows, the first that finds
+   * one under the row's element. Each is checked as `locator` is when
+   * the call or crawl starts.
+   */
+  fallbacks?: FieldLocator[];
+  /**
+   * What finds a field's element, named by `kind`: a CSS selector or an
+   * `XPath` expression, each read alike on every tier, a page a fetch tier
+   * serves from its document reading it as a browser reads it.
    */
   locator:
     | {
@@ -6582,7 +6615,9 @@ export interface RowsField1 {
     [k: string]: ValueField2;
   };
   /**
-   * What finds each row's element.
+   * What finds a field's element, named by `kind`: a CSS selector or an
+   * `XPath` expression, each read alike on every tier, a page a fetch tier
+   * serves from its document reading it as a browser reads it.
    */
   rows:
     | {

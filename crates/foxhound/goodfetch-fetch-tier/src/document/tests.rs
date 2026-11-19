@@ -10,8 +10,8 @@ use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use serde_json::json;
 
 use super::{
-    LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath, first_elements_in,
-    found, locating, matched,
+    LocatorInvalid, Matched, SelectorInvalid, check_fields, check_selector, check_xpath,
+    first_elements_in, found, locating, matched, value_locators,
 };
 
 /// Counts no test of this file reads.
@@ -319,6 +319,23 @@ fn a_list_finds_every_element_and_each_row_its_fields_under_it() {
     } }),
     "The field `products/name`'s",
 )]
+#[case::a_value_fields_later_rung(
+    json!({ "title": {
+        "locator": { "kind": "css", "selector": "h1" },
+        "fallbacks": [{ "kind": "css", "selector": "h2" }, { "kind": "css", "selector": "p[" }],
+    } }),
+    "The field `title`'s `p[` is no CSS selector.",
+)]
+#[case::a_row_fields_later_rung(
+    json!({ "products": {
+        "rows": { "kind": "css", "selector": "li" },
+        "fields": { "name": {
+            "locator": { "kind": "css", "selector": "a" },
+            "fallbacks": [{ "kind": "xpath", "selector": "count(a)" }],
+        } },
+    } }),
+    "The field `products/name`'s `count(a)` is no XPath",
+)]
 fn a_field_whose_locator_the_engine_does_not_read_is_refused_by_name(
     #[case] declared: serde_json::Value,
     #[case] refused: &str,
@@ -329,4 +346,89 @@ fn a_field_whose_locator_the_engine_does_not_read_is_refused_by_name(
     let sentence = found(&tree(LISTING), &fields, &no_counts()).unwrap_err();
 
     assert!(sentence.starts_with(refused), "{sentence}");
+}
+
+/// A field's locator ladder (issue 1972) expands into the flat list of
+/// finds the tree already reads: one per rung of a value field or a list,
+/// in order, and each rung of a row's fields under each row, so the
+/// extractor reads the first rung that found an element.
+#[test]
+fn a_ladder_finds_once_per_rung_in_order() {
+    let fields: std::collections::BTreeMap<String, PageField> = serde_json::from_value(json!({
+        "names": { "list": {
+            "locator": { "kind": "css", "selector": "li b" },
+            "fallbacks": [{ "kind": "css", "selector": "li a" }],
+        } },
+        "products": {
+            "rows": { "kind": "css", "selector": "li.product" },
+            "fields": {
+                "name": { "locator": { "kind": "css", "selector": "a" } },
+                "price": {
+                    "locator": { "kind": "css", "selector": ".cost" },
+                    "fallbacks": [{ "kind": "xpath", "selector": "./span[@class='price']" }],
+                },
+            },
+        },
+        "total": {
+            "locator": { "kind": "css", "selector": "aside" },
+            "fallbacks": [{ "kind": "xpath", "selector": "/html/body/span" }],
+        },
+    }))
+    .unwrap();
+    let (delta, boxed) = (
+        field("a", "Delta", &[("href", "/kites/delta")]),
+        field("a", "Box", &[("href", "/kites/box")]),
+    );
+    let price = |text: &str| field("span", text, &[("class", "price")]);
+
+    assert_eq!(
+        found(&tree(LISTING), &fields, &no_counts()),
+        Ok(vec![
+            Found::List(Vec::new()),
+            Found::List(vec![delta.clone(), boxed.clone()]),
+            Found::Rows(vec![
+                vec![Some(delta), None, Some(price("12"))],
+                vec![Some(boxed), None, None],
+            ]),
+            Found::One(None),
+            Found::One(Some(price("99"))),
+        ])
+    );
+}
+
+/// The locators an untouched page's readers read for value fields are
+/// each field's rungs in order (issue 1972); a field with no `fallbacks`
+/// gives its one locator, as before, and a start checks every rung.
+#[test]
+fn value_fields_give_their_rungs_and_one_locator_each_without_fallbacks() {
+    let css = |selector: &str| FieldLocator::Css {
+        selector: selector.to_owned(),
+    };
+    let declared = |fields: serde_json::Value| -> std::collections::BTreeMap<String, PageField> {
+        serde_json::from_value(fields).unwrap()
+    };
+    let plain = declared(json!({
+        "name": { "locator": { "kind": "css", "selector": "h1" } },
+        "price": { "locator": { "kind": "xpath", "selector": "//span" } },
+    }));
+    let laddered = declared(json!({
+        "name": {
+            "locator": { "kind": "css", "selector": "h2" },
+            "fallbacks": [{ "kind": "css", "selector": "h1" }],
+        },
+        "price": { "locator": { "kind": "xpath", "selector": "//span" } },
+    }));
+
+    assert_eq!(
+        (
+            value_locators(&plain),
+            value_locators(&laddered),
+            check_fields(&laddered, &no_counts()),
+        ),
+        (
+            Some(vec![css("h1"), xpath("//span")]),
+            Some(vec![css("h2"), css("h1"), xpath("//span")]),
+            Ok(()),
+        )
+    );
 }

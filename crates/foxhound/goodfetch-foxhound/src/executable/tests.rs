@@ -148,7 +148,8 @@ fn crawl_starts_flags_give_its_seeds_and_extraction(
 }
 
 /// `--seeds-file` adds a seed per line, a URL or a seed as JSON, after the
-/// URLs; `--fields` reads named fields in the catalog's JSON form, which a
+/// URLs; `--fields` reads named fields in the catalog's JSON form, a
+/// locator ladder's `fallbacks` among it (issue 1972), which a
 /// `--field` of the same name beats.
 ///
 /// Covers: story:11-1132
@@ -168,7 +169,7 @@ fn crawl_start_reads_seeds_and_fields_from_files() {
     let fields = folder.path().join("fields.json");
     std::fs::write(
         &fields,
-        r#"{"price":{"locator":{"kind":"css","selector":".price"},"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
+        r#"{"price":{"locator":{"kind":"css","selector":".price"},"fallbacks":[{"kind":"xpath","selector":"//b"}],"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
     )
     .unwrap();
 
@@ -204,6 +205,7 @@ fn crawl_start_reads_seeds_and_fields_from_files() {
                 "fields": {
                     "price": {
                         "locator": { "kind": "css", "selector": ".price" },
+                        "fallbacks": [{ "kind": "xpath", "selector": "//b" }],
                         "attribute": "data-price",
                     },
                     "title": { "locator": { "kind": "css", "selector": "h1" } },

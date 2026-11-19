@@ -15,6 +15,7 @@ fn text(selector: &str) -> ValueField {
     ValueField {
         locator: css(selector),
         attribute: None,
+        fallbacks: Vec::new(),
         matched: None,
         transform: FieldTransform::Text,
     }
@@ -24,6 +25,13 @@ fn text(selector: &str) -> ValueField {
 #[case::a_value_field(
     json!({ "locator": { "kind": "css", "selector": "h1" } }),
     PageField::Value(text("h1")),
+)]
+#[case::a_value_field_with_a_ladder(
+    json!({
+        "locator": { "kind": "css", "selector": "h1" },
+        "fallbacks": [{ "kind": "css", "selector": "h2" }, { "kind": "css", "selector": ".title" }],
+    }),
+    PageField::Value(ValueField { fallbacks: vec![css("h2"), css(".title")], ..text("h1") }),
 )]
 #[case::a_list(
     json!({ "list": { "locator": { "kind": "css", "selector": "li" } } }),
@@ -61,4 +69,28 @@ fn a_field_is_a_value_field_a_list_or_rows(#[case] declared: Value, #[case] fiel
 }))]
 fn a_declaration_that_is_none_of_the_three_is_refused(#[case] declared: Value) {
     assert!(serde_json::from_value::<PageField>(declared).is_err());
+}
+
+/// A field with no `fallbacks` writes none, so its declaration reads as it
+/// did before ladders (issue 1972); its rungs are its locator alone.
+#[test]
+fn a_field_without_fallbacks_writes_none_and_its_rungs_are_its_locator() {
+    let field = text("h1");
+    let laddered = ValueField {
+        fallbacks: vec![css("h2")],
+        ..text("h1")
+    };
+
+    assert_eq!(
+        (
+            serde_json::to_value(&field).unwrap(),
+            field.rungs().collect::<Vec<_>>(),
+            laddered.rungs().collect::<Vec<_>>(),
+        ),
+        (
+            json!({ "locator": { "kind": "css", "selector": "h1" }, "transform": { "kind": "text" } }),
+            vec![&css("h1")],
+            vec![&css("h1"), &css("h2")],
+        )
+    );
 }

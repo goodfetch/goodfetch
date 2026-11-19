@@ -548,6 +548,125 @@ fn a_crawls_fields_take_a_list_and_rows_alike_on_every_tier(#[case] tier: &str) 
     );
 }
 
+/// A field's locator ladder reads the first rung that finds an element
+/// (issue 1972), alike on the `http` tier and in the browser: the value
+/// page's name and manual, each declared with a `locator` and an earlier
+/// `fallbacks` rung that find nothing before the rung that finds it, read
+/// the values, Provenance and nulls of the crawl whose fields have one
+/// locator each.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_fields_later_rung_supplies_its_value_when_the_earlier_ones_find_nothing(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let page = proving_ground.url("extraction.test", "/values");
+    let origin = proving_ground.url("extraction.test", "");
+    let mut fields = value_fields();
+    fields["name"]["locator"] = json!({ "kind": "css", "selector": ".product-title" });
+    fields["name"]["fallbacks"] = json!([
+        { "kind": "xpath", "selector": "//header/h2" },
+        { "kind": "css", "selector": "h1" },
+    ]);
+    fields["manual"]["locator"] = json!({ "kind": "xpath", "selector": "//a[@rel='manual']" });
+    fields["manual"]["fallbacks"] = json!([{ "kind": "css", "selector": "a.manual" }]);
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladder", &[json!({ "url": page, "label": "page" })]),
+        &json!({ "formats": {}, "follow": "none", "fields": fields }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(
+        (
+            fields_of(&records),
+            records[0]["provenance"]["tier"]["tier"].clone()
+        ),
+        (value_record(&origin), json!(tier))
+    );
+}
+
+/// A list's and a row field's locator ladders read their first rung that
+/// finds an element (issue 1972), alike on the `http` tier and in the
+/// browser: the catalog listing's names, and each row's price, read past
+/// a first rung that finds nothing, and a row field none of whose rungs
+/// finds an element is null with the reason it has today.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_lists_and_a_row_fields_later_rung_supplies_their_values(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let listing = proving_ground.start_url("catalog/1").unwrap();
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladders", &[json!({ "url": listing, "label": "page" })]),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": {
+                "names": { "list": { "locator": css("li.product h3"), "fallbacks": [css("li.product a")] } },
+                "products": {
+                    "rows": css("li.product"),
+                    "fields": {
+                        "name": { "locator": css("a") },
+                        "price": {
+                            "locator": css(".cost"),
+                            "fallbacks": [{ "kind": "xpath", "selector": "./span[@class='price']" }],
+                        },
+                        "blurb": { "locator": css(".blurb"), "fallbacks": [css(".summary")] },
+                    },
+                },
+            },
+        }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    let [record] = records.as_slice() else {
+        panic!("one Record of the listing page, not {records:?}");
+    };
+    let rows = record["value"]["products"].as_array().unwrap();
+    assert!(
+        !rows.is_empty()
+            && rows.iter().all(|row| {
+                row["name"].is_string() && row["price"].is_string() && row["blurb"].is_null()
+            }),
+        "{record}"
+    );
+    let names: Vec<Value> = rows.iter().map(|row| row["name"].clone()).collect();
+    let unread: Vec<Value> = (0..rows.len())
+        .map(|row| json!({ "field": format!("/products/{row}/blurb"), "reason": "no_element" }))
+        .collect();
+    assert_eq!(
+        (
+            &record["value"]["names"],
+            &record["provenance"]["unread_fields"]
+        ),
+        (&Value::Array(names), &Value::Array(unread))
+    );
+}
+
 /// Provenance names the tier that sent a document, whoever chose it
 /// (issue 2409): under `auto`, in an engine with browser pages, a Label's
 /// samples send their cheaper run from inside the Session's browser, and

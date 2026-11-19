@@ -17,32 +17,41 @@ use serde_json::{Value, json};
 pub const READ: &str = include_str!("fields/read.js");
 
 /// What [`READ`] is called with for `fields`: each, in the order of their
-/// names, `{ name, kind, locator }`, `kind` being `one`, `list` or `rows`,
-/// and rows' `fields` each `{ name, locator }`, in the order of their
-/// names.
+/// names, `{ name, kind, locator }` once per rung of its locator ladder
+/// (issue 1972), `kind` being `one`, `list` or `rows`, and rows' `fields`
+/// each `{ name, locator }` once per rung of its ladder, in the order of
+/// their names: one find per rung, as the extractor's `Fields` reads them.
 #[must_use]
 pub fn argument(fields: &BTreeMap<String, PageField>) -> Value {
-    let declared: Vec<Value> = fields
-        .iter()
-        .map(|(name, field)| match field {
-            PageField::Value(field) => {
-                json!({ "name": name, "kind": "one", "locator": field.locator })
-            }
-            PageField::List(list) => {
-                json!({ "name": name, "kind": "list", "locator": list.list.locator })
-            }
-            PageField::Rows(rows) => json!({
+    let mut declared = Vec::with_capacity(fields.len());
+    for (name, field) in fields {
+        match field {
+            PageField::Value(field) => declared.extend(
+                field
+                    .rungs()
+                    .map(|rung| json!({ "name": name, "kind": "one", "locator": rung })),
+            ),
+            PageField::List(list) => declared.extend(
+                list.list
+                    .rungs()
+                    .map(|rung| json!({ "name": name, "kind": "list", "locator": rung })),
+            ),
+            PageField::Rows(rows) => declared.push(json!({
                 "name": name,
                 "kind": "rows",
                 "locator": rows.rows,
                 "fields": rows
                     .fields
                     .iter()
-                    .map(|(name, field)| json!({ "name": name, "locator": field.locator }))
+                    .flat_map(|(name, field)| {
+                        field
+                            .rungs()
+                            .map(move |rung| json!({ "name": name, "locator": rung }))
+                    })
                     .collect::<Vec<_>>(),
-            }),
-        })
-        .collect();
+            })),
+        }
+    }
     json!({ "fields": declared })
 }
 
@@ -107,32 +116,38 @@ fn answer_of(answer: &Value, fields: &BTreeMap<String, PageField>) -> Option<Ans
         let field = text(invalid, "field")?;
         return Some(Answer::Invalid(format!("The field `{field}`'s {refused}.")));
     }
-    let answers = answer.get("found")?.as_array()?;
-    if answers.len() != fields.len() {
+    let mut answers = answer.get("found")?.as_array()?.iter();
+    let mut found = Vec::with_capacity(fields.len());
+    for field in fields.values() {
+        match field {
+            PageField::Value(field) => {
+                for _ in field.rungs() {
+                    found.push(Found::One(element(answers.next()?).ok()?));
+                }
+            }
+            PageField::List(list) => {
+                for _ in list.list.rungs() {
+                    found.push(Found::List(elements(answers.next()?)?));
+                }
+            }
+            PageField::Rows(_) => found.push(Found::Rows(
+                answers
+                    .next()?
+                    .as_array()?
+                    .iter()
+                    .map(|row| {
+                        row.as_array()?
+                            .iter()
+                            .map(|each| element(each).ok())
+                            .collect()
+                    })
+                    .collect::<Option<_>>()?,
+            )),
+        }
+    }
+    if answers.next().is_some() {
         return None;
     }
-    let found = fields
-        .values()
-        .zip(answers)
-        .map(|(field, found)| {
-            Some(match field {
-                PageField::Value(_) => Found::One(element(found).ok()?),
-                PageField::List(_) => Found::List(elements(found)?),
-                PageField::Rows(_) => Found::Rows(
-                    found
-                        .as_array()?
-                        .iter()
-                        .map(|row| {
-                            row.as_array()?
-                                .iter()
-                                .map(|each| element(each).ok())
-                                .collect()
-                        })
-                        .collect::<Option<_>>()?,
-                ),
-            })
-        })
-        .collect::<Option<_>>()?;
     Some(Answer::Found {
         base_url: text(answer, "baseUrl")?,
         found,

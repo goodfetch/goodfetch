@@ -17,6 +17,7 @@ import {
   ensureRunOpen,
   idOfLocator,
   pageOf,
+  Sequence,
   type ClientConnection,
   withTimes,
   type RunHost,
@@ -92,69 +93,24 @@ export class CrawlRun extends Run {
    * Reads `dataset`'s committed Records in number order (ADR 0103), each
    * as the engine streams it: while the Run is live it follows the Run,
    * and once the Run has ended and every Record is read, the iteration
-   * ends. Leaving the loop early cancels the stream. On a closed Run it
-   * fails with `closed`.
+   * ends. Its stream is sent when it is called (ADR 0081), and `break`,
+   * `return()`, `close()`, `using` or releasing it unread cancel it at
+   * once. On a closed Run it throws `closed`, sending nothing.
    */
-  async *records<I extends object>(
+  records<I extends object>(
     dataset: Dataset<I>,
     options: RecordsOptions = {},
-  ): AsyncGenerator<DatasetRecord, void, undefined> {
+  ): Sequence<DatasetRecord> {
     ensureRunOpen(this, "run.records");
-    const stop = new AbortController();
-    const signal =
-      options.signal === undefined ? stop.signal : AbortSignal.any([options.signal, stop.signal]);
-    const received: DatasetRecord[] = [];
-    let wake: (() => void) | undefined;
-    let ended = false;
-    const stream = this.#crawlHost.connection.stream(
-      "run.records",
-      { run_id: this.id(), dataset: dataset.name },
-      {
-        signal,
-        notified: (method, params) => {
-          const record = recordOf(method, params);
-          if (record !== undefined) {
-            received.push(record);
-            wake?.();
-          }
-        },
-      },
-    );
-    const settled = (): void => {
-      ended = true;
-      wake?.();
-    };
-    void stream.result.then(settled, settled);
-    stream.grant(RECORD_CREDITS);
-    let read = 0;
-    try {
-      for (;;) {
-        // Records already received are not read once the program stops reading.
-        options.signal?.throwIfAborted();
-        const record = received.shift();
-        if (record !== undefined) {
-          yield record;
-          read += 1;
-          if (read >= RECORD_REGRANT && !ended) {
-            stream.grant(read);
-            read = 0;
-          }
-        } else if (ended) {
-          // Answers the stream's end, or fails with its error.
-          await stream.result;
-          return;
-        } else {
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-          });
-          wake = undefined;
-        }
-      }
-    } finally {
-      if (!ended) {
-        stop.abort(new ClosedError("the program stopped reading the Records", {}));
-      }
-    }
+    const connection = this.#crawlHost.connection;
+    const params = { run_id: this.id(), dataset: dataset.name };
+    return new Sequence({
+      open: (opened) => connection.stream("run.records", params, opened),
+      itemOf: recordOf,
+      credits: RECORD_CREDITS,
+      regrant: RECORD_REGRANT,
+      signal: options.signal,
+    });
   }
 
   /**

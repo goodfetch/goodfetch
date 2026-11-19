@@ -4,7 +4,7 @@
 //! Covers: story:11-60
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams, ProductVersion, Surface};
 use serde_json::{Value, json};
@@ -57,7 +57,7 @@ fn a_connection_to_a_daemon_crosses_its_unix_socket() {
             said
         };
         let client = async {
-            let (connection, said) = Connection::open(
+            let (connection, said) = ClientConnection::open(
                 ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                 &Network::Os,
                 &Endpoint::Daemon(DaemonEndpoint::Unix(socket.clone())),

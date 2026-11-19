@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -108,7 +108,7 @@ fn a_connection_says_hello_calls_and_closes_on_the_paused_runtime() {
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
         let client = async {
-            let (connection, said) = Connection::open(
+            let (connection, said) = ClientConnection::open(
                 ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                 &network,
                 &Endpoint::InMemory,
@@ -147,7 +147,7 @@ fn closing_and_dropping_on_an_async_worker_shuts_the_owned_runtime_down_in_the_b
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
         let client = async {
-            let (connection, _) = Connection::open(
+            let (connection, _) = ClientConnection::open(
                 ConnectionRuntime::owned(owned),
                 &network,
                 &Endpoint::InMemory,
@@ -256,7 +256,7 @@ fn a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up() {
             sent
         };
         let client = async {
-            let (connection, _) = Connection::open(
+            let (connection, _) = ClientConnection::open(
                 ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                 &network,
                 &Endpoint::InMemory,
@@ -316,7 +316,7 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
             writer.shutdown().await.unwrap();
         };
         let client = async {
-            let (connection, _) = Connection::open(
+            let (connection, _) = ClientConnection::open(
                 ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                 &network,
                 &Endpoint::InMemory,

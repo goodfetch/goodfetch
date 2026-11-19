@@ -13,7 +13,7 @@
 use std::future::Future;
 
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfoParams};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_test_support::{ATTACHED_SCRIPT, TestEnv, Tool, tools};
@@ -98,8 +98,8 @@ fn failure() -> ErrorObject {
 }
 
 /// Opens a Connection over `network` on the runtime driving the test.
-async fn open(network: &Network, endpoint: &Endpoint) -> Connection {
-    let (connection, _said) = Connection::open(
+async fn open(network: &Network, endpoint: &Endpoint) -> ClientConnection {
+    let (connection, _said) = ClientConnection::open(
         ConnectionRuntime::driven(tokio::runtime::Handle::current()),
         network,
         endpoint,
@@ -203,7 +203,7 @@ fn a_dropped_request_is_answered_as_cancelled_by_the_program_and_the_connection_
 /// then sends nothing until the Client closes, which `program` does.
 fn on_a_quiet_connection<F, Fut>(program: F)
 where
-    F: FnOnce(Connection) -> Fut,
+    F: FnOnce(ClientConnection) -> Fut,
     Fut: Future<Output = ()>,
 {
     let (network, mut lines, mut writer) = scripted();

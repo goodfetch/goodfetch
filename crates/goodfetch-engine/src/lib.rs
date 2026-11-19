@@ -99,7 +99,7 @@ mod wire;
 pub use call_error::CallError;
 pub use composition::{
     Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
-    Driver, Guard, GuardAnswer, Handler, Params, ReadParams,
+    Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;

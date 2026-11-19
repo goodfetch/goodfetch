@@ -3,9 +3,14 @@
 // play writes one, so a test that saw no warning saw its script play through.
 import type { Logger } from "@goodfetch/collie-client";
 
-/** A host logger that keeps each warning, where the engine's stderr lines go. */
-export function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
+/** A host logger that keeps each warning, where the engine's stderr lines go, and each error. */
+export function recordingLogger(): {
+  readonly logger: Logger;
+  readonly warned: string[];
+  readonly errored: string[];
+} {
   const warned: string[] = [];
+  const errored: string[] = [];
   const logger: Logger = {
     // It asks for none of the engine's log events: `hello` says `off`, as the scripts expect.
     level: "off",
@@ -14,7 +19,9 @@ export function recordingLogger(): { readonly logger: Logger; readonly warned: s
     warn: (message) => {
       warned.push(message);
     },
-    error: () => {},
+    error: (message) => {
+      errored.push(message);
+    },
   };
-  return { logger, warned };
+  return { logger, warned, errored };
 }

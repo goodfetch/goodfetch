@@ -5,7 +5,7 @@
 //! Covers: story:11-60
 
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
@@ -34,7 +34,7 @@ fn a_connection_starts_an_attached_engine_calls_it_and_closes() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        let (connection, said) = Connection::open(
+        let (connection, said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),
             &Network::Os,
             &engine,

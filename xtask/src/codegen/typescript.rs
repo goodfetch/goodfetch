@@ -20,6 +20,7 @@ use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
+mod listeners;
 mod times;
 
 /// Where Foxhound's layer imports Collie's generated layer from.
@@ -857,8 +858,13 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     } else {
         String::new()
     };
+    let listens = if handles.iter().any(|handle| handle.listener.is_some()) {
+        ", type Listener, type Subscription"
+    } else {
+        ""
+    };
     format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
     )
 }
 
@@ -892,6 +898,8 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
         } else {
             ""
         };
+        let (listened, on) = listeners::emit(&class, handle);
+        text.push_str(&listened);
         let id_type = format!("types.{}", handle.id.type_name);
         let _ = write!(
             text,
@@ -927,6 +935,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
             text.push('\n');
             text.push_str(&member(held, &handle.id));
         }
+        text.push_str(&on);
         for builder in &handle.builders {
             let built = pascal(&builder.builds);
             let (declared, value) = signature(

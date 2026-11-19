@@ -9,7 +9,9 @@
 //! Covers: story:11-51, story:11-52
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error, Limits, Money, UsageKind};
+use goodfetch_collie_client::{
+    ClientConnection, ConnectionRuntime, Error, Limits, Money, UsageKind,
+};
 use goodfetch_protocol::run::{Completeness, Lifecycle, RunId, StopReason};
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
@@ -27,7 +29,7 @@ fn a_call_that_finds_the_runs_limit_used_up_fails_and_the_run_ends_stopped_and_i
     let limits = Limits::new().price(UsageKind::PROXY_BYTES, Money::new("1", "USD").unwrap());
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
-        let (connection, _said) = Connection::open(
+        let (connection, _said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),
             &Network::Os,
             &Endpoint::Daemon(endpoint),

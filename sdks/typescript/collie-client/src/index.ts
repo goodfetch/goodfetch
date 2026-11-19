@@ -16,7 +16,9 @@ export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts
 export type { Limits, Money } from "./limits.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
-export { Locator, Page, Session } from "./generated/handles.ts";
+export { Locator, Page, Session, type PageEvents } from "./generated/handles.ts";
+export type { Listener, Subscription } from "./handle.ts";
+export type { Sequence } from "./sequence.ts";
 export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
 export type { JSONObject, JSONValue } from "./json.ts";
 export type {
@@ -35,14 +37,20 @@ export type {
   BlockCause,
   CallOptions,
   Completeness,
+  ConsoleMessage,
   FormatsRequest,
   Lifecycle,
   Navigated,
   PageClosed,
+  PageExchange,
   PageField,
+  PageFired,
   PageFormats,
+  PagePopup,
   PageRead,
+  PageRequest,
   PageResponse,
+  PageWebSocket,
   Product,
   RunReport,
   SessionClosed,
@@ -52,4 +60,5 @@ export type {
   UnreadField,
   UnreadReason,
   Verdict,
+  WebError,
 } from "./generated/index.ts";

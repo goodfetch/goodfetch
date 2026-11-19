@@ -33,6 +33,10 @@ const CLIENT_PACKAGE: &str = "goodfetch_collie_client.generated";
 /// sends a call and reads its result, which every layer's methods take.
 const CALLER_MODULE: &str = "goodfetch_collie_client.caller";
 
+/// The hand-written module of Collie's client package whose functions give
+/// ADR 0030's run-time warning of a deprecated or Experimental member.
+const MARKERS_MODULE: &str = "goodfetch_collie_client.markers";
+
 /// The hand-written module of Collie's client package that declares the
 /// base of every exception class, which every layer's classes extend.
 const GOODFETCH_ERROR_MODULE: &str = "goodfetch_collie_client.goodfetch_error";
@@ -237,6 +241,49 @@ fn deprecation_message(deprecated: &Deprecation) -> String {
     format!("Since {}: {}", deprecated.since, deprecated.note)
 }
 
+/// PEP 702's marker of a deprecated member: with no category, so it warns
+/// nothing at run time and the member's [`warnings`] warn once per process.
+fn deprecated_decorator(deprecated: &Deprecation) -> String {
+    format!(
+        "    @deprecated({:?}, category=None)\n",
+        deprecation_message(deprecated)
+    )
+}
+
+/// The lines a member of the entry `name` opens its body with: ADR 0030's
+/// run-time warning of each marker it carries, once per process. Each name
+/// it calls joins `imported`, which [`markers_import`] imports.
+fn warnings(
+    name: &str,
+    stability: Stability,
+    deprecated: Option<&Deprecation>,
+    imported: &mut BTreeSet<&'static str>,
+) -> String {
+    let mut text = String::new();
+    if stability == Stability::Experimental {
+        imported.insert("warn_experimental");
+        let _ = writeln!(text, "        warn_experimental({name:?})");
+    }
+    if let Some(deprecated) = deprecated {
+        imported.insert("warn_deprecated");
+        let _ = writeln!(
+            text,
+            "        warn_deprecated({name:?}, {:?})",
+            deprecation_message(deprecated)
+        );
+    }
+    text
+}
+
+/// The import of the [`warnings`] a module calls, or nothing.
+fn markers_import(imported: &BTreeSet<&'static str>) -> String {
+    if imported.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = imported.iter().copied().collect();
+    format!("from {MARKERS_MODULE} import {}\n", names.join(", "))
+}
+
 /// Each type both Products share that the layer adds values to (ADR 0095),
 /// as its values' `Literal` open to any other string, which the package
 /// keeps as received (ADR 0079); Foxhound's adds its values to Collie's.
@@ -366,48 +413,54 @@ fn operations(layer: &Layer) -> String {
         "from {CALLER_MODULE} import AsyncCaller, Caller{}",
         if returns { ", result_of" } else { "" }
     );
-    let imports = model_imports(layer, &types);
-    if !imports.is_empty() {
-        text.push('\n');
-        text.push_str(&imports);
-    }
+    let mut warned = BTreeSet::new();
+    let mut body = String::new();
     for (prefix, caller, asynchronous) in [("Async", "AsyncCaller", true), ("", "Caller", false)] {
         let mode = if asynchronous { "async" } else { "sync" };
         let _ = write!(
-            text,
+            body,
             "\n\nclass {prefix}{product}Operations:\n    \"\"\"{product}'s operations, each a{} {mode} method.\"\"\"\n\n    def __init__(self, caller: {caller}) -> None:\n        \"\"\"Takes the runtime that sends each call.\"\"\"\n        self._caller = caller\n",
             if asynchronous { "n" } else { "" }
         );
         for operation in &layer.operations {
-            text.push('\n');
+            body.push('\n');
             if let Some(deprecated) = &operation.deprecated {
-                let _ = writeln!(
-                    text,
-                    "    @deprecated({:?})",
-                    deprecation_message(deprecated)
-                );
+                body.push_str(&deprecated_decorator(deprecated));
             }
             let (params, result) = (&operation.params.0, &operation.result.0);
             let _ = writeln!(
-                text,
+                body,
                 "    {}def {}(self, params: {params}) -> {result}:",
                 if asynchronous { "async " } else { "" },
                 snake(&operation.name)
             );
-            text.push_str(&docstring(
+            body.push_str(&docstring(
                 "        ",
                 &operation.description,
                 operation.stability,
                 operation.deprecated.as_ref(),
             ));
+            body.push_str(&warnings(
+                &operation.name,
+                operation.stability,
+                operation.deprecated.as_ref(),
+                &mut warned,
+            ));
             let _ = writeln!(
-                text,
+                body,
                 "        return result_of({result}, {}self._caller.call({:?}, params))",
                 if asynchronous { "await " } else { "" },
                 operation.name
             );
         }
     }
+    text.push_str(&markers_import(&warned));
+    let imports = model_imports(layer, &types);
+    if !imports.is_empty() {
+        text.push('\n');
+        text.push_str(&imports);
+    }
+    text.push_str(&body);
     text
 }
 

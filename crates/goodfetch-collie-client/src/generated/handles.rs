@@ -26,6 +26,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunAbortParams>
     {
+        crate::markers::warn("run.abort", true, None);
         self.host.call(
             "run.abort",
             ::goodfetch_protocol::run::RunAbortParams {
@@ -48,6 +49,7 @@ impl Run {
         ::goodfetch_protocol::run::Checkpoint,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
+        crate::markers::warn("run.checkpoint", true, None);
         self.host.call(
             "run.checkpoint",
             ::goodfetch_protocol::checkpoint::RunCheckpointParams {
@@ -67,6 +69,7 @@ impl Run {
     pub fn discard(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams> {
+        crate::markers::warn("run.discard", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::run::RunDiscarded,
             ::goodfetch_protocol::run::RunParams,
@@ -90,6 +93,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunFinishParams>
     {
+        crate::markers::warn("run.finish", true, None);
         self.host
             .call(
                 "run.finish",
@@ -114,6 +118,7 @@ impl Run {
         ::goodfetch_protocol::run::RunReport,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
+        crate::markers::warn("run.migrate", true, None);
         self.host.call(
             "run.migrate",
             ::goodfetch_protocol::checkpoint::RunCheckpointParams {
@@ -131,6 +136,7 @@ impl Run {
     ///
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::page::NewPageParams> {
+        crate::markers::warn("run.new_page", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
@@ -157,6 +163,7 @@ impl Run {
     pub fn new_session(
         &self,
     ) -> crate::Call<Session, ::goodfetch_protocol::page::session::NewSessionParams> {
+        crate::markers::warn("run.new_session", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::session::SessionOpened,
@@ -185,6 +192,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
     {
+        crate::markers::warn("run.pause", true, None);
         self.host.call(
             "run.pause",
             ::goodfetch_protocol::run::RunParams {
@@ -206,6 +214,7 @@ impl Run {
         ::goodfetch_protocol::run::RunProgress,
         ::goodfetch_protocol::run::RunProgressParams,
     > {
+        crate::markers::warn("run.progress", true, None);
         self.host.call(
             "run.progress",
             ::goodfetch_protocol::run::RunProgressParams {
@@ -226,6 +235,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
     {
+        crate::markers::warn("run.report", true, None);
         self.host.call(
             "run.report",
             ::goodfetch_protocol::run::RunParams {
@@ -248,6 +258,7 @@ impl Run {
         ::goodfetch_protocol::run::RunProgress,
         ::goodfetch_protocol::run::RunSetProgressMessageParams,
     > {
+        crate::markers::warn("run.set_progress_message", true, None);
         self.host.call(
             "run.set_progress_message",
             ::goodfetch_protocol::run::RunSetProgressMessageParams {
@@ -268,6 +279,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunStopParams>
     {
+        crate::markers::warn("run.stop", true, None);
         self.host
             .call(
                 "run.stop",
@@ -290,6 +302,7 @@ impl Run {
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunUsage, ::goodfetch_protocol::run::RunParams>
     {
+        crate::markers::warn("run.usage", true, None);
         self.host.call(
             "run.usage",
             ::goodfetch_protocol::run::RunParams {
@@ -320,6 +333,7 @@ impl Session {
     ///
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn close(&self) -> crate::Call<(), ::goodfetch_protocol::page::session::SessionParams> {
+        crate::markers::warn("session.close", true, None);
         self.host.close(
             "session.close",
             ::goodfetch_protocol::page::session::SessionParams {
@@ -338,6 +352,7 @@ impl Session {
     pub fn new_page(
         &self,
     ) -> crate::Call<Page, ::goodfetch_protocol::page::session::NewSessionPageParams> {
+        crate::markers::warn("session.new_page", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
@@ -367,6 +382,7 @@ impl Session {
         Vec<::goodfetch_protocol::page::PageId>,
         ::goodfetch_protocol::page::session::SessionParams,
     > {
+        crate::markers::warn("session.pages", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::session_pages::SessionPages,
             ::goodfetch_protocol::page::session::SessionParams,
@@ -403,6 +419,7 @@ impl Page {
     pub fn close(
         &self,
     ) -> crate::Call<(), ::goodfetch_protocol::page::session_pages::PageCloseParams> {
+        crate::markers::warn("page.close", true, None);
         self.host.close(
             "page.close",
             ::goodfetch_protocol::page::session_pages::PageCloseParams {
@@ -426,6 +443,7 @@ impl Page {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::EvaluateParams,
     > {
+        crate::markers::warn("page.evaluate", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::functions::Evaluated,
             ::goodfetch_protocol::page::functions::EvaluateParams,
@@ -455,6 +473,7 @@ impl Page {
         ::goodfetch_protocol::page::PageFormats,
         ::goodfetch_protocol::page::FormatsParams,
     > {
+        crate::markers::warn("page.formats", true, None);
         self.host.call(
             "page.formats",
             ::goodfetch_protocol::page::FormatsParams {
@@ -474,6 +493,7 @@ impl Page {
     pub fn go_back(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.go_back", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::Navigated,
@@ -501,6 +521,7 @@ impl Page {
     pub fn go_forward(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.go_forward", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::Navigated,
@@ -529,6 +550,7 @@ impl Page {
         &self,
         url: impl Into<String>,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::GotoParams> {
+        crate::markers::warn("page.goto", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::Navigated,
@@ -563,6 +585,7 @@ impl Page {
         ::goodfetch_protocol::page::read::PageRead,
         ::goodfetch_protocol::page::read::PageReadParams,
     > {
+        crate::markers::warn("page.read", true, None);
         self.host.query(
             "page.read",
             ::goodfetch_protocol::page::read::PageReadParams {
@@ -582,6 +605,7 @@ impl Page {
     pub fn reload(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.reload", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::Navigated,
@@ -610,6 +634,7 @@ impl Page {
         &self,
         url: impl Into<String>,
     ) -> crate::Call<crate::Response, ::goodfetch_protocol::page::request::PageRequestParams> {
+        crate::markers::warn("page.request", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageResponse,
@@ -642,6 +667,7 @@ impl Page {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::WaitForFunctionParams,
     > {
+        crate::markers::warn("page.wait_for_function", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::functions::Evaluated,
             ::goodfetch_protocol::page::waits::WaitForFunctionParams,
@@ -672,6 +698,7 @@ impl Page {
         ::goodfetch_protocol::page::waits::Reached,
         ::goodfetch_protocol::page::waits::WaitForLoadStateParams,
     > {
+        crate::markers::warn("page.wait_for_load_state", true, None);
         self.host
             .call(
                 "page.wait_for_load_state",
@@ -697,6 +724,7 @@ impl Page {
         ::goodfetch_protocol::page::events::PageRequest,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
+        crate::markers::warn("page.wait_for_request", true, None);
         self.host
             .call(
                 "page.wait_for_request",
@@ -722,6 +750,7 @@ impl Page {
         crate::Exchange,
         ::goodfetch_protocol::page::events::WaitForRequestFinishedParams,
     > {
+        crate::markers::warn("page.wait_for_request_finished", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::events::PageExchange,
@@ -749,6 +778,7 @@ impl Page {
         &self,
     ) -> crate::Call<crate::Exchange, ::goodfetch_protocol::page::waits::WaitForExchangeParams>
     {
+        crate::markers::warn("page.wait_for_response", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::events::PageExchange,
@@ -779,6 +809,7 @@ impl Page {
         ::goodfetch_protocol::page::waits::Reached,
         ::goodfetch_protocol::page::waits::WaitForUrlParams,
     > {
+        crate::markers::warn("page.wait_for_url", true, None);
         self.host
             .call(
                 "page.wait_for_url",
@@ -832,6 +863,7 @@ impl Locator {
         &self,
     ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::ClickParams>
     {
+        crate::markers::warn("locator.click", true, None);
         self.host.call(
             "locator.click",
             ::goodfetch_protocol::page::ClickParams {
@@ -854,6 +886,7 @@ impl Locator {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
     > {
+        crate::markers::warn("locator.evaluate_all", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::functions::Evaluated,
             ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
@@ -881,6 +914,7 @@ impl Locator {
         value: impl Into<String>,
     ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::FillParams>
     {
+        crate::markers::warn("locator.fill", true, None);
         self.host.call(
             "locator.fill",
             ::goodfetch_protocol::page::FillParams {
@@ -902,6 +936,7 @@ impl Locator {
         key: impl Into<String>,
     ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::PressParams>
     {
+        crate::markers::warn("locator.press", true, None);
         self.host.call(
             "locator.press",
             ::goodfetch_protocol::page::PressParams {
@@ -924,6 +959,7 @@ impl Locator {
         ::goodfetch_protocol::page::waits::Reached,
         ::goodfetch_protocol::page::waits::LocatorWaitForParams,
     > {
+        crate::markers::warn("locator.wait_for", true, None);
         self.host
             .call(
                 "locator.wait_for",
@@ -947,6 +983,7 @@ impl Locator {
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
     ) -> crate::Call<u64, ::goodfetch_protocol::page::waits::WaitForCountParams> {
+        crate::markers::warn("locator.wait_for_count", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::waits::Counted,
             ::goodfetch_protocol::page::waits::WaitForCountParams,
@@ -975,6 +1012,7 @@ impl Locator {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
     > {
+        crate::markers::warn("locator.wait_for_function", true, None);
         let call: crate::Call<
             ::goodfetch_protocol::page::functions::Evaluated,
             ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,

@@ -4,7 +4,9 @@
 // once it settled, and one that throws is removed, its call cancelled.
 import { describe, expect, test } from "vitest";
 import type { Listener } from "./handle.ts";
-import { subscribe, type ListenCall, type ListenOptions, type Listening } from "./listeners.ts";
+import type { Stream } from "./client-connection.ts";
+import { subscribe, type Listening } from "./listeners.ts";
+import type { ChannelOpenOptions } from "./rpc.ts";
 import type { StreamedEvent } from "./stream.ts";
 
 /** A subscription on a faked call: its grants, its failures, and the engine's side of it. */
@@ -12,15 +14,15 @@ function subscribed<Payload>(event: string, listener: Listener<Payload>) {
   const granted: number[] = [];
   const failures: unknown[] = [];
   const endings: unknown[] = [];
-  let given: ListenOptions | undefined;
+  let given: ChannelOpenOptions | undefined;
   let answer: { resolve(value: unknown): void; reject(error: unknown): void } | undefined;
   const result = new Promise<unknown>((resolve, reject) => {
     answer = { resolve, reject };
   });
-  const open = (options: ListenOptions): ListenCall => {
+  const open = (options: ChannelOpenOptions): Stream => {
     given = options;
     // As the Channel does, a cancelled call rejects with its signal's reason.
-    options.signal.addEventListener("abort", () => answer?.reject(options.signal.reason));
+    options.signal?.addEventListener("abort", () => answer?.reject(options.signal?.reason));
     return { result, grant: (credits) => granted.push(credits) };
   };
   const listening: Listening<Payload> = {
@@ -37,9 +39,9 @@ function subscribed<Payload>(event: string, listener: Listener<Payload>) {
     endings,
     /** Sends one `$/events` batch on the call. */
     send(...events: StreamedEvent[]): void {
-      given?.notified("$/events", { id: 3, events });
+      given?.notified?.("$/events", { id: 3, events });
     },
-    cancelled: (): boolean => given?.signal.aborted === true,
+    cancelled: (): boolean => given?.signal?.aborted === true,
     end: (error: unknown): void => answer?.reject(error),
   };
 }

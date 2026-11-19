@@ -70,6 +70,24 @@ describe("a sequence's iterator", () => {
   );
 
   test(
+    "answers reads made at once in order, one item each, granting credits for every item read",
+    { tags: ["story:11-62"] },
+    async () => {
+      const stream = sequenced();
+
+      const reads = [stream.sequence.next(), stream.sequence.next(), stream.sequence.next()];
+      stream.send(1, 2, 3);
+      const read = (await Promise.all(reads)).map((result) => result.value);
+      const after = stream.sequence.next();
+      stream.send(4);
+
+      expect(read).toEqual([1, 2, 3]);
+      expect(await after).toEqual({ done: false, value: 4 });
+      expect(stream.granted).toEqual([4, 2]);
+    },
+  );
+
+  test(
     "fails with the error that ended its stream once the items before it are read",
     { tags: ["story:11-62"] },
     async () => {

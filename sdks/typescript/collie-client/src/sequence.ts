@@ -54,6 +54,8 @@ export class Sequence<Item> implements AsyncIterableIterator<Item, undefined>, D
   /** Whether the last read handed out an item, which the next read counts toward credits. */
   #handedOut = false;
   #closed = false;
+  /** The last read asked for: each read starts once the one before it is answered. */
+  #reads: Promise<unknown> = Promise.resolve();
 
   /** @internal A Product's package makes it, for the method that reads the sequence. */
   constructor(options: SequenceOptions<Item>) {
@@ -83,7 +85,13 @@ export class Sequence<Item> implements AsyncIterableIterator<Item, undefined>, D
   }
 
   /** Reads the next item, or ends once the stream has ended and every item is read. */
-  async next(): Promise<IteratorResult<Item, undefined>> {
+  next(): Promise<IteratorResult<Item, undefined>> {
+    const read = this.#reads.then(async () => await this.#next());
+    this.#reads = read.catch(() => undefined);
+    return read;
+  }
+
+  async #next(): Promise<IteratorResult<Item, undefined>> {
     const reading = this.#reading;
     if (this.#handedOut) {
       this.#handedOut = false;

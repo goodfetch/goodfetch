@@ -6,7 +6,9 @@
 // settled, so a slow listener slows a lossless producer. One that throws is
 // removed: its call is cancelled and its value hears the failure, which
 // nothing here lets reach the host as an unhandled rejection.
+import type { Stream } from "./client-connection.ts";
 import type { Listener, Subscription } from "./handle.ts";
+import type { ChannelOpenOptions } from "./rpc.ts";
 import { batchOf, type StreamedEvent } from "./stream.ts";
 
 /** The credits a subscription grants when its call is sent: at most this many events wait for its listener. */
@@ -14,22 +16,6 @@ const CREDITS = 16;
 
 /** How many events its listener gets through before the subscription grants as many again. */
 const REGRANT = 8;
-
-/** How a subscription's call is opened. */
-export interface ListenOptions {
-  /** Cancels the call, which sends its `$/cancel`. */
-  readonly signal: AbortSignal;
-  /** Hears each of its notifications. */
-  notified(method: string, params: unknown): void;
-}
-
-/** A subscription's call in flight. */
-export interface ListenCall {
-  /** Its answer: it ends when its value goes, or with the error that ended it. */
-  readonly result: Promise<unknown>;
-  /** Lets the engine send `credits` more events. */
-  grant(credits: number): void;
-}
 
 /** What a subscription listens to, and what it tells its value. */
 export interface Listening<Payload> {
@@ -47,7 +33,7 @@ export interface Listening<Payload> {
  * listener; the `Subscription` returned cancels it.
  */
 export function subscribe<Payload>(
-  open: (options: ListenOptions) => ListenCall,
+  open: (options: ChannelOpenOptions) => Stream,
   listening: Listening<Payload>,
 ): Subscription {
   const cancel = new AbortController();

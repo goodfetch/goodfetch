@@ -48,8 +48,8 @@ pub use composition::{composition, composition_with};
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::ConnectOptions;
 pub use goodfetch_collie_client::{
-    Call, Connection, Error, Exchange, FieldValues, Limits, Locator, Money, MoneyError, Page,
-    Query, Response, Run, Session, Start, UsageKind,
+    Call, Connection, Error, EventStream, Exchange, FieldValues, Limits, Locator, Money,
+    MoneyError, Page, Query, Response, Run, Session, Start, UsageKind, events,
 };
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{

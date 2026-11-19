@@ -18,6 +18,8 @@ encoding_rs.workspace = true
 # The Encoding a body declares in its own bytes, read as Chrome reads it,
 # as the fetch tiers read it (ADR 0119).
 goodfetch-encoding.workspace = true
+# The Stream trait an EventStream implements (ADR 0081).
+futures-core.workspace = true
 goodfetch-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true

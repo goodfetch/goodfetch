@@ -823,6 +823,27 @@ impl Page {
             .wire_timeout()
     }
 
+    /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
+    ///
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Its stream hands [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, such as `page_events_lost`, and [`crate::Error::Shape`] for an event that does not fit its type.
+    pub fn events<E: crate::events::PageEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
+        crate::markers::warn("page.on", true, None);
+        self.host.listen(
+            "page.on",
+            ::goodfetch_protocol::page::events::PageOnParams {
+                page_id: self.host.id().clone(),
+                event: <E as crate::events::sealed::PageEvent>::EVENT,
+            },
+            <E as crate::events::sealed::PageEvent>::NAME,
+        )
+    }
+
     /// A locator (ADR 0085): what an action looks for on a page, resolved
     /// again at each use, never a handle on an element. This tracer's locators
     /// are CSS selectors.

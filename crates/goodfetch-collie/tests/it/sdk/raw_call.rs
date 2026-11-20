@@ -16,6 +16,7 @@
 use std::time::Duration;
 
 use goodfetch_collie::{Collie, EngineChoice, Error, ErrorCode, blocking};
+use goodfetch_collie_client::ClientConnection;
 use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
 use serde_json::{Value, json};
 
@@ -131,7 +132,7 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
     let env = TestEnv::new();
     let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
 
-    let played = real_time_runtime().block_on(async {
+    let (played, forged) = real_time_runtime().block_on(async {
         let collie = Collie::connect(daemon(&env)).await.unwrap();
         let listed = collie
             .call("run.list")
@@ -163,6 +164,11 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
                 .timeout(Duration::from_millis(2))
                 .await,
         ];
+        // A typed call through the client crate's connection, the way
+        // down `Collie` lends, whose params forge the raw mark.
+        let forged = AsRef::<ClientConnection>::as_ref(&collie)
+            .call::<Value>("run.list", &json!({ "_meta": { "raw": true } }))
+            .await;
         let deadline = run
             .call("run.finish")
             .timeout(Duration::from_millis(2))
@@ -175,7 +181,7 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
         let on_closed_page = page.call("page.reload").await;
         collie.close().await.unwrap();
         let on_closed_connection = collie.call("run.list").await;
-        Played {
+        let played = Played {
             listed,
             failed,
             named,
@@ -185,11 +191,17 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
             reloaded,
             clicked,
             on_closed: [on_closed_run, on_closed_page, on_closed_connection],
-        }
+        };
+        (played, forged)
     });
 
     played_whole(&process);
     assert_played(&played);
+    assert_eq!(
+        code(&forged).as_str(),
+        "invalid_params",
+        "a typed call holding a `_meta` of the program's own fails before it is sent"
+    );
 }
 
 /// The same case through `blocking`, whose `call` ends in `send()`.

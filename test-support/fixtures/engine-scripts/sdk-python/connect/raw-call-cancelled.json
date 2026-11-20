@@ -1,5 +1,5 @@
 {
-  "description": "After an accepted hello, the program cancels the task a raw call to `run.list` runs in: the cancel reaches the engine as `$/cancel`, and the Client then closes.",
+  "description": "After an accepted hello, the program cancels the task a raw call to `run.list`, marked raw in its `_meta`, runs in: the cancel reaches the engine as `$/cancel`, and the Client then closes.",
   "steps": [
     {
       "expect": {
@@ -28,6 +28,7 @@
       "expect": {
         "method": "run.list",
         "params": {
+          "_meta": { "raw": true },
           "lifecycle": "running"
         }
       }

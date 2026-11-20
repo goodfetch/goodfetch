@@ -118,11 +118,7 @@ impl RawCall {
             ));
         };
         if params.contains_key(META) {
-            return Err(Error::refused(
-                &operation,
-                &format!("`{META}` is the call's envelope, which the SDK writes"),
-                &format!("Leave `{META}` out of its params."),
-            ));
+            return Err(Error::own_meta(&operation));
         }
         if let Some(value) = &value {
             if operation.split('.').next() != Some(value.namespace) {

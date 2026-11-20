@@ -18,7 +18,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
 use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
-use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
+use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, META, ProtocolFailure};
 use goodfetch_protocol::naming;
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
@@ -235,9 +235,9 @@ impl Error {
         error
     }
 
-    /// A raw call (ADR 0099) refused before it is sent, as the engine
-    /// would refuse its params: `invalid_params`, group `program`, not
-    /// retryable, with `fix` and the operation.
+    /// A call refused before it is sent, as the engine would refuse its
+    /// params: `invalid_params`, group `program`, not retryable, with `fix`
+    /// and the operation.
     pub(crate) fn refused(operation: &str, reason: &str, fix: &str) -> Self {
         let failure = ProtocolFailure::InvalidParams;
         let mut data = Map::new();
@@ -253,6 +253,17 @@ impl Error {
             answered: false,
             source: None,
         }))
+    }
+
+    /// A call whose params hold a `_meta` of the program's own, refused
+    /// before it is sent: the SDK writes a request's envelope, and the raw
+    /// mark in it (ADR 0099), which no program's params forge or remove.
+    pub(crate) fn own_meta(operation: &str) -> Self {
+        Self::refused(
+            operation,
+            &format!("`{META}` is the call's envelope, which the SDK writes"),
+            &format!("Leave `{META}` out of its params."),
+        )
     }
 
     /// The error the engine answered a call with.

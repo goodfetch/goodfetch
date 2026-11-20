@@ -436,7 +436,7 @@ fn request_params(emitted: &super::Emitted) -> Vec<String> {
 
 /// Covers: story:3-146
 #[test]
-fn every_requests_params_may_hold_its_trace_context_in_meta() {
+fn every_requests_params_may_hold_its_trace_context_and_raw_mark_in_meta() {
     let emitted = emit();
     let definitions = &emitted.bundle["$defs"];
 

@@ -12044,7 +12044,7 @@
     },
     "RequestMeta": {
       "additionalProperties": false,
-      "description": "What a request's `_meta` holds (ADR 0132), which its runtime writes and\nnever a program: its Trace context, and the raw mark of a call a\nprogram made through the raw `call` (ADR 0099). A closed object: the\nengine refuses any other key.",
+      "description": "What a request's `_meta` holds (ADR 0132), which its runtime writes and\nnever a program: its Trace context, with no Baggage, and the raw mark of\na call a program made through the raw `call` (ADR 0099). A closed\nobject: the engine refuses any other key. The schema checks only that\neach Trace context field is a string: a receiver drops a value it cannot\nuse, and never fails the call for it.",
       "properties": {
         "raw": {
           "arrived_in": "0.1",

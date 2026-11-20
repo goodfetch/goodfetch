@@ -5341,9 +5341,11 @@ export interface RefetchDomainRemoved {
 }
 /**
  * What a request's `_meta` holds (ADR 0132), which its runtime writes and
- * never a program: its Trace context, and the raw mark of a call a
- * program made through the raw `call` (ADR 0099). A closed object: the
- * engine refuses any other key.
+ * never a program: its Trace context, with no Baggage, and the raw mark of
+ * a call a program made through the raw `call` (ADR 0099). A closed
+ * object: the engine refuses any other key. The schema checks only that
+ * each Trace context field is a string: a receiver drops a value it cannot
+ * use, and never fails the call for it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "RequestMeta".

@@ -69,10 +69,14 @@ function refused(operation: string, reason: string, fix: string): ProgramError {
 /** The member of a request's params that holds its envelope (ADR 0132). */
 const META = "_meta";
 
+/** The method `JSON.stringify` calls to replace the value it serializes. */
+const TO_JSON = "toJSON";
+
 /**
  * Refuses `params` that hold a `_meta`, the envelope the SDK writes and a
- * program never does (ADR 0132), so a program neither forges nor removes a
- * call's raw mark.
+ * program never does (ADR 0132), or a `toJSON` method, which would replace
+ * the params with that envelope once they are serialized: a program neither
+ * forges nor removes a call's raw mark.
  */
 function refuseMeta(operation: string, params: RawParams): void {
   if (Object.hasOwn(params, META)) {
@@ -80,6 +84,13 @@ function refuseMeta(operation: string, params: RawParams): void {
       operation,
       `\`${META}\` is the call's envelope, which the SDK writes`,
       `Leave \`${META}\` out of its params.`,
+    );
+  }
+  if (Object.hasOwn(params, TO_JSON) && typeof Reflect.get(params, TO_JSON) === "function") {
+    throw refused(
+      operation,
+      `its params' \`${TO_JSON}\` method would replace them, and the envelope the SDK writes`,
+      "Give its params as plain JSON.",
     );
   }
 }

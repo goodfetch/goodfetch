@@ -325,13 +325,17 @@ impl ProductConnection {
     ///
     /// What closing a Run fails with, `engine_exited` when the linked
     /// engine failed, and `deadline_exceeded` when `timeout.close` ran out
-    /// first, the engine then stopping on its own.
+    /// first, the engine then stopping on its own. `connection_forked` in
+    /// a process other than the one that opened it, such as the child of
+    /// a `fork`, where it closes nothing.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future before it completes leaves the engine stopping
     /// on its own.
     pub async fn close(&self) -> Result<(), Error> {
+        // In another process, the engine and the timer are the opener's.
+        self.connection.ensure_opener()?;
         let closing = async {
             let closed = self.connection.close().await;
             let stopped = match &self.engine {
@@ -356,6 +360,7 @@ impl ProductConnection {
     ///
     /// As [`ProductConnection::close`].
     pub fn close_blocking(&self) -> Result<(), Error> {
+        self.connection.ensure_opener()?;
         let linked = self.clone();
         wait(&self.handle, async move { linked.close().await })
     }

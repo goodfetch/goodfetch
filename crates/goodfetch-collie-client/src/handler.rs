@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 
 use crate::error::{BoxError, Error};
 use crate::line;
+use crate::opening_process::OpeningProcess;
 use crate::sync::{Mutex, MutexGuard};
 use goodfetch_protocol::error_code::ErrorCode;
 
@@ -69,6 +70,7 @@ impl Streams {
             params: request.params.unwrap_or(Value::Null),
             lines: lines.downgrade(),
             answered: false,
+            opener: OpeningProcess::current(),
         };
         let mut served = self.served();
         let Some(streams) = served.as_mut() else {
@@ -133,6 +135,9 @@ pub struct HandlerCall {
     /// The Connection's output, which a held request never keeps open.
     lines: mpsc::WeakUnboundedSender<Vec<u8>>,
     answered: bool,
+    /// The process whose Connection read the request, the only one whose
+    /// answer reaches the engine.
+    opener: OpeningProcess,
 }
 
 impl HandlerCall {
@@ -151,7 +156,8 @@ impl HandlerCall {
     /// # Errors
     ///
     /// `closed` when the Connection has ended, so the engine never
-    /// reads the answer.
+    /// reads the answer, and `connection_forked` in a process other than
+    /// the one that opened it, such as the child of a `fork`.
     pub fn answer(mut self, result: Value) -> Result<(), Error> {
         let id = self.id.clone();
         self.send(&Response {
@@ -170,7 +176,8 @@ impl HandlerCall {
     /// # Errors
     ///
     /// `closed` when the Connection has ended, so the engine never
-    /// reads the answer.
+    /// reads the answer, and `connection_forked` in a process other than
+    /// the one that opened it, such as the child of a `fork`.
     pub fn fail(mut self, error: impl Into<BoxError>, own: ErrorCode) -> Result<(), Error> {
         let id = Some(self.id.clone());
         self.send(&ErrorResponse {
@@ -203,6 +210,7 @@ impl HandlerCall {
     /// Writes `answer` as the request's one answer.
     fn send(&mut self, answer: &impl Serialize) -> Result<(), Error> {
         self.answered = true;
+        self.opener.ensure_current()?;
         let line = line::encode(answer).map_err(Error::shape)?;
         let lines = self.lines.upgrade().ok_or_else(Error::closed)?;
         lines.send(line).map_err(|_closed| Error::closed())

@@ -24,6 +24,11 @@ to a body and closes it after. Its handles are cheap clones that are `Send`,
 `Sync` and `'static`, and its futures run on any executor. A program that
 does not use async calls the same names under `goodfetch_collie::blocking`.
 
+A connection, and every Run, Session or page under it, belongs to the
+process that opened it: a child created by `fork` that uses one gets
+`connection_forked` before anything reaches the parent's engine, and
+connects on its own (ADR 0078).
+
 ### Schemas
 
 A program types data with a schema in its own types (ADR 0082): a type

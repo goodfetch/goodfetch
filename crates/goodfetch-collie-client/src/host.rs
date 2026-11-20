@@ -281,7 +281,9 @@ impl Drop for HeldValue {
         let Some(dropped) = self.dropped.take() else {
             return;
         };
-        if self.closed() || self.run.state() != State::Running {
+        // In another process, such as the child of a `fork`, nothing
+        // reaches the engine: the opener closes the value.
+        if self.closed() || self.run.state() != State::Running || !self.run.connection.in_opener() {
             return;
         }
         tracing::warn!(
@@ -465,7 +467,9 @@ impl Closes for HeldRun {
 impl Drop for HeldRun {
     fn drop(&mut self) {
         let state = *self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
-        if state == State::Running {
+        // In another process, such as the child of a `fork`, nothing
+        // reaches the engine: the opener closes the Run.
+        if state == State::Running && self.connection.in_opener() {
             tracing::warn!(
                 target: "goodfetch::client",
                 run_id = %self.run_id,

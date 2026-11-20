@@ -248,6 +248,10 @@ impl Flow {
         if self.ended {
             return Poll::Ready(None);
         }
+        if let Err(forked) = self.sender.ensure_opener() {
+            self.ended = true;
+            return Poll::Ready(Some(Err(forked)));
+        }
         if let Some(error) = self.refused.take() {
             self.ended = true;
             return Poll::Ready(Some(Err(error)));

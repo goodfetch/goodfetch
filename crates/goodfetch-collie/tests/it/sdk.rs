@@ -30,6 +30,8 @@ mod logging;
 mod page;
 mod public_items;
 mod raw_call;
+#[cfg(unix)]
+mod scripted;
 mod settings;
 mod start;
 

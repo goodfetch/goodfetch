@@ -13,9 +13,10 @@ use std::io;
 use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError, Weak};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use data_encoding::BASE64;
@@ -307,6 +308,11 @@ impl ClientConnection {
     /// `fork`.
     pub fn ensure_opener(&self) -> Result<(), Error> {
         self.0.sender.ensure_opener()
+    }
+
+    /// Whether the calling process opened the Connection.
+    pub(crate) fn in_opener(&self) -> bool {
+        self.0.sender.in_opener()
     }
 
     /// The handle the calls of the Connection's handles go through.
@@ -601,8 +607,17 @@ impl ClientConnection {
         &self,
         future: impl Future<Output = Result<T, Error>> + Send + 'static,
     ) -> Result<T, Error> {
-        // In another process, the runtime has no thread to run `future`.
-        self.ensure_opener()?;
+        if !self.in_opener() {
+            // In another process, the runtime has no thread to run
+            // `future`: one poll here reaches its call's own check, which
+            // names the call's operation, and nothing waits.
+            let _runtime = self.0.handle.enter();
+            let mut context = Context::from_waker(Waker::noop());
+            return match pin!(future).poll(&mut context) {
+                Poll::Ready(answer) => answer,
+                Poll::Pending => Err(Error::connection_forked()),
+            };
+        }
         let (done, ended) = std::sync::mpsc::sync_channel(1);
         self.0.handed.spawn_on(
             async move {

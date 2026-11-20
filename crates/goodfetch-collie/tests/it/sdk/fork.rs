@@ -8,14 +8,15 @@
 //! Connection to the Scripted engine, playing the Attached engine, fails
 //! the child's blocking uses, and the Scripted engine's record shows the
 //! child sent it nothing. Python's `test_forks_and_interrupts.py` is its
-//! twin.
+//! twin. Windows has no `fork`, so the case runs on Unix alone
+//! (`platforms = ["unix"]`).
 #![expect(
     unsafe_code,
     reason = "the test forks its own process, which only `fork` does, and ends the child with `_exit` (STYLE.md, `unsafe`)"
 )]
 
 use std::future::{Future as _, IntoFuture};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
@@ -23,15 +24,12 @@ use std::time::Duration;
 use goodfetch_collie::{Collie, Error, RunId, Tags};
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, blocking};
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::run::Lifecycle;
-use goodfetch_test_support::{
-    ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, engine_script, real_time_runtime, tools,
-};
+use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::options;
+use super::scripted::{attached_hello, client_methods, install_script};
 
 /// The Run the parent starts before it forks.
 const NIGHTLY: &str = "nightly";
@@ -100,10 +98,11 @@ fn a_connection_used_after_fork_fails_in_the_child_which_connects_on_its_own_lin
 
 /// The case, attached: in the child, starting a Run, finishing and closing
 /// the parent's Run, a raw call and closing the parent's Connection, each
-/// through `blocking`, fail with `connection_forked` and send the Scripted
-/// engine nothing, while the child's own Connection to a Scripted engine of
-/// its own starts and finishes a Run; the parent's close of its Run still
-/// reaches its engine.
+/// through `blocking`, fail with `connection_forked`, naming each call's
+/// operation as async calls do, and send the Scripted engine nothing,
+/// while the child's own Connection to a Scripted engine of its own starts
+/// and finishes a Run; the parent's close of its Run still reaches its
+/// engine.
 /// Covers: story:11-23, error:connection_forked
 #[test]
 fn a_connection_used_after_fork_fails_in_the_child_which_connects_on_its_own_attached() {
@@ -138,11 +137,16 @@ fn a_connection_used_after_fork_fails_in_the_child_which_connects_on_its_own_att
     });
 
     let closed = (run.close(), connection.close());
-    let unused = forked(None);
     assert_eq!(
         reported,
         json!({
-            "uses": [unused, unused, unused, unused, unused],
+            "uses": [
+                forked(Some("run.start")),
+                forked(Some("run.finish")),
+                forked(Some("config.explain")),
+                forked(Some("run.abort")),
+                forked(None),
+            ],
             "own": "Ok(Finished) Ok(())",
         })
     );
@@ -279,53 +283,11 @@ fn open(engine: &Endpoint) -> ClientConnection {
     })
 }
 
-/// This crate's `hello` to an Attached engine.
-fn attached_hello() -> HelloParams {
-    HelloParams {
-        needs: Some(Product::Collie),
-        ..HelloParams::new(
-            Surface::Rust,
-            ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-        )
-    }
-}
-
 /// The Scripted engine as the Attached engine of `env`'s home, playing
 /// `script` with this crate's `hello`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script before any async worker runs"
-)]
 fn scripted_engine(env: &TestEnv, script: &str) -> Endpoint {
-    let mut script: Value =
-        serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
-    script["steps"][0]["expect"]["params"] = serde_json::to_value(attached_hello()).unwrap();
-    let installed = env.home().join(ATTACHED_SCRIPT);
-    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    std::fs::write(&installed, serde_json::to_vec(&script).unwrap()).unwrap();
-    let executable: PathBuf = tools()
-        .unwrap()
-        .path(Tool::ScriptedEngine)
-        .unwrap()
-        .to_path_buf();
     Endpoint::Attached(AttachedEngine {
-        executable,
+        executable: install_script(env, script),
         environment: env.env_os(),
     })
-}
-
-/// The methods of the Client's messages the Scripted engine recorded in
-/// `record`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the Scripted engine's record after its Connection closed"
-)]
-fn client_methods(record: &Path) -> Vec<String> {
-    std::fs::read_to_string(record)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .filter(|entry| entry["from"] == "client")
-        .filter_map(|entry| entry["message"]["method"].as_str().map(str::to_owned))
-        .collect()
 }

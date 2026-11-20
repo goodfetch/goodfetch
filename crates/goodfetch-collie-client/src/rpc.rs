@@ -30,6 +30,7 @@ use crate::error::Error;
 use crate::handler::Streams;
 use crate::line;
 use crate::logging;
+use crate::opening_process::OpeningProcess;
 use crate::transport::{Exit, Link};
 
 /// How long a Connection whose engine ended it waits to hear how, before
@@ -130,28 +131,19 @@ pub(crate) struct Sender {
     commands: mpsc::UnboundedSender<Command>,
     /// How the Connection ended, set before it takes no more calls.
     ended: Arc<OnceLock<Ended>>,
-    /// The ID of the process that opened the Connection, whose threads
-    /// alone run its tasks (ADR 0078).
-    opener: u32,
+    opener: OpeningProcess,
 }
 
 impl Sender {
     /// `connection_forked` unless the calling process opened the
-    /// Connection: in another, such as the child of a `fork`, the
-    /// Connection's tasks never run, so nothing it hands them is sent.
-    /// Each use compares the process ID with the opener's, so nothing is
-    /// registered to run at a fork.
+    /// Connection.
     pub(crate) fn ensure_opener(&self) -> Result<(), Error> {
-        if self.in_opener() {
-            Ok(())
-        } else {
-            Err(Error::connection_forked())
-        }
+        self.opener.ensure_current()
     }
 
     /// Whether the calling process opened the Connection.
     pub(crate) fn in_opener(&self) -> bool {
-        std::process::id() == self.opener
+        self.opener.is_current()
     }
 
     /// Sends `call`; its reply fails as the Connection ended once it has.
@@ -258,7 +250,7 @@ pub(crate) fn start(
     Sender {
         commands,
         ended,
-        opener: std::process::id(),
+        opener: OpeningProcess::current(),
     }
 }
 

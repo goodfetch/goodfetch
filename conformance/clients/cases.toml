@@ -129,7 +129,7 @@ platforms = ["unix"]
 # and writes nothing to the parent's engine, while a Connection the child
 # opens works. Node has no `fork`. `sdk-rust` runs it linked, and through
 # the Rust Client's Attached transport, which `sdk-rust` has no mode for
-# (issue 3062).
+# (issue 3062). Windows has no `fork`.
 [[capability.case]]
 id = "connection-used-after-fork"
 covers = ["story:11-23", "error:connection_forked"]

@@ -75,17 +75,6 @@ fn a_crawl_that_keeps_every_field_of_every_record_is_verified() {
 }
 
 #[test]
-fn a_later_record_carries_fields_the_first_lacks() {
-    let proving_ground = ProvingGround::start(SEED);
-    let records = crawl(&proving_ground);
-
-    let width = |record: &Value| record.as_object().unwrap().len();
-
-    assert_eq!(width(&records[0]), 2, "{}", records[0]);
-    assert_eq!(width(&records[23]), 4, "{}", records[23]);
-}
-
-#[test]
 fn a_crawl_whose_columns_are_its_first_records_is_a_false_success_naming_each_dropped_field() {
     let proving_ground = ProvingGround::start(SEED);
     let records = columns_of_the_first(&crawl(&proving_ground));

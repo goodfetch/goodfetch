@@ -24,6 +24,9 @@ fn interface<'a>(module: &'a str, name: &str) -> &'a str {
     &module[start..end]
 }
 
+/// Each scope types the settings its code sets, and the spelling knows
+/// every setting, one only a file sets included, so that the engine
+/// refuses that key by its wire name naming the file (ADR 0083).
 #[test]
 fn each_scope_types_the_settings_it_sets_by_their_camel_case_segments() {
     let settings = [
@@ -73,7 +76,13 @@ fn each_scope_types_the_settings_it_sets_by_their_camel_case_segments() {
     let run = interface(&module, "RunSettings");
     assert!(run.contains("readonly navigation?: number;"), "{run}");
     assert!(
-        !module.contains("trustedCas") && !module.contains("trusted_cas"),
+        ["Settings", "RunSettings", "SessionSettings", "PageSettings"]
+            .iter()
+            .all(|name| !interface(&module, name).contains("trustedCas")),
+        "{module}"
+    );
+    assert!(
+        module.contains("tls: [\"tls\", {\n    trustedCas: \"trusted_cas\",\n  }],"),
         "{module}"
     );
     assert!(

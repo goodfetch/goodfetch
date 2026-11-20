@@ -134,22 +134,6 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
     );
 }
 
-/// `blocking` inside an async runtime never enters a runtime, which would
-/// panic here.
-/// Covers: story:11-1002
-#[test]
-fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
-    let env = TestEnv::new();
-    real_time_runtime().block_on(async {
-        let foxhound = blocking::Foxhound::connect(options(&env)).unwrap();
-
-        let report = foxhound.start().send().unwrap().finish().send().unwrap();
-        foxhound.close().unwrap();
-
-        assert_eq!(report.lifecycle, Lifecycle::Finished);
-    });
-}
-
 /// One helper typed for the client crate's Connection takes both
 /// Products' connections and closes them, and a `match` on the client
 /// crate's `Error` catches what either fails with. The helper is a

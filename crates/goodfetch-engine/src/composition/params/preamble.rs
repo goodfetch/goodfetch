@@ -6,7 +6,7 @@
 //! whose params no read went through whole, as one its handler refuses,
 //! has them read here, where they are.
 
-use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, TraceContext};
+use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, RequestMeta, TraceContext};
 use serde::Deserializer as _;
 use serde::de::IgnoredAny;
 use serde_json::value::RawValue;
@@ -83,7 +83,7 @@ impl<'a> Found<'a> {
     /// # Errors
     ///
     /// `invalid_params` when their `_meta` holds a key other than
-    /// `traceparent` and `tracestate` or a value that is no string.
+    /// `traceparent`, `tracestate` and `raw`, or a value of another type.
     pub(super) fn checked(self) -> Result<Preamble<'a>, CallError> {
         let meta = self.meta.map(trace_context).transpose()?;
         Ok(Preamble {
@@ -93,13 +93,14 @@ impl<'a> Found<'a> {
     }
 }
 
-/// The Trace context a request's `_meta` holds.
+/// The Trace context a request's `_meta` holds, once the whole `_meta` is
+/// checked, its raw mark (ADR 0099) included.
 fn trace_context(meta: &RawValue) -> Result<TraceContext, CallError> {
     let refused = |error: String| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
             format!(
-                "`{META}` is an object of `traceparent` and `tracestate`, each a string: {error}"
+                "`{META}` is an object of `traceparent` and `tracestate`, each a string, and `raw`, a boolean: {error}"
             ),
         )
     };
@@ -107,5 +108,7 @@ fn trace_context(meta: &RawValue) -> Result<TraceContext, CallError> {
     if !meta.get().starts_with('{') {
         return Err(refused("it is no object".to_owned()));
     }
-    serde_json::from_str(meta.get()).map_err(|error| refused(without_position(&error)))
+    serde_json::from_str(meta.get())
+        .map(RequestMeta::trace_context)
+        .map_err(|error| refused(without_position(&error)))
 }

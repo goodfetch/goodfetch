@@ -159,9 +159,9 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
                 .collect::<Vec<_>>(),
             chosen(&env, "sample-listing", &["listing"]),
             chosen(&env, "sample-listing", &["leaf"])
-                .iter()
+                .into_iter()
                 .filter(|line| line.ends_with("compared"))
-                .all(|line| line == "leaf browser_fetch compared"),
+                .collect::<Vec<_>>(),
         ),
         (
             &json!("finished"),
@@ -177,7 +177,9 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
             ]
             .map(str::to_owned)
             .to_vec(),
-            true,
+            // Twelve leaves, three links from each listing's browser run;
+            // the first three are the samples, the nine after are compared.
+            vec!["leaf browser_fetch compared".to_owned(); 9],
         )
     );
 }

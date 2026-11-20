@@ -37,7 +37,10 @@ export interface CrawlSettings {
 export interface LabelSettings {
 }
 
-/** Each segment's wire spelling, by its camelCase one. */
+/**
+ * Each segment's wire spelling, by its camelCase one: every setting's,
+ * those only a file sets included, which the engine refuses naming it.
+ */
 const SPELLING: Spelling = {
 };
 

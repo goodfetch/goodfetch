@@ -1,6 +1,7 @@
 //! ADR 0030's run-time warning for a deprecated or Experimental catalog
-//! entry (ADR 0099): each generated member of one calls it, each
-//! hand-written member serving one reads its markers from the catalog, and
+//! entry (ADR 0099): each generated member of one calls it, as does each
+//! generated event marker a handle's `events` reads, each hand-written
+//! member serving one reads its markers from the catalog, and
 //! it warns once per process per name and marker, through `tracing`, the
 //! host's channel (ADR 0078). The type-level markers, `#[deprecated]` and
 //! the rustdoc line, are the generated member's own.
@@ -29,7 +30,7 @@ static WARNED: Mutex<BTreeSet<(Marker, &'static str)>> = Mutex::new(BTreeSet::ne
 /// Warns, the first time in the process for each marker, that the entry
 /// `name` is Experimental, when `experimental` says so, and that it is
 /// deprecated, when it has a `deprecation`: its deprecation's one text,
-/// `Since <version>: <note>`, which the TypeScript and Python SDKs' markers
+/// `Deprecation::message`'s, which the TypeScript and Python SDKs' markers
 /// carry too.
 pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&str>) {
     if experimental && first(Marker::Experimental, name) {

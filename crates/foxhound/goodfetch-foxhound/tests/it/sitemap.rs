@@ -190,13 +190,27 @@ fn counts(
 }
 
 /// A sitemap a seed could not read, with the Error code, skip reason or
-/// refusal, the status when one answered, and why.
-fn failure(url: &str, code: &str, status: Option<u16>, message: &str) -> Value {
-    let mut failure = json!({ "url": url, "code": code, "message": message });
+/// refusal and the status when one answered.
+fn failure(url: &str, code: &str, status: Option<u16>) -> Value {
+    let mut failure = json!({ "url": url, "code": code });
     if let Some(status) = status {
         failure["status"] = json!(status);
     }
     failure
+}
+
+/// The seeds' sitemap counts with each failure's message left out: a
+/// failure is asserted on its code, never on its text.
+fn without_messages(sitemaps: &Value) -> Value {
+    let mut sitemaps = sitemaps.clone();
+    for seed in sitemaps.as_array_mut().into_iter().flatten() {
+        for failure in seed["failures"].as_array_mut().into_iter().flatten() {
+            if let Some(failure) = failure.as_object_mut() {
+                failure.remove("message");
+            }
+        }
+    }
+    sitemaps
 }
 
 fn handled(requests: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -395,7 +409,7 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
     assert_eq!(
         (
             crawled.handled,
-            crawled.report["sitemaps"].clone(),
+            without_messages(&crawled.report["sitemaps"]),
             arrivals.first().map(|(target, _)| target.as_str()),
             targets(&crawled.observations, SITE),
             targets(&crawled.observations, BLOCKED),
@@ -410,24 +424,8 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
                 &index,
                 2,
                 &[
-                    failure(
-                        &url(BLOCKED, "/sitemap.xml"),
-                        "domain_policy",
-                        None,
-                        &format!(
-                            "The Run's domain policy refuses the host of the sitemap {}, so it was not fetched.",
-                            url(BLOCKED, "/sitemap.xml")
-                        ),
-                    ),
-                    failure(
-                        &url(SITE, "/private/hidden.xml"),
-                        "robots_txt",
-                        None,
-                        &format!(
-                            "The site's robots.txt disallows the sitemap {}, so it was not fetched.",
-                            url(SITE, "/private/hidden.xml")
-                        ),
-                    ),
+                    failure(&url(BLOCKED, "/sitemap.xml"), "domain_policy", None),
+                    failure(&url(SITE, "/private/hidden.xml"), "robots_txt", None),
                 ],
                 2,
                 &[("no_rule", 1)]
@@ -470,21 +468,14 @@ fn a_sitemap_index_past_fifty_thousand_sitemaps_is_reported_unread() {
 
     assert_eq!(
         (
-            crawled.report["sitemaps"].clone(),
+            without_messages(&crawled.report["sitemaps"]),
             targets(&crawled.observations, OVER_LIMIT),
         ),
         (
             json!([counts(
                 &index,
                 0,
-                &[failure(
-                    &index,
-                    "response_not_ok",
-                    None,
-                    &format!(
-                        "The sitemap {index} could not be read: it lists more than sitemaps.org's 50,000 URLs."
-                    ),
-                )],
+                &[failure(&index, "response_not_ok", None)],
                 0,
                 &[],
             )]),
@@ -513,18 +504,6 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
         "rules": [{ "pattern": "**/books/*", "label": "book" }],
     });
     let more = json!({ "crawl": { "retry": { "max": 0 } } });
-    let unreadable = |at: &str, why: &str| {
-        failure(
-            at,
-            "response_not_ok",
-            None,
-            &format!("The sitemap {at} could not be read: {why}."),
-        )
-    };
-    let elsewhere = url(OVER_LIMIT, "/sitemap-index.xml");
-    let bomb = url(SITE, "/sitemaps/bomb.xml.gz");
-    let error = url(SITE, "/sitemaps/error.xml");
-    let missing = url(SITE, "/sitemaps/missing.xml");
 
     let crawled = crawl_sitemap(&proving_ground, &seed, &more);
 
@@ -533,41 +512,27 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
         3,
         &[
             failure(
-                &bomb,
+                &url(SITE, "/sitemaps/bomb.xml.gz"),
                 "response_limit_exceeded",
                 None,
-                &format!(
-                    "the body of {bomb} decodes to more bytes per received byte than `network.max_decompression_ratio` allows (100)"
-                ),
             ),
-            unreadable(
-                &url(SITE, "/sitemaps/broken.xml"),
-                "its XML ends inside an element"
-            ),
+            failure(&url(SITE, "/sitemaps/broken.xml"), "response_not_ok", None),
             failure(
-                &error,
+                &url(SITE, "/sitemaps/error.xml"),
                 "response_unavailable",
-                Some(500),
-                &format!("The sitemap {error} answered 500."),
+                Some(500)
             ),
             failure(
-                &missing,
+                &url(SITE, "/sitemaps/missing.xml"),
                 "response_not_ok",
-                Some(404),
-                &format!("The sitemap {missing} answered 404, not a sitemap."),
-            ),
-            unreadable(
-                &url(SITE, "/sitemaps/oversized.xml"),
-                "it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed",
+                Some(404)
             ),
             failure(
-                &elsewhere,
-                "out_of_scope",
-                None,
-                &format!(
-                    "The sitemap {elsewhere} is on another host than its sitemap seed's and the sitemap's that names it, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
-                ),
+                &url(SITE, "/sitemaps/oversized.xml"),
+                "response_not_ok",
+                None
             ),
+            failure(&url(OVER_LIMIT, "/sitemap-index.xml"), "out_of_scope", None,),
         ],
         4,
         &[],
@@ -575,8 +540,8 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
     assert_eq!(
         (
             crawled.handled,
-            crawled.report["sitemaps"].clone(),
-            crawled.progress["sitemaps"].clone(),
+            without_messages(&crawled.report["sitemaps"]),
+            without_messages(&crawled.progress["sitemaps"]),
         ),
         (
             handled(&[

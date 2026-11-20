@@ -106,17 +106,20 @@ covers = ["story:11-24", "story:11-27", "error:engine_exited"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
-# Ctrl+C reaches only the host (ADRs 0078 and 0093; issue 1267): the
-# Attached engine runs in a process group of its own, so SIGINT sent to the
-# host's group leaves it running, and the host's unwinding, Python's
-# `KeyboardInterrupt` or the handler a TypeScript program installs, closes
-# the running Run, which stops with a Checkpoint, then the Connection. Its
-# test sends SIGINT; the Windows half, CTRL_C_EVENT, has no test yet.
+# Ctrl+C reaches only the host (ADRs 0078 and 0093; issues 1267 and 3063):
+# the Attached engine runs in a process group of its own, so SIGINT sent to
+# the host's group leaves it running, and the host's unwinding, Python's
+# `KeyboardInterrupt` or the handler a TypeScript or Rust program installs,
+# closes the running Run, which stops with a Checkpoint, then the
+# Connection. `sdk-rust` runs it linked, where the engine inside the host
+# outlives the signal, and through the Rust Client's Attached transport,
+# which `sdk-rust` has no mode for. Its test sends SIGINT; the Windows half,
+# CTRL_C_EVENT, has no test yet.
 [[capability.case]]
 id = "interrupt-reaches-only-the-host"
 covers = ["story:11-22"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 platforms = ["unix"]
 
 # A Connection, and every value under it, belongs to the process that

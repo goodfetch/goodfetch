@@ -557,3 +557,33 @@ fn stopping_a_run_under_a_call_raises_call_cancelled_naming_the_program_and_the_
         "{stopped} {called}"
     );
 }
+
+/// `run.abort` while a call is in flight stops the Run at once for a
+/// Client: the call raises `call_cancelled` naming the Client and the Run
+/// (ADR 0113), and the abort answers.
+///
+/// Covers: story:11-48, operation:run.abort
+#[test]
+fn aborting_a_run_under_a_call_raises_call_cancelled_naming_the_client_and_the_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, page, _) = on_a_page(&env, &proving_ground, "aborting");
+    let calling = call_in_flight(&mut exchange, &page);
+
+    let aborting = exchange.request("run.abort", &json!({ "run_id": "aborting" }));
+    let mut answers = answers(&mut exchange, &[aborting, calling]).into_iter();
+    let (aborted, called) = (answers.next().unwrap(), answers.next().unwrap());
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (aborted.get("result").is_some(), failure(&called)),
+        (
+            true,
+            (
+                json!("call_cancelled"),
+                json!({ "by": "client", "closed": "run" })
+            )
+        ),
+        "{aborted} {called}"
+    );
+}

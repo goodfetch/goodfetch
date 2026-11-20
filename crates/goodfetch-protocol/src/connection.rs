@@ -853,16 +853,17 @@ impl fmt::Display for WaitedFor {
     }
 }
 
-/// Who stopped a call (ADR 0113).
+/// Who stopped a Run as an abort, the `by` of
+/// [`StopReason::Abort`](crate::run::StopReason::Abort); a call the stop
+/// cancels names it as its [`CancelledBy`] (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {
-    /// A Client, such as through `$/cancel`.
+    /// A Client, through `run.abort`.
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
     Program,
-    /// The browser, outside every Client: a page's window closed there, or
-    /// the browser quit (ADR 0113).
+    /// The browser, outside every Client.
     Browser,
 }
 

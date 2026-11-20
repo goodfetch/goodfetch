@@ -1,8 +1,8 @@
 //! `call_cancelled` read by type (ADRs 0099 and 0113): a call another
 //! thread, person, Client or the browser stops fails with its details,
 //! who stopped it, what closed under it and whom the stopping Client acts
-//! for, and a value a newer engine names reaches the program as sent
-//! (ADR 0079). Over a peer the test plays on the in-memory network.
+//! for (the protocol's own tests keep a value a newer engine names, ADR
+//! 0079). Over a peer the test plays on the in-memory network.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -14,7 +14,6 @@ use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue,
 };
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
-use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt as _;
 
@@ -105,25 +104,17 @@ fn a_call_stopped_under_it_reads_who_stopped_it_what_closed_and_for_whom() {
     );
 }
 
-/// Who stopped a call and what closed under it, as a newer engine names
-/// them, reach the program unchanged, and no `closed` reads as none.
+/// A call stopped with nothing closed under it reads who stopped it and
+/// no closed value.
 ///
 /// Covers: story:11-48
-#[rstest]
-#[case::newer_names(json!({ "by": "a_newer_stopper", "closed": "a_newer_value" }), ("a_newer_stopper", Some("a_newer_value")))]
-#[case::nothing_closed(json!({ "by": "client" }), ("client", None))]
-fn who_and_what_reach_the_program_as_the_engine_named_them(
-    #[case] sent: Value,
-    #[case] read: (&str, Option<&str>),
-) {
-    let error = stopped_with(&sent);
+#[test]
+fn a_call_stopped_with_nothing_closed_reads_who_and_no_closed_value() {
+    let error = stopped_with(&json!({ "by": "client" }));
 
     let details = error.details::<CallCancelledDetails>().unwrap();
     assert_eq!(
-        (
-            details.by.as_str(),
-            details.closed.as_ref().map(ClosedValue::as_str)
-        ),
-        read
+        (details.by, details.closed, details.person),
+        (CancelledBy::Client, None, None)
     );
 }

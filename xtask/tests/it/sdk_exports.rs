@@ -160,6 +160,62 @@ fn check_refuses_a_line_naming_no_hand_written_export(
     "blocking::Foxhound",
     "close"
 )]
+#[case::function_of_a_public_trait(
+    "blocking.rs",
+    "    fn wait(&self);",
+    "    fn wait(&self);\n\n    /// Blocks for a while.\n    fn wait_for(&self);",
+    "blocking::Wait",
+    "wait_for"
+)]
+#[case::method_of_an_impl_that_names_its_type_through_a_glob(
+    "foxhound.rs",
+    "impl Clone for Foxhound {",
+    "mod split {\n    use super::*;\n\n    impl Foxhound {\n        /// Reconnects.\n        pub fn reconnect(&self) {}\n    }\n}\n\nimpl Clone for Foxhound {",
+    "Foxhound",
+    "reconnect"
+)]
+#[case::item_re_exported_through_an_imported_module(
+    "blocking.rs",
+    "pub use goodfetch_collie_client::blocking::Run;",
+    "pub use goodfetch_collie_client::blocking::Run;\nuse crate::hidden;\npub use hidden::LIMIT;",
+    "blocking",
+    "LIMIT"
+)]
+#[case::item_re_exported_through_super_twice(
+    "blocking.rs",
+    "/// What blocks until it is done.",
+    "/// Deeper.\npub mod deeper {\n    /// Deepest.\n    pub mod deepest {\n        pub use super::super::super::hidden::LIMIT;\n    }\n}\n\n/// What blocks until it is done.",
+    "blocking::deeper::deepest",
+    "LIMIT"
+)]
+#[case::item_of_a_re_exported_module(
+    "lib.rs",
+    "mod hidden;",
+    "mod hidden;\nmod inner {\n    pub fn spawn() {}\n}\npub use inner as api;",
+    "api",
+    "spawn"
+)]
+#[case::item_a_glob_chain_re_exports(
+    "lib.rs",
+    "mod hidden;",
+    "mod hidden;\nmod a {\n    pub struct Globbed;\n}\nmod b {\n    pub use super::a::*;\n}\npub use b::Globbed;",
+    "(crate)",
+    "Globbed"
+)]
+#[case::re_export_a_glob_re_exports(
+    "lib.rs",
+    "mod hidden;",
+    "mod hidden;\nmod deep {\n    pub struct Deep;\n}\nmod b {\n    pub use super::deep::Deep;\n}\npub use b::*;",
+    "(crate)",
+    "Deep"
+)]
+#[case::item_of_a_path_module_in_an_inline_module(
+    "blocking.rs",
+    "/// What blocks until it is done.",
+    "/// The outer module.\npub mod outer {\n    #[path = \"far.rs\"]\n    pub mod far;\n}\n\n/// What blocks until it is done.",
+    "blocking::outer::far",
+    "reach"
+)]
 fn check_refuses_a_public_rust_item_no_line_lists(
     #[case] file: &str,
     #[case] from: &str,
@@ -193,8 +249,8 @@ fn check_refuses_a_public_rust_item_no_line_lists(
 
 /// A crate's public item is only what a dependent crate reaches by name:
 /// not a `#[doc(hidden)]` method, not a member the generator writes, even on
-/// a hand-written type, and not another crate's type it re-exports, which
-/// that crate's manifest lists.
+/// a hand-written type, not another crate's type it re-exports, which that
+/// crate's manifest lists, and nothing only a test build compiles.
 #[rstest]
 #[case::member_the_crate_lacks("Foxhound", "abort", "[\"abort\"]", "closer")]
 #[case::hidden_member("Foxhound", "hidden", "[\"hidden\"]", "read")]
@@ -203,6 +259,8 @@ fn check_refuses_a_public_rust_item_no_line_lists(
 #[case::generated_type_behind_a_path("blocking", "Waited", "[\"waited\"]", "type")]
 #[case::other_crates_type("(crate)", "Run", "[\"run\"]", "type")]
 #[case::item_of_a_test_module("tests", "helper", "[\"helper\"]", "read")]
+#[case::item_of_a_module_only_some_tests_build("slow_tests", "helper", "[\"helper\"]", "read")]
+#[case::member_of_a_test_impl("Foxhound", "fake", "[\"fake\"]", "opener")]
 fn check_refuses_a_rust_line_naming_no_public_hand_written_item(
     #[case] receiver: &str,
     #[case] member: &str,

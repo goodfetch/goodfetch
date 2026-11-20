@@ -10,6 +10,11 @@ pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use generated::Handle;
 pub use goodfetch_collie_client::Run;
 
+#[cfg(all(test, feature = "slow"))]
+pub mod slow_tests {
+    pub fn helper() {}
+}
+
 #[cfg(test)]
 mod tests {
     pub fn helper() {}

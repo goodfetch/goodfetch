@@ -29,16 +29,17 @@ const TYPESCRIPT_EXPORTS: &str = include_str!("typescript-exports.mjs");
 /// One member an SDK's entry exports.
 #[derive(Deserialize)]
 struct Exported {
-    /// The entry exporting it: an npm package and its subpath.
+    /// The entry exporting it: an npm package and its subpath, or a crate.
     entry: String,
     receiver: String,
     member: String,
     /// The same for every entry exporting one declaration.
     id: String,
-    /// The folder of the package whose entry exports it.
+    /// The package whose entry exports it: a TypeScript package's folder,
+    /// or a crate's name.
     home: String,
-    /// The folder of the package declaring it, `None` for the language
-    /// library's.
+    /// The package declaring it, named as `home` is, `None` for the
+    /// language library's.
     package: Option<String>,
     generated: bool,
     /// Declared by the language's library, such as `Disposable`'s
@@ -49,9 +50,7 @@ struct Exported {
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for (manifest, language) in MANIFESTS {
-        let Some(exported) = exports(root, manifest, language)? else {
-            continue;
-        };
+        let exported = exports(root, manifest, language)?;
         compare(
             manifest,
             language,
@@ -63,19 +62,25 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-/// The members the SDK of `manifest` exports, or `None` for a language
-/// whose reader has not joined yet.
-fn exports(root: &Path, manifest: &str, language: Language) -> Result<Option<Vec<Exported>>> {
+/// The members the SDK of `manifest` exports.
+fn exports(root: &Path, manifest: &str, language: Language) -> Result<Vec<Exported>> {
     let sdk = Path::new(manifest)
         .parent()
         .context("a manifest sits in its SDK's folder")?;
-    if language == Language::Rust {
-        let name = sdk
-            .file_name()
-            .and_then(|name| name.to_str())
-            .context("a Rust manifest sits in its crate's folder, named as the crate")?;
-        return rust::exports(&root.join(sdk), name).map(Some);
+    match language {
+        Language::TypeScript => typescript_exports(root, sdk),
+        Language::Rust => {
+            let name = sdk
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("a Rust manifest sits in its crate's folder, named as the crate")?;
+            rust::exports(&root.join(sdk), name)
+        }
     }
+}
+
+/// The members the TypeScript packages of the folder `sdk` export.
+fn typescript_exports(root: &Path, sdk: &Path) -> Result<Vec<Exported>> {
     let output = Command::new("node")
         .args(["--input-type=module", "--eval", TYPESCRIPT_EXPORTS])
         .arg(root.join(sdk))
@@ -89,9 +94,7 @@ fn exports(root: &Path, manifest: &str, language: Language) -> Result<Option<Vec
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    serde_json::from_slice(&output.stdout)
-        .context("parsing the TypeScript SDK's exports")
-        .map(Some)
+    serde_json::from_slice(&output.stdout).context("parsing the TypeScript SDK's exports")
 }
 
 /// Fails each line of `manifest` naming no hand-written member its SDK

@@ -51,3 +51,21 @@ entry = "none"
 reason = "Opens a connection without async."
 words = ["connect"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Wait"
+entry = "none"
+reason = "What blocks."
+words = ["wait"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Wait"
+member = "wait"
+entry = "none"
+reason = "Blocks until it is done."
+words = ["wait"]
+form = "read"

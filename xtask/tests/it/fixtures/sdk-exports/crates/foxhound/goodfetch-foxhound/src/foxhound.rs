@@ -27,6 +27,13 @@ impl Foxhound {
     pub fn hidden(&self) {}
 }
 
+#[cfg(test)]
+impl Foxhound {
+    pub fn fake() -> Self {
+        Self { engine: 0 }
+    }
+}
+
 impl Clone for Foxhound {
     fn clone(&self) -> Self {
         Self { engine: self.engine }

@@ -1,14 +1,18 @@
 //! The members a Rust SDK crate exports, read from its source with `syn`:
-//! the module tree is walked from `src/lib.rs`, its `#[cfg(test)]` modules
-//! left out, and a public item is what a dependent crate reaches by name.
+//! the module tree is walked from `src/lib.rs`, following `#[path]`, with
+//! what only a test build compiles left out, and its names are resolved as
+//! the compiler resolves them, through `use`s, globs and `super`. A public
+//! item is what a dependent crate reaches by name from the crate's root:
 //!
-//! - each item a public module declares `pub`, on the module's receiver:
-//!   `(crate)` at the root, else the module's path, as `blocking`;
-//! - each item of the crate a public module re-exports with `pub use`,
-//!   under the name it re-exports it as. Another crate's item the crate
-//!   re-exports is that crate's to list, so it is left out;
+//! - each item a module it reaches declares `pub`, on the module's
+//!   receiver: `(crate)` at the root, else the path it reaches the module
+//!   by, as `blocking`;
+//! - each item of the crate such a module re-exports, by name or by a glob,
+//!   under the name it re-exports it as; a re-exported module is reached
+//!   like a declared one. Another crate's item the crate re-exports is that
+//!   crate's to list, so it is left out;
 //! - each `pub` function and constant of an inherent `impl` of such a type,
-//!   wherever the `impl` sits, on the type's public path, as
+//!   wherever the `impl` sits, on the path the type is reached by, as
 //!   `blocking::Foxhound`; a trait's are the trait's, so a trait `impl`
 //!   adds none;
 //! - each function of such a trait, on the trait's path.
@@ -25,6 +29,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
+use syn::punctuated::Punctuated;
 
 use super::Exported;
 
@@ -32,25 +37,22 @@ use super::Exported;
 const CRATE: &str = "(crate)";
 /// The module the generator writes into, at any depth.
 const GENERATED: &str = "generated";
-/// How many `use` hops a re-export may take to its item.
+/// How many `use`s and globs a name may go through to what it names.
 const HOPS: usize = 16;
 
-/// Where a name a module imports points.
-#[derive(Clone)]
-enum Target {
-    /// A path inside the crate, from its root, ending in the name.
-    Crate(Vec<String>),
-    /// Another crate's item.
-    External,
+/// What a name names in a module.
+#[derive(Clone, PartialEq, Eq)]
+enum Named {
+    Module(usize),
+    /// The module declaring the item, and its name there.
+    Item(usize, String),
 }
 
-/// How a module is reached and who writes it.
-#[derive(Clone, Copy)]
-struct Place {
-    /// It and each module around it is `pub`.
+/// A path a `use` names, as written.
+struct Use {
+    segments: Vec<String>,
+    /// A `pub use`: it re-exports what it names.
     public: bool,
-    /// The generator writes it.
-    generated: bool,
 }
 
 /// What an item declares.
@@ -72,15 +74,15 @@ struct Item {
 }
 
 struct Module {
+    /// The path it is declared at.
     path: Vec<String>,
-    /// It and each module around it is `pub`.
-    public: bool,
+    parent: Option<usize>,
     /// The generator writes it.
     generated: bool,
-    uses: BTreeMap<String, Target>,
-    reexports: BTreeMap<String, Target>,
-    /// Globs it re-exports, by the module they name.
-    glob_reexports: Vec<Target>,
+    /// Its child modules, and whether each is `pub`.
+    children: BTreeMap<String, (usize, bool)>,
+    uses: BTreeMap<String, Use>,
+    globs: Vec<Use>,
     items: BTreeMap<String, Item>,
 }
 
@@ -97,10 +99,20 @@ struct Impl {
 struct Reached {
     /// The module that declares it, and its name there.
     item: (usize, String),
-    /// The module it is reached at.
+    /// The path of the module it is reached at.
     at: Vec<String>,
     /// The name it is reached by there.
     name: String,
+}
+
+/// Where a module's source sits.
+struct Source<'a> {
+    /// The file holding it.
+    file: &'a Path,
+    /// The folder its child modules' files sit in.
+    children: PathBuf,
+    /// The folder a `#[path]` on one of its child modules is relative to.
+    path_base: PathBuf,
 }
 
 struct Crate {
@@ -120,11 +132,12 @@ pub(super) fn exports(folder: &Path, name: &str) -> Result<Vec<Exported>> {
         modules: Vec::new(),
         impls: Vec::new(),
     };
-    let root = Place {
-        public: true,
-        generated: false,
+    let at = Source {
+        file: &lib,
+        children: source.clone(),
+        path_base: source,
     };
-    read.module(&[], root, &file.items, &source, &lib)?;
+    read.module(Vec::new(), None, false, &file.items, &at)?;
     Ok(read.exported(name))
 }
 
@@ -138,22 +151,56 @@ fn is_public(visibility: &syn::Visibility) -> bool {
     matches!(visibility, syn::Visibility::Public(_))
 }
 
-/// Whether `attributes` hold the attribute `words`, as `cfg(test)`.
-fn holds(attributes: &[syn::Attribute], words: &str) -> bool {
+/// Whether `attributes` hold `#[doc(hidden)]`.
+fn hidden(attributes: &[syn::Attribute]) -> bool {
     attributes.iter().any(|attribute| {
-        quote::ToTokens::to_token_stream(&attribute.meta)
-            .to_string()
-            .replace(' ', "")
-            == words
+        attribute.path().is_ident("doc")
+            && attribute
+                .parse_args::<syn::Path>()
+                .is_ok_and(|path| path.is_ident("hidden"))
     })
 }
 
-/// Whether `attributes` hold `#[cfg(test)]` or `#[doc(hidden)]`.
-fn left_out(attributes: &[syn::Attribute]) -> bool {
-    holds(attributes, "cfg(test)") || holds(attributes, "doc(hidden)")
+/// Whether `attributes` hold a `#[cfg]` only a test build meets, as
+/// `cfg(test)` or `cfg(all(test, …))`.
+fn test_only(attributes: &[syn::Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        attribute.path().is_ident("cfg")
+            && attribute
+                .parse_args::<syn::Meta>()
+                .is_ok_and(|predicate| needs_test(&predicate))
+    })
 }
 
-/// Each name a `use` tree brings in, with the path it names.
+/// Whether the `cfg` predicate holds only when `test` does.
+fn needs_test(predicate: &syn::Meta) -> bool {
+    match predicate {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) => {
+            let Ok(nested) =
+                list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            else {
+                return false;
+            };
+            if list.path.is_ident("all") {
+                nested.iter().any(needs_test)
+            } else if list.path.is_ident("any") {
+                !nested.is_empty() && nested.iter().all(needs_test)
+            } else {
+                false
+            }
+        }
+        syn::Meta::NameValue(_) => false,
+    }
+}
+
+/// Whether what `attributes` mark is no one's: test-only or hidden.
+fn left_out(attributes: &[syn::Attribute]) -> bool {
+    test_only(attributes) || hidden(attributes)
+}
+
+/// Each name a `use` tree brings in, with the path it names; a glob's name
+/// is `*`.
 fn use_tree(tree: &syn::UseTree, prefix: &mut Vec<String>, found: &mut Vec<(String, Vec<String>)>) {
     match tree {
         syn::UseTree::Path(path) => {
@@ -187,227 +234,212 @@ fn use_tree(tree: &syn::UseTree, prefix: &mut Vec<String>, found: &mut Vec<(Stri
     }
 }
 
-/// The path `segments`, written in the module at `path` among its child
-/// modules `children`, from the crate's root.
-fn resolve(path: &[String], children: &[String], segments: &[String]) -> Target {
-    let Some(first) = segments.first() else {
-        return Target::External;
-    };
-    let mut base = match first.as_str() {
-        "crate" => Vec::new(),
-        "self" => path.to_vec(),
-        "super" => {
-            let mut base = path.to_vec();
-            let mut rest = segments;
-            while rest.first().is_some_and(|segment| segment == "super") {
-                base.pop();
-                rest = &rest[1..];
-            }
-            base.extend(rest.iter().cloned());
-            return Target::Crate(base);
-        }
-        name if children.iter().any(|child| child == name) => {
-            let mut base = path.to_vec();
-            base.push(name.to_owned());
-            base.extend(segments[1..].iter().cloned());
-            return Target::Crate(base);
-        }
-        _ => return Target::External,
-    };
-    base.extend(segments[1..].iter().cloned());
-    Target::Crate(base)
-}
-
 impl Crate {
+    /// Reads the module at `path`, holding `items`, and its child modules;
+    /// returns its index.
     fn module(
         &mut self,
-        path: &[String],
-        place: Place,
+        path: Vec<String>,
+        parent: Option<usize>,
+        generated: bool,
         items: &[syn::Item],
-        children: &Path,
-        file: &Path,
-    ) -> Result<()> {
-        let child_modules: Vec<String> = items
-            .iter()
-            .filter_map(|item| match item {
-                syn::Item::Mod(child) => Some(child.ident.to_string()),
-                _ => None,
-            })
-            .collect();
+        source: &Source<'_>,
+    ) -> Result<usize> {
         let index = self.modules.len();
-        let mut module = Module {
-            path: path.to_vec(),
-            public: place.public,
-            generated: place.generated,
+        self.modules.push(Module {
+            path,
+            parent,
+            generated,
+            children: BTreeMap::new(),
             uses: BTreeMap::new(),
-            reexports: BTreeMap::new(),
-            glob_reexports: Vec::new(),
+            globs: Vec::new(),
             items: BTreeMap::new(),
-        };
-        let mut nested = Vec::new();
+        });
         for item in items {
             match item {
-                syn::Item::Use(used) => {
+                syn::Item::Use(used) if !test_only(&used.attrs) => {
+                    let public = is_public(&used.vis) && !hidden(&used.attrs);
                     let mut found = Vec::new();
                     use_tree(&used.tree, &mut Vec::new(), &mut found);
-                    let reexported = is_public(&used.vis) && !left_out(&used.attrs);
+                    let module = &mut self.modules[index];
                     for (name, segments) in found {
-                        let target = resolve(path, &child_modules, &segments);
-                        if name == "*" {
-                            if reexported {
-                                module.glob_reexports.push(target);
+                        let used = Use { segments, public };
+                        match name.as_str() {
+                            "*" => module.globs.push(used),
+                            "_" => {}
+                            _ => {
+                                module.uses.insert(name, used);
                             }
-                            continue;
                         }
-                        if reexported {
-                            module.reexports.insert(name.clone(), target.clone());
-                        }
-                        module.uses.insert(name, target);
                     }
                 }
-                syn::Item::Mod(child) if !holds(&child.attrs, "cfg(test)") => nested.push(child),
+                syn::Item::Mod(child) if !test_only(&child.attrs) => {
+                    let public = is_public(&child.vis) && !hidden(&child.attrs);
+                    let child_index = self.child(index, child, source)?;
+                    self.modules[index]
+                        .children
+                        .insert(child.ident.to_string(), (child_index, public));
+                }
                 syn::Item::Impl(inherent) => self.impls.extend(inherent_impl(index, inherent)),
-                other => {
+                other if !test_only(item_attributes(other)) => {
                     if let Some((name, declared)) = declared(other) {
-                        module.items.insert(name, declared);
+                        self.modules[index].items.insert(name, declared);
                     }
                 }
+                _ => {}
             }
         }
-        self.modules.push(module);
-        for child in nested {
-            let name = child.ident.to_string();
-            let mut child_path = path.to_vec();
-            child_path.push(name.clone());
-            let mut child_place = Place {
-                public: place.public && is_public(&child.vis) && !left_out(&child.attrs),
-                generated: place.generated || name == GENERATED,
+        Ok(index)
+    }
+
+    /// Reads the child module `child` of the module `parent`, whose source
+    /// is `source`; returns its index.
+    fn child(&mut self, parent: usize, child: &syn::ItemMod, source: &Source<'_>) -> Result<usize> {
+        let name = child.ident.to_string();
+        let mut path = self.modules[parent].path.clone();
+        path.push(name.clone());
+        let generated = self.modules[parent].generated || name == GENERATED;
+        if let Some((_, items)) = &child.content {
+            let folder = source.children.join(&name);
+            let inline = Source {
+                file: source.file,
+                children: folder.clone(),
+                path_base: folder,
             };
-            if let Some((_, items)) = &child.content {
-                self.module(&child_path, child_place, items, &children.join(&name), file)?;
-                continue;
-            }
-            let (found, grandchildren) = module_file(child, children, file)?;
-            child_place.generated |= found
+            return self.module(path, Some(parent), generated, items, &inline);
+        }
+        let (file, children) = module_file(child, source)?;
+        let generated = generated
+            || file
                 .strip_prefix(&self.source)
-                .unwrap_or(&found)
+                .unwrap_or(&file)
                 .components()
                 .any(|component| component.as_os_str() == GENERATED);
-            let parsed = parse(&found)?;
-            self.module(
-                &child_path,
-                child_place,
-                &parsed.items,
-                &grandchildren,
-                &found,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn module_at(&self, path: &[String]) -> Option<usize> {
-        self.modules.iter().position(|module| module.path == path)
-    }
-
-    /// The module and name of the item a crate path names, following its
-    /// modules' `use`s; `None` for another crate's or a name it lacks.
-    fn item_at(&self, segments: &[String], hops: usize) -> Option<(usize, String)> {
-        let (name, path) = segments.split_last()?;
-        let module = self.module_at(path)?;
-        if self.modules[module].items.contains_key(name) {
-            return Some((module, name.clone()));
-        }
-        if hops == 0 {
-            return None;
-        }
-        match self.modules[module].uses.get(name)? {
-            Target::Crate(next) if next.as_slice() != segments => self.item_at(next, hops - 1),
-            _ => None,
-        }
-    }
-
-    /// Each item a dependent crate reaches, with the module and name it
-    /// reaches it at.
-    fn reached(&self) -> Vec<Reached> {
-        let mut reached = Vec::new();
-        let mut reach = |item: (usize, String), at: &[String], name: &str| {
-            reached.push(Reached {
-                item,
-                at: at.to_vec(),
-                name: name.to_owned(),
-            });
+        let parsed = parse(&file)?;
+        let own = Source {
+            file: &file,
+            path_base: file.parent().map(Path::to_path_buf).unwrap_or_default(),
+            children,
         };
-        for (index, module) in self.modules.iter().enumerate() {
-            if !module.public {
+        self.module(path, Some(parent), generated, &parsed.items, &own)
+    }
+
+    /// What `name` names in `module`: a child module, an item it declares,
+    /// or what a `use` or glob of it brings in; `None` for another crate's
+    /// or a name it lacks.
+    fn lookup(&self, module: usize, name: &str, hops: usize) -> Option<Named> {
+        let at = &self.modules[module];
+        if let Some(&(child, _)) = at.children.get(name) {
+            return Some(Named::Module(child));
+        }
+        if at.items.contains_key(name) {
+            return Some(Named::Item(module, name.to_owned()));
+        }
+        let hops = hops.checked_sub(1)?;
+        if let Some(used) = at.uses.get(name) {
+            return self.resolve(module, &used.segments, hops);
+        }
+        at.globs
+            .iter()
+            .find_map(|glob| match self.resolve(module, &glob.segments, hops)? {
+                Named::Module(globbed) => self.lookup(globbed, name, hops),
+                Named::Item(..) => None,
+            })
+    }
+
+    /// What the path `segments`, written in `module`, names.
+    fn resolve(&self, module: usize, segments: &[String], hops: usize) -> Option<Named> {
+        let (first, rest) = segments.split_first()?;
+        let mut at = match first.as_str() {
+            "crate" => 0,
+            "self" => module,
+            "super" => self.modules[module].parent?,
+            name => match self.lookup(module, name, hops)? {
+                Named::Module(found) => found,
+                item @ Named::Item(..) => return rest.is_empty().then_some(item),
+            },
+        };
+        for (index, segment) in rest.iter().enumerate() {
+            if segment == "super" {
+                at = self.modules[at].parent?;
                 continue;
             }
-            for (name, item) in &module.items {
-                if item.public {
-                    reach((index, name.clone()), &module.path, name);
-                }
-            }
-            for (name, target) in &module.reexports {
-                if let Target::Crate(segments) = target
-                    && let Some(found) = self.item_at(segments, HOPS)
-                {
-                    reach(found, &module.path, name);
-                }
-            }
-            for target in &module.glob_reexports {
-                let Target::Crate(segments) = target else {
-                    continue;
-                };
-                let Some(globbed) = self.module_at(segments) else {
-                    continue;
-                };
-                for (name, item) in &self.modules[globbed].items {
-                    if item.public {
-                        reach((globbed, name.clone()), &module.path, name);
-                    }
-                }
+            match self.lookup(at, segment, hops)? {
+                Named::Module(found) => at = found,
+                item @ Named::Item(..) => return (index + 1 == rest.len()).then_some(item),
             }
         }
-        reached
+        Some(Named::Module(at))
     }
 
-    /// The type an `impl` in `module` names by `self_path`.
-    fn impl_target(&self, module: usize, self_path: &[String]) -> Option<(usize, String)> {
-        let path = &self.modules[module].path;
-        if let [name] = self_path {
-            if self.modules[module].items.contains_key(name) {
-                return Some((module, name.clone()));
+    /// The names `module` makes public, by `pub` or `pub use`, with what
+    /// each names; a name it gives itself hides one a glob brings in.
+    fn public_names(&self, module: usize, hops: usize) -> BTreeMap<String, Named> {
+        let at = &self.modules[module];
+        let mut names = BTreeMap::new();
+        if let Some(hops) = hops.checked_sub(1) {
+            for glob in at.globs.iter().filter(|glob| glob.public) {
+                if let Some(Named::Module(globbed)) = self.resolve(module, &glob.segments, hops) {
+                    names.extend(self.public_names(globbed, hops));
+                }
             }
-            return match self.modules[module].uses.get(name)? {
-                Target::Crate(segments) => self.item_at(segments, HOPS),
-                Target::External => None,
-            };
         }
-        let children: Vec<String> = self
-            .modules
-            .iter()
-            .filter(|child| child.path.len() == path.len() + 1 && child.path.starts_with(path))
-            .filter_map(|child| child.path.last().cloned())
-            .collect();
-        match resolve(path, &children, self_path) {
-            Target::Crate(segments) => self.item_at(&segments, HOPS),
-            Target::External => None,
+        for (name, used) in at.uses.iter().filter(|(_, used)| used.public) {
+            if let Some(named) = self.resolve(module, &used.segments, hops) {
+                names.insert(name.clone(), named);
+            }
+        }
+        for (name, &(child, public)) in &at.children {
+            if public {
+                names.insert(name.clone(), Named::Module(child));
+            }
+        }
+        for (name, item) in &at.items {
+            if item.public {
+                names.insert(name.clone(), Named::Item(module, name.clone()));
+            }
+        }
+        names
+    }
+
+    /// Each item a dependent crate reaches through `module`, which it
+    /// reaches at `at`; `walked` holds the modules on the way, so a module
+    /// re-exporting its own parent ends.
+    fn reach(
+        &self,
+        module: usize,
+        at: &[String],
+        walked: &mut Vec<usize>,
+        reached: &mut Vec<Reached>,
+    ) {
+        for (name, named) in self.public_names(module, HOPS) {
+            match named {
+                Named::Item(declaring, item) => reached.push(Reached {
+                    item: (declaring, item),
+                    at: at.to_vec(),
+                    name,
+                }),
+                Named::Module(child) if !walked.contains(&child) => {
+                    let mut path = at.to_vec();
+                    path.push(name);
+                    walked.push(child);
+                    self.reach(child, &path, walked, reached);
+                    walked.pop();
+                }
+                Named::Module(_) => {}
+            }
         }
     }
 
     fn exported(&self, krate: &str) -> Vec<Exported> {
+        let mut reached = Vec::new();
+        self.reach(0, &[], &mut vec![0], &mut reached);
+        let targets: Vec<Option<Named>> = self
+            .impls
+            .iter()
+            .map(|inherent| self.resolve(inherent.module, &inherent.self_path, HOPS))
+            .collect();
         let generated = |module: usize| self.modules[module].generated;
-        let id = |module: usize, name: &str| {
-            let mut path = self.modules[module].path.clone();
-            path.push(name.to_owned());
-            path.join("::")
-        };
-        let receiver = |path: &[String]| {
-            if path.is_empty() {
-                CRATE.to_owned()
-            } else {
-                path.join("::")
-            }
-        };
         let export = |receiver: String, member: String, id: String, generated: bool| Exported {
             entry: krate.to_owned(),
             receiver,
@@ -423,19 +455,26 @@ impl Crate {
             item: (module, name),
             at,
             name: as_name,
-        } in self.reached()
+        } in reached
         {
             let item = &self.modules[module].items[&name];
-            let item_id = id(module, &name);
+            let mut declared_at = self.modules[module].path.clone();
+            declared_at.push(name.clone());
+            let item_id = declared_at.join("::");
+            let receiver = if at.is_empty() {
+                CRATE.to_owned()
+            } else {
+                at.join("::")
+            };
             exported.push(export(
-                receiver(&at),
+                receiver,
                 as_name.clone(),
                 item_id.clone(),
                 generated(module),
             ));
-            let mut path = at.clone();
-            path.push(as_name);
-            let owner = path.join("::");
+            let mut owner = at;
+            owner.push(as_name);
+            let owner = owner.join("::");
             match item.kind {
                 Kind::Value => {}
                 Kind::Trait => {
@@ -449,10 +488,9 @@ impl Crate {
                     }
                 }
                 Kind::Type => {
-                    for inherent in &self.impls {
-                        if self.impl_target(inherent.module, &inherent.self_path)
-                            != Some((module, name.clone()))
-                        {
+                    let this = Named::Item(module, name.clone());
+                    for (inherent, target) in self.impls.iter().zip(&targets) {
+                        if target.as_ref() != Some(&this) {
                             continue;
                         }
                         for member in &inherent.members {
@@ -472,9 +510,10 @@ impl Crate {
 }
 
 /// The public members of an inherent `impl` in the module `module`; `None`
-/// for a trait's `impl` or one of a type with no path.
+/// for a trait's `impl`, one only a test build compiles, a hidden one or
+/// one of a type with no path.
 fn inherent_impl(module: usize, inherent: &syn::ItemImpl) -> Option<Impl> {
-    if inherent.trait_.is_some() {
+    if inherent.trait_.is_some() || left_out(&inherent.attrs) {
         return None;
     }
     let syn::Type::Path(self_type) = inherent.self_ty.as_ref() else {
@@ -509,39 +548,39 @@ fn inherent_impl(module: usize, inherent: &syn::ItemImpl) -> Option<Impl> {
     })
 }
 
-/// The file of the module `child` that `file` declares without a body,
-/// and the folder its own modules' files sit in. A `#[path]` is relative to
-/// `file`'s folder, and the file it names holds its modules' files beside
-/// it, as `mod.rs` does; otherwise the file sits in `children`.
-fn module_file(child: &syn::ItemMod, children: &Path, file: &Path) -> Result<(PathBuf, PathBuf)> {
+/// The file of the module `child` declared without a body in `source`, and
+/// the folder its own modules' files sit in. A `#[path]` is relative to
+/// `source`'s path base, and the file it names holds its modules' files
+/// beside it, as `mod.rs` does; otherwise the file sits in `source`'s
+/// children folder.
+fn module_file(child: &syn::ItemMod, source: &Source<'_>) -> Result<(PathBuf, PathBuf)> {
     let name = child.ident.to_string();
     let beside = |found: &Path| found.parent().map(Path::to_path_buf).unwrap_or_default();
+    let missing = |at: &Path| {
+        format!(
+            "{}: module `{name}` has no file at {}",
+            source.file.display(),
+            at.display()
+        )
+    };
     if let Some(named) = path_attribute(&child.attrs) {
-        let found = file.parent().unwrap_or(Path::new("")).join(named);
+        let found = source.path_base.join(named);
         if !found.is_file() {
-            bail!(
-                "{}: module `{name}` has no file at {}",
-                file.display(),
-                found.display()
-            );
+            bail!(missing(&found));
         }
         let folder = beside(&found);
         return Ok((found, folder));
     }
-    let flat = children.join(format!("{name}.rs"));
+    let flat = source.children.join(format!("{name}.rs"));
     if flat.is_file() {
-        return Ok((flat, children.join(&name)));
+        return Ok((flat, source.children.join(&name)));
     }
-    let nested = children.join(&name).join("mod.rs");
+    let nested = source.children.join(&name).join("mod.rs");
     if nested.is_file() {
         let folder = beside(&nested);
         return Ok((nested, folder));
     }
-    bail!(
-        "{}: module `{name}` has no file at {}",
-        file.display(),
-        flat.display()
-    )
+    bail!(missing(&flat))
 }
 
 /// The path a `#[path = "…"]` attribute names.
@@ -563,18 +602,33 @@ fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
     })
 }
 
+/// The attributes of an item that may declare a name.
+fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
+    match item {
+        syn::Item::Struct(item) => &item.attrs,
+        syn::Item::Enum(item) => &item.attrs,
+        syn::Item::Union(item) => &item.attrs,
+        syn::Item::Trait(item) => &item.attrs,
+        syn::Item::Fn(item) => &item.attrs,
+        syn::Item::Const(item) => &item.attrs,
+        syn::Item::Static(item) => &item.attrs,
+        syn::Item::Type(item) => &item.attrs,
+        _ => &[],
+    }
+}
+
 /// The name and item an item of a module declares, `None` for one that
 /// declares no name a dependent crate could reach.
 fn declared(item: &syn::Item) -> Option<(String, Item)> {
-    let (ident, visibility, attributes, kind) = match item {
-        syn::Item::Struct(item) => (&item.ident, &item.vis, &item.attrs, Kind::Type),
-        syn::Item::Enum(item) => (&item.ident, &item.vis, &item.attrs, Kind::Type),
-        syn::Item::Union(item) => (&item.ident, &item.vis, &item.attrs, Kind::Type),
-        syn::Item::Trait(item) => (&item.ident, &item.vis, &item.attrs, Kind::Trait),
-        syn::Item::Fn(item) => (&item.sig.ident, &item.vis, &item.attrs, Kind::Value),
-        syn::Item::Const(item) => (&item.ident, &item.vis, &item.attrs, Kind::Value),
-        syn::Item::Static(item) => (&item.ident, &item.vis, &item.attrs, Kind::Value),
-        syn::Item::Type(item) => (&item.ident, &item.vis, &item.attrs, Kind::Value),
+    let (ident, visibility, kind) = match item {
+        syn::Item::Struct(item) => (&item.ident, &item.vis, Kind::Type),
+        syn::Item::Enum(item) => (&item.ident, &item.vis, Kind::Type),
+        syn::Item::Union(item) => (&item.ident, &item.vis, Kind::Type),
+        syn::Item::Trait(item) => (&item.ident, &item.vis, Kind::Trait),
+        syn::Item::Fn(item) => (&item.sig.ident, &item.vis, Kind::Value),
+        syn::Item::Const(item) => (&item.ident, &item.vis, Kind::Value),
+        syn::Item::Static(item) => (&item.ident, &item.vis, Kind::Value),
+        syn::Item::Type(item) => (&item.ident, &item.vis, Kind::Value),
         _ => return None,
     };
     let functions = match item {
@@ -593,7 +647,7 @@ fn declared(item: &syn::Item) -> Option<(String, Item)> {
     Some((
         ident.to_string(),
         Item {
-            public: is_public(visibility) && !left_out(attributes),
+            public: is_public(visibility) && !hidden(item_attributes(item)),
             kind,
             functions,
         },

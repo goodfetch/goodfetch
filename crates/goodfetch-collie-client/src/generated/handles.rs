@@ -436,6 +436,7 @@ impl Session {
     /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, and `internal` for an event that does not fit its type.
     pub fn events<E: crate::events::SessionEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
         crate::markers::warn("session.on", true, None);
+        <E as crate::events::sealed::SessionEvent>::warn();
         let handle = self.clone();
         self.host.listen_published(
             "session.on",
@@ -897,6 +898,7 @@ impl Page {
     /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, such as `page_events_lost`, and `internal` for an event that does not fit its type.
     pub fn events<E: crate::events::PageEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
         crate::markers::warn("page.on", true, None);
+        <E as crate::events::sealed::PageEvent>::warn();
         self.host.listen(
             "page.on",
             ::goodfetch_protocol::page::events::PageOnParams {

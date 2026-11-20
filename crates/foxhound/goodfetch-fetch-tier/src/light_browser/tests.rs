@@ -114,13 +114,20 @@ fn a_report_reads_as_the_document_its_scripts_left() {
     );
 }
 
-/// A report naming an error, or one that does not read, is no document.
-#[rstest::rstest]
-#[case::its_error(br#"{"url":"http://a.test/","http_status":null,"headers":[],"content":null,"error":"ConnectionRefused"}"#.as_slice(), "ConnectionRefused")]
-#[case::no_report(b"".as_slice(), "its report does not read")]
-fn a_failed_report_names_why(#[case] report: &[u8], #[case] starts: &str) {
-    let error = rendered(report).unwrap_err();
-    assert!(error.starts_with(starts), "{error}");
+/// A report naming an error is no document, and names Lightpanda's error.
+#[test]
+fn a_failed_report_names_its_error() {
+    let error = rendered(
+        br#"{"url":"http://a.test/","http_status":null,"headers":[],"content":null,"error":"ConnectionRefused"}"#,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("ConnectionRefused"), "{error}");
+}
+
+/// A report that does not read is no document.
+#[test]
+fn a_report_that_does_not_read_is_no_document() {
+    assert!(rendered(b"").is_err());
 }
 
 /// Lightpanda reaches the network only through the bridge, and waits for

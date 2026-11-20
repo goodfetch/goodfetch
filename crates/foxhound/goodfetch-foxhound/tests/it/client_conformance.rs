@@ -1,12 +1,9 @@
 //! The Client conformance cases of `conformance/clients/cases.toml` that
-//! list the `cli` surface (ADR 0069), through Foxhound's executable, which
-//! carries Collie's commands unchanged and passes each case Collie's
-//! passes: one module per case named by its ID, each test named by the
-//! mode it runs in.
+//! list the `cli` surface (ADR 0069) and need what only Foxhound's
+//! executable carries: one module per case named by its ID, each test
+//! named by the mode it runs in. A case Collie's executable carries runs
+//! once, on Collie's (ADR 0094).
 
-mod deprecated_command_warns;
-#[cfg(unix)]
-mod interrupt_cancels_the_call;
 mod sequence_follows_until_it_ends;
 
 /// Foxhound's executable.

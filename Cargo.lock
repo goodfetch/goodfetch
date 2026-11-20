@@ -2407,6 +2407,7 @@ dependencies = [
  "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "libc",
  "proptest",
  "rstest",
  "schemars",

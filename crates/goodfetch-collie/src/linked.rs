@@ -38,7 +38,9 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
 use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::{Product, SettingScope};
-use goodfetch_protocol::connection::{HelloParams, HelloResult, ProductVersion, Surface};
+use goodfetch_protocol::connection::{
+    EngineExitedDetails, HelloParams, HelloResult, ProductVersion, Surface,
+};
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE, TIMEOUT_CLOSE};
 use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
@@ -744,7 +746,12 @@ fn close_timeout() -> Duration {
 #[cfg(test)]
 mod tests;
 
-/// The engine's in-memory dialer as the client crate dials.
+/// The engine's in-memory dialer as the client crate dials. The linked
+/// engine serves one Connection and stops when it ends, so the engine
+/// ending the Connection is the engine ending: each call it leaves
+/// unanswered fails with `engine_exited`, whose details hold no exit code,
+/// signal or stderr, the engine being the program's own process (ADR
+/// 0078).
 struct InMemory(InMemoryDialer);
 
 impl Dial for InMemory {
@@ -756,7 +763,8 @@ impl Dial for InMemory {
                 .await
                 .map_err(std::io::Error::other)?
                 .split();
-            Ok(Link::new(reader, writer))
+            let ended = std::future::ready(EngineExitedDetails::without_evidence());
+            Ok(Link::new(reader, writer).ending_with(ended))
         })
     }
 }

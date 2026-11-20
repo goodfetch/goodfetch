@@ -9,17 +9,13 @@
 #[cfg(unix)]
 mod attached;
 mod closing;
+mod compile_fail;
 mod connection;
-mod connection_type;
 #[cfg(unix)]
 mod daemon;
-mod duration;
-mod error;
 mod events;
 mod file_saving;
-mod forms;
 mod handler_requests;
-mod inputs;
 mod limits;
 mod logging;
 mod navigations;
@@ -28,5 +24,4 @@ mod results;
 mod scripted_daemon;
 mod session_events;
 mod settings;
-mod settings_types;
 mod start;

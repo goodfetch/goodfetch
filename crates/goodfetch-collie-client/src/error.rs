@@ -13,7 +13,7 @@ use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails,
 };
 use goodfetch_protocol::connection::{
-    CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, Form, INTERNAL,
+    CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, EngineExitedDetails, Form, INTERNAL,
 };
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
@@ -203,7 +203,8 @@ impl Error {
 
     /// The linked engine, which runs in the program's own process, could
     /// not start or failed (ADR 0087): `engine_exited`, with `source` as
-    /// its cause. A Product crate's linked engine fails with it.
+    /// its cause and details that hold no exit code, signal or stderr. A
+    /// Product crate's linked engine fails with it.
     #[must_use]
     pub fn engine_failed(source: impl Into<BoxError>) -> Self {
         let source = source.into();
@@ -211,7 +212,25 @@ impl Error {
             &ENGINE_EXITED,
             format!("the linked engine failed: {source}"),
         )
+        .with_details(&EngineExitedDetails::without_evidence())
         .caused_by(source)
+    }
+
+    /// The engine ended before the Client closed its Connection, leaving
+    /// the call unanswered: `engine_exited`, with `details` telling how it
+    /// ended, which its message names too but for its stderr (ADRs 0078
+    /// and 0079).
+    pub(crate) fn engine_exited(details: &EngineExitedDetails) -> Self {
+        let how = match (&details.signal, details.exit_code) {
+            (Some(signal), _) => format!(", with {signal}"),
+            (None, Some(code)) => format!(", with exit code {code}"),
+            (None, None) => String::new(),
+        };
+        Self::of(
+            &ENGINE_EXITED,
+            format!("the engine ended before its Connection was closed{how}"),
+        )
+        .with_details(details)
     }
 
     /// No Daemon could be reached where a Product crate's connection looked
@@ -228,11 +247,7 @@ impl Error {
     /// `setting_invalid`, with `details`.
     #[must_use]
     pub fn setting_invalid(message: String, details: &SettingInvalidDetails) -> Self {
-        let mut error = Self::of(&SETTING_INVALID, message);
-        if let Ok(Value::Object(details)) = serde_json::to_value(details) {
-            error.0.data.extend(details);
-        }
-        error
+        Self::of(&SETTING_INVALID, message).with_details(details)
     }
 
     /// A call refused before it is sent, as the engine would refuse its
@@ -471,9 +486,7 @@ impl Error {
         fix: Option<String>,
         cause: Option<io::Error>,
     ) -> Self {
-        if let Ok(Value::Object(details)) = serde_json::to_value(details) {
-            self.0.data.extend(details);
-        }
+        self = self.with_details(details);
         if let Some(fix) = fix {
             self.0.data.insert("fix".to_owned(), fix.into());
         }
@@ -504,6 +517,14 @@ impl Error {
             answered: false,
             source: None,
         }))
+    }
+
+    /// The error, its data holding `details`' fields.
+    fn with_details(mut self, details: &impl Serialize) -> Self {
+        if let Ok(Value::Object(details)) = serde_json::to_value(details) {
+            self.0.data.extend(details);
+        }
+        self
     }
 
     fn caused_by(mut self, source: impl Into<BoxError>) -> Self {

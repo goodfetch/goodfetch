@@ -10585,7 +10585,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+      "description": "The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,

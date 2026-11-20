@@ -283,7 +283,7 @@ class EgressRefusedError(RefusedError):
 
 
 class EngineExitedError(UnavailableError):
-    """The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr."""
+    """The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""

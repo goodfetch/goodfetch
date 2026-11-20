@@ -158,7 +158,7 @@ impl ErrorCode {
 
     /// `engine_exited`, in the `unavailable` group, not retryable.
     ///
-    /// The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.
+    /// The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.
     pub const ENGINE_EXITED: Self = ErrorCode::from_static("engine_exited");
 
     /// `engine_not_found`, in the `unavailable` group, not retryable.

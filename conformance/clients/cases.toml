@@ -127,12 +127,14 @@ platforms = ["unix"]
 # opened it (ADR 0078; issue 1267): used in a child created by `fork`, it
 # fails with `connection_forked` and the fix "connect in the child process",
 # and writes nothing to the parent's engine, while a Connection the child
-# opens works. Node has no `fork`; Rust joins with issue 3062.
+# opens works. Node has no `fork`. `sdk-rust` runs it linked, and through
+# the Rust Client's Attached transport, which `sdk-rust` has no mode for
+# (issue 3062).
 [[capability.case]]
 id = "connection-used-after-fork"
 covers = ["story:11-23", "error:connection_forked"]
-surfaces = ["sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-python", "sdk-rust"]
+modes = { sdk-python = ["attached"], sdk-rust = ["linked"] }
 platforms = ["unix"]
 
 # The runtime's own errors read in the caller's form (ADRs 0079 and 0099;

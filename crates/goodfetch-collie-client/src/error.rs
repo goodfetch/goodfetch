@@ -13,7 +13,8 @@ use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails,
 };
 use goodfetch_protocol::connection::{
-    CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, EngineExitedDetails, Form, INTERNAL,
+    CLOSED, CONNECTION_FORKED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED,
+    EngineExitedDetails, Form, INTERNAL,
 };
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
@@ -331,6 +332,17 @@ impl Error {
             &CLOSED,
             "the Connection, or the value the call was made on, is closed",
             "Connect again, or open the value again: a closed one never reopens.",
+        )
+    }
+
+    /// The call was made in another process than the one that opened its
+    /// Connection, such as the child of a `fork`, where the Connection's
+    /// tasks never run: `connection_forked` (ADR 0078).
+    pub(crate) fn connection_forked() -> Self {
+        Self::of_runtime(
+            &CONNECTION_FORKED,
+            "this Connection was opened by another process, such as the parent of a fork",
+            "Connect in the child process: a Connection and every Run, Session or page under it belong to the process that opened them.",
         )
     }
 

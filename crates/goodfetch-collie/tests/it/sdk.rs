@@ -22,6 +22,8 @@ mod engine_choice;
 mod engine_exited;
 mod events;
 #[cfg(unix)]
+mod fork;
+#[cfg(unix)]
 mod interrupt;
 mod limits;
 mod logging;

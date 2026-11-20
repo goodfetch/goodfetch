@@ -291,6 +291,9 @@ impl<P: Serialize> Request<P> {
         timeout: Option<Duration>,
         edit: impl FnOnce(&mut Value),
     ) -> Result<Value, Error> {
+        self.sender
+            .ensure_opener()
+            .map_err(|forked| forked.in_call(&self.method))?;
         if let Some(answer) = self.settled.and_then(|settled| settled()) {
             return Ok(answer);
         }

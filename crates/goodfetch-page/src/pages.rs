@@ -1239,10 +1239,10 @@ impl Pages {
         )
         .await?;
         let touched = self.interception.lists_blocked(page_id) > blocked_before;
-        if let Some(block) = block
+        if let Some(block) = &block
             && !(touched && block.checks_the_browser())
         {
-            return Err(blocked::blocked(block, &response, received));
+            return Err(blocked::blocked(block.clone(), &response, received));
         }
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;

@@ -828,7 +828,7 @@ impl On<'_> {
     /// (`escalation`): a move to the browser is noted, for its domain to
     /// learn, and a refusal of its transport, for its Label to be sampled
     /// again.
-    fn on_block(&self, cause: BlockCause, choice: &TierChoice, how: Chosen) -> Action {
+    fn on_block(&self, cause: &BlockCause, choice: &TierChoice, how: Chosen) -> Action {
         let action = escalation::on_block(cause, self.met(choice, how));
         // Set once: a second move or refusal says nothing more.
         match action {
@@ -1090,7 +1090,7 @@ impl On<'_> {
         let browser_staged = self.lease.pushed();
         let weighed = match &browser.answer {
             Answer::Failed(failure)
-                if failure.block_cause() == Some(BlockCause::ConsentRequired) =>
+                if failure.block_cause() == Some(&BlockCause::ConsentRequired) =>
             {
                 Some(Weighed::Walled)
             }
@@ -1386,7 +1386,7 @@ impl On<'_> {
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded.clone(), None, None).await;
-                return Some(match self.on_block(cause, choice, how) {
+                return Some(match self.on_block(&cause, choice, how) {
                     Action::MoveToBrowser => Ok(escalated_unhandled(
                         BLOCKED,
                         "A Challenge met on a tier short of the browser moved the request there.",
@@ -1443,7 +1443,7 @@ impl On<'_> {
         }
         if let Some((block, error)) = tiering.tiers.block(page_id).await.filter(|(block, _)| {
             block.checks_the_browser()
-                || escalation::on_block(block.cause, self.met(choice, how)) == Action::Sample
+                || escalation::on_block(&block.cause, self.met(choice, how)) == Action::Sample
         }) {
             return Found::Blocked(block.cause, error);
         }
@@ -2003,7 +2003,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
         Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
         Answer::Failed(failure) => match failure.why() {
-            Why::Blocked(cause) => Effect::Blocked(*cause),
+            Why::Blocked(cause) => Effect::Blocked(cause.clone()),
             Why::PageCheckFailed { .. } => Effect::PageCheckFailed,
             _ => Effect::Neutral,
         },

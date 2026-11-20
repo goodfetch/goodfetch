@@ -1120,6 +1120,7 @@ impl End {
                 StopReason::EngineLost => RunEvent::EngineLost,
                 StopReason::EnginePanicked => RunEvent::EnginePanicked,
                 StopReason::Resources { .. } => RunEvent::ResourcesExhausted,
+                _ => unreachable!("invariant: this engine stops a Run only for a reason it knows"),
             },
         }
     }
@@ -5597,7 +5598,7 @@ impl Registry {
             needs: live.needs,
             tags: live.tags.clone(),
             lifecycle,
-            verdict: report.map(|report| report.verdict),
+            verdict: report.map(|report| report.verdict.clone()),
             completeness: report.map(|report| report.completeness),
             started_at: live.started_at,
             ended_at: report.map(|report| report.ended_at),
@@ -6852,7 +6853,7 @@ impl Recording {
         };
         let row = RunIndexRow {
             lifecycle: report.lifecycle,
-            verdict: Some(report.verdict),
+            verdict: Some(report.verdict.clone()),
             completeness: Some(report.completeness),
             ended_at: Some(report.ended_at),
             owner: None,
@@ -6867,7 +6868,7 @@ impl Recording {
             .publish_axes(RunAxes {
                 run_id: run_id.clone(),
                 lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
+                verdict: Some(report.verdict.clone()),
                 completeness: Some(report.completeness),
             })
             .await;

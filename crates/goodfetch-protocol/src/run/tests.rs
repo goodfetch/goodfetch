@@ -291,3 +291,36 @@ fn a_batch_threshold_writes_the_value_it_is_read_from(#[case] value: serde_json:
 
     assert_eq!(serde_json::to_value(read).unwrap(), value);
 }
+
+/// The Stop reasons a reader knows are the members the schema lists, so a
+/// known reason whose fields do not read is never kept as unknown.
+#[test]
+fn the_stop_reasons_a_reader_knows_are_the_schemas() {
+    let schema = schemars::schema_for!(super::StopReason);
+    let mut listed: Vec<&str> = schema.as_value()["oneOf"]
+        .as_array()
+        .expect("a tagged union lists its members")
+        .iter()
+        .filter_map(|member| member["properties"]["kind"]["const"].as_str())
+        .collect();
+    let mut known = super::StopReason::KNOWN_TAGS.to_vec();
+    listed.sort_unstable();
+    known.sort_unstable();
+
+    assert_eq!(known, listed);
+}
+
+#[test]
+fn a_verdict_filter_this_reader_does_not_know_is_refused() {
+    let filter = |verdict| {
+        serde_json::from_value::<super::list::RunListParams>(
+            serde_json::json!({ "verdict": verdict }),
+        )
+    };
+
+    assert!(filter("a_newer_verdict").is_err());
+    assert_eq!(
+        filter("verified").expect("a known Verdict filters").verdict,
+        Some(super::Verdict::Verified)
+    );
+}

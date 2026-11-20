@@ -107,7 +107,7 @@ impl On<'_> {
             {
                 Found::Unreadable(_) => false,
                 Found::Blocked(cause, _) => {
-                    first.on_block(cause, &FETCHED, Chosen::Raced);
+                    first.on_block(&cause, &FETCHED, Chosen::Raced);
                     false
                 }
                 Found::Readable => matches!(

@@ -115,9 +115,9 @@ fn blocked(answer: &Value) -> Option<BlockedDetails> {
 
 /// Whether `answer` raised `blocked` for `cause` on the document at a URL
 /// ending with `path`, answered with `status`.
-fn raised(answer: &Value, cause: BlockCause, path: &str, status: u16) -> bool {
+fn raised(answer: &Value, cause: &BlockCause, path: &str, status: u16) -> bool {
     blocked(answer).is_some_and(|details| {
-        details.cause == cause && details.url.ends_with(path) && details.status == Some(status)
+        details.cause == *cause && details.url.ends_with(path) && details.status == Some(status)
     })
 }
 
@@ -262,7 +262,7 @@ fn rate_limit(
         let asked = blocked(&went).and_then(|details| details.retry_after);
         checks.check(
             format!("a 429 whose `Retry-After` is in {form} raises `blocked` from its `goto` with `rate_limit`, its URL and status"),
-            raised(&went, BlockCause::RateLimit, &path, 429),
+            raised(&went, &BlockCause::RateLimit, &path, 429),
         );
         checks.check(
             format!("its `retry_after` is the time the site asked for: an hour after the response's own `Date`, from the moment it arrived ({form})"),
@@ -325,7 +325,7 @@ fn next_call(
     let went = connection.goto(&page, &ip_block)?;
     checks.check(
         "a 403 that says the address is blocked raises `blocked` from its `goto` with `ip_block`",
-        raised(&went, BlockCause::IpBlock, "/corpus/ip-block", 403)
+        raised(&went, &BlockCause::IpBlock, "/corpus/ip-block", 403)
             && blocked(&went).is_some_and(|details| details.retry_after.is_none()),
     );
     let listed = connection.goto(&page, &index)?;
@@ -358,7 +358,7 @@ fn next_call(
     };
     checks.check(
         "the page's next call once the refusal's document is there raises `blocked` with `ip_block`, the URL and the status",
-        raised(&next, BlockCause::IpBlock, "/corpus/cloudflare-block", 403),
+        raised(&next, &BlockCause::IpBlock, "/corpus/cloudflare-block", 403),
     );
     let after = read_title(connection, &page)?;
     checks.check(
@@ -377,7 +377,12 @@ fn next_call(
     checks.check(
         "a `waitForURL` that waits for such a navigation raises `blocked` itself",
         clicked.get("result").is_some()
-            && raised(&waited, BlockCause::IpBlock, "/corpus/incapsula-block", 403),
+            && raised(
+                &waited,
+                &BlockCause::IpBlock,
+                "/corpus/incapsula-block",
+                403,
+            ),
     );
     let pages = connection.call(
         SESSION_PAGES.name,
@@ -438,7 +443,7 @@ fn corpus(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
                     "`{path}` raises `blocked` with `{}` and {status}",
                     cause.as_str()
                 ),
-                raised(&went, cause, path, status),
+                raised(&went, &cause, path, status),
             ),
             None => checks.check(
                 format!("`{path}` is no block: it answers its response, {status}"),
@@ -548,7 +553,7 @@ fn meets_blocks(
                 "on the {owner}'s Session, `{path}` raises `blocked` with `{}` from its `goto`",
                 cause.as_str()
             ),
-            raised(&went, cause, path, status),
+            raised(&went, &cause, path, status),
         );
     }
     let rate_limited = url_on(site, CORPUS_TASK, "/corpus/rate-limit")

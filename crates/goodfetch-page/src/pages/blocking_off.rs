@@ -79,7 +79,7 @@ impl Pages {
         };
         match self.interception.lists_for(page_id, &response.url) {
             Lists::On => {
-                if let Some(reason) = reason(*block, judged, *touched) {
+                if let Some(reason) = reason(block.as_ref(), judged, *touched) {
                     return self
                         .again_without_lists(page_id, page, &first, reason, events)
                         .await;
@@ -144,7 +144,7 @@ impl Pages {
         };
         drop(lists_off);
         let passed = match &loaded {
-            Ok(Some((_, judged, block))) => passed(reason, judged, *block),
+            Ok(Some((_, judged, block))) => passed(&reason, judged, block.as_ref()),
             _ => false,
         };
         self.retried(page_id, page, &first.response.url, reason, passed)
@@ -218,14 +218,14 @@ impl Pages {
         trace::counted_provenance(
             &page.run,
             Row::NavigationProvenanceEntries,
-            loaded.retried(reason, passed),
+            loaded.retried(&reason, passed),
         )
         .await;
     }
 }
 
 /// Why a page is loaded once more with blocking off.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Reason {
     /// It has no Block cause and failed its Page check.
     PageCheckFailed,
@@ -236,7 +236,7 @@ enum Reason {
 
 impl Reason {
     /// Its name in Provenance.
-    fn name(self) -> &'static str {
+    fn name(&self) -> &'static str {
         match self {
             Self::PageCheckFailed => "page_check_failed",
             Self::Challenge(_) => "challenge",
@@ -248,7 +248,7 @@ impl Reason {
 /// `judged`, is loaded once more with blocking off, the page's Filter lists
 /// being on and `touched` saying whether they blocked a request of its
 /// navigation; none when it is not.
-fn reason(block: Option<Block>, judged: &Result<(), CallError>, touched: bool) -> Option<Reason> {
+fn reason(block: Option<&Block>, judged: &Result<(), CallError>, touched: bool) -> Option<Reason> {
     let failed = judged
         .as_ref()
         .is_err_and(|error| error.code() == PAGE_CHECK_FAILED.name);
@@ -256,7 +256,9 @@ fn reason(block: Option<Block>, judged: &Result<(), CallError>, touched: bool) -
         return None;
     }
     match block {
-        Some(block) if touched && block.checks_the_browser() => Some(Reason::Challenge(block)),
+        Some(block) if touched && block.checks_the_browser() => {
+            Some(Reason::Challenge(block.clone()))
+        }
         // Any other Block cause is the site's refusal, never blocking's.
         Some(_) => None,
         None => failed.then_some(Reason::PageCheckFailed),
@@ -266,7 +268,7 @@ fn reason(block: Option<Block>, judged: &Result<(), CallError>, touched: bool) -
 /// Whether the load with blocking off for `reason` passed: its document
 /// passes its Page check, as `judged` says, or, its Block cause being
 /// `block`, no longer checks the browser.
-fn passed(reason: Reason, judged: &Result<(), CallError>, block: Option<Block>) -> bool {
+fn passed(reason: &Reason, judged: &Result<(), CallError>, block: Option<&Block>) -> bool {
     match reason {
         Reason::PageCheckFailed => judged.is_ok(),
         Reason::Challenge(_) => block.is_none_or(|block| !block.checks_the_browser()),
@@ -286,7 +288,7 @@ struct Loaded<'a> {
 impl Loaded<'_> {
     /// The Provenance entry of the page loaded once more with blocking off
     /// for `reason`, and whether blocking was `learned` off for its domain.
-    fn retried(&self, reason: Reason, learned: bool) -> Value {
+    fn retried(&self, reason: &Reason, learned: bool) -> Value {
         let mut entry = self.entry(reason.name());
         entry["learned"] = json!(learned);
         if let Reason::Challenge(block) = reason {

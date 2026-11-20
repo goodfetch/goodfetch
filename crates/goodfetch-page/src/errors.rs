@@ -17,7 +17,7 @@ use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError,
 use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, INTERNAL, InternalDetails,
     WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
@@ -228,12 +228,13 @@ pub(crate) fn browser_crashed(exit: Option<BrowserExit>) -> CallError {
 
 /// `call_cancelled` for a call in flight that `by` stopped by closing
 /// `closed` under it (ADR 0113).
-pub(crate) fn cancelled(by: StoppedBy, closed: ClosedValue) -> CallError {
-    let message = match (by, closed) {
-        (StoppedBy::Browser, ClosedValue::Page) => {
+pub(crate) fn cancelled(by: CancelledBy, closed: ClosedValue) -> CallError {
+    let message = match (&by, &closed) {
+        (CancelledBy::Browser, ClosedValue::Page) => {
             "the page's window was closed in the browser, outside every Client: open a page and act again"
         }
-        (StoppedBy::Browser, _) => "the page's browser quit, and its Session ended with it",
+        (CancelledBy::Browser, _) => "the page's browser quit, and its Session ended with it",
+        (_, ClosedValue::Run) => "the page's Run was stopped while the call was in flight",
         (_, ClosedValue::Session) => "the page's Session was closed while the call was in flight",
         (_, _) => "the page was closed while the call was in flight",
     };
@@ -243,6 +244,7 @@ pub(crate) fn cancelled(by: StoppedBy, closed: ClosedValue) -> CallError {
         &CallCancelledDetails {
             by,
             closed: Some(closed),
+            person: None,
         },
     )
 }

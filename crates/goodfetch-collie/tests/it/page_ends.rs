@@ -528,13 +528,13 @@ fn a_page_closed_running_its_before_unload_handlers_cancels_its_call_naming_the_
     );
 }
 
-/// `run.stop` while a call is in flight is the program's close of the
-/// Run's Sessions: the call raises `call_cancelled` naming the program and
-/// its Session (S7), never a retryable `page_crashed`, and the stop answers.
+/// `run.stop` while a call is in flight is the program's close of the Run:
+/// the call raises `call_cancelled` naming the program and the Run (ADR
+/// 0113), never a retryable `page_crashed`, and the stop answers.
 ///
-/// Covers: story:5-27, operation:run.stop
+/// Covers: story:5-27, story:11-48, operation:run.stop
 #[test]
-fn stopping_a_run_under_a_call_raises_call_cancelled_naming_the_program() {
+fn stopping_a_run_under_a_call_raises_call_cancelled_naming_the_program_and_the_run() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let (mut exchange, page, _) = on_a_page(&env, &proving_ground, "stopping");
@@ -551,7 +551,7 @@ fn stopping_a_run_under_a_call_raises_call_cancelled_naming_the_program() {
             true,
             (
                 json!("call_cancelled"),
-                json!({ "by": "program", "closed": "session" })
+                json!({ "by": "program", "closed": "run" })
             )
         ),
         "{stopped} {called}"

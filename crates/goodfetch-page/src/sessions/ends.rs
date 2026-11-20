@@ -19,7 +19,7 @@ use futures_util::FutureExt as _;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run::limit_reached;
 use goodfetch_engine::runs::Run;
-use goodfetch_protocol::connection::{ClosedValue, StoppedBy};
+use goodfetch_protocol::connection::{CancelledBy, ClosedValue};
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PageEventName};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
@@ -201,8 +201,8 @@ impl Sessions {
     /// closes its target, a target the browser destroyed, a renderer that
     /// crashed, or its browser lost, which ends its Session too when the
     /// Session is seated there. Once its Run stops, or the engine closes
-    /// its browser, its calls in flight end as its Session's close by the
-    /// program does (S7), with no wait for an end that never comes.
+    /// its browser, its calls in flight end with the Run's close (ADR
+    /// 0113), with no wait for an end that never comes.
     pub(super) fn watch(&self, page_id: PageId, page: OpenPage, open: Arc<Session>, browser: u64) {
         let sessions = self.clone();
         let OpenPage {
@@ -273,11 +273,13 @@ impl Sessions {
 
 /// What a call in flight raises when `run` stops under it: the Limit the
 /// Run reached, as the charge that reached it raised (ADR 0041), and
-/// otherwise the program's close of its Session (S7), whatever stopped it.
+/// otherwise `call_cancelled` closing the Run (ADR 0113), by whoever
+/// aborted it, or by the program for any other stop, such as a pause.
 fn run_stop(run: &Run) -> CallError {
     match run.stopping().now_or_never() {
         Some(StopReason::Limit(reached)) => limit_reached(&reached),
-        _ => cancelled(StoppedBy::Program, ClosedValue::Session),
+        Some(StopReason::Abort { by }) => cancelled(by.into(), ClosedValue::Run),
+        _ => cancelled(CancelledBy::Program, ClosedValue::Run),
     }
 }
 

@@ -945,7 +945,7 @@ struct Place {
 /// actor ends with its Run.
 fn place_ended() -> CallError {
     crate::errors::cancelled(
-        goodfetch_protocol::connection::StoppedBy::Program,
+        goodfetch_protocol::connection::CancelledBy::Program,
         goodfetch_protocol::connection::ClosedValue::Session,
     )
 }

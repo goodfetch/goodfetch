@@ -15,7 +15,7 @@ use std::sync::Arc;
 use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails, WriteSide,
 };
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::download::{
     DOWNLOAD_SAVE_AS, DownloadId, DownloadSaveAsParams, DownloadSaved,
 };
@@ -292,8 +292,9 @@ fn save_error(error: SaveError, path: &str, folder: &Path) -> CallError {
             &CALL_CANCELLED,
             "The call was cancelled by its Client.",
             &CallCancelledDetails {
-                by: StoppedBy::Client,
+                by: CancelledBy::Client,
                 closed: None,
+                person: None,
             },
         ),
     }

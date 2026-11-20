@@ -21,7 +21,7 @@ use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate,
     ObservedResponse, Observer, PageValue, Permit, Refusal, ResponseObserver, Sending,
 };
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
@@ -293,8 +293,9 @@ impl LeaseCheck for RecordingGate {
             &CALL_CANCELLED,
             format!("the Recording gate's lease ended ({ended}): `{method}` withheld"),
             &CallCancelledDetails {
-                by: StoppedBy::Program,
+                by: CancelledBy::Program,
                 closed: None,
+                person: None,
             },
         )
     }

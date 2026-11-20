@@ -84,7 +84,12 @@ fn opened_class(class: &str, listened: &Listened, opens: &Opens, registry: &str)
     );
     for own in &opens.events {
         text.push_str(&doc("  ", &own.description, Stability::Stable, None));
-        let _ = writeln!(text, "  readonly {}: types.{};", own.spelled(Form::Typescript), own.payload);
+        let _ = writeln!(
+            text,
+            "  readonly {}: types.{};",
+            own.spelled(Form::Typescript),
+            own.payload
+        );
     }
     let _ = write!(
         text,

@@ -53,7 +53,7 @@
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
-use super::layer::{Deprecation, Kind, Layer, Operation};
+use super::layer::{Deprecation, Kind, Layer, Operation, Stability};
 use super::naming;
 
 /// The namespaces whose handles the generators write so far; each other
@@ -134,6 +134,10 @@ pub(super) struct Listened {
     /// also carries that value's own events, such as the WebSocket a page's
     /// `web_socket` opens.
     pub(super) opens: Option<Opens>,
+    /// Its semver status in the catalog, which its marker warns of.
+    pub(super) stability: Stability,
+    /// Its deprecation in the catalog, which its marker warns of.
+    pub(super) deprecated: Option<Deprecation>,
 }
 
 /// A value an event of a [`Listener`] opens (ADR 0081): the catalog's
@@ -695,6 +699,8 @@ fn listener<'a>(
                 payload: found.payload.0.clone(),
                 description: found.description.clone(),
                 builds: opened_by(layer, &found.payload.0),
+                stability: found.stability,
+                deprecated: found.deprecated.clone(),
                 opens: opened_value(layer, namespace, wire, &found.payload.0)
                     .with_context(|| format!("operation `{}`: its event `{name}`", operation.name))?,
             })
@@ -761,6 +767,8 @@ fn opened_value(
             description: event.description.clone(),
             builds: None,
             opens: None,
+            stability: event.stability,
+            deprecated: event.deprecated.clone(),
         })
         .collect();
     Ok(Some(Opens {

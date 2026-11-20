@@ -236,13 +236,29 @@ fn constant(text: &mut String, enums: &mut Enums, segment: &str, setting: &Setti
             setting.name
         )
     };
+    let scopes = scopes.join(", ");
+    let (marker, built) = match &setting.deprecated {
+        None => (
+            String::new(),
+            format!("new({:?}, &[{scopes}])", setting.name),
+        ),
+        // `since` names the Product's minor, which Clippy wants as semver.
+        Some(deprecated) => {
+            let message = deprecated.message();
+            (
+                format!(
+                    "///\n/// Deprecated. {message}\n#[deprecated(since = \"{}.0\", note = {message:?})]\n",
+                    deprecated.since
+                ),
+                format!("deprecated({:?}, &[{scopes}], {message:?})", setting.name),
+            )
+        }
+    };
     let _ = write!(
         text,
-        "\n{}pub const {}: crate::settings::Setting<{ty}> = crate::settings::Setting::new({:?}, &[{}]);\n",
+        "\n{}{marker}pub const {}: crate::settings::Setting<{ty}> = crate::settings::Setting::{built};\n",
         comment(&described),
         segment.to_uppercase(),
-        setting.name,
-        scopes.join(", ")
     );
     Ok(())
 }

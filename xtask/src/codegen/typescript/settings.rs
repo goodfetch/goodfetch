@@ -149,7 +149,7 @@ fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<St
         .context("a settings module types one scope at least")?
         .name;
     let mut text = format!(
-        "{HEADER}\nimport {{ onWire, type SettingsOnWire, type Spelling }} from \"{walker}\";\n"
+        "{HEADER}\nimport {{\n  type DeprecatedSettings,\n  onWire,\n  type SettingsOnWire,\n  type Spelling,\n}} from \"{walker}\";\n"
     );
     for scope in scopes {
         let level = tree(settings, Some(scope.scope))?;
@@ -167,11 +167,37 @@ fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<St
         "\n/** Each segment's wire spelling, by its camelCase one. */\nconst SPELLING: Spelling = {};\n",
         spelling(&every, "")?
     );
+    text.push_str(&deprecated_settings(settings));
     let _ = write!(
         text,
-        "\n/** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */\nexport function settingsOnWire(settings: {outermost} | undefined): SettingsOnWire | undefined {{\n  return onWire(settings, SPELLING);\n}}\n",
+        "\n/** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */\nexport function settingsOnWire(settings: {outermost} | undefined): SettingsOnWire | undefined {{\n  return onWire(settings, SPELLING, DEPRECATED_SETTINGS);\n}}\n",
     );
     Ok(text)
+}
+
+/// The registry of the deprecated settings, by dotted wire key, with each
+/// one's deprecation text: what the walker warns of, once per process,
+/// when a program sets one (ADR 0099).
+fn deprecated_settings(settings: &[Setting]) -> String {
+    let mut entries = String::new();
+    for setting in settings {
+        if let Some(deprecated) = &setting.deprecated {
+            let _ = writeln!(
+                entries,
+                "  [{:?}, {:?}],",
+                setting.name,
+                deprecated.message()
+            );
+        }
+    }
+    let map = if entries.is_empty() {
+        "new Map()".to_owned()
+    } else {
+        format!("new Map([\n{entries}])")
+    };
+    format!(
+        "\n/** Each deprecated setting's deprecation text, by its dotted wire key. */\nconst DEPRECATED_SETTINGS: DeprecatedSettings = {map};\n"
+    )
 }
 
 /// The type name of the settings `opened`'s option takes.
@@ -234,17 +260,21 @@ fn area_type(level: &BTreeMap<String, Node<'_>>, indent: &str) -> Result<String>
     Ok(text)
 }
 
-/// A setting's `TSDoc`: its description and its wire key.
+/// A setting's `TSDoc`: its description, its wire key and its deprecation.
 fn doc(indent: &str, setting: &Setting) -> String {
     let mut text = format!("{indent}/**\n");
     for line in setting.description.replace("*/", "*\\/").lines() {
         let _ = writeln!(text, "{indent} * {line}");
     }
-    let _ = writeln!(
-        text,
-        "{indent} *\n{indent} * `{}`.\n{indent} */",
-        setting.name
-    );
+    let _ = writeln!(text, "{indent} *\n{indent} * `{}`.", setting.name);
+    if let Some(deprecated) = &setting.deprecated {
+        let _ = writeln!(
+            text,
+            "{indent} *\n{indent} * @deprecated {}",
+            deprecated.message().replace("*/", "*\\/")
+        );
+    }
+    let _ = writeln!(text, "{indent} */");
     text
 }
 

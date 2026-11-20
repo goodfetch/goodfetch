@@ -645,6 +645,7 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -662,6 +663,7 @@ pub const CONSENT_HANDLING: Setting = Setting {
     weakens: Some(handling_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -685,6 +687,7 @@ pub const CONSENT_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -702,6 +705,7 @@ pub const CONSENT_ON_WALL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -720,6 +724,7 @@ pub const WALL_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("wall_reading"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -734,6 +739,7 @@ pub const WALL_REFETCH_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -748,6 +754,7 @@ pub const WALL_DENIED_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -762,6 +769,7 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -779,6 +787,7 @@ pub const CLEAN_UP_UPDATE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -793,6 +802,7 @@ pub const CLEAN_UP_VERSION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -811,6 +821,7 @@ pub const CLEAN_UP_CHANNEL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -832,6 +843,7 @@ pub const CLEAN_UP_LISTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -846,6 +858,7 @@ pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -884,6 +897,7 @@ pub const FILTER_LISTS_ADS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -898,6 +912,7 @@ pub const FILTER_LISTS_TRACKERS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -912,6 +927,7 @@ pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -926,6 +942,7 @@ pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -940,6 +957,7 @@ pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -954,6 +972,7 @@ pub const FILTER_LISTS_HOST_CACHE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -972,6 +991,7 @@ pub const SESSION_SOURCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -986,6 +1006,7 @@ pub const SESSION_PAGE_CHECK: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1000,6 +1021,7 @@ pub const SECRETS_BY_REFERENCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1014,6 +1036,7 @@ pub const WEBHOOK_SIGNING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1028,6 +1051,7 @@ pub const TIMEOUT_RUN: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1043,6 +1067,7 @@ pub const TIMEOUT_CONNECT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1057,6 +1082,7 @@ pub const TIMEOUT_CLOSE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1071,6 +1097,7 @@ pub const TIMEOUT_ACTION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1085,6 +1112,7 @@ pub const TIMEOUT_NAVIGATION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1099,6 +1127,7 @@ pub const TIMEOUT_LAUNCH: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1113,6 +1142,7 @@ pub const TIMEOUT_WAIT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1127,6 +1157,7 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1141,6 +1172,7 @@ pub const TIMEOUT_HOOK: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1156,6 +1188,7 @@ pub const TIMEOUT_SINK_WRITE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("sinks"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1171,6 +1204,7 @@ pub const TIMEOUT_AGENT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("agent"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1186,6 +1220,7 @@ pub const TIMEOUT_AI: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("ai_verbs"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1201,6 +1236,7 @@ pub const TIMEOUT_MODEL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("model_calls"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1216,6 +1252,7 @@ pub const TIMEOUT_HUMAN_PAUSE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("human_pause"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1230,6 +1267,7 @@ pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

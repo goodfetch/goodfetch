@@ -1196,12 +1196,19 @@ pub mod sample {
     /// How many times the sample operation repeats a text.
     ///
     /// `sample.echo_repeats`.
-    pub const ECHO_REPEATS: crate::settings::Setting<u64> = crate::settings::Setting::new(
+    ///
+    /// Deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces."
+    )]
+    pub const ECHO_REPEATS: crate::settings::Setting<u64> = crate::settings::Setting::deprecated(
         "sample.echo_repeats",
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
         ],
+        "Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces.",
     );
 }
 

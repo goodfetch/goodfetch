@@ -15,6 +15,7 @@ fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Settin
         default: Value::Null,
         clearable,
         scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
+        deprecated: None,
     }
 }
 
@@ -181,6 +182,38 @@ fn a_choice_named_like_a_type_of_rusts_prelude_takes_choice_after_its_name() {
             text.contains("pub enum SyncChoice {"),
         ),
         (true, true)
+    );
+}
+
+#[test]
+fn a_deprecated_setting_is_a_deprecated_constant_that_carries_its_text() {
+    let mut old = setting(
+        "timeout.wait",
+        json!({ "type": "integer" }),
+        false,
+        &["run"],
+    );
+    old.deprecated = Some(goodfetch_protocol::catalog::Deprecation {
+        since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+        replacement: Some("timeout.navigation".to_owned()),
+        earliest_removal: goodfetch_protocol::catalog::ProtocolVersion { major: 1, minor: 0 },
+        note: "Gone.".to_owned(),
+    });
+    let text = "Since 0.1, removed no earlier than 1.0: use `timeout.navigation` instead. Gone.";
+
+    let module = module("// header\n", &[old]).unwrap();
+
+    assert!(
+        module.contains(&format!(
+            "/// Deprecated. {text}\n#[deprecated(since = \"0.1.0\", note = {text:?})]\npub const WAIT: "
+        )),
+        "{module}"
+    );
+    assert!(
+        constant(&module, "WAIT").ends_with(&format!(
+            "crate::settings::Setting::deprecated(\"timeout.wait\", &[::goodfetch_protocol::catalog::SettingScope::Run], {text:?});"
+        )),
+        "{module}"
     );
 }
 

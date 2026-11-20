@@ -54,6 +54,7 @@ pub const NETWORK_MAX_BODY_SIZE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -68,6 +69,7 @@ pub const NETWORK_MAX_DECOMPRESSION_RATIO: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -82,6 +84,7 @@ pub const NETWORK_MAX_JSON_DEPTH: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

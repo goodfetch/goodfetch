@@ -58,7 +58,10 @@ use super::super::handles::{
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
 use super::super::settings_tree::SETTINGS;
-use super::settings::{SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, scope_settings};
+use super::settings::{
+    DEPRECATED_SETTINGS, SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, WARN_DEPRECATED_SETTINGS,
+    scope_settings,
+};
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
 mod listeners;
@@ -336,9 +339,18 @@ struct Signature {
     declared: String,
     /// The constructor call, with every parameter but the optional ones.
     construct: String,
-    /// The optional ones, each set on the built model when passed: its
-    /// name and the expression that passes it.
-    optional: Vec<(String, String)>,
+    /// The optional ones, each set on the built model when passed.
+    optional: Vec<Optional>,
+}
+
+/// An optional parameter, set on the built model when passed.
+struct Optional {
+    name: String,
+    /// The expression that passes it.
+    passed: String,
+    /// The statement run first when it is passed: `settings`' warning of
+    /// each deprecated setting it sets (ADR 0099).
+    first: Option<String>,
 }
 
 /// The optional parameters a member types from the catalog rather than the
@@ -422,6 +434,7 @@ fn signature(
         if overload.leaves_out(name) {
             continue;
         }
+        let mut first = None;
         let (spelled, passed) = match (
             typed.timeout_setting.filter(|_| name == TIMEOUT),
             typed.settings_type.filter(|_| name == SETTINGS),
@@ -435,6 +448,10 @@ fn signature(
             }
             (None, Some(settings)) => {
                 imports.settings.insert(settings);
+                imports.markers.insert(WARN_DEPRECATED_SETTINGS);
+                first = Some(format!(
+                    "{WARN_DEPRECATED_SETTINGS}({name}, {DEPRECATED_SETTINGS})"
+                ));
                 (settings.to_owned(), format!("{SETTINGS_ON_WIRE}({name})"))
             }
             (None, None) => spell(name, imports)?,
@@ -446,7 +463,11 @@ fn signature(
             imports.handle.extend(["NotGiven", "not_given"]);
             declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
         }
-        optional.push((name.clone(), passed));
+        optional.push(Optional {
+            name: name.clone(),
+            passed,
+            first,
+        });
     }
     let model = imports.model(model);
     Ok(Signature {
@@ -467,11 +488,17 @@ fn build(signature: &Signature, local: &str, text: &mut String) -> String {
         return signature.construct.clone();
     }
     let _ = writeln!(text, "        {local} = {}", signature.construct);
-    for (name, passed) in &signature.optional {
-        let _ = writeln!(
-            text,
-            "        if not isinstance({name}, NotGiven):\n            {local}.{name} = {passed}"
-        );
+    for Optional {
+        name,
+        passed,
+        first,
+    } in &signature.optional
+    {
+        let _ = writeln!(text, "        if not isinstance({name}, NotGiven):");
+        if let Some(first) = first {
+            let _ = writeln!(text, "            {first}");
+        }
+        let _ = writeln!(text, "            {local}.{name} = {passed}");
     }
     local.to_owned()
 }
@@ -830,7 +857,11 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     }
     if !imports.settings.is_empty() {
         let types: Vec<&str> = imports.settings.iter().copied().collect();
-        let _ = writeln!(text, "from .settings import {}", types.join(", "));
+        let _ = writeln!(
+            text,
+            "from .settings import {DEPRECATED_SETTINGS}, {}",
+            types.join(", ")
+        );
     }
     text.push_str(&body);
     Ok(text)

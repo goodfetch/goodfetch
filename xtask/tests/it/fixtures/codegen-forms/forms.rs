@@ -438,6 +438,7 @@ pub const ENTRIES: Entries = Entries {
             weakens: None,
             fixed_for_run: false,
             unbuilt: None,
+            deprecated: None,
             arrived_in: ARRIVED_IN,
         },
         Setting {
@@ -450,6 +451,7 @@ pub const ENTRIES: Entries = Entries {
             weakens: None,
             fixed_for_run: false,
             unbuilt: None,
+            deprecated: None,
             arrived_in: ARRIVED_IN,
         },
     ],

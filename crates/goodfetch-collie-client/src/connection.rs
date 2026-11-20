@@ -37,6 +37,7 @@ use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
+use crate::listener_queue::ListenerQueue;
 use crate::logging;
 use crate::published::Published;
 use crate::raw_call::RawCall;
@@ -148,12 +149,21 @@ impl ClientConnection {
         endpoint: &Endpoint,
         hello: HelloParams,
     ) -> Result<(Self, HelloResult), Error> {
-        Self::open_within(runtime, network, endpoint, hello, ConnectTimeout::Off).await
+        Self::open_within(
+            runtime,
+            network,
+            endpoint,
+            hello,
+            ConnectTimeout::Off,
+            ListenerQueue::DEFAULT,
+        )
+        .await
     }
 
     /// Opens a Connection as [`ClientConnection::open`] does, waiting for
     /// `hello`'s answer within `timeout` (ADR 0083); past it, the
-    /// Connection is closed.
+    /// Connection is closed. Each stream of its own Subscription, such as a
+    /// Session's, holds at most `listener_queue` unread events.
     ///
     /// # Errors
     ///
@@ -167,6 +177,7 @@ impl ClientConnection {
         endpoint: &Endpoint,
         hello: HelloParams,
         timeout: ConnectTimeout,
+        listener_queue: ListenerQueue,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
         let (handle, owned) = runtime.split();
@@ -182,7 +193,12 @@ impl ClientConnection {
         }
         let streams = Streams::new();
         let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
-        let published = Published::new(sender.clone(), handle.clone(), tasks.clone());
+        let published = Published::new(
+            sender.clone(),
+            handle.clone(),
+            tasks.clone(),
+            listener_queue,
+        );
         let connection = Self(Arc::new(Inner {
             sender,
             streams,

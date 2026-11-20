@@ -500,9 +500,13 @@ async def test_the_sync_collie_runs_inside_a_running_event_loop() -> None:
 def test_threads_share_one_collie_and_its_runs() -> None:
     """A Collie and its Run serve any thread, and the close joins its private thread."""
     played = play_script("sdk-python/run/started-and-finished.json")
+    # Only this Collie's thread: one an earlier test left open is not its own.
+    earlier = set(threading.enumerate())
     collie = connect_over(played.transport)
     private = {
-        thread for thread in threading.enumerate() if thread.name == "goodfetch-collie"
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "goodfetch-collie" and thread not in earlier
     }
 
     with ThreadPoolExecutor(4) as pool:

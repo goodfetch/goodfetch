@@ -201,6 +201,7 @@ pub const PROXY_SERVER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -215,6 +216,7 @@ pub const PROXY_BYPASS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -229,6 +231,7 @@ pub const PROXY_USERNAME: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -243,6 +246,7 @@ pub const PROXY_PASSWORD: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -759,6 +763,7 @@ pub const PROXY_PROVIDER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -773,6 +778,7 @@ pub const PROXY_KIND: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -787,6 +793,7 @@ pub const PROXY_COUNTRY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -801,6 +808,7 @@ pub const PROXY_STICKY_LIFETIME: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -830,6 +838,7 @@ pub const PROXY_PROVIDERS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

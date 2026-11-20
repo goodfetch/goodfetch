@@ -4,12 +4,17 @@
 //! Session's stream, and cancelled once the last leaves; the next to join
 //! sends another. A task on the Connection's tracker reads it and hands
 //! each event to the readers that take it, those of its name whose payload
-//! names their handle. An event's credit goes back once each of them read
-//! it or dropped it, so an unread stream slows the Subscription; the engine
-//! then falls behind to `events.resync` rather than wait, and the events in
-//! between are gone, which is logged.
+//! names their handle. An event's credit goes back as soon as the task
+//! hears it, since each reader's own queue takes it or loses it: a queue
+//! holds at most the Connection's [`ListenerQueue`] unread, and past it the
+//! reader loses each event of its own until it read those it held, then
+//! ends with `listener_events_lost`, so an unread stream slows no other.
+//! Should the Subscription still fall behind, the engine sends
+//! `events.resync` rather than wait, and the events in between are gone,
+//! which is logged.
 
 use std::sync::{Arc, PoisonError};
+use std::task::{Context, Poll};
 
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::events::{
@@ -21,12 +26,14 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::task::TaskTracker;
 
 use crate::error::Error;
+use crate::listener_queue::ListenerQueue;
 use crate::rpc::{CallId, Heard, Outgoing, Sender};
 use crate::sync::{Mutex, MutexGuard};
 
 /// The credits a stream of events grants when its call is sent, the
-/// Subscription's or a call's own: at most this many of its events wait
-/// for the program.
+/// Subscription's or a call's own: at most this many of its events are
+/// unsettled, those a call's own stream has not read, or those the
+/// Subscription has not heard yet.
 pub(crate) const CREDITS: u32 = 16;
 
 /// How many of its events the program settles before the stream grants as
@@ -36,12 +43,14 @@ pub(crate) const REGRANT: u32 = 8;
 /// What a reader hears of the Subscription.
 #[derive(Debug)]
 pub(crate) enum Taken {
-    /// An event's payload it takes, and the event's credit, which goes
-    /// back once every reader that took it dropped its share.
-    Event(Value, Arc<Credit>),
+    /// An event's payload it takes; its credit is already back.
+    Event(Value),
     /// The Subscription ended without its cancel: the engine answered it,
     /// with the error that ended it, if one did.
     Ended(Option<Error>),
+    /// Its queue was full, and it read every event it held: it lost this
+    /// many of its own, and hears nothing more.
+    Lost(u64),
 }
 
 /// What one reader takes: the events named `event` whose payload's
@@ -60,6 +69,8 @@ pub(crate) struct Published(Arc<Core>);
 #[derive(Debug)]
 struct Core {
     sender: Sender,
+    /// How many events each reader's queue holds.
+    bound: ListenerQueue,
     /// The runtime its task runs on, and the tracker it is spawned on.
     handle: Handle,
     tasks: TaskTracker,
@@ -76,6 +87,8 @@ struct Subscription {
     /// Where a reader whose own call ended asks its task to let it go once
     /// it handed the events heard before.
     finished: mpsc::UnboundedSender<u64>,
+    /// How many events each reader's queue holds.
+    bound: ListenerQueue,
     state: Mutex<State>,
 }
 
@@ -97,16 +110,66 @@ struct Reader {
     key: u64,
     interest: Interest,
     taken: mpsc::UnboundedSender<Taken>,
+    queue: Arc<Mutex<Queue>>,
 }
 
-/// One event's credit, shared by the readers that took the event: the last
-/// share dropped settles it.
-#[derive(Debug)]
-pub(crate) struct Credit(Arc<Subscription>);
+/// What a reader's queue holds and lost, which the Subscription's task fills
+/// and the reader's [`Received`] empties.
+#[derive(Debug, Default)]
+struct Queue {
+    /// The events sent and not read yet.
+    held: usize,
+    /// The events lost since it was full.
+    lost: u64,
+}
 
-impl Drop for Credit {
-    fn drop(&mut self) {
-        self.0.settle();
+/// What a reader reads of the Subscription: the events its queue holds,
+/// then the end.
+#[derive(Debug)]
+pub(crate) struct Received {
+    taken: mpsc::UnboundedReceiver<Taken>,
+    queue: Arc<Mutex<Queue>>,
+}
+
+impl Received {
+    /// The next thing the reader hears: an event, the end of the
+    /// Subscription, or, once its queue lost events and it read every one
+    /// it held, how many it lost; `None` once it left.
+    pub(crate) fn poll_recv(&mut self, context: &mut Context<'_>) -> Poll<Option<Taken>> {
+        let polled = self.taken.poll_recv(context);
+        let mut queue = lock(&self.queue);
+        match polled {
+            Poll::Ready(Some(Taken::Event(data))) => {
+                queue.held -= 1;
+                Poll::Ready(Some(Taken::Event(data)))
+            }
+            Poll::Ready(Some(other)) => Poll::Ready(Some(other)),
+            // Nothing more is sent once it lost one, so `held` at 0 means
+            // it read every event it held.
+            Poll::Ready(None) | Poll::Pending if queue.lost > 0 && queue.held == 0 => {
+                let lost = std::mem::take(&mut queue.lost);
+                Poll::Ready(Some(Taken::Lost(lost)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Reader {
+    /// Queues `data`, unless its queue holds `bound` events or lost one
+    /// already, which counts it lost. Sent under the queue's lock, so the reader never sees
+    /// an event it holds missing.
+    fn take(&self, data: &Value, bound: ListenerQueue) {
+        let mut queue = lock(&self.queue);
+        if queue.lost > 0 || queue.held >= bound.get() {
+            queue.lost += 1;
+            return;
+        }
+        // A reader that left hears nothing more.
+        if self.taken.send(Taken::Event(data.clone())).is_ok() {
+            queue.held += 1;
+        }
     }
 }
 
@@ -137,9 +200,15 @@ impl Drop for Membership {
 impl Published {
     /// The Subscription of the Connection whose calls go through `sender`,
     /// whose task runs on `handle`, tracked by `tasks`.
-    pub(crate) fn new(sender: Sender, handle: Handle, tasks: TaskTracker) -> Self {
+    pub(crate) fn new(
+        sender: Sender,
+        handle: Handle,
+        tasks: TaskTracker,
+        bound: ListenerQueue,
+    ) -> Self {
         Self(Arc::new(Core {
             sender,
+            bound,
             handle,
             tasks,
             current: Mutex::new(None),
@@ -153,10 +222,11 @@ impl Published {
 
     /// Joins the reader of `interest`, sending the Subscription with its
     /// credits when none is in flight, before anything sent after this
-    /// call. It hears what it takes on the receiver, until its membership
-    /// is dropped.
-    pub(crate) fn join(&self, interest: Interest) -> (Membership, mpsc::UnboundedReceiver<Taken>) {
+    /// call. It hears what it takes through the [`Received`] it gets, until
+    /// its membership is dropped.
+    pub(crate) fn join(&self, interest: Interest) -> (Membership, Received) {
         let (taken, receiver) = mpsc::unbounded_channel();
+        let queue = Arc::new(Mutex::new(Queue::default()));
         let mut current = lock(&self.0.current);
         let subscription = Arc::clone(current.get_or_insert_with(|| self.subscribe()));
         let mut state = subscription.lock();
@@ -166,6 +236,7 @@ impl Published {
             key,
             interest,
             taken,
+            queue: Arc::clone(&queue),
         });
         drop(state);
         drop(current);
@@ -174,7 +245,13 @@ impl Published {
             subscription,
             key,
         };
-        (membership, receiver)
+        (
+            membership,
+            Received {
+                taken: receiver,
+                queue,
+            },
+        )
     }
 
     /// Sends `events.subscribe` with its credits and starts the task that
@@ -201,6 +278,7 @@ impl Published {
             sender: self.0.sender.clone(),
             call,
             finished,
+            bound: self.0.bound,
             state: Mutex::new(State {
                 readers: Vec::new(),
                 next_key: 0,
@@ -294,7 +372,7 @@ impl Subscription {
     }
 
     /// Hands a batch's events to their readers.
-    fn hear(self: &Arc<Self>, heard: Heard) {
+    fn hear(&self, heard: Heard) {
         match heard {
             Heard::Notified { method, params } if method == EVENTS => {
                 match serde_json::from_value::<EventBatch>(params) {
@@ -310,9 +388,11 @@ impl Subscription {
         }
     }
 
-    /// Hands each event of `batch` to the readers that take it; one that
-    /// none takes is settled at once.
-    fn hand(self: &Arc<Self>, batch: EventBatch) {
+    /// Settles each event of `batch`, then hands it to the readers that
+    /// take it: their own queues take it or lose it, so no reader holds a
+    /// credit back, and the credits go before any of its events is read.
+    fn hand(&self, batch: EventBatch) {
+        self.settle(batch.events.len());
         for envelope in batch.events {
             if envelope.event == RESYNC.name {
                 tracing::warn!(
@@ -321,32 +401,26 @@ impl Subscription {
                     "The Connection's Subscription fell behind: the events published since its last read are gone, so a Session's stream may have missed pages its `pages()` lists"
                 );
             }
-            let takers: Vec<mpsc::UnboundedSender<Taken>> = self
-                .lock()
-                .readers
-                .iter()
-                .filter(|reader| reader.interest.takes(&envelope.event, &envelope.data))
-                .map(|reader| reader.taken.clone())
-                .collect();
-            // Each taker holds a share; the last share dropped settles it,
-            // and with no taker that is now.
-            let credit = Arc::new(Credit(Arc::clone(self)));
-            for taker in takers {
-                let _gone = taker.send(Taken::Event(envelope.data.clone(), Arc::clone(&credit)));
+            let state = self.lock();
+            for reader in &state.readers {
+                if reader.interest.takes(&envelope.event, &envelope.data) {
+                    reader.take(&envelope.data, self.bound);
+                }
             }
         }
     }
 
-    /// Counts one event settled, and grants as many again every
-    /// [`REGRANT`], unless it stopped.
-    fn settle(&self) {
+    /// Counts `events` settled, and grants as many again for each
+    /// [`REGRANT`] of them, unless it stopped.
+    fn settle(&self, events: usize) {
         let mut state = self.lock();
         if state.stopped {
             return;
         }
-        state.settled += 1;
-        if state.settled == REGRANT {
-            state.settled = 0;
+        let events = u32::try_from(events).unwrap_or(u32::MAX);
+        state.settled = state.settled.saturating_add(events);
+        while state.settled >= REGRANT {
+            state.settled -= REGRANT;
             if let Some(id) = self.call.get() {
                 self.sender.credit(id, REGRANT);
             }
@@ -378,7 +452,11 @@ impl Subscription {
             } else {
                 failure.as_ref().map(copied)
             };
-            let _gone = reader.taken.send(Taken::Ended(told));
+            // One that lost events hears nothing more: once it read those
+            // it held, it says what it lost.
+            if lock(&reader.queue).lost == 0 {
+                let _gone = reader.taken.send(Taken::Ended(told));
+            }
         }
     }
 }

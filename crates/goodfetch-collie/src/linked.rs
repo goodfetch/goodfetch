@@ -23,7 +23,9 @@ use std::time::Duration;
 
 use goodfetch_collie_client::logging::{CLIENT, engine_log_level};
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits};
+use goodfetch_collie_client::{
+    ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits, ListenerQueue,
+};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -54,6 +56,7 @@ pub struct ConnectOptions {
     environment: Option<BTreeMap<OsString, OsString>>,
     limits: Limits,
     timeout: ConnectTimeout,
+    max_listener_queue: Option<usize>,
     engine: EngineChoice,
 }
 
@@ -67,6 +70,7 @@ impl fmt::Debug for ConnectOptions {
             )
             .field("limits", &self.limits)
             .field("timeout", &self.timeout)
+            .field("max_listener_queue", &self.max_listener_queue)
             .field("engine", &self.engine)
             .finish()
     }
@@ -118,22 +122,41 @@ impl ConnectOptions {
         self
     }
 
+    /// How many unread events each stream of a Session's events holds
+    /// (ADR 0081), in place of 1,024: a stream left unread past it loses
+    /// only its own events, hands those it held, then ends with
+    /// `listener_events_lost`, while the other streams go on. A bound below
+    /// 16 can end even a stream read at once, as events arrive up to 16 at
+    /// a time. 0 is refused with `setting_invalid` before the engine
+    /// starts.
+    #[must_use]
+    pub fn max_listener_queue(mut self, bound: usize) -> Self {
+        self.max_listener_queue = Some(bound);
+        self
+    }
+
     /// The environment the connection reads, the one set or the
-    /// process's, the connection's Limits, its `timeout`, once checked, and
-    /// its engine.
+    /// process's, the connection's Limits, its `timeout` and its listener
+    /// queue, once checked, and its engine.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
     )]
     fn into_parts(self) -> Result<Parts, Error> {
         self.timeout.check()?;
+        let listener_queue = self
+            .max_listener_queue
+            .map_or(Ok(ListenerQueue::DEFAULT), ListenerQueue::new)?;
         let environment = self
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
         Ok(Parts {
             environment,
-            limits: self.limits,
-            timeout: self.timeout,
+            asked: Asked {
+                limits: self.limits,
+                timeout: self.timeout,
+                listener_queue,
+            },
             engine: self.engine,
         })
     }
@@ -142,9 +165,18 @@ impl ConnectOptions {
 /// What a connection opens with, once checked.
 struct Parts {
     environment: BTreeMap<OsString, OsString>,
-    limits: Limits,
-    timeout: ConnectTimeout,
+    asked: Asked,
     engine: EngineChoice,
+}
+
+/// What the program asked of a connection, whatever engine it reaches: its
+/// Limits, how long it waits for `hello`'s answer, and how many unread
+/// events each stream of a Session's events holds.
+#[derive(Debug, Default)]
+pub(crate) struct Asked {
+    pub(crate) limits: Limits,
+    pub(crate) timeout: ConnectTimeout,
+    pub(crate) listener_queue: ListenerQueue,
 }
 
 /// The engine a connection links: its Product and that Product's
@@ -209,7 +241,8 @@ impl ProductConnection {
     ///
     /// `engine_exited` when the linked engine cannot start, with no
     /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
-    /// ([`ConnectOptions::timeout`]) or a remote Daemon's URL that names no
+    /// ([`ConnectOptions::timeout`]), a zero
+    /// [`ConnectOptions::max_listener_queue`] or a remote Daemon's URL that names no
     /// loopback `ws://` address, or `GOODFETCH_URL` without
     /// `GOODFETCH_TOKEN`, `daemon_unreachable` when the Daemon chosen
     /// cannot be reached, `deadline_exceeded` naming
@@ -324,54 +357,65 @@ impl ProductConnection {
 
     /// A connection on `runtime` saying `hello`, to a linked `engine` that
     /// runs on `handle`, that runtime's handle, with `dependencies`, and
-    /// with `limits` set on it once `hello` is answered within `timeout`.
-    /// When `hello` fails, the engine is left to stop at the end of its
-    /// input, unwaited; when a Limit is refused, the connection is closed.
+    /// with what is `asked`: its Limits set on it once `hello` is answered
+    /// within its timeout. When `hello` fails, the engine is left to stop
+    /// at the end of its input, unwaited; when a Limit is refused, the
+    /// connection is closed.
     pub(crate) async fn open(
         runtime: ConnectionRuntime,
         handle: Handle,
         engine: Composed,
         hello: HelloParams,
         dependencies: Dependencies,
-        limits: Limits,
-        timeout: ConnectTimeout,
+        asked: Asked,
     ) -> Result<Self, Error> {
         let home = dependencies.home.root().to_owned();
         let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
-        let (connection, said) =
-            ClientConnection::open_within(runtime, &network, &Endpoint::InMemory, hello, timeout)
-                .await?;
+        let (connection, said) = ClientConnection::open_within(
+            runtime,
+            &network,
+            &Endpoint::InMemory,
+            hello,
+            asked.timeout,
+            asked.listener_queue,
+        )
+        .await?;
         let opened = Self {
             connection,
             engine: Some(Arc::new(linked)),
             handle,
             info: Arc::new(info(EngineKind::Linked, None, said, Some(home))),
         };
-        opened.limited(limits).await
+        opened.limited(asked.limits).await
     }
 
     /// A connection on `runtime`, whose handle is `handle`, saying `hello`
     /// with the token of the Daemon `daemon` names, the one of `home`
-    /// unless it is remote, and with `limits` set on it once `hello` is
-    /// answered within `timeout`.
+    /// unless it is remote, and with what is `asked`: its Limits set on it
+    /// once `hello` is answered within its timeout.
     async fn open_daemon(
         runtime: ConnectionRuntime,
         handle: Handle,
         daemon: DaemonReach,
         home: Option<Home>,
         hello: HelloParams,
-        limits: Limits,
-        timeout: ConnectTimeout,
+        asked: Asked,
     ) -> Result<Self, Error> {
         let hello = HelloParams {
             token: Some(daemon.token.expose().to_owned()),
             ..hello
         };
         let endpoint = Endpoint::Daemon(daemon.endpoint.clone());
-        let (connection, said) =
-            ClientConnection::open_within(runtime, &Network::Os, &endpoint, hello, timeout)
-                .await
-                .map_err(|error| daemon.unreached(error, home.as_ref()))?;
+        let (connection, said) = ClientConnection::open_within(
+            runtime,
+            &Network::Os,
+            &endpoint,
+            hello,
+            asked.timeout,
+            asked.listener_queue,
+        )
+        .await
+        .map_err(|error| daemon.unreached(error, home.as_ref()))?;
         let opened = Self {
             connection,
             engine: None,
@@ -383,7 +427,7 @@ impl ProductConnection {
                 daemon.home(home.as_ref()),
             )),
         };
-        opened.limited(limits).await
+        opened.limited(asked.limits).await
     }
 
     /// The connection, opened, once it logged the engine it reached and
@@ -475,14 +519,14 @@ fn info(
 }
 
 /// A connection whose engine is chosen, ready to open: the runtime it runs
-/// on, its `hello`, how its engine is reached, its Limits and `timeout`.
+/// on, its `hello`, how its engine is reached, and what the program asked
+/// of it.
 struct Opening {
     runtime: Runtime,
     engine: Composed,
     hello: HelloParams,
     target: Target,
-    limits: Limits,
-    timeout: ConnectTimeout,
+    asked: Asked,
 }
 
 /// How an opening connection's engine is reached.
@@ -503,8 +547,7 @@ impl Opening {
         let hello = ProductConnection::hello(needs);
         let Parts {
             environment,
-            limits,
-            timeout,
+            asked,
             engine: choice,
         } = options.into_parts()?;
         let found = home(&environment);
@@ -533,8 +576,7 @@ impl Opening {
             engine,
             hello,
             target,
-            limits,
-            timeout,
+            asked,
         })
     }
 
@@ -550,20 +592,13 @@ impl Opening {
                     self.engine,
                     self.hello,
                     *dependencies,
-                    self.limits,
-                    self.timeout,
+                    self.asked,
                 )
                 .await
             }
             Target::Daemon { daemon, home } => {
                 ProductConnection::open_daemon(
-                    runtime,
-                    handle,
-                    daemon,
-                    home,
-                    self.hello,
-                    self.limits,
-                    self.timeout,
+                    runtime, handle, daemon, home, self.hello, self.asked,
                 )
                 .await
             }

@@ -660,6 +660,10 @@ pub struct Setting {
     /// dropped"); `None` once its reader is built, in the change that
     /// builds it.
     pub unbuilt: Option<&'static str>,
+    /// Its deprecation, if any: its `replacement` is another setting's key.
+    /// A program that sets it is warned once per process through its SDK's
+    /// host channel, and the release notes list it (ADR 0099).
+    pub deprecated: Option<Deprecation>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }

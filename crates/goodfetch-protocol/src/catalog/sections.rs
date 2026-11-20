@@ -294,6 +294,7 @@ fn setting_entry(product: Product, setting: &Setting, scopes: &[SettingScope]) -
         "weakens": setting.weakens.is_some(),
         "fixed_for_run": setting.fixed_for_run,
         "scopes": scopes.iter().map(|scope| scope.as_str()).collect::<Vec<_>>(),
+        "deprecated": deprecation(setting.deprecated),
         "arrived_in": setting.arrived_in.to_string(),
     })
 }

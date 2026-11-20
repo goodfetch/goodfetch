@@ -20,6 +20,7 @@ mod limits;
 mod logging;
 mod navigations;
 mod points_in_time;
+mod product_and_provisioning;
 mod results;
 mod scripted_daemon;
 mod session_events;

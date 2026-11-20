@@ -340,6 +340,7 @@ fn decoded(connection: &Connection) -> RequestCounts {
                 counts.blocked += 1;
                 by(&mut counts.by_block_cause, cause.as_str().to_owned());
             }
+            unknown => panic!("this engine ends no request as {unknown:?}"),
         }
     }
     counts

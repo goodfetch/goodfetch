@@ -125,13 +125,14 @@ fn name_of(encoded: serde_json::Result<serde_json::Value>) -> String {
 }
 
 /// What an ending is named by: its skip reason, Error code or Block cause,
-/// or `succeeded`.
+/// `succeeded`, or the tag of an ending a newer engine wrote.
 fn ended_as(ending: &Ending) -> String {
     match ending {
         Ending::Succeeded { .. } => "succeeded".to_owned(),
         Ending::Failed { error } => error.code.clone(),
         Ending::Skipped { reason, .. } => name_of(serde_json::to_value(reason)),
         Ending::Blocked { cause } => cause.as_str().to_owned(),
+        unknown => unknown.kind().as_str().to_owned(),
     }
 }
 

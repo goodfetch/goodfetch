@@ -7,13 +7,14 @@
 //! since a Collie Run's Script Hook does too (ADR 0051).
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, ProtocolVersion, Stability, schema_of,
 };
 use crate::connection::WaitedFor;
 use crate::foxhound::crawl::{CrawlRequest, PushedRecord};
+use crate::open_value::UnknownValue;
 use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -22,10 +23,11 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// run (ADR 0104), by the catalog's name. The observe-only stages reach
 /// Plugins and Script Hooks only.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+    Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
-#[schemars(extend("open" = true))]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum CrawlHookStage {
     /// Before each fetch of a request, its retries included.
     BeforeRequest,
@@ -40,11 +42,26 @@ pub enum CrawlHookStage {
     PageReady,
     /// Before each Record the attempt staged commits.
     BeforeRecordCommit,
+    /// A stage a newer engine asks a Hook at that this reader does not
+    /// know, kept as received (ADR 0079). A declaration refuses it.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 impl CrawlHookStage {
+    /// The stages this reader knows, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::BeforeRequest,
+        Self::AfterResponse,
+        Self::BeforeNavigation,
+        Self::AfterNavigation,
+        Self::PageReady,
+        Self::BeforeRecordCommit,
+    ];
+
     /// Its name in the catalog, on the wire and in `hook_failed`.
-    pub const fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &str {
         match self {
             Self::BeforeRequest => "before_request",
             Self::AfterResponse => "after_response",
@@ -52,12 +69,13 @@ impl CrawlHookStage {
             Self::AfterNavigation => "after_navigation",
             Self::PageReady => "page_ready",
             Self::BeforeRecordCommit => "before_record_commit",
+            Self::Unknown(stage) => stage.as_str(),
         }
     }
 
     /// What a call to one of its Hooks past `timeout.hook` waited for, as
     /// `deadline_exceeded` names it: the answer of a Hook at this stage.
-    pub const fn waited_for(self) -> WaitedFor {
+    pub const fn waited_for(&self) -> WaitedFor {
         WaitedFor::named(match self {
             Self::BeforeRequest => "answer of a `before_request` Hook",
             Self::AfterResponse => "answer of an `after_response` Hook",
@@ -65,7 +83,22 @@ impl CrawlHookStage {
             Self::AfterNavigation => "answer of an `after_navigation` Hook",
             Self::PageReady => "answer of a `page_ready` Hook",
             Self::BeforeRecordCommit => "answer of a `before_record_commit` Hook",
+            Self::Unknown(_) => "answer of a Hook",
         })
+    }
+}
+
+/// Reads a declared Hook's stage, refusing a stage this reader does not
+/// know: a declaration is a request, which ADR 0079's keeping of a newer
+/// engine's values does not cover, so an engine answers it with an error
+/// instead of declaring a Hook that never runs.
+fn known_stage<'de, D: Deserializer<'de>>(deserializer: D) -> Result<CrawlHookStage, D::Error> {
+    match CrawlHookStage::deserialize(deserializer)? {
+        CrawlHookStage::Unknown(stage) => Err(stage.refused(
+            "Hook stage",
+            &CrawlHookStage::ALL.each_ref().map(CrawlHookStage::as_str),
+        )),
+        known => Ok(known),
     }
 }
 
@@ -79,6 +112,7 @@ pub struct CrawlHookDeclaration {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub name: String,
     /// The stage it runs at.
+    #[serde(deserialize_with = "known_stage")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub stage: CrawlHookStage,
     /// The Labels whose requests it runs for; absent for every Label.

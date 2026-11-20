@@ -279,7 +279,7 @@ impl Metrics {
             &[
                 KeyValue::new(RUN_KIND_LABEL.name, kind.as_str()),
                 KeyValue::new(LIFECYCLE_LABEL.name, report.lifecycle.as_str()),
-                KeyValue::new(VERDICT_LABEL.name, report.verdict.as_str()),
+                KeyValue::new(VERDICT_LABEL.name, report.verdict.as_str().to_owned()),
                 KeyValue::new(COMPLETENESS_LABEL.name, report.completeness.as_str()),
             ],
         );

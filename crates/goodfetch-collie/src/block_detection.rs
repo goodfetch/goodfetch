@@ -150,7 +150,7 @@ fn fire(
         .map(|group| group.iter().copied().find(|marker| markup.contains(marker)))
         .collect::<Option<Vec<_>>>()?;
     Some(Classification {
-        cause: rule.cause,
+        cause: rule.cause.clone(),
         evidence: Evidence {
             rule: rule.name,
             source: rule.source.name(),

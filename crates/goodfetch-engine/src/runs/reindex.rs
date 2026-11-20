@@ -142,7 +142,7 @@ fn found_row(
         needs: recorded.needs,
         tags: recorded.tags.clone(),
         lifecycle: recorded.lifecycle,
-        verdict: report.map(|report| report.verdict),
+        verdict: report.map(|report| report.verdict.clone()),
         completeness: report.map(|report| report.completeness),
         started_at: recorded.started_at,
         ended_at: report.map(|report| report.ended_at),

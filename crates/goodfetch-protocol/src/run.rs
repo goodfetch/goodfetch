@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
@@ -28,6 +28,7 @@ use crate::catalog::{
     schema_of,
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
+use crate::open_value::{UnknownMember, UnknownValue};
 use crate::settings::{ProjectSettings, SettingLimit};
 
 pub mod completeness;
@@ -344,9 +345,10 @@ impl Lifecycle {
 }
 
 /// Whether a Run's own checks prove what it committed (ADR 0029).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[schemars(extend("open" = true))]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum Verdict {
     /// Every check the Run relies on passed, none was switched off, and no
     /// Effect is left uncertain.
@@ -355,6 +357,11 @@ pub enum Verdict {
     Rejected,
     /// Everything else: a person reviews it.
     NeedsReview,
+    /// A Verdict a newer engine gives that this reader does not know, kept
+    /// as received (ADR 0079): never `verified`.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 /// The code of the Verdict reason a Run that left an Effect uncertain is
@@ -366,8 +373,11 @@ impl Verdict {
     pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];
 
     /// Its name on the wire and in run state.
-    pub fn as_str(self) -> &'static str {
-        crate::wire_name::of(&self)
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
     }
 }
 
@@ -397,7 +407,8 @@ impl Completeness {
 /// Why a Run stopped (ADRs 0029, 0080 and 0102).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[schemars(extend("open" = true))]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum StopReason {
     /// Its program, a person or a Client aborted it, a Connection's close
     /// included (ADR 0078).
@@ -445,6 +456,33 @@ pub enum StopReason {
         #[schemars(extend("arrived_in" = "0.1"))]
         folder: Option<String>,
     },
+    /// A reason a newer engine gives that this reader does not know, kept
+    /// as received with its tag (ADR 0079).
+    #[serde(untagged, deserialize_with = "StopReason::read_unknown")]
+    #[schemars(skip)]
+    Unknown(UnknownMember),
+}
+
+impl StopReason {
+    /// The tags of the reasons this reader knows, in declaration order.
+    const KNOWN_TAGS: [&str; 10] = [
+        "abort",
+        "pause",
+        "migrate",
+        "timeout",
+        "drain",
+        "limit",
+        "limit_not_understood",
+        "engine_lost",
+        "engine_panicked",
+        "resources",
+    ];
+
+    /// Reads a reason this reader does not know, refusing a known one whose
+    /// fields do not read.
+    fn read_unknown<'de, D: Deserializer<'de>>(deserializer: D) -> Result<UnknownMember, D::Error> {
+        UnknownMember::read_unknown(deserializer, &Self::KNOWN_TAGS)
+    }
 }
 
 /// A resource the governor can run out of (ADR 0122).

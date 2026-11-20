@@ -370,9 +370,11 @@ fn operations(layer: &Layer) -> String {
             entry_markers(operation.stability, operation.deprecated.as_ref())
         );
     }
+    text.push_str("};\n\n");
+    operation_names(&mut text, layer, product);
     let _ = write!(
         text,
-        "}};\n\n/** {product}'s operations, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
+        "/** {product}'s operations, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
     );
     for operation in &layer.operations {
         text.push('\n');
@@ -401,6 +403,27 @@ fn operations(layer: &Layer) -> String {
     }
     text.push_str("}\n");
     text
+}
+
+/// The map from each operation's catalog name to its TypeScript form.
+fn operation_names(text: &mut String, layer: &Layer, product: &str) {
+    let _ = write!(
+        text,
+        "/** The name of each of {product}'s operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */\nexport const {}OperationNames: Readonly<Record<keyof {product}OperationTypes, string>> = {{\n",
+        product.to_lowercase()
+    );
+    for operation in &layer.operations {
+        let _ = writeln!(
+            text,
+            "  {:?}: {:?},",
+            operation.name,
+            goodfetch_protocol::naming::operation(
+                goodfetch_protocol::connection::Form::Typescript,
+                &operation.name
+            )
+        );
+    }
+    text.push_str("};\n\n");
 }
 
 /// An entry's `EntryMarkers` in a generated registry.

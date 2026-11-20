@@ -154,11 +154,11 @@ fn listing(count: usize, index: bool) -> String {
     text
 }
 
-fn why(refusal: Result<Document, Refusal>) -> String {
-    match refusal {
-        Err(Refusal::Unreadable(Unreadable(why))) => why,
-        other => panic!("not unreadable: {other:?}"),
-    }
+/// Whether the read refused the file as unreadable; the reason's words
+/// are no contract: every unreadable sitemap reaches the report as one
+/// code.
+fn unreadable(read: &Result<Document, Refusal>) -> bool {
+    matches!(read, Err(Refusal::Unreadable(_)))
 }
 
 /// A sitemap is read alike plain and gzip-compressed, a `.gz` file being
@@ -188,8 +188,7 @@ fn a_gzip_sitemap_reads_as_its_plain_form() {
 }
 
 /// sitemaps.org's 50,000 URLs bound a sitemap and an index alike: one
-/// listing 50,000 is read whole, one listing 50,001 is unreadable, with
-/// the limit named.
+/// listing 50,000 is read whole, one listing 50,001 is unreadable.
 ///
 /// Covers: story:6-206
 #[rstest]
@@ -211,36 +210,39 @@ fn a_sitemap_past_fifty_thousand_urls_is_unreadable(#[case] index: bool) {
         Ok(Document::Entries(locs) | Document::Sitemaps(locs)) => locs.len(),
         other => panic!("not read: {other:?}"),
     };
-    assert_eq!(
-        (listed, why(past)),
-        (
-            50_000,
-            "it lists more than sitemaps.org's 50,000 URLs".to_owned()
-        )
-    );
+    assert_eq!((listed, unreadable(&past)), (50_000, true), "{past:?}");
 }
 
 /// sitemaps.org's 50 MB (52,428,800 bytes) bound a sitemap uncompressed,
-/// plain or gzip-compressed: one byte past them it is unreadable, with the
-/// limit named.
+/// plain or gzip-compressed: one of exactly 50 MB is read, one byte past
+/// them it is unreadable.
 ///
 /// Covers: story:6-206
 #[rstest]
 #[case::plain(false)]
 #[case::gzip(true)]
 fn a_sitemap_past_fifty_megabytes_uncompressed_is_unreadable(#[case] compressed: bool) {
-    let mut text = listing(1, false).into_bytes();
-    text.resize(MAX_BYTES + 1, b' ');
-    let body = if compressed { gzip(&text) } else { text };
     // A ratio no padding passes, so the size is what is judged.
     let limits = Limits {
         max_decompression_ratio: 1_000_000,
         ..Limits::default()
     };
+    let read = |size: usize| {
+        let mut text = listing(1, false).into_bytes();
+        text.resize(size, b' ');
+        let body = if compressed { gzip(&text) } else { text };
+        read_file(AT, &body, limits)
+    };
+
+    let (within, past) = (read(MAX_BYTES), read(MAX_BYTES + 1));
 
     assert_eq!(
-        why(read_file(AT, &body, limits)),
-        "it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed"
+        (
+            matches!(&within, Ok(Document::Entries(locs)) if locs.len() == 1),
+            unreadable(&past)
+        ),
+        (true, true),
+        "{within:?} {past:?}"
     );
 }
 
@@ -276,10 +278,9 @@ fn a_gzip_bomb_is_refused_by_the_decompression_ratio() {
 #[case::corrupt(vec![0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0xff, 1, 2, 3])]
 #[case::cut(gzip(listing(2, false).as_bytes())[..20].to_vec())]
 fn a_gzip_file_that_does_not_decode_is_unreadable(#[case] body: Vec<u8>) {
-    assert_eq!(
-        why(read_file(AT, &body, Limits::default())),
-        "its gzip stream does not decode"
-    );
+    let read = read_file(AT, &body, Limits::default());
+
+    assert!(unreadable(&read), "{read:?}");
 }
 
 /// The sitemap fuzz target's committed seeds and past crashers replay on

@@ -1,9 +1,8 @@
-//! Each run's tables as table functions: a query reads only the runs it
-//! selected, joins and aggregates them, reads the Records `run.records`
-//! reads, and never a secret field.
+//! Each run's tables as table functions: a query reads the Records
+//! `run.records` reads, and never a secret field. Selecting, joining and
+//! aggregating runs are proved through Foxhound's `sql.query` in
+//! `goodfetch-foxhound`'s `it/sql_tab.rs`.
 
-use goodfetch_protocol::foxhound::sql_tab::QueryRefusal;
-use goodfetch_sql_tab::Failure;
 use goodfetch_test_support::{Canaries, Output, SecretKind};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -73,59 +72,6 @@ fn a_query_reads_the_records_run_records_reads() {
             ("url", "VARCHAR"),
             ("committed_at", "VARCHAR"),
         ]
-    );
-}
-
-/// Covers: story:12-210
-#[test]
-fn a_query_joins_and_aggregates_the_runs_it_selected() {
-    let folder = tempfile::tempdir().expect("a folder");
-    let monday = run_file(folder.path(), "monday", &[book(1), book(2)], "none");
-    let tuesday = run_file(folder.path(), "tuesday", &[book(2), book(3)], "none");
-
-    let answer = sandbox(&[("monday", &monday), ("tuesday", &tuesday)], LIMITS)
-        .query(
-            "WITH seen AS (SELECT run, value->>'title' AS title FROM records('monday') \
-             UNION ALL SELECT run, value->>'title' FROM records('tuesday')) \
-             SELECT title, count(*) AS runs FROM seen GROUP BY title ORDER BY title",
-            None,
-        )
-        .expect("the query runs");
-
-    assert_eq!(
-        answer.rows,
-        [
-            vec![json!("Café 1"), json!(1)],
-            vec![json!("Café 2"), json!(2)],
-            vec![json!("Café 3"), json!(1)],
-        ]
-    );
-}
-
-/// Covers: story:12-211
-#[test]
-fn only_the_selected_runs_are_registered() {
-    let folder = tempfile::tempdir().expect("a folder");
-    let chosen = run_file(folder.path(), "chosen", &[book(1)], "none");
-    run_file(folder.path(), "other", &[book(2)], "none");
-    let sandbox = sandbox(&[("chosen", &chosen)], LIMITS);
-
-    let refused = sandbox.query("SELECT * FROM records('other')", None);
-    let allowed = sandbox.query("SELECT count(*) FROM records('chosen')", None);
-
-    assert!(
-        matches!(
-            refused,
-            Err(Failure::Invalid {
-                reason: QueryRefusal::RunNotSelected,
-                ..
-            })
-        ),
-        "{refused:?}"
-    );
-    assert_eq!(
-        allowed.expect("the chosen run is read").rows,
-        [vec![json!(1)]]
     );
 }
 

@@ -43,6 +43,8 @@ fn run_file() -> Connection {
 /// Whether each strategy reaches a URL from a seed: host names compared as
 /// the WHATWG parser leaves them, one leading `www.` ignored, and an `http`
 /// seed's origin admitting its host's `https` origin (ADRs 0093, 0120).
+/// The `www.` and `https` pairs, subdomains and `all` are the properties'
+/// below; these cases hold the hosts their generators never draw.
 ///
 /// Covers: story:6-224, story:6-226, setting:crawl.scope.strategy
 #[rstest]
@@ -50,18 +52,6 @@ fn run_file() -> Connection {
     Strategy::SameHostname,
     "http://shop.test/",
     "http://shop.test/cart",
-    true
-)]
-#[case::a_www_seed_and_its_bare_host_by_hostname(
-    Strategy::SameHostname,
-    "http://www.shop.test/",
-    "http://shop.test/a",
-    true
-)]
-#[case::a_bare_seed_and_its_www_host_by_hostname(
-    Strategy::SameHostname,
-    "http://shop.test/",
-    "http://www.shop.test/a",
     true
 )]
 #[case::only_one_www_label_is_ignored(
@@ -74,12 +64,6 @@ fn run_file() -> Connection {
     Strategy::SameHostname,
     "http://shop.test/",
     "http://wwwshop.test/a",
-    false
-)]
-#[case::a_subdomain_by_hostname(
-    Strategy::SameHostname,
-    "http://shop.test/",
-    "http://blog.shop.test/a",
     false
 )]
 #[case::another_scheme_and_port_by_hostname(
@@ -99,12 +83,6 @@ fn run_file() -> Connection {
     "http://shop.test/",
     "http://shop-outlet.test/a",
     false
-)]
-#[case::a_subdomain_by_domain(
-    Strategy::SameDomain,
-    "http://shop.test/",
-    "http://blog.shop.test/a",
-    true
 )]
 #[case::a_sibling_subdomain_by_domain(
     Strategy::SameDomain,
@@ -143,47 +121,11 @@ fn run_file() -> Connection {
     false
 )]
 #[case::the_same_origin(Strategy::SameOrigin, "http://shop.test/", "http://shop.test/a", true)]
-#[case::an_http_seeds_https_origin(
-    Strategy::SameOrigin,
-    "http://shop.test/",
-    "https://shop.test/a",
-    true
-)]
-#[case::an_http_seeds_https_origin_on_its_port(
-    Strategy::SameOrigin,
-    "http://shop.test:8080/",
-    "https://shop.test:8080/a",
-    true
-)]
-#[case::an_https_seeds_http_origin(
-    Strategy::SameOrigin,
-    "https://shop.test/",
-    "http://shop.test/a",
-    false
-)]
 #[case::another_port_by_origin(
     Strategy::SameOrigin,
     "http://shop.test/",
     "http://shop.test:8080/a",
     false
-)]
-#[case::the_www_host_by_origin(
-    Strategy::SameOrigin,
-    "http://www.shop.test/",
-    "http://shop.test/a",
-    true
-)]
-#[case::a_subdomain_by_origin(
-    Strategy::SameOrigin,
-    "http://shop.test/",
-    "http://blog.shop.test/a",
-    false
-)]
-#[case::an_off_site_link_under_all(
-    Strategy::All,
-    "http://shop.test/",
-    "https://elsewhere.test/a",
-    true
 )]
 fn a_strategy_reaches(
     #[case] strategy: Strategy,
@@ -202,7 +144,6 @@ fn a_strategy_reaches(
 #[case::no_pattern(&[], &[], &[], &[], "http://shop.test/cart", true)]
 #[case::an_include_match(&["**/cart"], &[], &[], &[], "http://shop.test/cart", true)]
 #[case::no_include_match(&["**/cart"], &[], &[], &[], "http://shop.test/about", false)]
-#[case::an_include_match_off_site(&["**/cart"], &[], &[], &[], "http://elsewhere.test/cart", false)]
 #[case::an_exclude_match(&[], &["**/cart"], &[], &[], "http://shop.test/cart", false)]
 #[case::an_exclude_beating_an_include(&["**/cart"], &["**/cart"], &[], &[], "http://shop.test/cart", false)]
 #[case::a_calls_include_narrowing(&[], &[], &["**/about"], &[], "http://shop.test/cart", false)]

@@ -53,6 +53,11 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "sample.echo": { experimental: true, deprecated: "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces." },
 };
 
+/** The name of each of Collie's operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */
+export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, string>> = {
+  "sample.echo": "sample.echo",
+};
+
 /** Collie's operations, each an async method. */
 export class CollieOperations {
   readonly #caller: Caller<CollieOperationTypes>;

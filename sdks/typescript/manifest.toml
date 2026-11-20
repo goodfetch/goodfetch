@@ -105,7 +105,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "explainSettings"
 entry = "config.explain"
-only = "Rust's `explain_settings` is issue 3024's."
 words = ["explain", "settings"]
 form = "round_trip"
 
@@ -1433,6 +1432,15 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/browser"
+receiver = "ChannelOwner"
+member = "operationNames"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): what the owner gives the channel: each operation's name in TypeScript form, which heads the runtime's own error of each call (ADR 0079)."
+words = ["operation", "names"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
 receiver = "(module)"
 member = "OpenCall"
 entry = "none"
@@ -1832,6 +1840,15 @@ member = "logger"
 entry = "none"
 reason = "What a Run reaches through its Connection: the host program's logger."
 words = ["logger"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "operationNames"
+entry = "none"
+reason = "What a Run reaches through its Connection: each operation's name in TypeScript form, which heads a call's `closed` (ADR 0079)."
+words = ["operation", "names"]
 form = "runtime"
 
 [[member]]

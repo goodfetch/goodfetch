@@ -11,6 +11,7 @@ import { AttachedEngine } from "./attached-engine.ts";
 import { ClientConnection, type EngineInfo } from "./client-connection.ts";
 import { reachEngine, type EngineChoice, type Reach } from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
+import type { OperationNames } from "./goodfetch-error.ts";
 import {
   EngineNotFoundError,
   SettingInvalidError,
@@ -138,6 +139,8 @@ export interface ProductPackage<S = Settings> {
   readonly enginePathVariable: string;
   /** The error class of each code the Product knows. */
   readonly errorClasses: ErrorClasses;
+  /** Each of the Product's operations' names in TypeScript form, which heads the runtime's own errors (ADR 0079). */
+  readonly operationNames: OperationNames;
   /** A module of the package, as `import.meta.url` gives it: where its platform package is resolved from. */
   readonly moduleUrl: string;
   /** Sends its `connect()`'s settings by their wire spelling, which `hello` carries. */
@@ -247,6 +250,7 @@ async function openAttached<S>(
     reached: { kind: "attached", home, url: null },
     needs: product.needs,
     errorClasses: product.errorClasses,
+    operationNames: product.operationNames,
     ...common,
   });
 }
@@ -266,6 +270,7 @@ function openDaemon<S>(
     daemon: { token: reach.token, closedAtHello: reach.closedAtHello },
     needs: product.needs,
     errorClasses: product.errorClasses,
+    operationNames: product.operationNames,
     ...common,
   });
 }
@@ -301,6 +306,7 @@ export function openOver<S>(
     transport,
     needs: product.needs,
     errorClasses: product.errorClasses,
+    operationNames: product.operationNames,
     ...opening(product, options),
   });
 }

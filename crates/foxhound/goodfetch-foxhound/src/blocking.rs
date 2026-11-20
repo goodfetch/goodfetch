@@ -8,6 +8,7 @@
 use goodfetch_collie::linked::ProductConnection;
 use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, blocking};
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
@@ -76,6 +77,12 @@ impl Foxhound {
         self.connection.start()
     }
 
+    /// What the connection runs with, as
+    /// [`crate::Foxhound::explain_settings`] says, which `send()` asks.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        self.connection.explain_settings()
+    }
+
     /// Closes the connection for every clone, as
     /// [`crate::Foxhound::close`] does, and returns once its linked engine
     /// has stopped.
@@ -98,6 +105,10 @@ impl Connection for Foxhound {
 
     fn call(&self, operation: &str) -> RawCall {
         Foxhound::call(self, operation)
+    }
+
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Foxhound::explain_settings(self)
     }
 
     fn close(&self) -> Result<(), Error> {

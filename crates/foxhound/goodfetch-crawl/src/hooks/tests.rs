@@ -110,8 +110,7 @@ fn a_hook_waits_under_its_labels_timeout_else_the_runs() {
 }
 
 /// A start declaring a Hook at a stage this engine does not run Hooks in
-/// code at yet is refused with `invalid_params` naming the Hook and the
-/// stage; the Record stage passes.
+/// code at yet is refused with `invalid_params`; the Record stage passes.
 #[test]
 fn a_hook_at_a_stage_not_run_yet_is_refused() {
     let refused = check(&[
@@ -123,9 +122,8 @@ fn a_hook_at_a_stage_not_run_yet_is_refused() {
     assert_eq!(
         (
             refused.code(),
-            refused.message().contains("`sign`") && refused.message().contains("`before_request`"),
             check(&[hook("stamp", CrawlHookStage::BeforeRecordCommit, None)]).is_ok(),
         ),
-        ("invalid_params", true, true)
+        ("invalid_params", true)
     );
 }

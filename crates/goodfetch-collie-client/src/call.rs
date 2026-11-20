@@ -208,11 +208,7 @@ impl<T: DeserializeOwned, P> Query<T, P> {
 
 impl<T, P> Query<T, P> {
     /// Changes the params before they are sent: an option's builder
-    /// method.
-    #[expect(
-        dead_code,
-        reason = "no query of the catalog takes an option yet; `xtask codegen` writes its builder methods through this one"
-    )]
+    /// method, as `config.explain`'s `keys`.
     pub(crate) fn edit(mut self, edit: impl FnOnce(&mut P)) -> Self {
         if let Ok(params) = &mut self.request.params {
             edit(params);

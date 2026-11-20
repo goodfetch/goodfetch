@@ -111,7 +111,7 @@ impl TakeOver {
             needs: recorded.needs,
             tags: recorded.tags,
             lifecycle: report.lifecycle,
-            verdict: Some(report.verdict),
+            verdict: Some(report.verdict.clone()),
             completeness: Some(report.completeness),
             started_at: report.started_at,
             ended_at: Some(report.ended_at),
@@ -129,7 +129,7 @@ impl TakeOver {
             .publish_axes(RunAxes {
                 run_id: self.run_id,
                 lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
+                verdict: Some(report.verdict.clone()),
                 completeness: Some(report.completeness),
             })
             .await;

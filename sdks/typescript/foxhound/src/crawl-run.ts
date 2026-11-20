@@ -160,12 +160,7 @@ export class CrawlRun extends Run {
       return {};
     } catch (error) {
       if (error instanceof GoodfetchError) throw error;
-      throw new HandlerFailedError(
-        `the handler of the Label ${label} failed: ${messageOf(error)}`,
-        {
-          cause: error,
-        },
-      );
+      throw handlerFailed(label, error);
     } finally {
       this.#attempts.delete(attempt);
     }
@@ -265,7 +260,33 @@ function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   return record as DatasetRecord;
 }
 
-/** The message of a thrown value, whatever was thrown. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/**
+ * The `handler_failed` of a handler that threw `thrown`, its own exception
+ * (ADRs 0079 and 0109): the message always names the exception's type and
+ * message, and the details carry them with the frames of its stack, the
+ * stack's text past the line that repeats them.
+ */
+function handlerFailed(label: string, thrown: unknown): HandlerFailedError {
+  const type = thrown instanceof Error ? thrown.name : thrown === null ? "null" : typeof thrown;
+  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const stack = thrown instanceof Error ? (thrown.stack ?? "") : "";
+  // V8's header line: the type alone when the message is empty.
+  const header = message === "" ? type : `${type}: ${message}`;
+  const frames =
+    stack === header
+      ? ""
+      : stack.startsWith(`${header}\n`)
+        ? stack.slice(header.length + 1)
+        : stack;
+  return new HandlerFailedError(
+    `the handler of the Label ${label} failed with ${type}: ${message}`,
+    {
+      cause: thrown,
+      details: {
+        exception_type: type,
+        exception_message: message,
+        exception_stack: frames,
+      },
+    },
+  );
 }

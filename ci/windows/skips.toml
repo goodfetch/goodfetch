@@ -66,7 +66,7 @@ issue = 1590
 [[skip]]
 filter = '''
 (binary_id(goodfetch-test-support::it) & test(/^(cargo_consumer::a_file_the_package_leaves_out_fails_the_consumer_s_build|cargo_consumer::a_folder_with_no_crate_fails_to_package|cargo_consumer::the_consumer_builds_against_the_packaged_crate_and_runs)$/))
-| (binary_id(goodfetch-collie-client::it) & test(/^(duration::a_timeout_in_milliseconds_does_not_compile|forms::a_boolean_is_never_positional_and_a_query_takes_no_timeout)$/))
+| (binary_id(goodfetch-collie-client::it) & test(/^compile_fail::(duration::a_timeout_in_milliseconds_does_not_compile|forms::a_boolean_is_never_positional_and_a_query_takes_no_timeout)$/))
 '''
 reason = "They run Cargo inside the test, and the Wine prefix holds no Cargo: the container's is a Linux program."
 issue = 1590

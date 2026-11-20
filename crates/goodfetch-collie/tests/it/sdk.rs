@@ -20,6 +20,8 @@ use serde_json::json;
 mod closing;
 mod engine_choice;
 mod events;
+#[cfg(unix)]
+mod interrupt;
 mod limits;
 mod logging;
 mod page;

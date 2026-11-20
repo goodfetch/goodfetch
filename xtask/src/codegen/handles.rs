@@ -130,6 +130,37 @@ pub(super) struct Listened {
     /// payload, which is what an opener of that handle answers, such as
     /// `page` for `session.page`'s `PageOpened`.
     pub(super) builds: Option<&'static str>,
+    /// The value its listener gets in place of its payload when the call
+    /// also carries that value's own events, such as the WebSocket a page's
+    /// `web_socket` opens.
+    pub(super) opens: Option<Opens>,
+}
+
+/// A value an event of a [`Listener`] opens (ADR 0081): the catalog's
+/// events named `<event>.<name>`, such as `web_socket.frame_received` for a
+/// page's `web_socket`, are that value's own, which the listener's call also
+/// carries, and each names the value by `<event>_id`, as the opening
+/// payload does.
+pub(super) struct Opens {
+    /// The namespace of its own events, the opening event's name, such as
+    /// `web_socket`.
+    pub(super) namespace: String,
+    /// The property that names it in the opening payload and in each of its
+    /// own events' payloads, `<namespace>_id`, such as `web_socket_id`.
+    pub(super) id: String,
+    /// What it holds of the opening payload: each property but the
+    /// listening handle's ID, with its description, in the payload's order.
+    pub(super) fields: Vec<(String, String)>,
+    /// Its own events, in the catalog's order, which its own `on` takes.
+    pub(super) events: Vec<Listened>,
+}
+
+impl Listener<'_> {
+    /// Whether one of its events opens a value whose own events its call
+    /// also carries.
+    pub(super) fn opens(&self) -> bool {
+        self.events.iter().any(|listened| listened.opens.is_some())
+    }
 }
 
 impl Listened {
@@ -664,6 +695,8 @@ fn listener<'a>(
                 payload: found.payload.0.clone(),
                 description: found.description.clone(),
                 builds: opened_by(layer, &found.payload.0),
+                opens: opened_value(layer, namespace, wire, &found.payload.0)
+                    .with_context(|| format!("operation `{}`: its event `{name}`", operation.name))?,
             })
         })
         .collect::<Result<_>>()?;
@@ -673,6 +706,69 @@ fn listener<'a>(
         event_type: event_type.to_owned(),
         events,
     })
+}
+
+/// The value the event `wire` of `namespace`'s listener opens, whose
+/// `payload` carries it, if the catalog has events of that value's own,
+/// named `<wire>.<name>` (ADR 0081). Each of those, and `payload`, names
+/// the value by `<wire>_id`; a payload that opens a handle opens no value.
+fn opened_value(
+    layer: &Layer,
+    namespace: &str,
+    wire: &str,
+    payload: &str,
+) -> Result<Option<Opens>> {
+    let prefix = format!("{wire}.");
+    let own = layer
+        .events
+        .iter()
+        .filter_map(|event| Some((event.name.strip_prefix(&prefix)?, event)))
+        .collect::<Vec<_>>();
+    if own.is_empty() || opened_by(layer, payload).is_some() {
+        return Ok(None);
+    }
+    let id = format!("{wire}_id");
+    let properties = |type_name: &str| {
+        layer
+            .definitions
+            .get(type_name)
+            .and_then(|definition| definition["properties"].as_object())
+    };
+    for type_name in
+        std::iter::once(payload).chain(own.iter().map(|(_, event)| event.payload.0.as_str()))
+    {
+        if !properties(type_name).is_some_and(|held| held.contains_key(&id)) {
+            bail!(
+                "`{type_name}` lacks `{id}`, which names the value whose own events are the catalog's `{prefix}*` (ADR 0081)"
+            );
+        }
+    }
+    let handle_id = format!("{namespace}_id");
+    let fields = properties(payload)
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| **name != handle_id)
+        .map(|(name, property)| {
+            let description = property["description"].as_str().unwrap_or_default();
+            (name.clone(), description.to_owned())
+        })
+        .collect();
+    let events = own
+        .into_iter()
+        .map(|(name, event)| Listened {
+            wire: name.to_owned(),
+            payload: event.payload.0.clone(),
+            description: event.description.clone(),
+            builds: None,
+            opens: None,
+        })
+        .collect();
+    Ok(Some(Opens {
+        namespace: wire.to_owned(),
+        id,
+        fields,
+        events,
+    }))
 }
 
 /// The namespace of the handle whose opener answers `payload`, a round trip

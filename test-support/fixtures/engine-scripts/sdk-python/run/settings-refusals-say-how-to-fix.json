@@ -54,7 +54,8 @@
               "layer": "user_configuration",
               "applied": true,
               "products": ["collie", "foxhound"],
-              "weakens": false
+              "weakens": false,
+              "user_settable": true
             }
           ]
         }

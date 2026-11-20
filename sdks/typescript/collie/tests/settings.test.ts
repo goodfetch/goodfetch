@@ -15,7 +15,7 @@ import {
   SettingNotApplicableError,
   SettingUnknownError,
 } from "@goodfetch/collie-client";
-import { recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
 const KEYS = ["checkpoint.interval", "timeout.navigation", "timeout.wait"];
@@ -23,16 +23,6 @@ const KEYS = ["checkpoint.interval", "timeout.navigation", "timeout.wait"];
 /** The Scripted engine's user configuration and Operator policy files. */
 const CONFIGURATION = "/home/user/.config/goodfetch/1/configuration.toml";
 const POLICY = "/home/user/.config/goodfetch/1/operator-policy.toml";
-
-/** What `call` rejects with. */
-async function failure(call: Promise<unknown>): Promise<unknown> {
-  return call.then(
-    () => {
-      throw new TypeError("the call succeeded");
-    },
-    (error: unknown) => error,
-  );
-}
 
 /** Each explained setting as its key, value and layer. */
 function keyed(settings: readonly ExplainedSetting[]): unknown[] {
@@ -114,8 +104,10 @@ describe("A scope's settings on the Scripted engine as the Attached engine", () 
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env, logger });
       const explained = await collie.explainSettings(["storage.low_free"]);
-      // @ts-expect-error a misspelled key is no key of a Run's settings
-      const unknown = await failure(collie.start({ settings: { timeout: { navigations: 1_000 } } }));
+      const unknown = await failure(
+        // @ts-expect-error a misspelled key is no key of a Run's settings
+        collie.start({ settings: { timeout: { navigations: 1_000 } } }),
+      );
       // @ts-expect-error a duration is a number of milliseconds
       const invalid = await failure(collie.start({ settings: { timeout: { wait: "soon" } } }));
       const locked = await failure(collie.start({ settings: { timeout: { navigation: 1_000 } } }));

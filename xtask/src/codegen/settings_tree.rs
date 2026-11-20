@@ -26,7 +26,7 @@ pub(super) fn tree(
     settings: &[Setting],
     scope: Option<SettingScope>,
 ) -> Result<BTreeMap<String, Node<'_>>> {
-    grown(settings, |setting| match scope {
+    tree_where(settings, |setting| match scope {
         Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
         None => !setting.scopes.is_empty(),
     })
@@ -36,11 +36,11 @@ pub(super) fn tree(
 /// included: what spells a key a program passes in code although only a
 /// file sets it, so that the engine names that file (ADR 0083).
 pub(super) fn every(settings: &[Setting]) -> Result<BTreeMap<String, Node<'_>>> {
-    grown(settings, |_| true)
+    tree_where(settings, |_| true)
 }
 
 /// The settings tree of those `settings` that `applies` keeps.
-fn grown(
+fn tree_where(
     settings: &[Setting],
     applies: impl Fn(&Setting) -> bool,
 ) -> Result<BTreeMap<String, Node<'_>>> {

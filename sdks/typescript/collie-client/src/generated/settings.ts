@@ -1605,10 +1605,18 @@ export interface PageSettings {
   };
 }
 
-/** Each segment's wire spelling, by its camelCase one. */
+/**
+ * Each segment's wire spelling, by its camelCase one: every setting's,
+ * those only a file sets included, which the engine refuses naming it.
+ */
 const SPELLING: Spelling = {
   admission: ["admission", {
     maxRequestsPerMinute: "max_requests_per_minute",
+  }],
+  audit: ["audit", {
+    otlp: "otlp",
+    refusalsPerMinute: "refusals_per_minute",
+    retention: "retention",
   }],
   browser: ["browser", {
     accessMode: "access_mode",
@@ -1617,11 +1625,16 @@ const SPELLING: Spelling = {
     headless: "headless",
     serviceWorkers: "service_workers",
   }],
+  browserCache: ["browser_cache", {
+    maxUnusedAge: "max_unused_age",
+  }],
   checkpoint: ["checkpoint", {
     interval: "interval",
   }],
   cleanUp: ["clean_up", {
+    channel: "channel",
     fetchTimeout: "fetch_timeout",
+    lists: "lists",
     update: "update",
     version: "version",
   }],
@@ -1633,6 +1646,11 @@ const SPELLING: Spelling = {
   content: ["content", {
     extractor: "extractor",
   }],
+  daemon: ["daemon", {
+    address: "address",
+    drainGrace: "drain_grace",
+    idleTimeout: "idle_timeout",
+  }],
   effect: ["effect", {
     output: ["output", {
       maxSize: "max_size",
@@ -1642,8 +1660,10 @@ const SPELLING: Spelling = {
     allowedDomains: "allowed_domains",
     blockedDomains: "blocked_domains",
     localAddresses: "local_addresses",
+    noPrivateEndpoints: "no_private_endpoints",
     offline: "offline",
     privateRanges: "private_ranges",
+    recipePrivateRanges: "recipe_private_ranges",
     rotationBlock: ["rotation_block", {
       ipv4: "ipv4",
       ipv6: "ipv6",
@@ -1663,6 +1683,7 @@ const SPELLING: Spelling = {
     trackers: "trackers",
   }],
   governor: ["governor", {
+    blockingThreads: "blocking_threads",
     browser: ["browser", {
       contextsPerProcess: "contexts_per_process",
       memoryCap: "memory_cap",
@@ -1670,7 +1691,27 @@ const SPELLING: Spelling = {
       recycleIdle: "recycle_idle",
       recyclePages: "recycle_pages",
     }],
+    browserPage: ["browser_page", {
+      ceiling: "ceiling",
+      floor: "floor",
+    }],
+    critical: "critical",
+    hostMemory: "host_memory",
+    http: ["http", {
+      ceiling: "ceiling",
+      floor: "floor",
+    }],
+    hugePages: "huge_pages",
+    lastResortAfter: "last_resort_after",
+    memoryAllowance: "memory_allowance",
+    modelCall: ["model_call", {
+      ceiling: "ceiling",
+      floor: "floor",
+    }],
+    pressure: "pressure",
     runShare: "run_share",
+    sampleInterval: "sample_interval",
+    workerThreads: "worker_threads",
   }],
   identified: ["identified", {
     signatureAgent: "signature_agent",
@@ -1679,11 +1720,30 @@ const SPELLING: Spelling = {
   liveView: ["live_view", {
     hiding: "hiding",
   }],
+  log: ["log", {
+    file: ["file", {
+      maxFiles: "max_files",
+      maxSize: "max_size",
+    }],
+    format: "format",
+    level: "level",
+    output: "output",
+  }],
   network: ["network", {
     maxBodySize: "max_body_size",
     maxDecompressionRatio: "max_decompression_ratio",
+    maxHelloSize: "max_hello_size",
     maxJSONDepth: "max_json_depth",
     resolve: "resolve",
+  }],
+  ops: ["ops", {
+    address: "address",
+    attachedAddress: "attached_address",
+  }],
+  otlp: ["otlp", {
+    logsEndpoint: "logs_endpoint",
+    metricsEndpoint: "metrics_endpoint",
+    tracesEndpoint: "traces_endpoint",
   }],
   politeness: ["politeness", {
     proxy: ["proxy", {
@@ -1698,6 +1758,7 @@ const SPELLING: Spelling = {
     kind: "kind",
     password: "password",
     provider: "provider",
+    providers: "providers",
     server: "server",
     stickyLifetime: "sticky_lifetime",
     username: "username",
@@ -1716,6 +1777,8 @@ const SPELLING: Spelling = {
     }],
     commitInterval: "commit_interval",
     durability: "durability",
+    keyReference: "key_reference",
+    layout: "layout",
     location: "location",
     memory: ["memory", {
       budget: "budget",
@@ -1724,11 +1787,35 @@ const SPELLING: Spelling = {
   sample: ["sample", {
     echoRepeats: "echo_repeats",
   }],
+  secretProviders: ["secret_providers", {
+    awsSm: ["aws_sm", {
+      endpoint: "endpoint",
+      region: "region",
+    }],
+    azureKv: ["azure_kv", {
+      authority: "authority",
+      endpoint: "endpoint",
+    }],
+    bw: ["bw", {
+      command: "command",
+    }],
+    gcpSm: ["gcp_sm", {
+      endpoint: "endpoint",
+    }],
+    op: ["op", {
+      command: "command",
+    }],
+    vault: ["vault", {
+      address: "address",
+    }],
+  }],
   secrets: ["secrets", {
+    byReference: "by_reference",
     resolveEachUse: "resolve_each_use",
   }],
   security: ["security", {
     auditChain: "audit_chain",
+    browserSandbox: "browser_sandbox",
     fieldEncryption: "field_encryption",
     rawCDPEgressProxy: "raw_cdp_egress_proxy",
     redaction: "redaction",
@@ -1744,6 +1831,7 @@ const SPELLING: Spelling = {
     respectUseSignals: "respect_use_signals",
   }],
   stealth: ["stealth", {
+    allowedBuilds: "allowed_builds",
     chromiumBuild: "chromium_build",
     fingerprintMethod: "fingerprint_method",
     generatedIdentity: "generated_identity",
@@ -1754,12 +1842,18 @@ const SPELLING: Spelling = {
       os: "os",
     }],
   }],
+  storage: ["storage", {
+    criticalFree: "critical_free",
+    lowFree: "low_free",
+  }],
   timeout: ["timeout", {
     action: "action",
     agent: "agent",
     ai: "ai",
     close: "close",
+    connect: "connect",
     firstByte: "first_byte",
+    hello: "hello",
     hook: "hook",
     humanPause: "human_pause",
     launch: "launch",
@@ -1773,10 +1867,18 @@ const SPELLING: Spelling = {
   tls: ["tls", {
     acceptInvalidCerts: "accept_invalid_certs",
     clientCertificates: "client_certificates",
+    trustedCas: "trusted_cas",
+  }],
+  version: ["version", {
+    ageNotice: "age_notice",
   }],
   wall: ["wall", {
+    deniedDomains: "denied_domains",
     domains: "domains",
     refetchDomains: "refetch_domains",
+  }],
+  webhook: ["webhook", {
+    signing: "signing",
   }],
 };
 

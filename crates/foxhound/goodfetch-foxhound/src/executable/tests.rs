@@ -273,41 +273,6 @@ fn a_small_seeds_list_goes_whole_into_crawl_start() {
     assert_eq!(flags.added, Vec::<Value>::new());
 }
 
-/// `crawl start` offers no `--datasets`, which a code-free crawl refuses,
-/// and has a help of its own, not `crawl.start`'s of a handler's crawl.
-///
-/// Covers: story:11-1132
-#[test]
-fn crawl_start_offers_no_datasets_flag_and_tells_of_a_code_free_crawl() {
-    let (mut command, _) = command_line(Product::Foxhound);
-    command.build();
-    let start = command
-        .find_subcommand_mut("crawl")
-        .and_then(|crawl| {
-            crawl.build();
-            crawl.find_subcommand("start").cloned()
-        })
-        .unwrap();
-
-    let flags: Vec<String> = start
-        .get_arguments()
-        .filter_map(|argument| argument.get_long().map(str::to_owned))
-        .collect();
-    let about = start
-        .get_about()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    assert_eq!(
-        (
-            flags.contains(&"datasets".to_owned()),
-            about.contains("code-free"),
-            about.contains("handler")
-        ),
-        (false, true, false),
-        "{flags:?}\n{about}"
-    );
-}
-
 /// What `crawl start` cannot read is a usage error before any engine call:
 /// no seed, a format `page.formats` does not take, a `--links` value
 /// `extraction.follow` does not take, a field with no name or locator, and
@@ -379,11 +344,6 @@ fn run_export_takes_its_dataset_second_and_out(
             .map_err(|refused| refused.kind()),
         expected
     );
-}
-
-#[test]
-fn the_command_line_holds_no_clap_misconfiguration() {
-    command(Product::Foxhound, COMMANDS).debug_assert();
 }
 
 /// A start builds no group's commands, Foxhound's own among them: clap

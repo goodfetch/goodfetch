@@ -1,8 +1,9 @@
 """The raw catalog call (ADR 0099, G8) on the Scripted engine as a Foxhound engine.
 
 A Collie program reaches it: `call` on the Connection and on each value
-sends the wire's JSON and answers the engine's unchanged, and the main
-path's protections hold. TypeScript's `raw-call.test.ts` is its twin.
+sends the wire's JSON, marked raw in its `_meta`, and answers the
+engine's unchanged, and the main path's protections hold. TypeScript's
+`raw-call.test.ts` is its twin.
 """
 
 from collections.abc import Awaitable
@@ -80,6 +81,10 @@ async def test_reaches_operations_the_sdk_does_not_generate(
         run.call("page.goto", {"url": "https://shop.test/"})
     )
     own_param = await failure(run.call("run.usage", {"run_id": "another"}))
+    own_meta = [
+        await failure(collie.call("run.list", {"_meta": {"raw": False}})),
+        await failure(run.call("run.usage", {"_meta": {}})),
+    ]
     deadline = await failure(run.call("run.finish", timeout=timedelta(milliseconds=2)))
     page = await run.new_page()
     reloaded = await page.call("page.reload")
@@ -120,6 +125,11 @@ async def test_reaches_operations_the_sdk_does_not_generate(
         assert other_namespace.details == {"operation": "page.goto"}
     with client_case.check("the value's own parameter is the value's to fill"):
         assert (own_param.code, own_param.group) == ("invalid_params", "program")
+    with client_case.check("a `_meta` of the program's own fails before it is sent"):
+        assert [(error.code, error.group) for error in own_meta] == [
+            ("invalid_params", "program"),
+            ("invalid_params", "program"),
+        ]
     with client_case.check(
         "the timeout is sent as the operation's own, and its failure raises its class"
     ):

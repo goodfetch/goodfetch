@@ -19,7 +19,7 @@ use goodfetch_protocol::catalog::SettingScope;
 use super::super::handles::{Handle, Member};
 use super::super::layer::Setting;
 use super::super::naming::camel;
-use super::super::settings_tree::{Node, opened_scope, tree};
+use super::super::settings_tree::{Node, every, opened_scope, tree};
 use super::HEADER;
 use super::wire::{inline_path, path_value};
 
@@ -161,11 +161,10 @@ fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<St
         text.push_str(&area_type(&level, "")?);
         text.push('\n');
     }
-    let every = tree(settings, None)?;
     let _ = write!(
         text,
-        "\n/** Each segment's wire spelling, by its camelCase one. */\nconst SPELLING: Spelling = {};\n",
-        spelling(&every, "")?
+        "\n/**\n * Each segment's wire spelling, by its camelCase one: every setting's,\n * those only a file sets included, which the engine refuses naming it.\n */\nconst SPELLING: Spelling = {};\n",
+        spelling(&every(settings)?, "")?
     );
     text.push_str(&deprecated_settings(settings));
     let _ = write!(

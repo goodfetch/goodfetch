@@ -8,7 +8,7 @@ import type { Listener, OpenedEvents, Opens, Subscription } from "./handle.ts";
 import type { StreamedEvent } from "./stream.ts";
 
 /** A listener of one of a value's own events. */
-interface Held {
+interface OwnListener {
   /** The event, as the engine names it, such as `web_socket.frame_received`. */
   readonly event: string;
   readonly listener: Listener<unknown>;
@@ -16,21 +16,25 @@ interface Held {
 
 /** The values one call's events opened, and the listeners of each one's own events. */
 export class Opened {
-  readonly #namespace: string;
+  /** What begins the name of each of an opened value's own events, such as `web_socket.`. */
+  readonly #prefix: string;
+  /** The name of the event after which an opened value gets nothing more, such as `web_socket.close`. */
+  readonly #close: string;
   readonly #id: string;
   /** Reads an event's payload as the engine sent it. */
   readonly #read: (event: string, data: unknown) => unknown;
   /** Hears what a listener of `event` threw, once it was removed for it. */
   readonly #failed: (cause: unknown, event: string) => void;
   /** Each open value's listeners, by the ID its events name it by. */
-  readonly #values = new Map<unknown, Set<Held>>();
+  readonly #values = new Map<unknown, Set<OwnListener>>();
 
   constructor(
     opens: Pick<Opens<unknown>, "namespace" | "id">,
     read: (event: string, data: unknown) => unknown,
     failed: (cause: unknown, event: string) => void,
   ) {
-    this.#namespace = opens.namespace;
+    this.#prefix = `${opens.namespace}.`;
+    this.#close = `${opens.namespace}.close`;
     this.#id = opens.id;
     this.#read = read;
     this.#failed = failed;
@@ -38,15 +42,15 @@ export class Opened {
 
   /** Opens the value `payload`, read, names, whose own events the call carries from now on. */
   open(payload: unknown): OpenedEvents {
-    const listeners = new Set<Held>();
+    const listeners = new Set<OwnListener>();
     this.#values.set(this.#idIn(payload), listeners);
     return {
       listen<Payload>(event: string, listener: Listener<Payload>): Subscription {
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): only `event`'s payloads reach it.
-        const held: Held = { event, listener: listener as Listener<unknown> };
-        listeners.add(held);
+        const own: OwnListener = { event, listener: listener as Listener<unknown> };
+        listeners.add(own);
         const close = (): void => {
-          listeners.delete(held);
+          listeners.delete(own);
         };
         return { close, [Symbol.dispose]: close };
       },
@@ -55,7 +59,7 @@ export class Opened {
 
   /** Whether `event` is one of an opened value's own. */
   takes(event: StreamedEvent): boolean {
-    return event.event.startsWith(`${this.#namespace}.`);
+    return event.event.startsWith(this.#prefix);
   }
 
   /**
@@ -67,22 +71,22 @@ export class Opened {
     const payload = this.#read(event.event, event.data);
     const id = this.#idIn(payload);
     const listeners = this.#values.get(id);
-    if (event.event === `${this.#namespace}.close`) {
+    if (event.event === this.#close) {
       this.#values.delete(id);
     }
     if (listeners === undefined) {
       return;
     }
     // oxlint-disable-next-line unicorn/no-useless-spread -- a copy: a Set's own iteration would also visit a listener one of them registers for this very event.
-    for (const held of [...listeners]) {
-      // One a listener before it removed is skipped.
-      if (held.event !== event.event || !listeners.has(held)) {
+    for (const own of [...listeners]) {
+      // A listener an earlier one removed, through its Subscription, is skipped.
+      if (own.event !== event.event || !listeners.has(own)) {
         continue;
       }
       try {
-        await held.listener(payload, event.dropped ?? 0);
+        await own.listener(payload, event.dropped ?? 0);
       } catch (error) {
-        listeners.delete(held);
+        listeners.delete(own);
         this.#failed(error, event.event);
       }
     }

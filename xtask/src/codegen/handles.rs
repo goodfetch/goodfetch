@@ -144,11 +144,22 @@ pub(super) struct Opens {
     /// The namespace of its own events, the opening event's name, such as
     /// `web_socket`.
     pub(super) namespace: String,
+    /// The property that names it in the opening payload and in each of its
+    /// own events' payloads, `<namespace>_id`, such as `web_socket_id`.
+    pub(super) id: String,
     /// What it holds of the opening payload: each property but the
     /// listening handle's ID, with its description, in the payload's order.
     pub(super) fields: Vec<(String, String)>,
     /// Its own events, in the catalog's order, which its own `on` takes.
     pub(super) events: Vec<Listened>,
+}
+
+impl Listener<'_> {
+    /// Whether one of its events opens a value whose own events its call
+    /// also carries.
+    pub(super) fn opens(&self) -> bool {
+        self.events.iter().any(|listened| listened.opens.is_some())
+    }
 }
 
 impl Listened {
@@ -751,6 +762,7 @@ fn opened_value(
         .collect();
     Ok(Some(Opens {
         namespace: wire.to_owned(),
+        id,
         fields,
         events,
     }))

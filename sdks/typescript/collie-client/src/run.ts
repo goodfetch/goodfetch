@@ -289,23 +289,8 @@ function hostIn<Id>(
     listener: Listener<Payload>,
     opens?: Opens<Payload>,
   ): Listening<Payload> => {
-    const opened =
-      opens === undefined
-        ? undefined
-        : new Opened(opens, readOnWire, (cause, thrower) => {
-            failedListener(operation, thrower, cause);
-          });
-    return {
+    const heard: Omit<Listening<Payload>, "listener" | "opened"> = {
       event,
-      listener:
-        opens === undefined || opened === undefined
-          ? readingWire(event, listener)
-          : (data: unknown, dropped) => {
-              const payload = readOnWire(event, data);
-              // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the payload is the event's, which `opens` builds its value from.
-              return listener(opens.build(payload as never, opened.open(payload)), dropped);
-            },
-      opened,
       failed: (cause) => {
         failedListener(operation, event, cause);
       },
@@ -322,6 +307,21 @@ function hostIn<Id>(
           error,
         });
       },
+    };
+    if (opens === undefined) {
+      return { ...heard, listener: readingWire(event, listener) };
+    }
+    const opened = new Opened(opens, readOnWire, (cause, thrower) => {
+      failedListener(operation, thrower, cause);
+    });
+    return {
+      ...heard,
+      listener: (data: unknown, dropped) => {
+        const payload = readOnWire(event, data);
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the payload is the event's, which `opens` builds its value from.
+        return listener(opens.build(payload as never, opened.open(payload)), dropped);
+      },
+      opened,
     };
   };
   // The Run's own calls also read their answer, since a Run report says when the Run ended.

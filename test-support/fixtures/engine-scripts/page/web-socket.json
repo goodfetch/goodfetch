@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted, then a Run started and a page opened in it. The program listens to the page's `web_socket`: the engine sends, on that one call, two WebSockets the page opened, each one's frames and each one's close, interleaved; the program closes its Subscription, which sends its `$/cancel`; the Run finishes and the Client closes.",
+  "description": "A Collie Client's hello accepted, then a Run started and a page opened in it. The program listens to the page's `web_socket`: the engine sends, on that one call, two WebSockets the page opened, each one's frames and each one's close, interleaved, and a frame of the first after its close; the Client grants credits again once it settled 8 events; the program closes its Subscription, which sends its `$/cancel`; the Run finishes and the Client closes.",
   "steps": [
     {
       "expect": {
@@ -139,6 +139,26 @@
               },
               {
                 "position": 7,
+                "event": "web_socket.frame_received",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-a",
+                  "payload": "a2",
+                  "binary": false
+                }
+              },
+              {
+                "position": 8,
+                "event": "web_socket.frame_received",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-b",
+                  "payload": "b2",
+                  "binary": false
+                }
+              },
+              {
+                "position": 9,
                 "event": "web_socket.close",
                 "data": {
                   "page_id": "page-1",
@@ -147,6 +167,15 @@
               }
             ]
           }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 3,
+          "credits": 8
         }
       }
     },

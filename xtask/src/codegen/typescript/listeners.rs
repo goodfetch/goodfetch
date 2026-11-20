@@ -60,7 +60,7 @@ fn listened_events(class: &str, listener: &Listener<'_>, events: &str, registry:
     let mut text = String::new();
     for listened in &listener.events {
         if let Some(opens) = &listened.opens {
-            text.push_str(&opened_value(class, listened, opens, registry));
+            text.push_str(&opened_class(class, listened, opens, registry));
         }
     }
     text.push_str(&events_interface(class, listener));
@@ -74,7 +74,7 @@ fn listened_events(class: &str, listener: &Listener<'_>, events: &str, registry:
 /// class, which holds the opening payload's fields and whose `on` registers
 /// a listener of its own events on the call that listens to `listened`,
 /// warning of the markers the `registry` gives the event, as `on` does.
-fn opened_value(class: &str, listened: &Listened, opens: &Opens, registry: &str) -> String {
+fn opened_class(class: &str, listened: &Listened, opens: &Opens, registry: &str) -> String {
     let value = pascal(&opens.namespace);
     let constant = format!("{}_EVENTS", snake(&opens.namespace).to_uppercase());
     let mut text = format!(
@@ -162,7 +162,7 @@ fn opens_value(class: &str, listener: &Listener<'_>, events: &str) -> String {
             "  {}: {{ namespace: {:?}, id: {:?}, build: (payload: types.{}, events) => new {}(payload, events) }},",
             listened.joined(),
             opens.namespace,
-            camel(&format!("{}_id", opens.namespace)),
+            camel(&opens.id),
             listened.payload,
             pascal(&opens.namespace)
         );
@@ -238,11 +238,7 @@ fn listener_member(
         operation.stability,
         operation.deprecated.as_ref(),
     );
-    let opens = if listener
-        .events
-        .iter()
-        .any(|listened| listened.opens.is_some())
-    {
+    let opens = if listener.opens() {
         format!(", {events}_OPENS[event]")
     } else {
         String::new()

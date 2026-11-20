@@ -231,7 +231,7 @@ function listenToWebSockets(
   return { heard, subscription };
 }
 
-/** What the program hears of `page/web-socket.json`'s two WebSockets. */
+/** What the program hears of `page/web-socket.json`'s two WebSockets: nothing of `a2`, which comes after `a`'s close. */
 const HEARD = [
   "a opened",
   "a sent hello a",
@@ -239,6 +239,7 @@ const HEARD = [
   "a received a1",
   "b received b1",
   "a closed ws-a",
+  "b received b2",
   "b closed ws-b",
 ];
 
@@ -278,15 +279,17 @@ describe("a page's WebSockets", () => {
           throw bug;
         }
       });
+      // The listener that threw on `b1` was removed, so `b2` reaches no one.
+      const kept = HEARD.filter((line) => line !== "b received b2");
       await vi.waitFor(() => {
-        expect(heard).toHaveLength(HEARD.length);
+        expect(heard).toHaveLength(kept.length);
       });
       const refused = await failure(page.evaluate("1"));
       subscription.close();
       await run.finish();
       await collie.close();
 
-      expect(heard).toEqual(HEARD);
+      expect(heard).toEqual(kept);
       expect(refused).toMatchObject({
         code: "listener_failed",
         details: { event: "web_socket.frame_received" },

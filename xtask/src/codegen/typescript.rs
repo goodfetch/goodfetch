@@ -767,8 +767,7 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
     let opens = handles
         .iter()
         .flat_map(|handle| &handle.listener)
-        .flat_map(|listener| &listener.events)
-        .any(|listened| listened.opens.is_some());
+        .any(handles::Listener::opens);
     let (listener_types, registry) = if listens {
         (
             if opens {

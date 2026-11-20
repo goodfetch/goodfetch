@@ -853,9 +853,8 @@ impl fmt::Display for WaitedFor {
     }
 }
 
-/// Who stopped a Run as an abort, the `by` of
-/// [`StopReason::Abort`](crate::run::StopReason::Abort); a call the stop
-/// cancels names it as its [`CancelledBy`] (ADR 0113).
+/// Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+/// call the stop cancels names it as its `by` (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {

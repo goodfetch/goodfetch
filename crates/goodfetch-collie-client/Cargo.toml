@@ -37,6 +37,11 @@ tracing.workspace = true
 tracing-core.workspace = true
 goodfetch-workspace-hack.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# The name of the signal that ended an Attached engine, which
+# `engine_exited` carries (ADR 0078).
+libc.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 # The hidden attribute of a saved file's temporary file (ADR 0116).
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }

@@ -7,7 +7,8 @@
 //! A marker is the event's name in upper camel case, such as `Console`; an
 //! event whose name would end in `Error`, the suffix of ADR 0079's error
 //! types, takes its payload's name instead, so `page_error` is `WebError`,
-//! Playwright's own name for it.
+//! Playwright's own name for it. `goodfetch_protocol::naming` holds that
+//! rule, which the engine names the event by in its messages.
 //!
 //! A listener whose events the engine publishes on its event stream, such
 //! as a Session's, reads them from the Connection's own Subscription: its
@@ -20,7 +21,8 @@ use std::fmt::Write as _;
 
 use anyhow::{Context as _, Result};
 
-use super::super::handles::{Handle, Listener};
+use super::super::handles::{Handle, Listened, Listener};
+use super::super::naming;
 use super::index::Index;
 use super::{Twin, comment, doc, field, indent, type_name, warning};
 
@@ -182,15 +184,9 @@ fn markers(index: &Index, namespace: &str, listener: &Listener<'_>) -> Result<Ve
         .events
         .iter()
         .map(|listened| {
-            let variant = type_name(&listened.wire)?;
-            let name = if variant.ends_with("Error") {
-                listened.payload.clone()
-            } else {
-                variant.clone()
-            };
             Ok(Marker {
-                name,
-                variant,
+                name: marker_name(listened)?,
+                variant: type_name(&listened.wire)?,
                 event: format!("{namespace}.{}", listened.wire),
                 payload: index
                     .type_path(&listened.payload)
@@ -213,6 +209,13 @@ fn markers(index: &Index, namespace: &str, listener: &Listener<'_>) -> Result<Ve
             })
         })
         .collect()
+}
+
+/// The marker type of `listened`, by the rule the engine names it by in
+/// its messages (ADR 0099).
+fn marker_name(listened: &Listened) -> Result<String> {
+    naming::event_marker(&listened.wire, &listened.payload)
+        .with_context(|| format!("`{}` is no Rust type name", listened.wire))
 }
 
 /// The `events` module: the trait of each listener's markers, and the
@@ -319,3 +322,6 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
     );
     text
 }
+
+#[cfg(test)]
+mod tests;

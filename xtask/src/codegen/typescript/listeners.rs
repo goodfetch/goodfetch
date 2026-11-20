@@ -8,6 +8,8 @@
 
 use std::fmt::Write as _;
 
+use goodfetch_protocol::connection::Form;
+
 use super::super::handles::{Handle, Listened, Listener};
 use super::super::layer::Stability;
 use super::super::naming::{camel, pascal, snake};
@@ -71,7 +73,7 @@ fn events_interface(class: &str, listener: &Listener<'_>) -> String {
         let _ = writeln!(
             text,
             "  readonly {}: {};",
-            listened.joined(),
+            listened.spelled(Form::Typescript),
             gets(listened)
         );
     }
@@ -97,7 +99,12 @@ fn events_value(class: &str, listener: &Listener<'_>, events: &str) -> String {
         listener.operation.name,
     );
     for listened in &listener.events {
-        let _ = writeln!(text, "  {}: {:?},", listened.joined(), listened.wire);
+        let _ = writeln!(
+            text,
+            "  {}: {:?},",
+            listened.spelled(Form::Typescript),
+            listened.wire
+        );
     }
     let _ = writeln!(
         text,
@@ -156,7 +163,7 @@ fn published_events(
         let _ = writeln!(
             text,
             "  readonly {}: types.{};",
-            listened.joined(),
+            listened.spelled(Form::Typescript),
             listened.payload
         );
     }
@@ -178,7 +185,7 @@ fn published_events(
                 )
             },
         );
-        let _ = writeln!(text, "  {}: {built},", listened.joined());
+        let _ = writeln!(text, "  {}: {built},", listened.spelled(Form::Typescript));
     }
     text.push_str("};\n");
     text

@@ -5340,6 +5340,35 @@ export interface RefetchDomainRemoved {
   removed: boolean;
 }
 /**
+ * What a request's `_meta` holds (ADR 0132), which its runtime writes and
+ * never a program: its Trace context, and the raw mark of a call a
+ * program made through the raw `call` (ADR 0099). A closed object: the
+ * engine refuses any other key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestMeta".
+ */
+export interface RequestMeta {
+  /**
+   * Whether the program sent the call through the raw `call`, the way
+   * down to an operation its SDK does not generate (ADR 0099): an SDK
+   * sets it on that call alone, and refuses a `_meta` the program writes
+   * into its params, so a program neither forges nor removes it. The
+   * engine validates and enforces a raw call as any other.
+   */
+  raw?: boolean;
+  /**
+   * The caller's span, as W3C Trace Context's `traceparent` header
+   * holds it.
+   */
+  traceparent?: string | null;
+  /**
+   * Its vendors' values, as W3C Trace Context's `tracestate` header
+   * holds them.
+   */
+  tracestate?: string | null;
+}
+/**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks
  * its handler and its Payload, and how it is sent and identified.
  *
@@ -6860,27 +6889,6 @@ export interface SystemInfo {
    * The reading that holds it above `normal`; none at `normal`.
    */
   pressureSource?: PressureSource | null;
-}
-/**
- * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
- * and `tracestate`, which its runtime writes and never a program, with no
- * Baggage. The schema checks only that each is a string: a receiver drops
- * a value it cannot use, and never fails the call for it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "TraceContext".
- */
-export interface TraceContext {
-  /**
-   * The caller's span, as W3C Trace Context's `traceparent` header
-   * holds it.
-   */
-  traceparent?: string | null;
-  /**
-   * Its vendors' values, as W3C Trace Context's `tracestate` header
-   * holds them.
-   */
-  tracestate?: string | null;
 }
 /**
  * What `usage.list` takes.

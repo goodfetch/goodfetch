@@ -443,24 +443,24 @@ fn every_requests_params_may_hold_its_trace_context_in_meta() {
     for params in request_params(&emitted) {
         assert_eq!(
             definitions[&params]["properties"]["_meta"],
-            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+            json!({ "$ref": "#/$defs/RequestMeta", "arrived_in": "0.1" }),
             "{params}"
         );
     }
     assert_eq!(
         emitted.bundle["connection"]["meta"],
-        json!({ "$ref": "#/$defs/TraceContext" })
+        json!({ "$ref": "#/$defs/RequestMeta" })
     );
-    let trace_context = &definitions["TraceContext"];
-    assert_eq!(trace_context["additionalProperties"], json!(false));
-    let mut keys: Vec<&String> = trace_context["properties"]
+    let request_meta = &definitions["RequestMeta"];
+    assert_eq!(request_meta["additionalProperties"], json!(false));
+    let mut keys: Vec<&String> = request_meta["properties"]
         .as_object()
         .unwrap()
         .keys()
         .collect();
     keys.sort();
-    assert_eq!(keys, ["traceparent", "tracestate"]);
-    assert_eq!(trace_context.get("required"), None);
+    assert_eq!(keys, ["raw", "traceparent", "tracestate"]);
+    assert_eq!(request_meta.get("required"), None);
 }
 
 /// `_meta` joins a request's params type in place, so no params type may

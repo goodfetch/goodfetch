@@ -30,8 +30,8 @@
 //! types of `hello` and `$/cancel`, which open and govern every Connection
 //! outside the catalog, and those of the streaming calls' notifications,
 //! the Client's `$/credit` and the engine's `$/events` and `$/chunk`, and
-//! `meta`, the Trace context that every request's params type holds as
-//! `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
+//! `meta`, the Trace context and raw mark that every request's params type
+//! holds as `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -55,7 +55,7 @@ use goodfetch_protocol::formats::FORMATS;
 use goodfetch_protocol::foxhound::dataset::RecordRead;
 use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use goodfetch_protocol::journey::{Journey, JourneyCatalog};
-use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, TraceContext};
+use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, RequestMeta};
 use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
@@ -115,7 +115,7 @@ pub(super) fn emit() -> Emitted {
         "seeds": { "params": generator.subschema_for::<SeedBatch>() },
         "enqueued": { "params": generator.subschema_for::<EnqueuedBatch>() },
         "record": { "params": generator.subschema_for::<RecordRead>() },
-        "meta": generator.subschema_for::<TraceContext>(),
+        "meta": generator.subschema_for::<RequestMeta>(),
     });
     let outputs = json!({
         "browser.clean": generator.subschema_for::<BrowserCleaned>(),
@@ -180,7 +180,7 @@ pub(super) fn emit() -> Emitted {
     }
 }
 
-/// Adds `_meta`, the request's Trace context, to the params type `params`
+/// Adds `_meta`, the request's Trace context and raw mark, to the params type `params`
 /// refers to (ADR 0132): an envelope field each runtime fills in, which no
 /// Rust type of the params declares.
 fn add_meta(definitions: &mut serde_json::Map<String, Value>, params: &Value) {
@@ -199,7 +199,7 @@ fn add_meta(definitions: &mut serde_json::Map<String, Value>, params: &Value) {
         .expect("invariant: a request's params type is an object")
         .insert(
             META.to_owned(),
-            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+            json!({ "$ref": "#/$defs/RequestMeta", "arrived_in": "0.1" }),
         );
 }
 

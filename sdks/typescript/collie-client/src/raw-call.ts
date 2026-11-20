@@ -7,9 +7,12 @@
 // value's namespace, and the value's ID fills its parameter. The rest is
 // the main path's: a closed value fails with `closed`, the timeout and the
 // signal apply, failures raise the same classes, nothing is retried, and the
-// engine validates the params. Hand-written, since no catalog entry shapes it.
+// engine validates the params. The call is marked raw in its `_meta`, the
+// envelope the SDK writes and a program never does (ADR 0132). Hand-written,
+// since no catalog entry shapes it.
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
+import type { RequestMeta } from "./generated/types.ts";
 import type { JSONValue } from "./json.ts";
 import { collieWire } from "./generated/wire.ts";
 import { toWire, type WirePath } from "./wire.ts";
@@ -63,6 +66,24 @@ function refused(operation: string, reason: string, fix: string): ProgramError {
   });
 }
 
+/** The member of a request's params that holds its envelope (ADR 0132). */
+const META = "_meta";
+
+/**
+ * Refuses `params` that hold a `_meta`, the envelope the SDK writes and a
+ * program never does (ADR 0132), so a program neither forges nor removes a
+ * call's raw mark.
+ */
+function refuseMeta(operation: string, params: RawParams): void {
+  if (Object.hasOwn(params, META)) {
+    throw refused(
+      operation,
+      `\`${META}\` is the call's envelope, which the SDK writes`,
+      `Leave \`${META}\` out of its params.`,
+    );
+  }
+}
+
 /**
  * The raw call's params: the wire's JSON. A parameter naming a second value
  * takes that value's ID, as a Run's `id` (ADR 0099).
@@ -71,7 +92,8 @@ export type RawParams = Readonly<Record<string, JSONValue>>;
 
 /**
  * Sends `operation` with `params` through `send`, its timeout and signal
- * applied; on `value`, refuses an operation of another namespace and fills
+ * applied, marked raw in its `_meta` (ADR 0099); refuses params that hold a
+ * `_meta`; on `value`, refuses an operation of another namespace and fills
  * the value's own parameter.
  */
 export async function rawCall(
@@ -81,6 +103,7 @@ export async function rawCall(
   options: RawCallOptions,
   value?: RawValue,
 ): Promise<JSONValue> {
+  refuseMeta(operation, params);
   const sent: Record<string, unknown> = { ...params };
   if (value !== undefined) {
     const [namespace] = operation.split(".", 1);
@@ -110,6 +133,7 @@ export async function rawCall(
     }
     sent["timeout"] = options.timeout;
   }
+  sent[META] = { raw: true } satisfies RequestMeta;
   const result = await send(operation, sent, { signal: options.signal });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a result is JSON.
   return result as JSONValue;

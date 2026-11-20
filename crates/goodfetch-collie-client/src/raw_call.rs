@@ -11,6 +11,7 @@
 use std::future::IntoFuture;
 use std::time::Duration;
 
+use goodfetch_protocol::jsonrpc::{META, RequestMeta};
 use serde_json::{Map, Value};
 
 use crate::call::{Call, Note, Reply, Timeout, WIRE_TIMEOUT};
@@ -20,6 +21,16 @@ use crate::rpc::Sender;
 /// What a handle's raw call checks when it is awaited: whether its value
 /// is closed.
 type Closed = Box<dyn FnOnce() -> bool + Send + 'static>;
+
+/// The `_meta` of a raw call: its raw mark (ADR 0099), which tells the
+/// engine the program made it through the raw call.
+fn raw_mark() -> Value {
+    serde_json::to_value(RequestMeta {
+        raw: true,
+        ..RequestMeta::default()
+    })
+    .expect("invariant: a request's `_meta` serializes")
+}
 
 /// The value a handle's raw call acts on.
 pub(crate) struct RawValue {
@@ -36,11 +47,12 @@ pub(crate) struct RawValue {
 }
 
 /// A raw call of an operation, its params and its result the wire's JSON
-/// (ADR 0099). Nothing is sent until it is awaited; then an operation of
-/// another namespace than the value's, or params that are no object, name
-/// the value's own parameter or give `timeout` beside the option, fail
-/// with `invalid_params` before anything is sent, as does a call on a
-/// closed value with `closed`. It is never retried.
+/// (ADR 0099), marked raw in its `_meta`. Nothing is sent until it is
+/// awaited; then an operation of another namespace than the value's, or
+/// params that are no object, hold a `_meta`, name the value's own
+/// parameter or give `timeout` beside the option, fail with
+/// `invalid_params` before anything is sent, as does a call on a closed
+/// value with `closed`. It is never retried.
 #[must_use = "a call is sent only when it is awaited"]
 pub struct RawCall {
     sender: Sender,
@@ -105,6 +117,13 @@ impl RawCall {
                 "Give its params as an object, such as `json!({\"name\": value})`.",
             ));
         };
+        if params.contains_key(META) {
+            return Err(Error::refused(
+                &operation,
+                &format!("`{META}` is the call's envelope, which the SDK writes"),
+                &format!("Leave `{META}` out of its params."),
+            ));
+        }
         if let Some(value) = &value {
             if operation.split('.').next() != Some(value.namespace) {
                 return Err(Error::refused(
@@ -142,6 +161,7 @@ impl RawCall {
             params.insert(value.param.to_owned(), value.id?);
             note = value.note;
         }
+        params.insert(META.to_owned(), raw_mark());
         let call = Call::new(sender, &operation, Ok(Value::Object(params)));
         let call = match timeout {
             Timeout::Default => call,

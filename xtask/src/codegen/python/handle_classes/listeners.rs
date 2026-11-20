@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 
 use anyhow::{Result, bail};
+use goodfetch_protocol::connection::Form;
 
 use super::super::super::handles::{Handle, Listened, Listener};
 use super::super::super::layer::Layer;
@@ -40,7 +41,7 @@ pub(super) fn declarations(handle: &Handle<'_>, imports: &mut Imports) -> String
         let _ = writeln!(
             text,
             "    {:?}: ({:?}, {}),",
-            listened.joined(),
+            listened.spelled(Form::Python),
             listened.wire,
             imports.model(&listened.payload)
         );
@@ -142,7 +143,7 @@ fn published_member(
         let _ = writeln!(
             text,
             "        if event == {:?}:\n{}",
-            listened.joined(),
+            listened.spelled(Form::Python),
             listen(listened, "            ", imports)
         );
     }
@@ -249,7 +250,7 @@ fn by_gets(
 ) -> Vec<(String, Vec<String>)> {
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for listened in &listener.events {
-        let name = format!("{:?}", listened.joined());
+        let name = format!("{:?}", listened.spelled(Form::Python));
         let got = gets(listened);
         match groups.iter_mut().find(|(known, _)| *known == got) {
             Some((_, names)) => names.push(name),
@@ -267,7 +268,7 @@ fn event_list(listener: &Listener<'_>) -> String {
         let _ = write!(
             text,
             "\n- `{}`: {}",
-            listened.joined(),
+            listened.spelled(Form::Python),
             listened.description.trim_end()
         );
     }

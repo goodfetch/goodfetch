@@ -14,6 +14,9 @@ use std::sync::{OnceLock, PoisonError};
 
 use goodfetch_protocol::log::{LogEvent, LogLevel};
 use serde_json::Value;
+use tokio::runtime::Handle;
+use tokio_util::task::TaskTracker;
+use tracing::instrument::WithSubscriber as _;
 use tracing::level_filters::{LevelFilter, STATIC_MAX_LEVEL};
 use tracing_core::callsite::{self, Callsite, Identifier};
 use tracing_core::field::{FieldSet, Value as FieldValue, display};
@@ -98,6 +101,24 @@ pub fn engine_log_level() -> LogLevel {
 fn records(dispatch: &Dispatch, metadata: &'static Metadata<'static>) -> bool {
     let interest = dispatch.register_callsite(metadata);
     interest.is_always() || (interest.is_sometimes() && dispatch.enabled(metadata))
+}
+
+/// Spawns `task` on `runtime`, tracked by `tracker`, logging to the
+/// subscriber of the program that opened the Connection, as the engine's
+/// `$/log` events and an Attached engine's stderr do; with none set then,
+/// to the global one, which a program may install later.
+pub(crate) fn spawn_under_opener(
+    task: impl Future<Output = ()> + Send + 'static,
+    runtime: &Handle,
+    tracker: &TaskTracker,
+) {
+    let opened_under = tracing::dispatcher::get_default(|dispatch| {
+        (!dispatch.is::<tracing::subscriber::NoSubscriber>()).then(|| dispatch.clone())
+    });
+    match opened_under {
+        Some(dispatch) => tracker.spawn_on(task.with_subscriber(dispatch), runtime),
+        None => tracker.spawn_on(task, runtime),
+    };
 }
 
 /// Re-emits the `$/log` event `params` hold to the subscriber of the

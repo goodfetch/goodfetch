@@ -178,7 +178,7 @@ impl ClientConnection {
         );
         let opened = joined(opening.await)?.map_err(Error::unreachable)?;
         if let Some(process) = opened.process {
-            tasks.spawn_on(process.watch(), &handle);
+            logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
         let streams = Streams::new();
         let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());

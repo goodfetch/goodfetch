@@ -14,7 +14,7 @@ use std::future::poll_fn;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use goodfetch_protocol::connection::{CANCEL, CancelParams};
+use goodfetch_protocol::connection::{CANCEL, CancelParams, EngineExitedDetails};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
 use goodfetch_protocol::log::LOG;
@@ -25,13 +25,16 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::task::TaskTracker;
 use tokio_util::time::DelayQueue;
 use tokio_util::time::delay_queue::Key;
-use tracing::instrument::WithSubscriber as _;
 
 use crate::error::Error;
 use crate::handler::Streams;
 use crate::line;
 use crate::logging;
-use crate::transport::Link;
+use crate::transport::{Exit, Link};
+
+/// How long a Connection whose engine ended it waits to hear how, before
+/// its calls fail without that evidence, as the other SDKs wait.
+const EXIT_GRACE: Duration = Duration::from_secs(2);
 
 /// What a call's caller hands the Connection's tasks.
 pub(crate) struct Outgoing {
@@ -98,12 +101,39 @@ enum Command {
     Close,
 }
 
+/// How a Connection ended, which fails each call left waiting and every
+/// later one alike.
+#[derive(Debug)]
+enum Ended {
+    /// The Client closed it.
+    Closed,
+    /// The engine's side ended it, with nothing to tell how its engine
+    /// ended.
+    Dropped,
+    /// Its engine ended, as `details` tell.
+    Exited(EngineExitedDetails),
+}
+
+impl Ended {
+    fn error(&self) -> Error {
+        match self {
+            Self::Closed => Error::closed(),
+            Self::Dropped => Error::dropped(),
+            Self::Exited(details) => Error::engine_exited(details),
+        }
+    }
+}
+
 /// The handle every call goes through: cheap to clone, `Send + Sync`.
 #[derive(Clone, Debug)]
-pub(crate) struct Sender(mpsc::UnboundedSender<Command>);
+pub(crate) struct Sender {
+    commands: mpsc::UnboundedSender<Command>,
+    /// How the Connection ended, set before it takes no more calls.
+    ended: Arc<OnceLock<Ended>>,
+}
 
 impl Sender {
-    /// Sends `call`; its reply fails as closed when the Connection is.
+    /// Sends `call`; its reply fails as the Connection ended once it has.
     pub(crate) fn call(&self, call: Outgoing) {
         self.send_call(call, None);
     }
@@ -127,33 +157,34 @@ impl Sender {
 
     fn send_call(&self, call: Outgoing, granted: Option<Granted>) {
         if let Err(mpsc::error::SendError(Command::Call(call, _))) =
-            self.0.send(Command::Call(call, granted))
+            self.commands.send(Command::Call(call, granted))
         {
-            let _closed = call.reply.send(Err(Error::closed().in_call(&call.method)));
+            let ended = self.ended.get().map_or_else(Error::closed, Ended::error);
+            let _closed = call.reply.send(Err(ended.in_call(&call.method)));
         }
     }
 
     /// Grants the streaming call `id` `credits` more items with
     /// `$/credit`.
     pub(crate) fn credit(&self, id: i64, credits: u32) {
-        let _closed = self.0.send(Command::Notify(credited(id, credits)));
+        let _closed = self.commands.send(Command::Notify(credited(id, credits)));
     }
 
     /// Cancels the streaming call `id` with `$/cancel`.
     pub(crate) fn cancel(&self, id: i64) {
-        let _closed = self.0.send(Command::Notify(cancelled(id)));
+        let _closed = self.commands.send(Command::Notify(cancelled(id)));
     }
 
     /// Cancels the streaming call `call`, sent before this, with
     /// `$/cancel`, after it and before anything sent after this, whether or
     /// not its id was heard yet; one never sent is not cancelled.
     pub(crate) fn cancel_sent(&self, call: &CallId) {
-        let _closed = self.0.send(Command::CancelSent(call.clone()));
+        let _closed = self.commands.send(Command::CancelSent(call.clone()));
     }
 
     /// Ends the Connection without waiting.
     pub(crate) fn close(&self) {
-        let _already_closed = self.0.send(Command::Close);
+        let _already_closed = self.commands.send(Command::Close);
     }
 }
 
@@ -165,22 +196,30 @@ pub(crate) fn start(
     tracker: &TaskTracker,
     streams: Streams,
 ) -> Sender {
-    let (reader, writer) = link.split();
+    let (reader, writer, exit) = link.split();
     let (commands, commands_in) = mpsc::unbounded_channel();
     let (lines, lines_in) = mpsc::unbounded_channel();
     tracker.spawn_on(write(writer, lines_in), runtime);
-    let correlating = correlate(reader, commands_in, lines, streams);
-    // The engine's `$/log` events reach the subscriber of the program that
-    // opened the Connection; with none set then, they reach the global one,
-    // which a program may install later.
-    let opened_under = tracing::dispatcher::get_default(|dispatch| {
-        (!dispatch.is::<tracing::subscriber::NoSubscriber>()).then(|| dispatch.clone())
-    });
-    match opened_under {
-        Some(dispatch) => tracker.spawn_on(correlating.with_subscriber(dispatch), runtime),
-        None => tracker.spawn_on(correlating, runtime),
+    let ended = Arc::new(OnceLock::new());
+    let ending = Ending {
+        exit,
+        ended: Arc::clone(&ended),
     };
-    Sender(commands)
+    logging::spawn_under_opener(
+        correlate(reader, commands_in, lines, streams, ending),
+        runtime,
+        tracker,
+    );
+    Sender { commands, ended }
+}
+
+/// What the correlating task learns, and tells every handle, of how the
+/// Connection ended.
+struct Ending {
+    /// How its engine ended, when the transport can tell.
+    exit: Option<Exit>,
+    /// Where it notes how the Connection ended.
+    ended: Arc<OnceLock<Ended>>,
 }
 
 /// Writes each line until every sender is gone, then closes the output,
@@ -223,12 +262,15 @@ impl Pending {
 /// Sends calls, matches replies and deadlines to them, hands the engine's
 /// requests to `streams`, and fails what is left as closed when the
 /// Connection ends, by `close()`, by every handle dropped or by the engine
-/// closing its output, which also ends the streams.
+/// closing its output, which also ends the streams. When the engine's
+/// side ends it and `ending` tells how its engine ended, what is left fails
+/// with `engine_exited` instead. Every call made after fails alike.
 async fn correlate(
     reader: Box<dyn AsyncRead + Send + Unpin>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     lines: mpsc::UnboundedSender<Vec<u8>>,
     streams: Streams,
+    ending: Ending,
 ) {
     let mut input = BufReader::new(reader).lines();
     let mut pending: BTreeMap<i64, Pending> = BTreeMap::new();
@@ -307,21 +349,26 @@ async fn correlate(
         }
     }
     streams.end();
-    commands.close();
-    let ended = || {
-        if dropped {
-            Error::dropped()
-        } else {
-            Error::closed()
-        }
+    // Calls made while it waits to hear how the engine ended queue, and
+    // fail below with that evidence.
+    let ended = match ending.exit {
+        Some(exit) if dropped => Ended::Exited(
+            tokio::time::timeout(EXIT_GRACE, exit)
+                .await
+                .unwrap_or_else(|_| EngineExitedDetails::without_evidence()),
+        ),
+        _ if dropped => Ended::Dropped,
+        _ => Ended::Closed,
     };
+    let ended = ending.ended.get_or_init(|| ended);
+    commands.close();
     while let Ok(command) = commands.try_recv() {
         if let Command::Call(call, _) = command {
-            let _gone = call.reply.send(Err(ended().in_call(&call.method)));
+            let _gone = call.reply.send(Err(ended.error().in_call(&call.method)));
         }
     }
     for call in std::mem::take(&mut pending).into_values() {
-        call.fail(ended());
+        call.fail(ended.error());
     }
 }
 

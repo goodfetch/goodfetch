@@ -20,14 +20,14 @@ use crate::connection::hello;
 const SCRIPT: &str = "sdk-rust/page/session-listened.json";
 
 /// The Scripted engine as the Attached engine of `env`'s home, playing
-/// [`SCRIPT`] with this crate's `hello`.
+/// the corpus's script `name` with this crate's `hello`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the test writes the Scripted engine's script before any async worker runs"
 )]
-fn scripted_engine(env: &TestEnv) -> Endpoint {
+pub(crate) fn scripted_engine(env: &TestEnv, name: &str) -> Endpoint {
     let mut script: Value =
-        serde_json::from_slice(&std::fs::read(engine_script(SCRIPT)).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(engine_script(name)).unwrap()).unwrap();
     script["steps"][0]["expect"]["params"] = serde_json::to_value(hello()).unwrap();
     let installed = env.home().join(ATTACHED_SCRIPT);
     std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
@@ -67,7 +67,7 @@ fn expected() -> Read {
 #[test]
 fn a_sessions_streams_share_one_subscription_and_each_hands_its_own_sessions_pages() {
     let env = TestEnv::new();
-    let engine = scripted_engine(&env);
+    let engine = scripted_engine(&env, SCRIPT);
     let read = goodfetch_test_support::real_time_runtime().block_on(async {
         let (connection, _said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),
@@ -121,7 +121,7 @@ fn a_sessions_streams_share_one_subscription_and_each_hands_its_own_sessions_pag
 #[test]
 fn a_sessions_events_iterate_its_own_pages_through_blocking() {
     let env = TestEnv::new();
-    let engine = scripted_engine(&env);
+    let engine = scripted_engine(&env, SCRIPT);
     let one = std::num::NonZeroUsize::MIN;
     let owned = goodfetch_runtime::named(goodfetch_runtime::Threads {
         workers: Some(one),

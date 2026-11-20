@@ -19,6 +19,7 @@ use serde_json::json;
 
 mod closing;
 mod engine_choice;
+mod engine_exited;
 mod events;
 mod limits;
 mod logging;

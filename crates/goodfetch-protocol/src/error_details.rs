@@ -49,6 +49,7 @@ details! {
     crate::connection::ProtocolVersionUnsupportedDetails => ErrorCode::PROTOCOL_VERSION_UNSUPPORTED,
     crate::connection::TooManyCallsDetails => ErrorCode::TOO_MANY_CALLS,
     crate::connection::EnginePanickedDetails => ErrorCode::ENGINE_PANICKED,
+    crate::connection::EngineExitedDetails => ErrorCode::ENGINE_EXITED,
     crate::daemon::DaemonDrainingDetails => ErrorCode::DAEMON_DRAINING,
     crate::daemon::DaemonUnreachableDetails => ErrorCode::DAEMON_UNREACHABLE,
     crate::daemon::NotADaemonDetails => ErrorCode::NOT_A_DAEMON,

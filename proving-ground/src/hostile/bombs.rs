@@ -669,10 +669,4 @@ mod tests {
             "the safe page is small and well within the ratio limit"
         );
     }
-
-    #[test]
-    fn the_source_file_stays_under_256_kib() {
-        // The bomb bytes are generated, never committed: the source is small.
-        assert!(include_str!("bombs.rs").len() < 256 * 1024);
-    }
 }

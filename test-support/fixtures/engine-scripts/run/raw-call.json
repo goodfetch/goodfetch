@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted by a Foxhound engine, then raw calls (ADR 0099): `run.list` on the Connection, its params and result unchanged; a Run started, and on it Foxhound's `run.failed_requests`, its Run ID filled in, and again on the Connection, the Run named in its params sending its ID; `run.finish` with a `timeout` of 2 ms failing `deadline_exceeded`, never sent again; `run.outcomes` cancelled by its signal, reaching the engine as `$/cancel`; a page opened, `page.reload` on it and `locator.click` on one of its locators, each filled with its value's ID; then the Run closed. A call in another namespace, or on a closed value, is never sent. The `raw-call` client conformance case.",
+  "description": "A Collie Client's hello accepted by a Foxhound engine, then raw calls (ADR 0099), each marked raw in its `_meta`: `run.list` on the Connection, its params and result unchanged; a Run started, and on it Foxhound's `run.failed_requests`, its Run ID filled in, and again on the Connection, the Run named in its params sending its ID; `run.finish` with a `timeout` of 2 ms failing `deadline_exceeded`, never sent again; `run.outcomes` cancelled by its signal, reaching the engine as `$/cancel`; a page opened, `page.reload` on it and `locator.click` on one of its locators, each filled with its value's ID; then the Run closed. A call in another namespace, on a closed value or with a `_meta` of its own, is never sent. The `raw-call` client conformance case.",
   "steps": [
     {
       "expect": {
@@ -28,6 +28,7 @@
       "expect": {
         "method": "run.list",
         "params": {
+          "_meta": { "raw": true },
           "lifecycle": "running",
           "tags": ["nightly"]
         }
@@ -72,6 +73,7 @@
       "expect": {
         "method": "run.failed_requests",
         "params": {
+          "_meta": { "raw": true },
           "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
           "blocked": true
         }
@@ -88,6 +90,7 @@
       "expect": {
         "method": "run.failed_requests",
         "params": {
+          "_meta": { "raw": true },
           "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
           "blocked": false
         }
@@ -104,6 +107,7 @@
       "expect": {
         "method": "run.finish",
         "params": {
+          "_meta": { "raw": true },
           "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
           "timeout": 2
         }
@@ -125,6 +129,7 @@
       "expect": {
         "method": "run.outcomes",
         "params": {
+          "_meta": { "raw": true },
           "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
         }
       }
@@ -170,6 +175,7 @@
       "expect": {
         "method": "page.reload",
         "params": {
+          "_meta": { "raw": true },
           "page_id": "page-1"
         }
       }
@@ -185,6 +191,7 @@
       "expect": {
         "method": "locator.click",
         "params": {
+          "_meta": { "raw": true },
           "locator": {
             "page_id": "page-1",
             "selector": "#consent"

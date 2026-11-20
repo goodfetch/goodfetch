@@ -72,11 +72,11 @@ fn no_signal_is_judged_against_search() {
 }
 
 #[rstest]
-#[case("search", Some(Purpose::Search))]
-#[case("ai-input", Some(Purpose::AiInput))]
-#[case("ai-train", Some(Purpose::AiTrain))]
-#[case("collect", Some(Purpose::Collect))]
-#[case("training", None)]
+#[case::search("search", Some(Purpose::Search))]
+#[case::ai_input("ai-input", Some(Purpose::AiInput))]
+#[case::ai_train("ai-train", Some(Purpose::AiTrain))]
+#[case::collect("collect", Some(Purpose::Collect))]
+#[case::an_unknown_name("training", None)]
 fn a_purpose_is_named_as_the_setting_names_it(
     #[case] name: &str,
     #[case] expected: Option<Purpose>,

@@ -277,6 +277,11 @@ fn taken<'a>(arrived: &Arrived<'a>) -> (Option<String>, Ids<'a>) {
     Named { run_id: "run-a".to_owned(), session_id: Some("session-a".to_owned()), count: 2 },
     (Some("00-0af7"), [Some("run-a"), Some("session-a")]),
 )]
+#[case::a_raw_calls_mark(
+    r#"{"_meta":{"traceparent":"00-0af7","raw":true},"run_id":"run-a"}"#,
+    Named { run_id: "run-a".to_owned(), session_id: None, count: 0 },
+    (Some("00-0af7"), [Some("run-a"), None]),
+)]
 #[case::an_id_written_with_an_escape(
     r#"{"run_id":"run-\u0061","count":2}"#,
     Named { run_id: "run-a".to_owned(), session_id: None, count: 2 },
@@ -354,6 +359,7 @@ fn an_id_of_another_type_is_refused_in_serdes_words() {
 #[rstest]
 #[case::read(r#"{"run_id":"run-a","_meta":{"baggage":"user=a"}}"#)]
 #[case::refused(r#"{"run_id":7,"_meta":[]}"#)]
+#[case::a_raw_mark_that_is_no_boolean(r#"{"run_id":"run-a","_meta":{"raw":"yes"}}"#)]
 fn a_meta_the_engine_refuses_fails_what_dispatch_takes(#[case] json: &str) {
     let work = CountedWork::default();
     let arrived = Arrived::new(Some(json), &work);

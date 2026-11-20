@@ -2,7 +2,8 @@
 //! case: `call(operation).params(…)` on the Connection and on each value
 //! reaches an operation the SDK does not generate, here Foxhound's from a
 //! Collie program, its params and result the wire's JSON in snake case,
-//! under the main path's protections. Rust's `linked` mode plays the
+//! under the main path's protections, each sent marked raw in its `_meta`,
+//! which the script expects. Rust's `linked` mode plays the
 //! case's Collie part on a real engine. Foxhound's operation and the
 //! deadline only the Scripted engine plays, reached as a Daemon and posing
 //! as a Foxhound engine, playing the case's script without the signal,
@@ -15,6 +16,7 @@
 use std::time::Duration;
 
 use goodfetch_collie::{Collie, EngineChoice, Error, ErrorCode, blocking};
+use goodfetch_collie_client::ClientConnection;
 use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
 use serde_json::{Value, json};
 
@@ -34,8 +36,9 @@ struct Played {
     named: Result<Value, Error>,
     other_namespace: Result<Value, Error>,
     /// Params naming the value's own parameter, params that are no
-    /// object, and a `timeout` given in both the params and the option.
-    refused: [Result<Value, Error>; 3],
+    /// object, params holding a `_meta` of the program's own, and a
+    /// `timeout` given in both the params and the option.
+    refused: [Result<Value, Error>; 4],
     deadline: Result<Value, Error>,
     reloaded: Result<Value, Error>,
     clicked: Result<Value, Error>,
@@ -107,7 +110,7 @@ fn assert_played(played: &Played) {
             .refused
             .each_ref()
             .map(|refused| code(refused).as_str().to_owned()),
-        ["invalid_params"; 3],
+        ["invalid_params"; 4],
         "params the call cannot send as they are fail before they are sent"
     );
     assert_eq!(
@@ -129,7 +132,7 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
     let env = TestEnv::new();
     let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
 
-    let played = real_time_runtime().block_on(async {
+    let (played, forged) = real_time_runtime().block_on(async {
         let collie = Collie::connect(daemon(&env)).await.unwrap();
         let listed = collie
             .call("run.list")
@@ -153,11 +156,19 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
                 .params(json!({ "run_id": "another" }))
                 .await,
             run.call("run.usage").params(json!(["another"])).await,
+            run.call("run.usage")
+                .params(json!({ "_meta": { "raw": false } }))
+                .await,
             run.call("run.finish")
                 .params(json!({ "timeout": 2 }))
                 .timeout(Duration::from_millis(2))
                 .await,
         ];
+        // A typed call through the client crate's connection, the way
+        // down `Collie` lends, whose params forge the raw mark.
+        let forged = AsRef::<ClientConnection>::as_ref(&collie)
+            .call::<Value>("run.list", &json!({ "_meta": { "raw": true } }))
+            .await;
         let deadline = run
             .call("run.finish")
             .timeout(Duration::from_millis(2))
@@ -170,7 +181,7 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
         let on_closed_page = page.call("page.reload").await;
         collie.close().await.unwrap();
         let on_closed_connection = collie.call("run.list").await;
-        Played {
+        let played = Played {
             listed,
             failed,
             named,
@@ -180,11 +191,17 @@ fn the_raw_call_reaches_operations_the_sdk_does_not_generate() {
             reloaded,
             clicked,
             on_closed: [on_closed_run, on_closed_page, on_closed_connection],
-        }
+        };
+        (played, forged)
     });
 
     played_whole(&process);
     assert_played(&played);
+    assert_eq!(
+        code(&forged).as_str(),
+        "invalid_params",
+        "a typed call holding a `_meta` of the program's own fails before it is sent"
+    );
 }
 
 /// The same case through `blocking`, whose `call` ends in `send()`.
@@ -217,6 +234,9 @@ fn the_blocking_raw_call_reaches_operations_the_sdk_does_not_generate() {
             .params(json!({ "run_id": "another" }))
             .send(),
         run.call("run.usage").params(json!(["another"])).send(),
+        run.call("run.usage")
+            .params(json!({ "_meta": { "raw": false } }))
+            .send(),
         run.call("run.finish")
             .params(json!({ "timeout": 2 }))
             .timeout(Duration::from_millis(2))

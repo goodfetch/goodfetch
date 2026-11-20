@@ -716,7 +716,8 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
 
 /// The handles module's header and imports: the field values' types only
 /// when a member's result is typed by the fields it declares (ADR 0147),
-/// and the `events` registry only when a handle listens.
+/// and the `events` registry only when a handle listens, with the types of
+/// a value an event opens only when one does (ADR 0081).
 fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) -> Result<String> {
     let typed = handles.iter().any(|handle| {
         handle
@@ -763,9 +764,17 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
         MARKERS_MODULE,
         if listens { &[WARN_ENTRY] } else { &[] },
     );
+    let opens = handles
+        .iter()
+        .flat_map(|handle| &handle.listener)
+        .any(handles::Listener::opens);
     let (listener_types, registry) = if listens {
         (
-            ", type Listener, type Subscription",
+            if opens {
+                ", type Listener, type OpenedEvents, type Opens, type Subscription"
+            } else {
+                ", type Listener, type Subscription"
+            },
             format!("import {{ {events} }} from \"./events.ts\";\n"),
         )
     } else {

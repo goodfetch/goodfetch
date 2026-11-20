@@ -14,6 +14,9 @@ pub(crate) mod sealed {
         /// Its name in the engine's batches.
         const NAME: &'static str;
 
+        /// Warns of its markers, once per process (ADR 0030).
+        fn warn() {}
+
         /// What a stream of `handle`'s events hands of the event's
         /// `data`.
         ///
@@ -41,6 +44,9 @@ pub(crate) mod sealed {
         const EVENT: ::goodfetch_protocol::page::events::PageEventName;
         /// Its name in the engine's batches.
         const NAME: &'static str;
+
+        /// Warns of its markers, once per process (ADR 0030).
+        fn warn() {}
     }
 }
 
@@ -67,6 +73,10 @@ impl sealed::SessionEvent for Page {
     const EVENT: ::goodfetch_protocol::page::session_pages::SessionEventName =
         ::goodfetch_protocol::page::session_pages::SessionEventName::Page;
     const NAME: &'static str = "session.page";
+
+    fn warn() {
+        crate::markers::warn("session.page", true, None);
+    }
 
     fn build(
         handle: &crate::Session,
@@ -103,6 +113,10 @@ impl sealed::PageEvent for Console {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Console;
     const NAME: &'static str = "page.console";
+
+    fn warn() {
+        crate::markers::warn("page.console", true, None);
+    }
 }
 
 /// An exception the page did not catch, `WebError`: its name, message and stack. Sent on each `page.on` call that listens to `page_error`.
@@ -117,6 +131,10 @@ impl sealed::PageEvent for WebError {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::PageError;
     const NAME: &'static str = "page.page_error";
+
+    fn warn() {
+        crate::markers::warn("page.page_error", true, None);
+    }
 }
 
 /// The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Sent on each `page.on` call that listens to `request`; a service worker's own requests are never a page's.
@@ -131,6 +149,10 @@ impl sealed::PageEvent for Request {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Request;
     const NAME: &'static str = "page.request";
+
+    fn warn() {
+        crate::markers::warn("page.request", true, None);
+    }
 }
 
 /// A request of the page got its whole response, its body included. Sent on each `page.on` call that listens to `request_finished`.
@@ -145,6 +167,10 @@ impl sealed::PageEvent for RequestFinished {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::RequestFinished;
     const NAME: &'static str = "page.request_finished";
+
+    fn warn() {
+        crate::markers::warn("page.request_finished", true, None);
+    }
 }
 
 /// A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Sent on each `page.on` call that listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.
@@ -159,6 +185,10 @@ impl sealed::PageEvent for RequestFailed {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::RequestFailed;
     const NAME: &'static str = "page.request_failed";
+
+    fn warn() {
+        crate::markers::warn("page.request_failed", true, None);
+    }
 }
 
 /// A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Sent on each `page.on` call that listens to `response`.
@@ -173,6 +203,10 @@ impl sealed::PageEvent for Response {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Response;
     const NAME: &'static str = "page.response";
+
+    fn warn() {
+        crate::markers::warn("page.response", true, None);
+    }
 }
 
 /// The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Sent, with those, on each `page.on` call that listens to `web_socket`.
@@ -187,6 +221,10 @@ impl sealed::PageEvent for WebSocket {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::WebSocket;
     const NAME: &'static str = "page.web_socket";
+
+    fn warn() {
+        crate::markers::warn("page.web_socket", true, None);
+    }
 }
 
 /// The document of the page's main frame fired `load`. Sent on each `page.on` call that listens to `load`.
@@ -201,6 +239,10 @@ impl sealed::PageEvent for Load {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Load;
     const NAME: &'static str = "page.load";
+
+    fn warn() {
+        crate::markers::warn("page.load", true, None);
+    }
 }
 
 /// The document of the page's main frame fired `DOMContentLoaded`. Sent on each `page.on` call that listens to `dom_content_loaded`.
@@ -215,6 +257,10 @@ impl sealed::PageEvent for DomContentLoaded {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::DomContentLoaded;
     const NAME: &'static str = "page.dom_content_loaded";
+
+    fn warn() {
+        crate::markers::warn("page.dom_content_loaded", true, None);
+    }
 }
 
 /// The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Sent on each `page.on` call that listens to `crash`.
@@ -229,6 +275,10 @@ impl sealed::PageEvent for Crash {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Crash;
     const NAME: &'static str = "page.crash";
+
+    fn warn() {
+        crate::markers::warn("page.crash", true, None);
+    }
 }
 
 /// The page closed: the engine closed it, or its window was closed in the browser outside every Client. Sent on each `page.on` call that listens to `close`, just before that call answers.
@@ -243,6 +293,10 @@ impl sealed::PageEvent for Close {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Close;
     const NAME: &'static str = "page.close";
+
+    fn warn() {
+        crate::markers::warn("page.close", true, None);
+    }
 }
 
 /// The page opened a popup, `window.open()` or a link opening another window: a page of the same Session, already under its routes and its interception, published before the popup's first request leaves. Published while `page.on` listens to `popup`.
@@ -257,4 +311,8 @@ impl sealed::PageEvent for Popup {
     const EVENT: ::goodfetch_protocol::page::events::PageEventName =
         ::goodfetch_protocol::page::events::PageEventName::Popup;
     const NAME: &'static str = "page.popup";
+
+    fn warn() {
+        crate::markers::warn("page.popup", true, None);
+    }
 }

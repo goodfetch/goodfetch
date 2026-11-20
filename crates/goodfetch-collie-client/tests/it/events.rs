@@ -365,6 +365,35 @@ fn a_stream_dropped_before_its_call_is_sent_cancels_it() {
     );
 }
 
+/// A stream of an Experimental event warns that the event is
+/// Experimental, once per process however many streams read it, as the
+/// TypeScript and Python listeners do (ADR 0030).
+#[test]
+fn a_streams_experimental_event_warns_once_per_process() {
+    let (network, lines, writer) = scripted();
+    let runtime = goodfetch_test_support::runtime();
+    let (((), _heard), log) = logged(|| {
+        runtime.block_on(async {
+            let engine = engine(lines, writer, |_| Vec::new());
+            let client = on_a_page(&network, |page| async move {
+                drop(page.events(events::Console));
+                drop(page.events(events::Console));
+            });
+            tokio::join!(client, engine)
+        })
+    });
+
+    let log = String::from_utf8(log).unwrap();
+    assert_eq!(
+        log.matches(
+            "`page.console` is Experimental: outside semver until it is promoted (ADR 0030)."
+        )
+        .count(),
+        1,
+        "{log}"
+    );
+}
+
 /// A closed page's `events` sends nothing: its stream hands
 /// `closed` once, then `None`.
 #[test]

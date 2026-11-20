@@ -12,7 +12,6 @@
 // since no catalog entry shapes it.
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
-import type { RequestMeta } from "./generated/types.ts";
 import type { JSONValue } from "./json.ts";
 import { collieWire } from "./generated/wire.ts";
 import { toWire, type WirePath } from "./wire.ts";
@@ -144,7 +143,8 @@ export async function rawCall(
     }
     sent["timeout"] = options.timeout;
   }
-  sent[META] = { raw: true } satisfies RequestMeta;
+  // The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132).
+  sent[META] = { raw: true };
   const result = await send(operation, sent, { signal: options.signal });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a result is JSON.
   return result as JSONValue;

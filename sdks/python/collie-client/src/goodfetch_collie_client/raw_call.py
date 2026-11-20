@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from goodfetch_collie_client.generated.errors import ProgramError
-from goodfetch_collie_client.generated.models import RequestMeta
 from goodfetch_collie_client.handle import NotGiven, not_given, whole_milliseconds
 
 if TYPE_CHECKING:
@@ -35,9 +34,6 @@ if TYPE_CHECKING:
 
 _META = "_meta"
 """The member of a request's params that holds its envelope (ADR 0132)."""
-
-_RAW_MARK = RequestMeta(raw=True).model_dump(mode="json", exclude_unset=True)
-"""A raw call's `_meta`: its raw mark (ADR 0099)."""
 
 
 def _refused(operation: str, reason: str, fix: str) -> ProgramError:
@@ -123,7 +119,8 @@ def raw_params(
                 "Give the timeout once, as the argument.",
             )
         sent["timeout"] = _wire_timeout(timeout)
-    sent[_META] = dict(_RAW_MARK)
+    # The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132).
+    sent[_META] = {"raw": True}
     return sent
 
 

@@ -509,7 +509,7 @@ impl Layer {
     }
 }
 
-/// `definitions` without `_meta`, the Trace context the bundle adds to
+/// `definitions` without `_meta`, the Trace context and raw mark the bundle adds to
 /// every request's params: an envelope field each SDK's runtime fills in,
 /// to which no generator gives a member (ADRs 0099 and 0132).
 fn without_meta(definitions: &mut Map<String, Value>) {
@@ -724,7 +724,7 @@ mod tests {
             "type": "object",
             "properties": {
                 "size": { "type": "integer" },
-                "_meta": { "$ref": "#/$defs/TraceContext" },
+                "_meta": { "$ref": "#/$defs/RequestMeta" },
             },
         });
         let mut collie = projection(&[operation("widget.spin", "collie", "all_surfaces")]);
@@ -734,7 +734,7 @@ mod tests {
         let mut foxhound = projection(&[crawl]);
         foxhound["$defs"]["CrawlSpinParams"] = params;
         for projection in [&mut collie, &mut foxhound] {
-            projection["$defs"]["TraceContext"] = json!({ "type": "object" });
+            projection["$defs"]["RequestMeta"] = json!({ "type": "object" });
         }
         let bundle = json!({ "$defs": {} });
 

@@ -308,14 +308,44 @@ fn holds(bytes: &[u8], line: &[u8]) -> bool {
     bytes.windows(line.len()).any(|window| window == line)
 }
 
+/// What a hostile head is sent with.
+#[derive(Clone, Copy, Debug)]
+enum Sent {
+    /// This line, byte for byte.
+    Line(&'static [u8]),
+    /// Two `Content-Length` lines with different values.
+    TwoDifferentLengths,
+    /// Two `Content-Length` lines with one value.
+    TwoEqualLengths,
+}
+
+/// The values of a head's `Content-Length` lines, in order.
+fn content_lengths(head: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(head)
+        .split("\r\n")
+        .filter_map(|line| line.strip_prefix("Content-Length: "))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether `head` is sent with `sent`.
+fn is_sent_with(head: &[u8], sent: Sent) -> bool {
+    match (sent, content_lengths(head).as_slice()) {
+        (Sent::Line(line), _) => holds(head, line),
+        (Sent::TwoDifferentLengths, [first, second]) => first != second,
+        (Sent::TwoEqualLengths, [first, second]) => first == second,
+        (Sent::TwoDifferentLengths | Sent::TwoEqualLengths, _) => false,
+    }
+}
+
 #[rstest]
-#[case::a_conflicting_content_length("headers/2", b"Content-Length: ".as_slice())]
-#[case::a_nul_in_a_value("headers/5", b"X-Note: one\0two\r\n".as_slice())]
-#[case::a_bare_cr_in_a_value("headers/6", b"X-Note: one\rSet-Cookie: injected=1\r\n".as_slice())]
-#[case::a_line_without_a_colon("headers/7", b"\r\nX-Note one two\r\n".as_slice())]
+#[case::a_conflicting_content_length("headers/2", Sent::TwoDifferentLengths)]
+#[case::a_nul_in_a_value("headers/5", Sent::Line(b"X-Note: one\0two\r\n"))]
+#[case::a_bare_cr_in_a_value("headers/6", Sent::Line(b"X-Note: one\rSet-Cookie: injected=1\r\n"))]
+#[case::a_line_without_a_colon("headers/7", Sent::Line(b"\r\nX-Note one two\r\n"))]
 fn a_malformed_head_is_sent_as_its_bytes_and_only_a_refusal_is_verified(
     #[case] id: &str,
-    #[case] line: &[u8],
+    #[case] sent: Sent,
 ) {
     let proving_ground = ProvingGround::start(SEED);
     let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
@@ -325,7 +355,7 @@ fn a_malformed_head_is_sent_as_its_bytes_and_only_a_refusal_is_verified(
     let claimed = proving_ground.judge(&submission(id, "success", &[kept]));
 
     assert!(
-        holds(head(&response), line),
+        is_sent_with(head(&response), sent),
         "{}",
         String::from_utf8_lossy(head(&response))
     );
@@ -333,22 +363,12 @@ fn a_malformed_head_is_sent_as_its_bytes_and_only_a_refusal_is_verified(
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
 }
 
-#[test]
-fn two_different_content_lengths_are_both_sent() {
-    let proving_ground = ProvingGround::start(SEED);
-
-    let response = raw_get(&proving_ground, &start_url(&proving_ground, "headers/2"));
-
-    let head = String::from_utf8_lossy(head(&response)).into_owned();
-    assert_eq!(head.matches("Content-Length: ").count(), 2, "{head}");
-}
-
 #[rstest]
-#[case::a_repeated_content_length("headers/4", b"Content-Length: ".as_slice())]
-#[case::a_folded_line("headers/8", b"X-Note: one\r\n two\r\n".as_slice())]
+#[case::a_repeated_content_length("headers/4", Sent::TwoEqualLengths)]
+#[case::a_folded_line("headers/8", Sent::Line(b"X-Note: one\r\n two\r\n"))]
 fn a_head_the_browser_keeps_is_sent_as_its_bytes_and_its_record_is_verified(
     #[case] id: &str,
-    #[case] line: &[u8],
+    #[case] sent: Sent,
 ) {
     let proving_ground = ProvingGround::start(SEED);
     let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
@@ -357,7 +377,11 @@ fn a_head_the_browser_keeps_is_sent_as_its_bytes_and_its_record_is_verified(
     let answer = proving_ground.judge(&submission(id, "success", &[kept]));
     let refused = proving_ground.judge(&submission(id, "failure", &[]));
 
-    assert!(holds(head(&response), line));
+    assert!(
+        is_sent_with(head(&response), sent),
+        "{}",
+        String::from_utf8_lossy(head(&response))
+    );
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(refused["outcome"], "failed", "{refused}");
 }

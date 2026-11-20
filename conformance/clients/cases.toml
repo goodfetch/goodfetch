@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "34"
+version = "35"
 
 [[capability]]
 name = "lifecycle"
@@ -312,6 +312,22 @@ name = "settings"
 [[capability.case]]
 id = "settings-three-states"
 covers = ["story:11-70", "story:11-72"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# Each setting the engine refuses says how to fix it (ADR 0083; issue 1278):
+# a configuration-only key passed in code is refused at `connect()` with
+# `setting_not_applicable`, its fix naming the user configuration and the
+# Operator policy files, while `explainSettings()` still reports it from its
+# file; a misspelled key's `setting_unknown` names the closest key, a wrong
+# type's `setting_invalid` the type the setting takes, and a locked key's
+# `setting_locked` the layer that locked it, each raising its generated
+# class in its group. Rust plays it linked, where its typed setting
+# constants leave a configuration-only or misspelled key out at compile
+# time, so it checks the explanation and the lock's refusal.
+[[capability.case]]
+id = "settings-refusals-say-how-to-fix"
+covers = ["story:11-71", "story:11-76"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 

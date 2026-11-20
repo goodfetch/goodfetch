@@ -10,10 +10,13 @@
 // once, so a slow listener slows no other, and one whose queue is full is
 // removed once it got what it held, with `listener_events_lost`. One that
 // throws is removed: its call is cancelled and its value hears the failure,
-// which nothing here lets reach the host as an unhandled rejection.
+// which nothing here lets reach the host as an unhandled rejection. The
+// events of a value an event opened, such as a page's WebSocket, go to
+// that value's own listeners (`opened.ts`), in the same order.
 import type { Stream } from "./client-connection.ts";
 import { ListenerEventsLostError } from "./generated/errors.ts";
 import type { Listener, Subscription } from "./handle.ts";
+import type { Opened } from "./opened.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
 import { batchOf, type StreamedEvent } from "./stream.ts";
@@ -32,6 +35,8 @@ export interface Listening<Payload> {
   /** The event its listener gets, such as `page.console`; other events of the call are skipped. */
   readonly event: string;
   readonly listener: Listener<Payload>;
+  /** The values `event` opens, whose own events the call also carries, when it opens one. */
+  readonly opened?: Opened | undefined;
   /** Hears, once, what the listener threw, after it was removed for it. */
   failed(cause: unknown): void;
   /** Hears the error that ended the call, such as `page_events_lost`, when the subscription did not. */
@@ -46,7 +51,8 @@ interface Waiting {
 
 /**
  * Hands the events of `listening.event` it takes to `listening`'s
- * listener, one at a time, in order, each awaited before the next. It
+ * listener, and those of the values it opened to theirs, one at a time,
+ * in order, each awaited before the next. It
  * settles every event it takes, of that name or not: once the listener is
  * through with it, or once the delivery stops, even while the listener
  * still awaits it.
@@ -105,6 +111,8 @@ export class Delivery<Payload> {
           if (next.event.event === this.#listening.event) {
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the event's is the catalog's.
             await this.#listening.listener(next.event.data as Payload, next.event.dropped ?? 0);
+          } else if (this.#listening.opened?.takes(next.event) === true) {
+            await this.#listening.opened.deliver(next.event);
           }
         } catch (error) {
           this.#threw();

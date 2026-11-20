@@ -126,7 +126,9 @@ fn a_script_only_link_is_neither_an_anchor_nor_a_path_in_the_page() {
         .get(&start_url(&proving_ground, "links/3"))
         .body;
 
-    for path in script_links(&page) {
+    let scripted = script_links(&page);
+    assert_eq!(scripted.len(), 8, "{scripted:?}");
+    for path in scripted {
         assert!(!page.contains(&path), "{path} is spelled out in the page");
         assert!(!links(&page, true).contains(&path), "{path}");
     }
@@ -146,7 +148,9 @@ fn a_crawl_of_the_script_only_rooms_reaches_them_only_through_its_own_requests()
     let observations = proving_ground.observations().to_string();
 
     assert!(observations.contains("\"/rooms/R-01\""), "{observations}");
-    for path in script_links(&proving_ground.get(&start).body) {
+    let scripted = script_links(&proving_ground.get(&start).body);
+    assert_eq!(scripted.len(), 8, "{scripted:?}");
+    for path in scripted {
         assert!(!observations.contains(&format!("\"{path}\"")), "{path}");
     }
 }

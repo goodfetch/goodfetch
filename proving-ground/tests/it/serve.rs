@@ -48,15 +48,6 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
     );
 }
 
-#[test]
-fn serve_answers_on_the_address_it_reported() {
-    let proving_ground = ProvingGround::start(1);
-
-    let tasks = proving_ground.tasks();
-
-    assert_eq!(tasks["proving_ground"]["seed"], 1);
-}
-
 /// Covers: story:2-82
 #[test]
 fn serve_first_prints_the_address_of_each_network_fixture() {

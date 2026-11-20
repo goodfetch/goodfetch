@@ -26,13 +26,27 @@ pub(super) fn tree(
     settings: &[Setting],
     scope: Option<SettingScope>,
 ) -> Result<BTreeMap<String, Node<'_>>> {
+    tree_where(settings, |setting| match scope {
+        Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
+        None => !setting.scopes.is_empty(),
+    })
+}
+
+/// The settings tree of every one of `settings`, those no scope sets
+/// included: what spells a key a program passes in code although only a
+/// file sets it, so that the engine names that file (ADR 0083).
+pub(super) fn every(settings: &[Setting]) -> Result<BTreeMap<String, Node<'_>>> {
+    tree_where(settings, |_| true)
+}
+
+/// The settings tree of those `settings` that `applies` keeps.
+fn tree_where(
+    settings: &[Setting],
+    applies: impl Fn(&Setting) -> bool,
+) -> Result<BTreeMap<String, Node<'_>>> {
     let mut root = BTreeMap::new();
     for setting in settings {
-        let applies = match scope {
-            Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
-            None => !setting.scopes.is_empty(),
-        };
-        if !applies {
+        if !applies(setting) {
             continue;
         }
         let segments: Vec<&str> = setting.name.split('.').collect();

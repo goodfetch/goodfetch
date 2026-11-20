@@ -67,5 +67,8 @@ pub use goodfetch_protocol::page::read::{
     UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+pub use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
+};
 pub use linked::ConnectOptions;
 pub use pins::pinned_artifacts;

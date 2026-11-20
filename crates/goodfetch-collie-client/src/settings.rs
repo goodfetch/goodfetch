@@ -146,13 +146,13 @@ impl Settings {
     }
 
     /// The settings as `scope`'s `settings` member carries them, nested by
-    /// the keys' segments.
+    /// the keys' segments: a Run's start's, or a connection's `hello`'s.
     ///
     /// # Errors
     ///
     /// `setting_not_applicable` for the first key, in key order, that the
     /// settings of `scope` do not set, its `fix` naming those that do.
-    pub(crate) fn within(self, scope: SettingScope) -> Result<Map<String, Value>, Error> {
+    pub fn within(self, scope: SettingScope) -> Result<Map<String, Value>, Error> {
         let mut nested = Map::new();
         for (key, given) in self.values {
             if !given.scopes.contains(&scope) {

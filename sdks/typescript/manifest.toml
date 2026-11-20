@@ -105,7 +105,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "explainSettings"
 entry = "config.explain"
-only = "Rust's `explain_settings` is issue 3024's."
 words = ["explain", "settings"]
 form = "round_trip"
 

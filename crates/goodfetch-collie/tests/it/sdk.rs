@@ -27,6 +27,7 @@ mod logging;
 mod page;
 mod public_items;
 mod raw_call;
+mod settings;
 mod start;
 
 /// What a connection opens with: the test's environment, which names its

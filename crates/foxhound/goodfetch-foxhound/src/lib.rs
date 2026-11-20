@@ -52,7 +52,7 @@ pub use goodfetch_collie::{
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
     FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
-    SchemaError, Session, Start, UsageKind, events, schemars,
+    SchemaError, Session, Start, UsageKind, events, schemars, settings,
 };
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the
@@ -64,3 +64,6 @@ pub use goodfetch_protocol::page::read::{
     UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
+};

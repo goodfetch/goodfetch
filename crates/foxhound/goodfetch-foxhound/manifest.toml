@@ -44,6 +44,14 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
 member = "close"
 entry = "none"
 reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it, or closes its Daemon connection (ADR 0078); `Collie::close`'s member under the same name."
@@ -84,6 +92,14 @@ member = "start"
 entry = "run.start"
 words = ["start"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"

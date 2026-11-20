@@ -300,16 +300,17 @@ modes = ["attached", "linked"]
 # A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
 # engine in `hello`, and a Run's own sit over them in three states, a key
 # left out inheriting, `null` clearing and a value setting, as
-# `explainSettings()` (Python's `explain_settings()`) on the Connection and
-# on the Run answers. Rust joins with issue 3024.
+# `explainSettings()` (Python's and Rust's `explain_settings()`) on the
+# Connection and on the Run answers. Rust plays it linked, where the engine
+# itself explains what its `hello` and the Run's start carried (issue 3024).
 [[capability]]
 name = "settings"
 
 [[capability.case]]
 id = "settings-three-states"
 covers = ["story:11-70", "story:11-72"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability]]
 name = "time"

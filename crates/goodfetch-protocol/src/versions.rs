@@ -59,6 +59,7 @@ pub const VERSION_AGE_NOTICE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

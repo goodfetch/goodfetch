@@ -586,6 +586,7 @@ pub const CRAWL_SCOPE_STRATEGY: Setting = Setting {
     weakens: None,
     fixed_for_run: true,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -600,6 +601,7 @@ pub const CRAWL_SCOPE_INCLUDE: Setting = Setting {
     weakens: None,
     fixed_for_run: true,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -614,6 +616,7 @@ pub const CRAWL_SCOPE_EXCLUDE: Setting = Setting {
     weakens: None,
     fixed_for_run: true,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -628,6 +631,7 @@ pub const CRAWL_MAX_DEPTH: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -642,6 +646,7 @@ pub const CRAWL_MAX_REQUESTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -656,6 +661,7 @@ pub const CRAWL_MAX_URL_LENGTH: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -670,6 +676,7 @@ pub const CRAWL_MAX_PATH_SEGMENTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -684,6 +691,7 @@ pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -698,6 +706,7 @@ pub const CRAWL_MAX_SITEMAP_NESTING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -793,6 +802,7 @@ pub const CRAWL_PATH_BUDGETS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -807,6 +817,7 @@ pub const CRAWL_KEEP_URL_FRAGMENT: Setting = Setting {
     weakens: None,
     fixed_for_run: true,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -825,6 +836,7 @@ pub const FRONTIER_LEARNING: Setting = Setting {
     weakens: Some(learning_switched_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -856,6 +868,7 @@ pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

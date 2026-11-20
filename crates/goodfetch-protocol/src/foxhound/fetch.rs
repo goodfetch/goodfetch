@@ -87,6 +87,7 @@ pub const FETCH_TIER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -101,6 +102,7 @@ pub const FETCH_TIER_RACE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -115,6 +117,7 @@ pub const FETCH_LIGHT_BROWSER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -143,6 +146,7 @@ pub const FETCH_HTTP_FROM: Setting = Setting {
     weakens: Some(not_from_the_browser),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -174,6 +178,7 @@ pub const FETCH_ENCODING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -188,6 +193,7 @@ pub const FETCH_KEPT_RESPONSES_URLS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -222,6 +228,7 @@ pub const FETCH_HEDGE_ENABLED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -236,6 +243,7 @@ pub const FETCH_HEDGE_MAX_PERCENT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -250,6 +258,7 @@ pub const FETCH_COALESCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -338,6 +347,7 @@ pub const FETCH_REDIRECT_MAX: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -352,6 +362,7 @@ pub const FETCH_REFRESH_MAX_DELAY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -380,6 +391,7 @@ pub const FETCH_SAMPLE_COUNT: Setting = Setting {
     weakens: Some(fewer_samples),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -458,6 +470,7 @@ pub const FETCH_SAMPLE_REFRESH_AFTER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

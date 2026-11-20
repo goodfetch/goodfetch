@@ -107,6 +107,7 @@ pub const CRAWL_SAMPLE_PAGES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("sample_crawl_pages"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

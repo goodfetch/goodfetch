@@ -17,7 +17,7 @@
 # the Connection both Products' connections implement (ADRs 0095 and 0099),
 # and `blocking` its blocking twin. `markers` warns once per process of a
 # deprecated or Experimental entry `generated` calls, or `run` serves by
-# hand (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
+# hand, and of a deprecated setting `settings` sets (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
 # Connection and on every handle (ADR 0099, G8), which refuses what the
 # engine would before it sends it through `call`'s builder.
 # `connect_timeout` types how long `connection` waits for `hello`'s answer,
@@ -63,6 +63,6 @@ response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
 run = ["connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 schema = []
-settings = ["call", "error"]
+settings = ["call", "error", "markers"]
 sync = []
 transport = []

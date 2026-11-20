@@ -12,6 +12,7 @@ fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Settin
         default: Value::Null,
         clearable,
         scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
+        deprecated: None,
     }
 }
 
@@ -295,17 +296,48 @@ fn a_scope_that_sets_nothing_has_an_empty_settings_type() {
         "{module}"
     );
     assert!(
-        module.contains("\nfrom typing import TypedDict\n"),
+        module.contains(
+            "\nfrom collections.abc import Mapping\nfrom typing import Final, TypedDict\n"
+        ),
         "{module}"
     );
-    assert!(
-        !module.contains("from datetime") && !module.contains("from collections"),
-        "{module}"
-    );
+    assert!(!module.contains("from datetime"), "{module}");
 }
 
 #[test]
 fn only_a_scope_that_takes_settings_has_a_settings_type() {
     assert_eq!(scope_type("session").unwrap(), "SessionSettings");
     assert!(scope_type("locator").is_err());
+}
+
+#[test]
+fn a_deprecated_setting_carries_its_deprecation_in_its_docstring_and_the_registry() {
+    let mut old = setting(
+        "timeout.wait",
+        json!({ "type": "integer" }),
+        false,
+        &["run"],
+    );
+    old.deprecated = Some(goodfetch_protocol::catalog::Deprecation {
+        since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+        replacement: Some("timeout.navigation".to_owned()),
+        earliest_removal: goodfetch_protocol::catalog::ProtocolVersion { major: 1, minor: 0 },
+        note: "Gone.".to_owned(),
+    });
+    let text = "Since 0.1, removed no earlier than 1.0: use `timeout.navigation` instead. Gone.";
+
+    let module = settings_module(&[old]).unwrap();
+
+    assert!(
+        class(&module, "RunTimeoutSettings").contains(&format!(
+            "    `timeout.wait`.\n\n    Deprecated. {text}\n    \"\"\""
+        )),
+        "{module}"
+    );
+    assert!(
+        module.ends_with(&format!(
+            "\n\nDEPRECATED_SETTINGS: Final[Mapping[str, str]] = {{\n    \"timeout.wait\": {text:?},\n}}\n\"\"\"Each deprecated setting, by its dotted wire key, with its deprecation's one text.\"\"\"\n"
+        )),
+        "{module}"
+    );
 }

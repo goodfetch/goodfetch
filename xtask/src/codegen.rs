@@ -39,6 +39,7 @@
 mod cdp;
 mod counted_work;
 mod deny;
+mod deprecated_settings;
 mod digest;
 mod emit;
 mod emitter;
@@ -400,7 +401,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
-    files.extend(error_codes::files(&catalog)?);
+    files.extend(catalog_lists(&catalog)?);
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
@@ -507,6 +508,17 @@ fn standalone(bundle: &Value, key: &str) -> Result<Value> {
         ),
     );
     Ok(Value::Object(schema))
+}
+
+/// The files listing what the catalog declares: Rust's Error codes and the
+/// release notes' deprecated settings keys.
+fn catalog_lists(catalog: &Value) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut lists = Vec::from(error_codes::files(catalog)?);
+    lists.push((
+        deprecated_settings::path(),
+        deprecated_settings::generate(catalog)?.into_bytes(),
+    ));
+    Ok(lists)
 }
 
 /// JSON as every generated file writes it: pretty, with a final newline.

@@ -37,6 +37,7 @@ pub const TIMEOUT_HELLO: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -51,5 +52,6 @@ pub const NETWORK_MAX_HELLO_SIZE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };

@@ -18,14 +18,15 @@ from __future__ import annotations
 
 import threading
 import warnings
-from typing import TYPE_CHECKING, Final
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Final, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from collections.abc import Set as AbstractSet
 
 # The frames between `warnings.warn` and the member's caller: `_warn_once`,
-# `warn_deprecated`, `warn_experimental` or `warn_entry`, then the member.
+# `warn_deprecated`, `warn_experimental`, `warn_entry` or
+# `warn_deprecated_settings`, then the member.
 _CALLER: Final = 4
 
 
@@ -66,6 +67,38 @@ def warn_entry(
     text = deprecated.get(name)
     if text is not None:
         _warn_once(("deprecated", name), _deprecated(name, text), DeprecationWarning)
+
+
+def warn_deprecated_settings(
+    settings: Mapping[str, object] | None, deprecated: Mapping[str, str]
+) -> None:
+    """Warns, the first time in the process, of each deprecated setting `settings` sets.
+
+    `deprecated` is the generated `DEPRECATED_SETTINGS`, each deprecated
+    setting's text by its dotted wire key: a member taking `settings`
+    calls it first, and a key set to `None`, which clears, is set.
+    """
+    if settings is None:
+        return
+    for key, text in deprecated.items():
+        if _sets(settings, key):
+            _warn_once(
+                ("deprecated setting", key),
+                f"The setting `{key}` is deprecated. {text}",
+                DeprecationWarning,
+            )
+
+
+def _sets(settings: Mapping[str, object], key: str) -> bool:
+    """Whether `settings`, nested by segment, set the dotted `key`."""
+    *areas, last = key.split(".")
+    level = settings
+    for segment in areas:
+        inner = level.get(segment)
+        if not isinstance(inner, Mapping):
+            return False
+        level = cast("Mapping[str, object]", inner)
+    return last in level
 
 
 def _deprecated(name: str, text: str) -> str:

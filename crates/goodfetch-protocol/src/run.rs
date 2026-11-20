@@ -1137,6 +1137,7 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1161,6 +1162,7 @@ pub const RUN_STATE_LAYOUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

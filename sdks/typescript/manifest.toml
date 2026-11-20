@@ -1846,6 +1846,15 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "DeprecatedSettings"
+entry = "none"
+reason = "A Product's generated registry of its deprecated settings, each dotted wire key with its deprecation's text, which `onWire` warns of once per process (ADR 0099)."
+words = ["deprecated", "settings"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "SettingsOnWire"
 entry = "none"
 reason = "A scope's `settings` as the wire takes them, which `onWire` gives."

@@ -92,7 +92,7 @@ impl Tally {
 
     /// Counts `by` more requests ended as `ended`, less when negative.
     fn count(&mut self, (kind, name): &CountedAs, by: i64) {
-        let of_kind = self.ended.entry(*kind).or_default();
+        let of_kind = self.ended.entry(kind.clone()).or_default();
         let counted = if let Some(count) = of_kind.get_mut(name.as_str()) {
             *count += by;
             *count
@@ -117,9 +117,9 @@ impl Tally {
     /// The ended requests of `kind`, by what each counts under, in the
     /// order of those names, with how many there are of each: those that
     /// count at least one.
-    pub(crate) fn ended(&self, kind: OutcomeKind) -> impl Iterator<Item = (&str, u64)> {
+    pub(crate) fn ended(&self, kind: &OutcomeKind) -> impl Iterator<Item = (&str, u64)> {
         self.ended
-            .get(&kind)
+            .get(kind)
             .into_iter()
             .flatten()
             .filter_map(|(name, count)| {

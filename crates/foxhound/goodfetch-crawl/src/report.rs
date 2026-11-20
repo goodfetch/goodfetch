@@ -132,6 +132,7 @@ fn ended_as(ending: &Ending) -> String {
         Ending::Failed { error } => error.code.clone(),
         Ending::Skipped { reason, .. } => name_of(serde_json::to_value(reason)),
         Ending::Blocked { cause } => cause.as_str().to_owned(),
+        unknown => unknown.kind().as_str().to_owned(),
     }
 }
 

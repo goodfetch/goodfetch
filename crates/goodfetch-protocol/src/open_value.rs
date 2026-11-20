@@ -50,6 +50,12 @@ impl UnknownMember {
             .expect("invariant: a member is read only with its tag")
     }
 
+    /// Its tag as a value of its union's open kind enumeration, which the
+    /// tag names.
+    pub(crate) fn tag_value(&self) -> UnknownValue {
+        UnknownValue(self.tag().to_owned())
+    }
+
     /// Its fields as received, its tag included.
     pub const fn fields(&self) -> &Map<String, Value> {
         &self.0

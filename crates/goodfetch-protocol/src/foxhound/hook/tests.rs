@@ -136,7 +136,7 @@ fn each_stage_of_a_hook_in_code_keeps_the_catalogs_name(
     #[case] stage: CrawlHookStage,
     #[case] name: &str,
 ) {
-    assert_eq!(serde_json::to_value(stage).unwrap(), json!(name));
+    assert_eq!(serde_json::to_value(&stage).unwrap(), json!(name));
     assert_eq!(stage.as_str(), name);
 }
 
@@ -178,5 +178,52 @@ fn a_record_stage_call_names_the_hook_its_request_and_the_record() {
             "lease_epoch": 3,
             "record": { "dataset": "products", "data": { "name": "Kettle" } },
         })
+    );
+}
+
+/// A program keeps the stage a newer engine asks a Hook at, as received
+/// (ADR 0079), and writes it back unchanged.
+#[test]
+fn a_hook_call_at_a_stage_this_reader_does_not_know_keeps_it() {
+    let sent = json!({
+        "run_id": "run-1",
+        "hook": "stamp",
+        "stage": "a_newer_stage",
+        "crawl_request": {
+            "id": "r1",
+            "url": "https://example.com/",
+            "label": "detail",
+            "method": "GET",
+        },
+        "attempt": 1,
+        "lease_epoch": 3,
+    });
+
+    let params: CrawlHookHandleParams = serde_json::from_value(sent.clone()).expect("it reads");
+
+    assert_eq!(
+        (
+            params.stage.as_str(),
+            serde_json::to_value(&params).unwrap()
+        ),
+        ("a_newer_stage", sent)
+    );
+}
+
+/// A declaration is a request, which ADR 0079's keeping of a newer engine's
+/// values does not cover: an engine refuses a stage it does not know
+/// instead of declaring a Hook that never runs.
+#[test]
+fn a_hook_declared_at_a_stage_this_reader_does_not_know_is_refused() {
+    let declared = |stage| {
+        serde_json::from_value::<CrawlHookDeclaration>(json!({ "name": "sign", "stage": stage }))
+    };
+
+    assert!(declared("a_newer_stage").is_err());
+    assert_eq!(
+        declared("before_request")
+            .expect("a known stage reads")
+            .stage,
+        CrawlHookStage::BeforeRequest
     );
 }

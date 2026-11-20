@@ -1784,13 +1784,14 @@ impl Changed {
 /// skip reason, Error code or Block cause, none for `succeeded`.
 fn counted_as(ending: &Ending) -> CountedAs {
     let name = match ending {
-        Ending::Succeeded { .. } => String::new(),
         Ending::Failed { error } => error.code.clone(),
         Ending::Skipped { reason, .. } => match serde_json::to_value(reason) {
             Ok(Value::String(name)) => name,
             _ => String::new(),
         },
         Ending::Blocked { cause } => cause.as_str().to_owned(),
+        // `succeeded`, or an ending a newer engine wrote.
+        _ => String::new(),
     };
     (ending.kind(), name)
 }

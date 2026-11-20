@@ -34,8 +34,9 @@ fn counted(tally: &Tally) -> (u64, Vec<(OutcomeKind, String, u64)>) {
         .into_iter()
         .flat_map(|kind| {
             tally
-                .ended(kind)
-                .map(move |(name, count)| (kind, name.to_owned(), count))
+                .ended(&kind)
+                .map(|(name, count)| (kind.clone(), name.to_owned(), count))
+                .collect::<Vec<_>>()
         })
         .collect();
     (tally.left(), ended)

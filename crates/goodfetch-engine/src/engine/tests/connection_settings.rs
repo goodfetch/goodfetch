@@ -263,3 +263,144 @@ fn config_explain_naming_a_run_fails_on_anything_but_a_live_run_alone(
         "{explained}"
     );
 }
+
+/// A configuration-only key a program's code passes to `connect()` is
+/// refused with `setting_not_applicable` naming the user configuration
+/// and Operator policy files, while `config.explain` still reports it with
+/// the value and layer of the file that set it.
+///
+/// Covers: story:11-71, error:setting_not_applicable, operation:config.explain,
+/// setting:storage.low_free, setting:log.level, setting:daemon.idle_timeout,
+/// setting:browser_cache.max_unused_age, setting:governor.huge_pages,
+/// setting:governor.worker_threads, setting:governor.blocking_threads
+#[rstest]
+#[case::storage(json!({ "storage": { "low_free": 1_000 } }), "storage.low_free", json!(1_000))]
+#[case::log(json!({ "log": { "level": "warn" } }), "log.level", json!("warn"))]
+#[case::daemon(json!({ "daemon": { "idle_timeout": 1_000 } }), "daemon.idle_timeout", json!(1_000))]
+#[case::browser_cache(
+    json!({ "browser_cache": { "max_unused_age": 1_000 } }),
+    "browser_cache.max_unused_age",
+    json!(1_000)
+)]
+#[case::huge_pages(json!({ "governor": { "huge_pages": true } }), "governor.huge_pages", json!(true))]
+#[case::worker_threads(
+    json!({ "governor": { "worker_threads": 4 } }),
+    "governor.worker_threads",
+    json!(4)
+)]
+#[case::blocking_threads(
+    json!({ "governor": { "blocking_threads": "per_core" } }),
+    "governor.blocking_threads",
+    json!("per_core")
+)]
+fn a_configuration_only_key_in_connect_is_refused_and_still_explained(
+    #[case] settings: Value,
+    #[case] key: &'static str,
+    #[case] value: Value,
+) {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        format!("version = \"0.1\"\n\n[settings]\n{key} = {value}\n"),
+    )
+    .unwrap();
+
+    let engine = engine_with(Product::Collie, None);
+    let refused = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[hello_setting(settings)]).await;
+        client.next().await.unwrap()
+    });
+    let explained = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await;
+        call(&mut client, 1, "config.explain", json!({ "keys": [key] })).await
+    });
+
+    let details = &refused["error"]["data"];
+    assert_eq!(
+        (&details["code"], &details["key"], &details["fix"], keyed(&explained)),
+        (
+            &json!("setting_not_applicable"),
+            &json!(key),
+            &json!(format!(
+                "set `{key}` in user configuration, `{}`, or an Operator policy, `{}`",
+                folder.join("configuration.toml").display(),
+                folder.join("operator-policy.toml").display()
+            )),
+            vec![json!([key, value, "user_configuration"])],
+        ),
+        "{refused}"
+    );
+}
+
+/// Each setting `connect()` refuses says how to fix it: a misspelled key
+/// names its closest neighbour, a value of the wrong type the type the
+/// setting takes, a locked key the layer that locked it, and a Foxhound
+/// key on a Collie engine the Product it needs.
+///
+/// Covers: story:11-76, error:setting_unknown, error:setting_invalid,
+/// error:setting_locked, error:not_in_product
+#[rstest]
+#[case::misspelled(
+    json!({ "timeout": { "navigations": 1_000 } }),
+    "setting_unknown",
+    "/closest",
+    "timeout.navigation"
+)]
+#[case::wrong_type(
+    json!({ "timeout": { "wait": "soon" } }),
+    "setting_invalid",
+    "/reason",
+    "expected a whole number of milliseconds"
+)]
+#[case::locked(
+    json!({ "timeout": { "navigation": 1_000 } }),
+    "setting_locked",
+    "/limit/layer",
+    "operator_policy"
+)]
+#[case::foxhound_key(
+    json!({ "crawl": { "retry": { "max": 5 } } }),
+    "not_in_product",
+    "/needs",
+    "foxhound"
+)]
+fn a_setting_connect_refuses_says_how_to_fix_it(
+    #[case] settings: Value,
+    #[case] code: &str,
+    #[case] detail: &str,
+    #[case] says: &str,
+) {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("operator-policy.toml"),
+        "version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n",
+    )
+    .unwrap();
+
+    let refused = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello_setting(settings)]).await;
+            client.next().await.unwrap()
+        },
+    );
+
+    let details = &refused["error"]["data"];
+    assert_eq!(
+        (
+            &details["code"],
+            details
+                .pointer(detail)
+                .and_then(Value::as_str)
+                .is_some_and(|said| said.contains(says)),
+        ),
+        (&json!(code), true),
+        "{refused}"
+    );
+}

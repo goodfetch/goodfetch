@@ -1,0 +1,150 @@
+{
+  "description": "A Collie Client's hello, then `config.explain` reporting the configuration-only key `storage.low_free` from user configuration, and three Run starts refused, each saying how to fix it (ADR 0083): a misspelled key with `setting_unknown` naming its closest key, a value of the wrong type with `setting_invalid` naming the type the setting takes, and a key the Operator policy locked with `setting_locked` naming the layer that locked it. The `settings-refusals-say-how-to-fix` client conformance case.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "keys": ["storage.low_free"]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "files": [
+            {
+              "layer": "operator_policy",
+              "path": "/home/user/.config/goodfetch/1/operator-policy.toml",
+              "found": false
+            },
+            {
+              "layer": "user_configuration",
+              "path": "/home/user/.config/goodfetch/1/configuration.toml",
+              "found": true
+            }
+          ],
+          "settings": [
+            {
+              "key": "storage.low_free",
+              "value": 1000,
+              "layer": "user_configuration",
+              "applied": true,
+              "products": ["collie", "foxhound"],
+              "weakens": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "settings": {
+            "timeout": {
+              "navigations": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "`timeout.navigations` in run is no setting; did you mean `timeout.navigation`?",
+          "data": {
+            "code": "setting_unknown",
+            "retryable": false,
+            "key": "timeout.navigations",
+            "layer": "run",
+            "closest": "timeout.navigation"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "settings": {
+            "timeout": {
+              "wait": "soon"
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "`timeout.wait` is not valid in run: expected a whole number of milliseconds, found `\"soon\"`",
+          "data": {
+            "code": "setting_invalid",
+            "retryable": false,
+            "key": "timeout.wait",
+            "layer": "run",
+            "reason": "expected a whole number of milliseconds, found `\"soon\"`"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "settings": {
+            "timeout": {
+              "navigation": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "`timeout.navigation` in run is held by operator_policy at `10000`: ask the operator to change the Operator policy's lock on `timeout.navigation`",
+          "data": {
+            "code": "setting_locked",
+            "retryable": false,
+            "key": "timeout.navigation",
+            "layer": "run",
+            "limit": {
+              "key": "timeout.navigation",
+              "value": 10000,
+              "layer": "operator_policy"
+            },
+            "fix": "ask the operator to change the Operator policy's lock on `timeout.navigation`"
+          }
+        }
+      }
+    }
+  ]
+}

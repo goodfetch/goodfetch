@@ -10,6 +10,7 @@ use goodfetch_protocol::page::read::{PageRead, PageReadParams, UnreadField};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::answer::Answer;
 use crate::call::Query;
 use crate::error::Error;
 
@@ -24,7 +25,7 @@ pub struct FieldValues<T> {
     pub unread: Vec<UnreadField>,
 }
 
-impl Query<PageRead, PageReadParams> {
+impl Query<Answer<PageRead>, PageReadParams> {
     /// The read whose values are read into `T`, a type whose fields are
     /// named as the declared fields are, such as a struct deriving
     /// [`serde::Deserialize`].
@@ -41,7 +42,8 @@ impl Query<PageRead, PageReadParams> {
 }
 
 /// `read`'s values read into `T`.
-fn typed<T: DeserializeOwned>(read: PageRead) -> Result<FieldValues<T>, Error> {
+fn typed<T: DeserializeOwned>(read: Answer<PageRead>) -> Result<FieldValues<T>, Error> {
+    let read = read.into_inner();
     let values = serde_json::from_value(Value::Object(read.values)).map_err(Error::shape)?;
     Ok(FieldValues {
         values,

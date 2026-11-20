@@ -5,6 +5,9 @@
 //! keyword is a raw identifier. The one naming rule, which `xtask codegen`
 //! writes the SDKs with and the engine renders its messages' names in.
 
+use schemars::SchemaGenerator;
+
+use crate::catalog::Event;
 use crate::connection::Form;
 
 /// ADR 0099's closed list of initialisms.
@@ -116,12 +119,104 @@ pub fn operation(form: Form, name: &str) -> String {
     name.split('.').map(spell).collect::<Vec<_>>().join(".")
 }
 
+/// A setting key (ADR 0083) as `form`'s user sets it: `crawl.payload.max_size`
+/// gives `crawl.payload.maxSize` in TypeScript, stays so in Python, whose
+/// segments are dict keys and escape no keyword, and gives the module path
+/// of its constant, `crawl::payload::MAX_SIZE`, in Rust. The CLI, the tools
+/// and the catalog keep the key (ADR 0099).
+pub fn setting(form: Form, key: &str) -> String {
+    match form {
+        Form::Typescript => key.split('.').map(camel).collect::<Vec<_>>().join("."),
+        Form::Python => key
+            .split('.')
+            .map(|segment| words(segment).collect::<Vec<_>>().join("_"))
+            .collect::<Vec<_>>()
+            .join("."),
+        Form::Rust => {
+            let (modules, constant) = key.rsplit_once('.').unwrap_or(("", key));
+            let constant = words(constant).collect::<Vec<_>>().join("_").to_uppercase();
+            modules
+                .split('.')
+                .filter(|module| !module.is_empty())
+                .map(|module| rust_snake(module).unwrap_or_else(|| module.to_owned()))
+                .chain([constant])
+                .collect::<Vec<_>>()
+                .join("::")
+        }
+        Form::Cli | Form::Tool | Form::Catalog => key.to_owned(),
+    }
+}
+
+/// A parameter as `form`'s user passes it: an option `maxRedirects` in
+/// TypeScript, a keyword argument `max_redirects` in Python, and a builder
+/// method `max_redirects` in Rust, each escaped as its language escapes a
+/// keyword. The CLI, the tools and the catalog keep the catalog's name.
+pub fn parameter(form: Form, name: &str) -> String {
+    match form {
+        Form::Typescript => camel(name),
+        Form::Python => snake(name),
+        Form::Rust => rust_snake(name).unwrap_or_else(|| name.to_owned()),
+        Form::Cli | Form::Tool | Form::Catalog => name.to_owned(),
+    }
+}
+
+/// The Rust marker type of the event `name`, as a listener's `on` takes it
+/// (ADR 0081), whose payload is the type `payload`: the event's name in
+/// upper camel case, or its payload's where that would end in `Error`, the
+/// suffix of ADR 0079's error types, so `page_error` is `WebError`. `None`
+/// when the name is `Self`.
+pub fn event_marker(name: &str, payload: &str) -> Option<String> {
+    let marker = rust_type(name)?;
+    Some(if marker.ends_with("Error") {
+        payload.to_owned()
+    } else {
+        marker
+    })
+}
+
+/// The catalog's `event` as a listener's `on` takes it, its namespace left
+/// out, with the name of its payload's type: `page.page_error` gives
+/// `page_error` and `WebError`. The name is `None` for a payload the
+/// schema bundle inlines, which no event has.
+pub fn listened(event: &Event) -> (&'static str, Option<String>) {
+    let name = event
+        .name
+        .rsplit_once('.')
+        .map_or(event.name, |(_, name)| name);
+    let payload = (event.payload)(&mut SchemaGenerator::default());
+    let payload = payload
+        .get("$ref")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|reference| reference.rsplit('/').next())
+        .map(str::to_owned);
+    (name, payload)
+}
+
+/// The event `name`, the value a listener's `on` takes, whose payload is the
+/// type `payload`, as `form`'s user listens to it (ADR 0099): its words
+/// joined in lowercase in TypeScript and Python, as Playwright and the DOM
+/// spell events (`requestfinished`), and its marker type in Rust
+/// (`events::RequestFinished`). The CLI, the tools and the catalog keep the
+/// wire's name.
+pub fn event(form: Form, name: &str, payload: &str) -> String {
+    match form {
+        Form::Typescript | Form::Python => words(name).collect(),
+        Form::Rust => event_marker(name, payload)
+            .map_or_else(|| name.to_owned(), |marker| format!("events::{marker}")),
+        Form::Cli | Form::Tool | Form::Catalog => name.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
 
-    use super::{Form, INITIALISMS, camel, operation, pascal, rust_snake, rust_type, snake};
+    use super::{
+        Form, INITIALISMS, camel, event, listened, operation, parameter, pascal, rust_snake,
+        rust_type, setting, snake,
+    };
+    use crate::page::events::{PAGE_PAGE_ERROR, PAGE_WEB_SOCKET};
 
     /// A word of a catalog name: an initialism, or two to eight characters
     /// that start with a letter. A single letter or a leading digit after
@@ -374,5 +469,86 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(operation(form, name), expected);
+    }
+
+    /// A setting key reads as its caller sets it (ADR 0099's casing table):
+    /// nested camelCase segments, nested `snake_case` segments, or Rust's
+    /// modules and an `UPPER_SNAKE` constant; a form with no language of its
+    /// own keeps ADR 0083's key.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "crawl.payload.max_size", "crawl.payload.maxSize")]
+    #[case::python(Form::Python, "crawl.payload.max_size", "crawl.payload.max_size")]
+    #[case::rust(Form::Rust, "crawl.payload.max_size", "crawl::payload::MAX_SIZE")]
+    #[case::cli(Form::Cli, "crawl.payload.max_size", "crawl.payload.max_size")]
+    #[case::tool(Form::Tool, "crawl.payload.max_size", "crawl.payload.max_size")]
+    #[case::catalog(Form::Catalog, "crawl.payload.max_size", "crawl.payload.max_size")]
+    #[case::typescript_initialism(Form::Typescript, "http.max_url_length", "http.maxURLLength")]
+    #[case::rust_module_words(Form::Rust, "clean_up.fetch_timeout", "clean_up::FETCH_TIMEOUT")]
+    #[case::rust_raw_module(Form::Rust, "type.size", "r#type::SIZE")]
+    fn a_setting_key_spells_by_its_callers_form(
+        #[case] form: Form,
+        #[case] key: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(setting(form, key), expected);
+    }
+
+    /// A parameter reads as its caller passes it: an option's camelCase
+    /// in TypeScript, a keyword argument in Python, a builder method in
+    /// Rust, each escaped as the language escapes a keyword.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "max_redirects", "maxRedirects")]
+    #[case::python(Form::Python, "max_redirects", "max_redirects")]
+    #[case::rust(Form::Rust, "max_redirects", "max_redirects")]
+    #[case::cli(Form::Cli, "max_redirects", "max_redirects")]
+    #[case::tool(Form::Tool, "max_redirects", "max_redirects")]
+    #[case::catalog(Form::Catalog, "max_redirects", "max_redirects")]
+    #[case::typescript_initialism(Form::Typescript, "base_url", "baseURL")]
+    #[case::python_keyword(Form::Python, "from", "from_")]
+    #[case::rust_keyword(Form::Rust, "type", "r#type")]
+    fn a_parameter_spells_by_its_callers_form(
+        #[case] form: Form,
+        #[case] name: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(parameter(form, name), expected);
+    }
+
+    /// An event reads as its caller listens to it (ADR 0099): its words
+    /// joined in lowercase, as Playwright and the DOM spell events, in
+    /// TypeScript and Python, and Rust's marker type, which takes its
+    /// payload's name where its own would end in `Error`.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "request_finished", "PageRequest", "requestfinished")]
+    #[case::python(Form::Python, "request_finished", "PageRequest", "requestfinished")]
+    #[case::rust(
+        Form::Rust,
+        "request_finished",
+        "PageRequest",
+        "events::RequestFinished"
+    )]
+    #[case::cli(Form::Cli, "request_finished", "PageRequest", "request_finished")]
+    #[case::tool(Form::Tool, "request_finished", "PageRequest", "request_finished")]
+    #[case::catalog(Form::Catalog, "request_finished", "PageRequest", "request_finished")]
+    #[case::typescript_error(Form::Typescript, "page_error", "WebError", "pageerror")]
+    #[case::rust_error(Form::Rust, "page_error", "WebError", "events::WebError")]
+    fn an_event_spells_by_its_callers_form(
+        #[case] form: Form,
+        #[case] name: &str,
+        #[case] payload: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(event(form, name, payload), expected);
+    }
+
+    /// A catalog event reads as a listener names it, with its payload's
+    /// type, which Rust's marker of `page_error` takes.
+    #[test]
+    fn a_catalog_event_reads_as_its_listener_names_it() {
+        assert_eq!(
+            listened(&PAGE_PAGE_ERROR),
+            ("page_error", Some("WebError".to_owned()))
+        );
+        assert_eq!(listened(&PAGE_WEB_SOCKET).0, "web_socket");
     }
 }

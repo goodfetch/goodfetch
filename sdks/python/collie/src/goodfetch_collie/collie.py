@@ -29,6 +29,7 @@ from goodfetch_collie_client.generated.operations import (
     EXPERIMENTAL_OPERATIONS,
 )
 from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
 from goodfetch_collie_client.product_connection import (
@@ -46,7 +47,8 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.engine_choice import EngineChoice
-    from goodfetch_collie_client.generated.settings import RunSettings
+    from goodfetch_collie_client.generated.models import SettingsExplanation
+    from goodfetch_collie_client.generated.settings import RunSettings, Settings
     from goodfetch_collie_client.limits import Limits
     from pydantic import JsonValue
 
@@ -84,6 +86,8 @@ class AsyncCollie(AsyncConnection):
         engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
+        max_listener_queue: int = MAX_LISTENER_QUEUE,
+        settings: Settings | None = None,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -100,15 +104,30 @@ class AsyncCollie(AsyncConnection):
         its work. `timeout` is how long `hello` waits for the engine's
         answer: `timeout.connect`'s 30 s when left out, none for `None`;
         past it, `DeadlineExceededError` naming `timeout.connect` raises
-        (ADR 0083). An amount the SDK cannot turn exactly, a `timeout` of
-        zero or less or a refused `engine` or `GOODFETCH_URL`
-        (`setting_invalid`), a missing executable (`engine_not_found`), a
-        Daemon nothing reaches or that refuses its token
-        (`daemon_unreachable`), a refused Product (`not_in_product`) or
-        version, or a refused Limit raises here, with a `fix`, leaving no
-        Attached engine behind; so does a cancelled opening. The engine
+        (ADR 0083). `max_listener_queue` is how many events a Session's
+        listener holds that it has not yet got (1,024 when left out): past
+        it, the listener loses those that follow and, once it got the ones
+        it held, is removed and ends with `listener_events_lost`, logged at
+        error on `goodfetch.client`; the other listeners go on. Events come
+        up to 16 at a time, so a bound below 16 can end even a listener that
+        returns at once. An amount the SDK cannot turn exactly, a `timeout`
+        of zero or less, a `max_listener_queue` that is no whole number of 1
+        or more or a refused `engine` or `GOODFETCH_URL` (`setting_invalid`),
+        a missing executable (`engine_not_found`), a Daemon nothing reaches
+        or that refuses its token (`daemon_unreachable`), a refused Product
+        (`not_in_product`) or version, or a refused Limit raises here, with
+        a `fix`, leaving no Attached engine behind; so does a cancelled
+        opening. The engine
         sends its logs from the effective level of `goodfetch.engine`, read
         here (ADR 0078).
+
+        `settings` are the Connection's own, sent in `hello`, which every
+        Run it starts inherits (ADR 0083): a key left out inherits
+        configuration, `None` clears one that can be cleared, a duration is
+        a `timedelta`, sent in whole milliseconds, and a Run's own
+        `settings` win over them key by key. A key the Connection does not
+        take fails the opening with the engine's error, such as
+        `setting_not_applicable` or `setting_locked`.
         """
         return Connecting(
             functools.partial(
@@ -118,6 +137,8 @@ class AsyncCollie(AsyncConnection):
                 engine=engine,
                 limits=limits,
                 connect_timeout=timeout,
+                max_listener_queue=max_listener_queue,
+                settings=settings,
             )
         )
 
@@ -187,6 +208,20 @@ class AsyncCollie(AsyncConnection):
         sent = raw_params(operation, params, timeout)
         return await self._connection.raw(operation, sent)
 
+    async def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with (ADR 0083), as `config explain` shows it.
+
+        Each setting under `keys`, each a key or a prefix of keys such as
+        `timeout`, every one when left out, with its effective value, the
+        layer and origin that set it and the layer that locked it: the
+        Connection's own `settings` over configuration and the Operator
+        policy, which each Run it starts inherits. Raises `closed` once the
+        Connection is closed.
+        """
+        return await self._connection.explain_settings(keys)
+
     async def close(self) -> None:
         """Closes the Connection; idempotent.
 
@@ -250,6 +285,8 @@ class Collie(Connection):
         engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
+        max_listener_queue: int = MAX_LISTENER_QUEUE,
+        settings: Settings | None = None,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -266,15 +303,29 @@ class Collie(Connection):
         its work. `timeout` is how long `hello` waits for the engine's
         answer: `timeout.connect`'s 30 s when left out, none for `None`;
         past it, `DeadlineExceededError` naming `timeout.connect` raises
-        (ADR 0083). An amount the SDK cannot turn exactly, a `timeout` of
-        zero or less or a refused `engine` or `GOODFETCH_URL`
-        (`setting_invalid`), a missing executable (`engine_not_found`), a
-        Daemon nothing reaches or that refuses its token
-        (`daemon_unreachable`), a refused Product (`not_in_product`) or
-        version, or a refused Limit raises here, with a `fix`, leaving
-        neither Attached engine nor thread behind. The engine sends its
+        (ADR 0083). `max_listener_queue` is how many events a Session's
+        listener holds that it has not yet got (1,024 when left out): past
+        it, the listener loses those that follow and, once it got the ones
+        it held, is removed and ends with `listener_events_lost`, logged at
+        error on `goodfetch.client`; the other listeners go on. Events come
+        up to 16 at a time, so a bound below 16 can end even a listener that
+        returns at once. An amount the SDK cannot turn exactly, a `timeout`
+        of zero or less, a `max_listener_queue` that is no whole number of 1
+        or more or a refused `engine` or `GOODFETCH_URL` (`setting_invalid`),
+        a missing executable (`engine_not_found`), a Daemon nothing reaches
+        or that refuses its token (`daemon_unreachable`), a refused Product
+        (`not_in_product`) or version, or a refused Limit raises here, with
+        a `fix`, leaving neither Attached engine nor thread behind. The engine sends its
         logs from the effective level of `goodfetch.engine`, read here
         (ADR 0078).
+
+        `settings` are the Connection's own, sent in `hello`, which every
+        Run it starts inherits (ADR 0083): a key left out inherits
+        configuration, `None` clears one that can be cleared, a duration is
+        a `timedelta`, sent in whole milliseconds, and a Run's own
+        `settings` win over them key by key. A key the Connection does not
+        take fails the opening with the engine's error, such as
+        `setting_not_applicable` or `setting_locked`.
         """
         return _open_sync(
             functools.partial(
@@ -284,6 +335,8 @@ class Collie(Connection):
                 engine=engine,
                 limits=limits,
                 connect_timeout=timeout,
+                max_listener_queue=max_listener_queue,
+                settings=settings,
             )
         )
 
@@ -359,6 +412,18 @@ class Collie(Connection):
         except LoopStopped:
             raise closed_error(operation) from None
 
+    def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with, as `AsyncCollie.explain_settings` says."""
+        explaining = functools.partial(
+            self._connection.explain_settings, None if keys is None else list(keys)
+        )
+        try:
+            return self._loop.call(explaining)
+        except LoopStopped:
+            raise closed_error("config.explain") from None
+
     def close(self) -> None:
         """Closes the Connection and joins its thread; idempotent, from any thread.
 
@@ -383,18 +448,33 @@ class Collie(Connection):
             raise self._close_failure
 
 
-def async_connect_over(transport: ByteStream) -> Connecting:
-    """Opens an `AsyncCollie` over `transport`, with no process behind it."""
-    return Connecting(functools.partial(open_over, COLLIE, transport))
+def async_connect_over(
+    transport: ByteStream, *, max_listener_queue: int = MAX_LISTENER_QUEUE
+) -> Connecting:
+    """Opens an `AsyncCollie` over `transport`, with no process behind it.
+
+    `max_listener_queue` is `connect()`'s.
+    """
+    return Connecting(
+        functools.partial(
+            open_over, COLLIE, transport, max_listener_queue=max_listener_queue
+        )
+    )
 
 
-def connect_over(transport: ByteStream) -> Collie:
+def connect_over(
+    transport: ByteStream, *, max_listener_queue: int = MAX_LISTENER_QUEUE
+) -> Collie:
     """Opens a sync `Collie` over `transport`, with no process behind it.
 
     Its private loop drives `transport`, so a transport bound to another
-    event loop does not fit.
+    event loop does not fit. `max_listener_queue` is `connect()`'s.
     """
-    return _open_sync(functools.partial(open_over, COLLIE, transport))
+    return _open_sync(
+        functools.partial(
+            open_over, COLLIE, transport, max_listener_queue=max_listener_queue
+        )
+    )
 
 
 def _open_sync(opening: Callable[[], Awaitable[ClientConnection]]) -> Collie:

@@ -60,11 +60,12 @@ from goodfetch_collie_client.host_logging import (
     log_level,
 )
 from goodfetch_collie_client.limits import Limits, limit_list
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.opening_process import OpeningProcess
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
-from goodfetch_collie_client.run import AsyncRun
+from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.settings import settings_on_wire
 from goodfetch_collie_client.shared_subscription import SharedSubscription
 
@@ -75,8 +76,12 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
-    from goodfetch_collie_client.generated.models import RunLimit, RunStarted
-    from goodfetch_collie_client.generated.settings import RunSettings
+    from goodfetch_collie_client.generated.models import (
+        RunLimit,
+        RunStarted,
+        SettingsExplanation,
+    )
+    from goodfetch_collie_client.generated.settings import RunSettings, Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.rpc import TransportEnd
 
@@ -198,10 +203,13 @@ class ClientConnection:
         error_classes: Mapping[str, ErrorClass],
         close_timeout: float,
         reached: Reached = ATTACHED_ELSEWHERE,
+        listener_queue: int = MAX_LISTENER_QUEUE,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
-        `reached` says how the engine was reached, which `engine` reports.
+        `reached` says how the engine was reached, which `engine` reports;
+        `listener_queue`, already checked, bounds the queue of each listener
+        of its own Subscription.
         """
         self._engine = engine
         self._reached = reached
@@ -209,7 +217,7 @@ class ClientConnection:
         self._channel = Channel(transport, self, error_classes)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
-        self._published = SharedSubscription(self)
+        self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
         self._closing = Once()
@@ -233,12 +241,20 @@ class ClientConnection:
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
         connect_timeout: int | NotGiven | None = not_given,
+        listener_queue: int = MAX_LISTENER_QUEUE,
+        settings: Settings | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
         Then each of `limits`, the wire's list of the Connection's Limits,
         is set on it. `reached` says how the engine was reached, and
-        `daemon` gives a Daemon's token, which `hello` carries.
+        `daemon` gives a Daemon's token, which `hello` carries, as it
+        carries `settings`, the Connection's own (ADR 0083), by their wire
+        spelling. A key the engine refuses, such as one outside the
+        Connection's scope (`setting_not_applicable`), fails the opening
+        with the engine's error. `listener_queue`, already checked by
+        `listener_queue_of`, bounds the queue of each listener of its own
+        Subscription.
         `connect_timeout`, already checked by `timeout_of`, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
         when left out, none for `None`. A refused Product, protocol version
@@ -248,9 +264,11 @@ class ClientConnection:
         closes the Connection before it answers `hello`, as one does for a
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
         """
-        connection = cls(transport, engine, error_classes, close_timeout, reached)
+        connection = cls(
+            transport, engine, error_classes, close_timeout, reached, listener_queue
+        )
         try:
-            await connection._hello(needs, daemon, connect_timeout)
+            await connection._hello(needs, daemon, connect_timeout, settings)
             for limit in limits:
                 await connection._set_limit(limit)
         except BaseException:
@@ -355,6 +373,21 @@ class ClientConnection:
         self._runs[run] = None
         return run
 
+    async def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with (ADR 0083), as `config explain` shows it.
+
+        Each setting under `keys`, each a key or a prefix of keys such as
+        `timeout`, every one when left out, with its effective value, the
+        layer and origin that set it and the layer that locked it: the
+        Connection's own `settings` over configuration and the Operator
+        policy, which each Run it starts inherits. Raises `closed` once the
+        Connection is closed.
+        """
+        self.ensure_open("config.explain")
+        return await self._operations.config_explain(explain_params(keys))
+
     def notified(self, method: str, params: object) -> None:
         """Logs each of the engine's `$/log` events; drops any other notification."""
         if method == LOG:
@@ -438,6 +471,7 @@ class ClientConnection:
         needs: Product,
         daemon: DaemonHello | None,
         connect_timeout: int | NotGiven | None,
+        settings: Settings | None,
     ) -> None:
         params = HelloParams(
             protocol_version=ProtocolVersion(PROTOCOL_VERSION),
@@ -450,6 +484,8 @@ class ClientConnection:
         if daemon is not None:
             # Set only for a Daemon, so an Attached engine's hello holds no token.
             params.token = daemon.token
+        if settings is not None:
+            params.settings = settings_on_wire(settings)
         try:
             answer = await self._hello_answer(params, connect_timeout)
         except EngineExitedError as error:

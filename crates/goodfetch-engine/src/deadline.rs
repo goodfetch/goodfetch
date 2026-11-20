@@ -22,7 +22,7 @@ use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::settings::Resolved;
 use tokio::time::Instant;
@@ -104,8 +104,9 @@ impl Deadline {
             return Err(CallError::new(
                 &SETTING_INVALID,
                 format!(
-                    "The call's `timeout`, its `{}`: {reason}; {fix}.",
-                    setting.name
+                    "The call's `{}`, its `{}`: {reason}; {fix}.",
+                    named::parameter("timeout"),
+                    named::setting(setting.name),
                 ),
                 &SettingInvalidDetails {
                     key: setting.name.to_owned(),
@@ -212,7 +213,8 @@ impl Deadline {
             &DEADLINE_EXCEEDED,
             format!(
                 "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
-                self.limit.key, self.limit.value,
+                named::setting(&self.limit.key),
+                self.limit.value,
             ),
             &DeadlineExceededDetails {
                 limit: self.limit.clone(),
@@ -313,7 +315,9 @@ impl Enclosing {
             &DEADLINE_EXCEEDED,
             format!(
                 "`{}` ({} ms) of the enclosing `{}` call passed before this call's answer came; raise it, or leave the call more of it.",
-                self.0.limit.key, self.0.limit.value, self.0.call.operation,
+                named::setting(&self.0.limit.key),
+                self.0.limit.value,
+                self.0.call.operation,
             ),
             &DeadlineExceededDetails {
                 limit: self.0.limit.clone(),

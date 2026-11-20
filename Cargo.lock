@@ -2409,6 +2409,7 @@ dependencies = [
  "goodfetch-workspace-hack",
  "proptest",
  "rstest",
+ "schemars",
  "serde",
  "serde_json",
  "tempfile",

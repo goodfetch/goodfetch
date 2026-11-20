@@ -51,7 +51,8 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
+
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
@@ -63,7 +64,9 @@ use goodfetch_page::page_value::{
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_CONTENT_TYPES, CRAWL_HANDLE_STATUSES, CRAWL_START, CrawlRequest,
+};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
@@ -856,9 +859,11 @@ fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
-            "`fetch.light_browser` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{key}` sets in {}: switch `fetch.light_browser` off, or unset `{key}`.",
+            "`{light}` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{proxy}` sets in {}: switch `{light}` off, or unset `{proxy}`.",
             allowed.layer.as_str(),
-            proxied.layer.as_str()
+            proxied.layer.as_str(),
+            light = named::setting_in(FETCH_LIGHT_BROWSER.name, allowed.layer),
+            proxy = named::setting_in(key, proxied.layer),
         ),
         &CapabilityUnavailableDetails {
             key: FETCH_LIGHT_BROWSER.name.to_owned(),
@@ -2845,8 +2850,10 @@ fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &SETTING_INVALID,
         format!(
-            "`fetch.redirect.max` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `crawl.handle_statuses` to hand it to the handler unfollowed.",
-            effective.layer.as_str()
+            "`{}` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `{}` to hand it to the handler unfollowed.",
+            named::setting_in(FETCH_REDIRECT_MAX.name, effective.layer),
+            effective.layer.as_str(),
+            named::setting_in(CRAWL_HANDLE_STATUSES.name, effective.layer),
         ),
         &SettingInvalidDetails {
             key: FETCH_REDIRECT_MAX.name.to_owned(),

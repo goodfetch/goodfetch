@@ -92,7 +92,7 @@ use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::{Run, run_trace};
-use goodfetch_engine::{CallError, CallStream};
+use goodfetch_engine::{CallError, CallStream, named};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::events::Position;
@@ -100,7 +100,7 @@ use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::naming;
 use goodfetch_protocol::page::events::{
     BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED,
-    PAGE_EVENTS_LOST, PAGE_LOAD, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
+    PAGE_EVENTS_LOST, PAGE_LOAD, PAGE_ON, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
     PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET,
     PageEventName, PageExchange, PageFired, PageRequest, PageWebSocket, RequestFailure,
     WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT, WebSocketClosed,
@@ -482,7 +482,7 @@ impl Listening {
             }
         }
         if self.overflowed.try_recv().is_ok() {
-            return Err(listener_fell_behind(&self.shared.page_id));
+            return Err(listener_fell_behind(&self.shared.page_id, self.event));
         }
         if *self.shared.lost.borrow() {
             return Err(events_lost(&self.shared.page_id));
@@ -1112,17 +1112,30 @@ fn redirect_has_no_body(url: &str, request_id: &str) -> CallError {
     )
 }
 
-/// `page_events_lost` for a `page.on` call on the page `page_id` whose
-/// Client took too few of its events.
-fn listener_fell_behind(page_id: &PageId) -> CallError {
+/// `page_events_lost` for a `page.on` call listening to `event` on the page
+/// `page_id` whose Client took too few of its events, the event named as
+/// that Client listens to it (ADR 0099).
+fn listener_fell_behind(page_id: &PageId, event: PageEventName) -> CallError {
+    let event = named::event(listened(event));
     CallError::new(
         &PAGE_EVENTS_LOST,
         format!(
-            "{LISTENER_LIMIT} events of the page `{}` waited unsent for this listener, whose Client granted too few credits: listen again, and grant credits as events are read",
+            "{LISTENER_LIMIT} `{event}` events of the page `{}` waited unsent for this listener, whose Client granted too few credits: listen again, and grant credits as events are read",
             page_id.0
         ),
         &serde_json::json!({ "page_id": page_id }),
     )
+}
+
+/// The catalog's event `page.on` sends for `event`.
+fn listened(event: PageEventName) -> &'static Event {
+    let name = goodfetch_protocol::wire_name::of(&event);
+    PAGE_ON
+        .events
+        .iter()
+        .copied()
+        .find(|listened| listened.name.strip_prefix("page.") == Some(name))
+        .expect("invariant: `page.on` sends each event it listens to")
 }
 
 /// `page_events_lost` for a call on events of the page `page_id`.
@@ -1675,3 +1688,6 @@ fn frame_of(
         binary: frame.opcode == 2.0,
     }
 }
+
+#[cfg(test)]
+mod tests;

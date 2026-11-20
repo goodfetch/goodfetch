@@ -34,7 +34,6 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use goodfetch_cdp::NetError;
-use goodfetch_engine::CallError;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::{EndpointPolicy, Gate};
 use goodfetch_engine::http_client;
@@ -42,6 +41,7 @@ use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::{
@@ -141,12 +141,17 @@ impl std::fmt::Debug for SessionProxy {
 /// `reason`.
 fn invalid(settings: &Resolved, setting: &Setting, reason: String) -> CallError {
     let key = setting.name;
+    let layer = settings.effective(setting).map(|effective| effective.layer);
+    let named = layer.map_or_else(
+        || key.to_owned(),
+        |layer| named::setting_in(key, layer).to_string(),
+    );
     CallError::new(
         &SETTING_INVALID,
-        format!("`{key}` is refused: {reason}"),
+        format!("`{named}` is refused: {reason}"),
         &SettingInvalidDetails {
             key: key.to_owned(),
-            layer: settings.effective(setting).map(|effective| effective.layer),
+            layer,
             reason,
             limit: None,
             fix: None,
@@ -344,7 +349,11 @@ fn provided_mode(
 fn needs(key: &str, needed: &str) -> CallError {
     CallError::new(
         &SETTING_INVALID,
-        format!("`{key}` is set without `{needed}`, which it needs"),
+        format!(
+            "`{}` is set without `{}`, which it needs",
+            named::setting(key),
+            named::setting(needed)
+        ),
         &SettingInvalidDetails {
             key: key.to_owned(),
             layer: None,

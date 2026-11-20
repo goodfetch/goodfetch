@@ -2,11 +2,12 @@
 
 One `events.subscribe`, sent when the first listener whose events the
 engine publishes on its event stream joins, such as a Session's, and
-cancelled once the last leaves. Each event goes to the readers that take
-it, and its credit goes back once each of them is through with it, so a
-slow listener slows the stream; the engine then falls behind to
-`events.resync` rather than wait, and the events in between are gone,
-which is logged. TypeScript's `shared-subscription.ts` is its twin.
+cancelled once the last leaves. Each event's credit goes back as it goes
+to the readers that take it, since each listener's own queue holds it or
+loses it (`listeners`), so a slow listener slows no other; should the
+stream still fall behind, the engine sends `events.resync` rather than
+wait, and the events in between are gone, which is logged. TypeScript's
+`shared-subscription.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -26,13 +27,10 @@ from goodfetch_collie_client.listeners import (
     Reader,
     Regranting,
     batch_of,
-    once,
     spawner,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from goodfetch_collie_client.listeners import Streams
 
 RESYNC = "events.resync"
@@ -44,9 +42,14 @@ _logger = logging.getLogger(CLIENT_LOGGER)
 class SharedSubscription:
     """One Connection's Subscription, shared by the listeners that read it."""
 
-    def __init__(self, connection: Streams) -> None:
-        """Sends nothing until a reader joins."""
+    def __init__(self, connection: Streams, listener_queue: int) -> None:
+        """Sends nothing until a reader joins.
+
+        `listener_queue`, already checked, bounds each listener's own queue.
+        """
         self._connection = connection
+        self.listener_queue = listener_queue
+        """How many events each listener's own queue holds, the one it has included."""
         self._readers: dict[Reader, None] = {}
         self._current: _Open | None = None
 
@@ -83,10 +86,7 @@ class SharedSubscription:
             await current.done.wait()
 
     def received(self, current: _Open, params: object) -> None:
-        """Hands each event of a batch to the readers that take it.
-
-        Its credit goes back once each of them is through with it.
-        """
+        """Gives each event of a batch's credit back, then hands it to its readers."""
         for event, data in batch_of(params):
             if event == RESYNC:
                 _logger.warning(
@@ -94,13 +94,10 @@ class SharedSubscription:
                     " published since its last read are gone, so a Session's"
                     " listener may have missed pages its `pages()` lists"
                 )
-            takers = [reader for reader in self._readers if reader.takes(event, data)]
-            if not takers:
-                current.settle()
-                continue
-            settled = _counted(len(takers), current.settle)
-            for reader in takers:
-                reader.take(data, once(settled))
+            current.settle()
+            for reader in list(self._readers):
+                if reader.takes(event, data):
+                    reader.take(data)
 
     def ended(self, current: _Open, error: GoodfetchError | None) -> None:
         """The Subscription ended unasked: each reader hears it.
@@ -114,19 +111,6 @@ class SharedSubscription:
         self._readers = {}
         for reader in readers:
             reader.ended(error)
-
-
-def _counted(takers: int, settle: Callable[[], None]) -> Callable[[], None]:
-    """What calls `settle` once it was called `takers` times."""
-    waiting = takers
-
-    def settled() -> None:
-        nonlocal waiting
-        waiting -= 1
-        if waiting == 0:
-            settle()
-
-    return settled
 
 
 class _Open:

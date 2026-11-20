@@ -36,6 +36,7 @@ use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::catalog::Setting;
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::egress::{
     EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS,
     EGRESS_PRIVATE_RANGES, EGRESS_REFUSED, EVERY_HOST, EgressRefusedDetails, EgressRule,
@@ -46,7 +47,7 @@ use goodfetch_protocol::security::SECURITY_RESOLVED_IP_CHECK;
 use serde_json::{Map, Value};
 use url::{Host, Url};
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::host_name::{self, without_root};
 use crate::settings::{HostEntry, Resolved};
 
@@ -362,9 +363,10 @@ impl Refused {
         }
     }
 
-    /// The failure the call that waited for the request answers with.
+    /// The failure the call that waited for the request answers with, the
+    /// setting that would allow it in its Client's form (ADR 0099).
     pub fn error(&self) -> CallError {
-        CallError::new(&EGRESS_REFUSED, self.to_string(), &self.details())
+        CallError::new(&EGRESS_REFUSED, self.message(), &self.details())
     }
 
     /// The failure as an event carries it, for a request no call waited
@@ -382,18 +384,25 @@ impl Refused {
     }
 }
 
-impl std::fmt::Display for Refused {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
+impl Refused {
+    /// What it refused, by which rule, and the setting that would allow it,
+    /// marked for its Client's form.
+    fn message(&self) -> String {
+        let refused = format!(
             "the egress policy refused a request to {} ({})",
             self.url,
             self.rule.as_str()
-        )?;
-        if let Some(setting) = self.setting {
-            write!(formatter, "; `{setting}` would allow it")?;
+        );
+        match self.setting {
+            Some(setting) => format!("{refused}; `{}` would allow it", named::setting(setting)),
+            None => refused,
         }
-        Ok(())
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&named::render(&self.message(), Form::Catalog))
     }
 }
 

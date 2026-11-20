@@ -4,7 +4,8 @@
 //! a line names it on any entry that exports it, so a member that several
 //! entries re-export, or a subclass inherits, is listed once. TypeScript's
 //! members are read by TypeScript's checker (`typescript-exports.mjs` says
-//! which); Python's and Rust's join with their own readers (issue 2920).
+//! which), a Rust crate's from its source ([`rust`] says which); Python's
+//! joins with its own reader (issue 2920).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,22 +21,25 @@ use serde::Deserialize;
 use super::{Language, MANIFESTS, Member};
 use crate::check::Finding;
 
+mod rust;
+
 /// Prints the members the TypeScript packages of the SDK's folder export.
 const TYPESCRIPT_EXPORTS: &str = include_str!("typescript-exports.mjs");
 
 /// One member an SDK's entry exports.
 #[derive(Deserialize)]
 struct Exported {
-    /// The entry exporting it: an npm package and its subpath.
+    /// The entry exporting it: an npm package and its subpath, or a crate.
     entry: String,
     receiver: String,
     member: String,
     /// The same for every entry exporting one declaration.
     id: String,
-    /// The folder of the package whose entry exports it.
+    /// The package whose entry exports it: a TypeScript package's folder,
+    /// or a crate's name.
     home: String,
-    /// The folder of the package declaring it, `None` for the language
-    /// library's.
+    /// The package declaring it, named as `home` is, `None` for the
+    /// language library's.
     package: Option<String>,
     generated: bool,
     /// Declared by the language's library, such as `Disposable`'s
@@ -46,11 +50,10 @@ struct Exported {
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for (manifest, language) in MANIFESTS {
-        let Some(exported) = exports(root, manifest, language)? else {
-            continue;
-        };
+        let exported = exports(root, manifest, language)?;
         compare(
             manifest,
+            language,
             &super::read(root, manifest)?,
             &exported,
             &mut findings,
@@ -59,15 +62,25 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-/// The members the SDK of `manifest` exports, or `None` for a language
-/// whose reader has not joined yet.
-fn exports(root: &Path, manifest: &str, language: Language) -> Result<Option<Vec<Exported>>> {
-    let Language::TypeScript = language else {
-        return Ok(None);
-    };
+/// The members the SDK of `manifest` exports.
+fn exports(root: &Path, manifest: &str, language: Language) -> Result<Vec<Exported>> {
     let sdk = Path::new(manifest)
         .parent()
         .context("a manifest sits in its SDK's folder")?;
+    match language {
+        Language::TypeScript => typescript_exports(root, sdk),
+        Language::Rust => {
+            let name = sdk
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("a Rust manifest sits in its crate's folder, named as the crate")?;
+            rust::exports(&root.join(sdk), name)
+        }
+    }
+}
+
+/// The members the TypeScript packages of the folder `sdk` export.
+fn typescript_exports(root: &Path, sdk: &Path) -> Result<Vec<Exported>> {
     let output = Command::new("node")
         .args(["--input-type=module", "--eval", TYPESCRIPT_EXPORTS])
         .arg(root.join(sdk))
@@ -81,14 +94,23 @@ fn exports(root: &Path, manifest: &str, language: Language) -> Result<Option<Vec
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    serde_json::from_slice(&output.stdout)
-        .context("parsing the TypeScript SDK's exports")
-        .map(Some)
+    serde_json::from_slice(&output.stdout).context("parsing the TypeScript SDK's exports")
 }
 
 /// Fails each line of `manifest` naming no hand-written member its SDK
 /// exports, and each hand-written member no line lists.
-fn compare(manifest: &str, members: &[Member], exported: &[Exported], findings: &mut Vec<Finding>) {
+fn compare(
+    manifest: &str,
+    language: Language,
+    members: &[Member],
+    exported: &[Exported],
+    findings: &mut Vec<Finding>,
+) {
+    // The key a line names its package with.
+    let package = match language {
+        Language::TypeScript => "package",
+        Language::Rust => "crate",
+    };
     let mut by_key: BTreeMap<(&str, &str, &str), Vec<&Exported>> = BTreeMap::new();
     for member in exported {
         by_key
@@ -170,7 +192,7 @@ fn compare(manifest: &str, members: &[Member], exported: &[Exported], findings: 
             "unlisted",
             format!("{manifest} {}.{}", shown.receiver, shown.member),
             format!(
-                "`{}` exports it and no line lists it; add a `[[member]]` line with package = \"{}\", receiver = \"{}\", member = \"{}\", the entry it serves or entry = \"none\" with its reason, its words and its form (ADR 0099)",
+                "`{}` exports it and no line lists it; add a `[[member]]` line with {package} = \"{}\", receiver = \"{}\", member = \"{}\", the entry it serves or entry = \"none\" with its reason, its words and its form (ADR 0099)",
                 shown.entry, shown.entry, shown.receiver, shown.member
             ),
         ));

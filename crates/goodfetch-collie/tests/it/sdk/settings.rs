@@ -3,14 +3,16 @@
 //! connection's own settings reach the engine in `hello`, a Run's own sit
 //! over them in three states, a key left out inheriting, `None` clearing
 //! and a value setting, and `explain_settings()` on the connection and on
-//! the Run answers what each runs with, async and through `blocking`.
+//! the Run answers what each runs with, async and through `blocking`; a
+//! key the Operator policy locked refuses the connection itself.
 //! TypeScript's `settings.test.ts` and Python's `test_settings_attached.py`
 //! are its twins, played there by the Scripted engine.
 
 use std::time::Duration;
 
 use goodfetch_collie::settings::{Settings, checkpoint, timeout};
-use goodfetch_collie::{Collie, ExplainedSetting, SettingsExplanation, blocking};
+use goodfetch_collie::{Collie, ErrorCode, ExplainedSetting, SettingsExplanation, blocking};
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 use serde_json::{Value, json};
 
@@ -105,8 +107,8 @@ fn a_program_without_async_explains_its_connections_and_its_runs_settings() {
     assert_eq!((keyed(&connection), keyed(&own)), expected());
 }
 
-/// Explaining every key leaves `keys` out, and a closed connection's
-/// explanation fails with `closed` before anything is sent.
+/// Explaining with no `keys` answers every key, and a closed connection's
+/// explanation fails with `closed`.
 /// Covers: story:11-72
 #[test]
 fn explaining_every_key_answers_each_and_a_closed_connection_explains_nothing() {
@@ -125,6 +127,35 @@ fn explaining_every_key_answers_each_and_a_closed_connection_explains_nothing() 
                 .any(|setting| setting.key == "timeout.wait"),
             "{every:?}"
         );
-        assert_eq!(closed.code().to_string(), "closed");
+        assert_eq!(closed.code(), ErrorCode::CLOSED);
     });
+}
+
+/// A connection setting a key the Operator policy locked is refused at
+/// `hello`, and `connect` fails with the engine's `setting_locked`.
+/// Covers: story:11-70, error:setting_locked
+#[test]
+fn a_connection_setting_a_locked_key_fails_to_connect_with_setting_locked() {
+    let env = TestEnv::new();
+    let layout = HomeLayout::of(env.home());
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes the Goodfetch home's Operator policy itself"
+    )]
+    {
+        std::fs::create_dir_all(layout.per_major()).unwrap();
+        std::fs::write(
+            layout.operator_policy(),
+            "version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n",
+        )
+        .unwrap();
+    }
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(options(&env).settings(connection_settings()))
+            .await
+            .unwrap_err()
+    });
+
+    assert_eq!(refused.code(), ErrorCode::SETTING_LOCKED, "{refused:?}");
 }

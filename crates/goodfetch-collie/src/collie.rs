@@ -53,8 +53,8 @@ impl Collie {
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
-    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
-    /// or a remote Daemon's URL that names no loopback `ws://` address, or
+    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`,
+    /// a zero `max_listener_queue` or a remote Daemon's URL that names no loopback `ws://` address, or
     /// `GOODFETCH_URL` without `GOODFETCH_TOKEN`, `daemon_unreachable` when
     /// the Daemon chosen cannot be reached, which `Daemon` never starts
     /// (ADR 0098), `deadline_exceeded` naming `timeout.connect` when `hello` is not
@@ -227,8 +227,7 @@ impl Collie {
             Composed::COLLIE,
             ProductConnection::hello(Composed::COLLIE.product),
             dependencies,
-            goodfetch_collie_client::Limits::new(),
-            goodfetch_collie_client::ConnectTimeout::Default,
+            crate::linked::Asked::default(),
         )
         .await?;
         Ok(Self { linked })

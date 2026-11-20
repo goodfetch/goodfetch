@@ -14,7 +14,10 @@
 //! Session's pages, gets them from the Connection's own Subscription
 //! instead, which [`crate::published`] shares between such streams: its
 //! call only arms the engine, and the stream joins the Subscription before
-//! the call is sent and leaves it once dropped or ended.
+//! the call is sent and leaves it once dropped or ended. Its own queue
+//! holds at most the Connection's [`crate::ListenerQueue`] unread events,
+//! so a stream left unread slows no other: past it, the stream loses its
+//! own events, hands those it held, then ends with `listener_events_lost`.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -27,7 +30,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
-use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Taken};
+use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Received, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
 
 /// What a stream builds each event's payload into.
@@ -42,7 +45,10 @@ type Build<T> = Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>;
 /// It ends, [`EventStream::next`] answering `None`, when its call does:
 /// when its page or Session closes or its Run ends. A call that fails, such
 /// as one whose value is closed or whose engine lost events past its
-/// credits (`page_events_lost`), hands its error once, then ends.
+/// credits (`page_events_lost`), hands its error once, then ends. A
+/// Session's stream that held as many unread events as the Connection's
+/// [`crate::ListenerQueue`] loses its next ones, and once it handed those it
+/// held, hands `listener_events_lost` naming how many it lost, then ends.
 #[must_use = "a stream's call is sent when it is made; dropping it cancels the call"]
 pub struct EventStream<T> {
     flow: Flow,
@@ -86,8 +92,8 @@ enum Source {
     Published {
         /// Its place on the Subscription, until it leaves.
         membership: Option<Membership>,
-        /// The events it takes, each with its credit.
-        taken: mpsc::UnboundedReceiver<Taken>,
+        /// The events its queue holds, then its end.
+        taken: Received,
     },
 }
 
@@ -180,7 +186,9 @@ impl<T> EventStream<T> {
     ///
     /// An item is `internal` when an event does not fit its type, after
     /// which the stream goes on; `closed` when the value or the Connection
-    /// is closed, and the engine's error when the call fails, after which it ends.
+    /// is closed, the engine's error when the call fails, and
+    /// `listener_events_lost` when a Session's stream lost events past its
+    /// queue, after which it ends.
     ///
     /// # Cancel safety
     ///
@@ -308,14 +316,16 @@ impl Flow {
                 return Poll::Ready(None);
             };
             match taken.poll_recv(context) {
-                // Read: its credit goes back as its share drops.
-                Poll::Ready(Some(Taken::Event(data, _credit))) => {
+                Poll::Ready(Some(Taken::Event(data))) => {
                     return Poll::Ready(Some(Ok(data)));
                 }
+                // It read what it held: it leaves, and says what it lost.
+                Poll::Ready(Some(Taken::Lost(lost))) => {
+                    self.end();
+                    return Poll::Ready(Some(Err(Error::listener_events_lost(self.event, lost))));
+                }
                 Poll::Ready(Some(Taken::Ended(failure))) => {
-                    self.cancel();
-                    self.leave();
-                    self.ended = true;
+                    self.end();
                     return Poll::Ready(failure.map(Err));
                 }
                 // It left, and read every event it took before.
@@ -403,6 +413,14 @@ impl Flow {
             drop(membership.take());
         }
     }
+
+    /// Ends the stream before its call does: cancels the call and leaves
+    /// the Subscription.
+    fn end(&mut self) {
+        self.cancel();
+        self.leave();
+        self.ended = true;
+    }
 }
 
 /// Grants the call `id`, once it was sent, `credits` more events.
@@ -423,8 +441,7 @@ impl<T> futures_core::Stream for EventStream<T> {
 impl Drop for Flow {
     /// Cancels the call unless it ended, without blocking and without a
     /// warning, then leaves the Subscription, which its last reader
-    /// cancels; the events it took and never read then give their credits
-    /// back.
+    /// cancels.
     fn drop(&mut self) {
         self.cancel();
         self.leave();

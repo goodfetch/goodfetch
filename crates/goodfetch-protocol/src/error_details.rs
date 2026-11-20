@@ -58,6 +58,7 @@ details! {
     crate::egress::CdpUrlNotAllowedDetails => ErrorCode::CDP_URL_NOT_ALLOWED,
     crate::egress::EgressRefusedDetails => ErrorCode::EGRESS_REFUSED,
     crate::egress::LocalAddressUnavailableDetails => ErrorCode::LOCAL_ADDRESS_UNAVAILABLE,
+    crate::events::ListenerEventsLostDetails => ErrorCode::LISTENER_EVENTS_LOST,
     crate::executables::ExecutableBlockedBySmartAppControlDetails => ErrorCode::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL,
     crate::foxhound::crawl::LabelUnknownDetails => foxhound::LABEL_UNKNOWN,
     crate::foxhound::crawl::StagingFullDetails => foxhound::STAGING_FULL,

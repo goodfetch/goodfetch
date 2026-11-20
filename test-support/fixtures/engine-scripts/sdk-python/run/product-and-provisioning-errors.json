@@ -108,7 +108,7 @@
       "reply": {
         "error": {
           "code": -32006,
-          "message": "Chrome for Testing 141.0.7390.54-linux64, pinned by Collie 0.0.0, is not in the Browser cache at /srv/goodfetch/browsers, which this engine cannot write",
+          "message": "the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 is not in the Browser cache at /srv/goodfetch/browsers, which this engine cannot write",
           "data": {
             "code": "browser_not_installed",
             "retryable": false,
@@ -142,7 +142,7 @@
       "reply": {
         "error": {
           "code": -32002,
-          "message": "Chrome for Testing 141.0.7390.54-linux64, pinned by Collie 0.0.0, is not in the Browser cache at /srv/goodfetch/browsers, and `egress.offline` refuses its download",
+          "message": "the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 is not in the Browser cache at /srv/goodfetch/browsers, and `egress.offline` refuses its download",
           "data": {
             "code": "artifact_unavailable_offline",
             "retryable": false,
@@ -178,7 +178,7 @@
       "reply": {
         "error": {
           "code": -32006,
-          "message": "downloading Chrome for Testing 141.0.7390.54-linux64, pinned by Collie 0.0.0, from storage.googleapis.com failed: storage.googleapis.com answered 404",
+          "message": "downloading the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 from storage.googleapis.com failed: storage.googleapis.com answered 404",
           "data": {
             "code": "artifact_download_failed",
             "retryable": true,

@@ -17,12 +17,10 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
+use crate::start::failure;
 
 /// Foxhound's install command on the engine's channel, npm.
 const INSTALL: &str = "npm install @goodfetch/foxhound";
-
-/// The command each provisioning error's fix names.
-const BROWSER_INSTALL: &str = "`goodfetch-collie browser install`";
 
 /// The Browser cache the engine reads.
 const CACHE: &str = "/srv/goodfetch/browsers";
@@ -39,11 +37,6 @@ struct Refused {
     offline: Error,
     /// The third, whose download fails with a 404.
     download_failed: Error,
-}
-
-/// The error `answer` holds; a success fails the test.
-fn failure<T: std::fmt::Debug>(answer: Result<T, Error>) -> Error {
-    answer.expect_err("the call failed")
 }
 
 /// Plays the script's calls on a Connection to the Daemon at `endpoint`.
@@ -76,13 +69,8 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
 }
 
 /// `error`'s code, group and whether it is retryable.
-fn kind(error: &Error) -> (ErrorCode, ErrorGroup, bool) {
+fn code_group_retryable(error: &Error) -> (ErrorCode, ErrorGroup, bool) {
     (error.code(), error.group(), error.retryable())
-}
-
-/// Whether `error`'s fix names the Product's `browser install`.
-fn fix_names_browser_install(error: &Error) -> bool {
-    error.fix().is_some_and(|fix| fix.contains(BROWSER_INSTALL))
 }
 
 /// The build every refused page needs.
@@ -99,7 +87,7 @@ fn pinned_by() -> Value {
 /// both Products and Foxhound's install command.
 fn assert_not_in_product(operation: &Error, setting: &Error) {
     assert_eq!(
-        kind(operation),
+        code_group_retryable(operation),
         (ErrorCode::NOT_IN_PRODUCT, ErrorGroup::Unavailable, false)
     );
     let fix = format!(
@@ -119,7 +107,10 @@ fn assert_not_in_product(operation: &Error, setting: &Error) {
         })
     );
 
-    assert_eq!(kind(setting), kind(operation));
+    assert_eq!(
+        code_group_retryable(setting),
+        code_group_retryable(operation)
+    );
     let details = setting.details::<NotInProductDetails>().unwrap();
     assert_eq!(
         (details.requested.as_deref(), details.install.as_deref()),
@@ -132,18 +123,22 @@ fn assert_not_in_product(operation: &Error, setting: &Error) {
 /// it.
 fn assert_not_installed(error: &Error) {
     assert_eq!(
-        kind(error),
+        code_group_retryable(error),
         (
             ErrorCode::BROWSER_NOT_INSTALLED,
             ErrorGroup::Unavailable,
             false
         )
     );
-    assert!(fix_names_browser_install(error), "{error:?}");
+    let fix = "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it";
+    assert_eq!(error.fix(), Some(fix));
     let details = error.details::<BrowserNotInstalledDetails>().unwrap();
     assert_eq!(
-        serde_json::to_value(details.missing).unwrap(),
-        json!({"kind": "pinned", "artifact": build(), "pinned_by": pinned_by(), "cache": CACHE})
+        serde_json::to_value(details).unwrap(),
+        json!({
+            "missing": {"kind": "pinned", "artifact": build(), "pinned_by": pinned_by(), "cache": CACHE},
+            "fix": fix,
+        })
     );
 }
 
@@ -151,26 +146,26 @@ fn assert_not_installed(error: &Error) {
 /// `artifact_unavailable_offline`, a refusal naming the setting.
 fn assert_offline(error: &Error) {
     assert_eq!(
-        kind(error),
+        code_group_retryable(error),
         (
             ErrorCode::ARTIFACT_UNAVAILABLE_OFFLINE,
             ErrorGroup::Refused,
             false
         )
     );
-    assert!(fix_names_browser_install(error), "{error:?}");
+    let fix = "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set";
+    assert_eq!(error.fix(), Some(fix));
     let details = error
         .details::<ArtifactUnavailableOfflineDetails>()
         .unwrap();
-    let mut wire = serde_json::to_value(details).unwrap();
-    wire.as_object_mut().unwrap().remove("fix");
     assert_eq!(
-        wire,
+        serde_json::to_value(details).unwrap(),
         json!({
             "artifact": build(),
             "pinned_by": pinned_by(),
             "cache": CACHE,
             "limit": {"key": "egress.offline", "value": true, "layer": "user_configuration"},
+            "fix": fix,
         })
     );
 }
@@ -179,25 +174,25 @@ fn assert_offline(error: &Error) {
 /// naming its host and failure.
 fn assert_download_failed(error: &Error) {
     assert_eq!(
-        kind(error),
+        code_group_retryable(error),
         (
             ErrorCode::ARTIFACT_DOWNLOAD_FAILED,
             ErrorGroup::Unavailable,
             true
         )
     );
-    assert!(fix_names_browser_install(error), "{error:?}");
+    let fix = "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache";
+    assert_eq!(error.fix(), Some(fix));
     let details = error.details::<ArtifactDownloadFailedDetails>().unwrap();
-    let mut wire = serde_json::to_value(details).unwrap();
-    wire.as_object_mut().unwrap().remove("fix");
     assert_eq!(
-        wire,
+        serde_json::to_value(details).unwrap(),
         json!({
             "artifact": build(),
             "pinned_by": pinned_by(),
             "host": "storage.googleapis.com",
             "failure": "http_status",
             "status": 404,
+            "fix": fix,
         })
     );
 }

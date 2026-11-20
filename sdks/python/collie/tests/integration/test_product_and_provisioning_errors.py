@@ -44,9 +44,6 @@ CACHE = "/srv/goodfetch/browsers"
 INSTALL = "pip install goodfetch-foxhound"
 """Foxhound's install command on the engine's channel, PyPI."""
 
-BROWSER_INSTALL = "`goodfetch-collie browser install`"
-"""The command each provisioning error's fix names."""
-
 
 @pytest.mark.covers(
     "story:11-10",
@@ -128,8 +125,11 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             not_installed.group,
             not_installed.retryable,
         ) == ("browser_not_installed", "unavailable", False)
-        assert not_installed.fix is not None
-        assert BROWSER_INSTALL in not_installed.fix
+        assert not_installed.fix == (
+            "Run `goodfetch-collie browser install` where the Browser cache is"
+            " writable, such as in the image's build, or point"
+            " GOODFETCH_BROWSERS_PATH at a cache that holds it"
+        )
         assert not_installed.details == {
             "missing": {
                 "kind": "pinned",
@@ -149,8 +149,10 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             "refused",
             False,
         )
-        assert offline.fix is not None
-        assert BROWSER_INSTALL in offline.fix
+        assert offline.fix == (
+            "Run `goodfetch-collie browser install` beforehand where the Browser"
+            " cache is writable, or lift `egress.offline` where it was set"
+        )
         assert offline.limit is not None
         assert (offline.limit.key, offline.limit.value, offline.limit.layer) == (
             "egress.offline",
@@ -173,8 +175,10 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             download_failed.group,
             download_failed.retryable,
         ) == ("artifact_download_failed", "unavailable", True)
-        assert download_failed.fix is not None
-        assert BROWSER_INSTALL in download_failed.fix
+        assert download_failed.fix == (
+            "Retry, or run `goodfetch-collie browser install` beforehand, or point"
+            " GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
+        )
         assert download_failed.details == {
             "artifact": BUILD,
             "pinned_by": PINNED_BY,

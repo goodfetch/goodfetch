@@ -13,18 +13,14 @@ import {
   RefusedError,
   UnavailableError,
 } from "@goodfetch/collie";
-import { recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
-/** What `call` rejects with. */
-async function failure(call: Promise<unknown>): Promise<unknown> {
-  return call.then(
-    () => {
-      throw new TypeError("the call succeeded");
-    },
-    (error: unknown) => error,
-  );
-}
+/** Foxhound's install command on the engine's channel, npm. */
+const INSTALL = "npm install @goodfetch/foxhound";
+
+/** The Browser cache the engine reads. */
+const CACHE = "/srv/goodfetch/browsers";
 
 /** The build every refused page needs. */
 const BUILD = {
@@ -72,7 +68,6 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
       await run.finish();
       await collie.close();
 
-      const install = "npm install @goodfetch/foxhound";
       await clientCase.check(
         "a Foxhound operation raises NotInProductError, an UnavailableError naming both Products and Foxhound's install command",
         () => {
@@ -82,13 +77,13 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
             code: "not_in_product",
             group: "unavailable",
             retryable: false,
-            fix: `Run it with Foxhound, which contains everything Collie does (\`${install}\`), or connect to a Foxhound engine.`,
+            fix: `Run it with Foxhound, which contains everything Collie does (\`${INSTALL}\`), or connect to a Foxhound engine.`,
             details: {
               product: "collie",
               product_version: "0.0.0",
               needs: "foxhound",
               requested: "crawl.start",
-              install,
+              install: INSTALL,
             },
           });
         },
@@ -97,7 +92,7 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
         expect(setting).toBeInstanceOf(NotInProductError);
         expect(setting).toMatchObject({
           retryable: false,
-          details: { needs: "foxhound", requested: "crawl.max_requests", install },
+          details: { needs: "foxhound", requested: "crawl.max_requests", install: INSTALL },
         });
       });
       await clientCase.check(
@@ -109,14 +104,9 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
             code: "browser_not_installed",
             group: "unavailable",
             retryable: false,
-            fix: expect.stringContaining("`goodfetch-collie browser install`"),
+            fix: "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it",
             details: {
-              missing: {
-                kind: "pinned",
-                artifact: BUILD,
-                pinned_by: PINNED_BY,
-                cache: "/srv/goodfetch/browsers",
-              },
+              missing: { kind: "pinned", artifact: BUILD, pinned_by: PINNED_BY, cache: CACHE },
             },
           });
         },
@@ -130,9 +120,9 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
             code: "artifact_unavailable_offline",
             group: "refused",
             retryable: false,
-            fix: expect.stringContaining("`goodfetch-collie browser install`"),
+            fix: "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set",
             limit: { key: "egress.offline", value: true, layer: "user_configuration" },
-            details: { artifact: BUILD, pinned_by: PINNED_BY, cache: "/srv/goodfetch/browsers" },
+            details: { artifact: BUILD, pinned_by: PINNED_BY, cache: CACHE },
           });
         },
       );
@@ -145,7 +135,7 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
             code: "artifact_download_failed",
             group: "unavailable",
             retryable: true,
-            fix: expect.stringContaining("`goodfetch-collie browser install`"),
+            fix: "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache",
             details: {
               artifact: BUILD,
               pinned_by: PINNED_BY,

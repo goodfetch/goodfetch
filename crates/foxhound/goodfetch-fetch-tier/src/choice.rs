@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use encoding_rs::Encoding;
-use goodfetch_engine::CallError;
+use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
@@ -387,7 +387,7 @@ fn not_taken(name: &str, key: String) -> CallError {
         };
         let taken: Vec<String> = LABEL_SETTINGS
             .iter()
-            .map(|setting| format!("`{}`", setting.name))
+            .map(|setting| format!("`{}`", named::setting(setting.name)))
             .collect();
         format!(
             "which a Label does not take in this engine{only}: only {} are set per Label",
@@ -396,7 +396,10 @@ fn not_taken(name: &str, key: String) -> CallError {
     };
     CallError::new(
         &SETTING_NOT_APPLICABLE,
-        format!("The Label `{name}` sets `{key}`, {why}; set `{key}` for the Run instead."),
+        format!(
+            "The Label `{name}` sets `{set}`, {why}; set `{set}` for the Run instead.",
+            set = named::setting(&key)
+        ),
         &SettingNotApplicableDetails {
             key,
             layer: SettingsLayer::Run,
@@ -454,7 +457,10 @@ fn http_from_of(label: &str, key: &str, value: &Value) -> Result<HttpFrom, CallE
 fn invalid(name: &str, key: &str, value: &Value, reason: &str) -> CallError {
     CallError::new(
         &SETTING_INVALID,
-        format!("The Label `{name}` sets `{key}` to {value}, which {reason}."),
+        format!(
+            "The Label `{name}` sets `{}` to {value}, which {reason}.",
+            named::setting(key)
+        ),
         &SettingInvalidDetails {
             key: key.to_owned(),
             layer: Some(SettingsLayer::Run),

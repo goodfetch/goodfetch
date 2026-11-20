@@ -2,4 +2,4 @@ error[E0599]: no method named `timeout` found for struct `goodfetch_collie_clien
  --> tests/ui/forms/timeout_on_a_query.rs:7:44
   |
 7 |     let _read = page.read(BTreeMap::new()).timeout(Duration::from_secs(1));
-  |                                            ^^^^^^^ method not found in `goodfetch_collie_client::Query<goodfetch_protocol::page::read::PageRead, goodfetch_protocol::page::read::PageReadParams>`
+  |                                            ^^^^^^^ method not found in `goodfetch_collie_client::Query<goodfetch_collie_client::Answer<goodfetch_protocol::page::read::PageRead>, goodfetch_protocol::page::read::PageReadParams>`

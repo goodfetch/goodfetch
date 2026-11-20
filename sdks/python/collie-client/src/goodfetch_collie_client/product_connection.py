@@ -29,6 +29,7 @@ from goodfetch_collie_client.generated.errors import SettingInvalidError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.limits import limit_list
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, listener_queue_of
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.engine_choice import DaemonReach, EngineChoice
     from goodfetch_collie_client.generated.models import Product, RunLimit
+    from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -115,6 +117,8 @@ async def open_engine(
     close_timeout: float = CLOSE_TIMEOUT,
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
+    max_listener_queue: int = MAX_LISTENER_QUEUE,
+    settings: Settings | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -125,17 +129,22 @@ async def open_engine(
     and a Daemon this call starts, gets exactly this map. `connect_timeout`
     is how long `hello` waits for its answer: `timeout.connect`'s 30 s when
     left out, none for `None`; past it, `DeadlineExceededError` naming
-    `timeout.connect` raises. A `limits` amount the SDK cannot turn exactly,
-    or a `connect_timeout` of zero or less (`setting_invalid`), raises before
-    any engine is reached. A refused engine choice (`setting_invalid`), a
-    missing executable (`engine_not_found`), a Daemon nothing reaches or that
-    refuses the token (`daemon_unreachable`), a refused Product
-    (`not_in_product`) or version, or a refused Limit raises here, with a
-    `fix`, leaving no Attached engine behind. The engine reached is logged
-    at info on the `goodfetch.client` logger, its `EngineInfo` as the
-    record's `engine`.
+    `timeout.connect` raises. `max_listener_queue` bounds the queue of each
+    listener of the Connection's own Subscription. A `limits` amount the SDK
+    cannot turn exactly, a `connect_timeout` of zero or less or a
+    `max_listener_queue` that is no whole number of 1 or more
+    (`setting_invalid`) raises before any engine is reached. A refused engine
+    choice (`setting_invalid`), a missing executable (`engine_not_found`), a
+    Daemon nothing reaches or that refuses the token (`daemon_unreachable`),
+    a refused Product (`not_in_product`) or version, or a refused Limit
+    raises here, with a `fix`, leaving no Attached engine behind. The engine
+    reached is logged at info on the `goodfetch.client` logger, its
+    `EngineInfo` as the record's `engine`. `settings`, the Connection's own
+    (ADR 0083), go in `hello`, and a key the engine refuses fails the opening
+    with its error, such as `setting_not_applicable`.
     """
     connection_limits = limit_list(limits)
+    listener_queue = listener_queue_of(max_listener_queue)
     checked = (
         connect_timeout
         if isinstance(connect_timeout, NotGiven)
@@ -147,11 +156,24 @@ async def open_engine(
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
-            product, environment, reach.home, close_timeout, connection_limits, checked
+            product,
+            environment,
+            reach.home,
+            close_timeout,
+            connection_limits,
+            checked,
+            listener_queue,
+            settings=settings,
         )
     else:
         connection = await _open_daemon(
-            product, reach, close_timeout, connection_limits, checked
+            product,
+            reach,
+            close_timeout,
+            connection_limits,
+            checked,
+            listener_queue,
+            settings=settings,
         )
     info = connection.engine
     logging.getLogger(CLIENT_LOGGER).info(
@@ -167,6 +189,9 @@ async def _open_attached(
     close_timeout: float,
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
+    listener_queue: int,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Starts `product`'s engine as an Attached engine with `env`, then `hello`."""
     location = locate_engine(env, product)
@@ -180,6 +205,8 @@ async def _open_attached(
         close_timeout=close_timeout,
         limits=limits,
         connect_timeout=connect_timeout,
+        listener_queue=listener_queue,
+        settings=settings,
     )
 
 
@@ -189,6 +216,9 @@ async def _open_daemon(
     close_timeout: float,
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
+    listener_queue: int,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Finishes `hello` with a Daemon, its token in it.
 
@@ -204,6 +234,8 @@ async def _open_daemon(
         close_timeout=close_timeout,
         limits=limits,
         connect_timeout=connect_timeout,
+        listener_queue=listener_queue,
+        settings=settings,
     )
 
 
@@ -233,15 +265,19 @@ async def open_over(
     transport: ByteStream,
     *,
     close_timeout: float = CLOSE_TIMEOUT,
+    max_listener_queue: int = MAX_LISTENER_QUEUE,
 ) -> ClientConnection:
     """Finishes `hello`, naming `product`, over `transport`.
 
     Such as the Scripted engine's in-memory player (ADR 0069): `connect()`'s
-    Connection with no process behind it.
+    Connection with no process behind it. `max_listener_queue` is
+    `connect()`'s, and a bad one raises `setting_invalid` before `hello`.
     """
+    listener_queue = listener_queue_of(max_listener_queue)
     return await ClientConnection.open(
         transport,
         needs=product.needs,
         error_classes=product.error_classes,
         close_timeout=close_timeout,
+        listener_queue=listener_queue,
     )

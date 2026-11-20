@@ -71,6 +71,15 @@ impl<T, P> Call<T, P> {
     }
 }
 
+/// A whole result: its typed view and the JSON it came from.
+pub struct Answer<T>(PhantomData<fn() -> T>);
+
+impl<'de, T: DeserializeOwned> serde::Deserialize<'de> for Answer<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(_deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self(PhantomData))
+    }
+}
+
 /// A raw call of an operation, its params and its result the wire's JSON.
 #[must_use]
 pub struct RawCall;

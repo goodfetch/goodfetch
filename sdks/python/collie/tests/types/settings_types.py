@@ -1,12 +1,12 @@
 """Each scope's settings (ADR 0083), checked by pyright and mypy.
 
-Starting a Run takes `RunSettings`, opening a Session `SessionSettings` and
-opening a page `PageSettings`: nested `TypedDict` literals by the wire's
-`snake_case` segments, durations as `timedelta`, `None` only where a setting
-can be cleared. A key outside its scope, a misspelled or camelCase one, a
-setting only configuration sets and a wrong value are each refused; mypy's
-`--strict` reports an ignore that no longer silences an error. TypeScript's
-`settings.test-d.ts` is its twin.
+Connecting takes `Settings`, starting a Run `RunSettings`, opening a Session
+`SessionSettings` and opening a page `PageSettings`: nested `TypedDict`
+literals by the wire's `snake_case` segments, durations as `timedelta`,
+`None` only where a setting can be cleared. A key outside its scope, a
+misspelled or camelCase one, a setting only configuration sets and a wrong
+value are each refused; mypy's `--strict` reports an ignore that no longer
+silences an error. TypeScript's `settings.test-d.ts` is its twin.
 """
 
 from datetime import timedelta
@@ -72,3 +72,10 @@ async def each_call_refuses_another_scopes_settings(collie: AsyncCollie) -> None
     await collie.start(settings={"timeout": {"run": SECOND}})  # type: ignore[arg-type]
     await run.new_session(settings={"session": {"source": None}})  # type: ignore[arg-type]
     await session.new_page(settings={"browser": {"headless": True}})  # type: ignore[arg-type]
+
+
+async def connects_with_the_connections_settings() -> None:
+    """`connect()` takes the Connection's settings and refuses a key no code sets."""
+    await AsyncCollie.connect(settings={"timeout": {"run": timedelta(hours=1)}})
+    Collie.connect(settings={"checkpoint": {"interval": None}}).close()
+    await AsyncCollie.connect(settings={"proxy": {"providers": {}}})  # type: ignore[arg-type]

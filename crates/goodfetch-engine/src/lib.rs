@@ -97,7 +97,7 @@ pub mod upgrade;
 mod usage;
 mod wire;
 
-pub use call_error::CallError;
+pub use call_error::{CallError, named};
 pub use composition::{
     Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
     Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams,

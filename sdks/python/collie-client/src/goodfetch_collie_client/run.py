@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar
 
 import anyio
 
+from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.framing import object_members
 from goodfetch_collie_client.generated.errors import (
     CallCancelledError,
@@ -31,7 +32,13 @@ from goodfetch_collie_client.generated.errors import (
 )
 from goodfetch_collie_client.generated.handles import AsyncRun as AsyncRunMembers
 from goodfetch_collie_client.generated.handles import Run as RunMembers
-from goodfetch_collie_client.generated.models import Lifecycle, RunAbortParams, RunId
+from goodfetch_collie_client.generated.models import (
+    ConfigExplainParams,
+    Lifecycle,
+    RunAbortParams,
+    RunId,
+    SettingsExplanation,
+)
 from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
@@ -61,7 +68,7 @@ from goodfetch_collie_client.portal import LoopStopped
 from goodfetch_collie_client.sequence import AsyncSequence, Reading, Sequence
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Callable, Iterable, Mapping
     from typing import Self
 
     from pydantic import BaseModel, JsonValue
@@ -739,6 +746,23 @@ class AsyncRun(AsyncRunMembers):
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return self._started_as
 
+    async def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Run runs with (ADR 0083), as `config explain` shows it.
+
+        Each setting under `keys`, each a key or a prefix of keys such as
+        `timeout`, every one when left out, with the effective value the Run
+        opened with, the layer and origin that set it and the layer that
+        locked it: its own `settings` over its Connection's. A Run that is
+        no longer live fails with `run_not_found`, and a closed Run's value
+        with `closed`.
+        """
+        params = explain_params(keys, run_id=self.id)
+        return result_of(
+            SettingsExplanation, await self._host.call("config.explain", params)
+        )
+
     async def close(self) -> None:
         """Closes the Run; idempotent.
 
@@ -774,6 +798,21 @@ class AsyncRun(AsyncRunMembers):
         await self.close()
 
 
+def explain_params(
+    keys: Iterable[str] | None, *, run_id: str | None = None
+) -> ConfigExplainParams:
+    """`config.explain`'s params, for the Run `run_id` or else the Connection.
+
+    `keys` and `run_id` each stay off the wire when left out.
+    """
+    params = ConfigExplainParams()
+    if run_id is not None:
+        params.run_id = run_id
+    if keys is not None:
+        params.keys = list(keys)
+    return params
+
+
 def _says_ended(result: object) -> bool:
     """Whether `result` is an answer that says its Run is no longer running."""
     members = object_members(result)
@@ -807,6 +846,13 @@ class Run(RunMembers):
         """Whether its start began it, resumed it or found it ended."""
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return self._run.started_as
+
+    def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Run runs with, as `AsyncRun.explain_settings` says."""
+        params = explain_params(keys, run_id=self.id)
+        return result_of(SettingsExplanation, self._host.call("config.explain", params))
 
     def close(self) -> None:
         """Closes the Run; idempotent.

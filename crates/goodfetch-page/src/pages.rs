@@ -55,9 +55,9 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
-use goodfetch_protocol::connection::{Form, Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
@@ -322,29 +322,29 @@ fn with_request_handler(contribution: Contribution, pages: &Pages) -> Contributi
     let requesting = pages.clone();
     contribution.with_handler(Handler::new(
         &PAGE_REQUEST,
-        move |params: PageRequestParams, context: CallContext| {
+        move |params: PageRequestParams, _: CallContext| {
             let pages = requesting.clone();
-            async move { Box::pin(pages.request(params, context.surface())).await }
+            async move { Box::pin(pages.request(params)).await }
         },
     ))
 }
 
 /// The count of redirects `page.request` follows, `max_redirects` or its
 /// default; `setting_invalid` above the browser-fetch tier's count, its
-/// option spelled for `surface` (ADR 0118).
-fn redirect_count(max_redirects: Option<u32>, surface: Surface) -> Result<u32, CallError> {
+/// parameter spelled in its Client's form (ADRs 0099 and 0118).
+fn redirect_count(max_redirects: Option<u32>) -> Result<u32, CallError> {
     let count = max_redirects.unwrap_or(MAX_REDIRECTS);
     if count <= MAX_REDIRECTS {
         return Ok(count);
     }
-    let option = max_redirects_option(surface);
     Err(CallError::new(
         &SETTING_INVALID,
         format!(
-            "`{option}` is {count}, above {MAX_REDIRECTS}: the browser-fetch tier that sends `page.request` follows at most {MAX_REDIRECTS} redirects"
+            "`{}` is {count}, above {MAX_REDIRECTS}: the browser-fetch tier that sends `page.request` follows at most {MAX_REDIRECTS} redirects",
+            named::parameter(MAX_REDIRECTS_PARAMETER)
         ),
         &SettingInvalidDetails {
-            key: option.to_owned(),
+            key: MAX_REDIRECTS_PARAMETER.to_owned(),
             layer: Some(SettingsLayer::Run),
             reason: format!(
                 "{count} is above {MAX_REDIRECTS}, the most redirects a request follows"
@@ -355,20 +355,9 @@ fn redirect_count(max_redirects: Option<u32>, surface: Surface) -> Result<u32, C
     ))
 }
 
-/// `page.request`'s count of redirects, in `surface`'s spelling.
-fn max_redirects_option(surface: Surface) -> &'static str {
-    match surface {
-        Surface::SdkTypescript => "maxRedirects",
-        Surface::SdkPython
-        | Surface::Rust
-        | Surface::Cli
-        | Surface::Mcp
-        | Surface::Kennel
-        | Surface::Cloud
-        | Surface::BrowserHost
-        | Surface::Worker => "max_redirects",
-    }
-}
+/// `page.request`'s parameter that counts its redirects, by its canonical
+/// name.
+const MAX_REDIRECTS_PARAMETER: &str = "max_redirects";
 
 /// Adds the handlers of `page.on`, each listening from when its call
 /// arrives until the call goes and sending its events on the call itself,
@@ -1330,15 +1319,10 @@ impl Pages {
     /// Sends the request `params` names from its page's Session, through
     /// the browser-fetch tier, from a page of the Session the engine opens
     /// for it and closes after it, and answers its response, whose body the
-    /// page's events keep, whole or as cut, for `response.body`; its errors
-    /// are spelled for `surface`.
+    /// page's events keep, whole or as cut, for `response.body`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_REQUEST.name, run_id = tracing::field::Empty, url.origin = goodfetch_engine::log::origin(&params.url)))]
-    async fn request(
-        &self,
-        params: PageRequestParams,
-        surface: Surface,
-    ) -> Result<PageResponse, CallError> {
-        let max_redirects = redirect_count(params.max_redirects, surface)?;
+    async fn request(&self, params: PageRequestParams) -> Result<PageResponse, CallError> {
+        let max_redirects = redirect_count(params.max_redirects)?;
         headers_sent(params.headers.as_ref())?;
         let (page, spent) = self
             .open(&params.page_id, |page| {
@@ -1355,7 +1339,7 @@ impl Pages {
             headers: params.headers.as_ref(),
             post_data: params.post_data.as_deref(),
             max_redirects,
-            option: max_redirects_option(surface),
+            option: MAX_REDIRECTS_PARAMETER,
             limits,
             read: browser_fetch::BodyRead::Whole,
         };

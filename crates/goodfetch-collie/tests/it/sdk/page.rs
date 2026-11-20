@@ -161,7 +161,7 @@ fn a_program_fills_the_proving_grounds_form_and_reads_its_markdown() {
         collie.close().await.unwrap();
 
         assert_eq!(navigated.map(|response| response.status()), Some(200));
-        let markdown = formats.markdown.unwrap_or_default();
+        let markdown = formats.into_inner().markdown.unwrap_or_default();
         assert!(markdown.contains("done"), "{markdown}");
         assert_eq!(report.lifecycle, Lifecycle::Finished);
     });

@@ -8,7 +8,7 @@
 
 use connection_library::finish_one_run;
 use goodfetch_foxhound::{
-    ConnectOptions, Connection, Error, ErrorCode, Foxhound, RunId, RunReport, blocking,
+    Answer, ConnectOptions, Connection, Error, ErrorCode, Foxhound, RunId, RunReport, blocking,
 };
 use goodfetch_protocol::run::{Lifecycle, RUN_REPORT, RunParams};
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
@@ -27,13 +27,23 @@ fn options(env: &TestEnv) -> ConnectOptions {
 /// which both Products' connections implement, starts a Run on it and
 /// finishes it.
 async fn start_and_finish(connection: &impl Connection) -> Result<RunReport, Error> {
-    connection.start().await?.finish().await
+    connection
+        .start()
+        .await?
+        .finish()
+        .await
+        .map(Answer::into_inner)
 }
 
 /// The same helper written for Collie without async: it takes the client
 /// crate's blocking Connection.
 fn start_and_finish_blocking(connection: &impl blocking::Connection) -> Result<RunReport, Error> {
-    connection.start().send()?.finish().send()
+    connection
+        .start()
+        .send()?
+        .finish()
+        .send()
+        .map(Answer::into_inner)
 }
 
 /// Covers: story:11-1002

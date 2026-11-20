@@ -21,9 +21,8 @@ const SNIPPETS: &str = "consent/snippets.toml";
 const RUNNER: &str = "consent/runner.js";
 
 /// The positions, in a compact rule, of its step lists: `detectCmp`,
-/// `detectPopup`, `optOut` and `test`; and of its name.
+/// `detectPopup`, `optOut` and `test`.
 const STEP_LISTS: [usize; 4] = [6, 7, 8, 9];
-const NAME: usize = 1;
 
 /// zstd's level for the bundle.
 const LEVEL: i32 = 19;
@@ -73,17 +72,12 @@ pub(crate) fn bundle(manifest: &Path, out: &Path) {
     if let Some(object) = rules.as_object_mut() {
         object.remove("index");
     }
-    let mut left_out = Vec::new();
     if let Some(list) = rules.get_mut("r").and_then(Value::as_array_mut) {
         list.retain(|rule| {
-            let names = STEP_LISTS
+            !STEP_LISTS
                 .iter()
                 .filter_map(|position| rule.get(position))
-                .any(|steps| names_any(steps, &dropped));
-            if names {
-                left_out.push(rule[NAME].as_str().unwrap_or_default().to_owned());
-            }
-            !names
+                .any(|steps| names_any(steps, &dropped))
         });
     }
     let worlds: BTreeMap<&str, &str> = table
@@ -135,11 +129,6 @@ pub(crate) fn bundle(manifest: &Path, out: &Path) {
             .expect("invariant: writing to a String cannot fail");
     }
     tables.push_str("];\n");
-    writeln!(
-        tables,
-        "pub(crate) const DROPPED_RULES: &[&str] = &{left_out:?};"
-    )
-    .expect("invariant: writing to a String cannot fail");
     std::fs::write(out.join("consent.rs"), tables)
         .expect("invariant: a build script can write its OUT_DIR");
 }

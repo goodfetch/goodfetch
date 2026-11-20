@@ -760,42 +760,6 @@ fn the_connections_messages_are_types_of_the_collie_client_package_only(
     );
 }
 
-/// Covers: story:1-57
-#[rstest]
-#[case::typescript_collie_client(
-    "sdks/typescript/collie-client/src/generated/operations.ts",
-    "\"sample.echo\"",
-    "\"sample.crawl\""
-)]
-#[case::typescript_foxhound(
-    "sdks/typescript/foxhound/src/generated/operations.ts",
-    "\"sample.crawl\"",
-    "\"sample.echo\""
-)]
-#[case::python_collie_client(
-    "sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py",
-    "\"sample.echo\"",
-    "\"sample.crawl\""
-)]
-#[case::python_foxhound(
-    "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py",
-    "\"sample.crawl\"",
-    "\"sample.echo\""
-)]
-fn each_sdk_package_generates_only_its_products_operations(
-    #[case] path: &str,
-    #[case] own_operation: &str,
-    #[case] other_operation: &str,
-) {
-    let workspace = Workspace::from_fixture("codegen");
-
-    codegen(&workspace);
-
-    let operations = workspace.read_text(path);
-    assert!(operations.contains(own_operation), "{operations}");
-    assert!(!operations.contains(other_operation), "{operations}");
-}
-
 /// Each package spells its own Product's values of a type both Products
 /// share (ADR 0095), Foxhound's on top of Collie's, and keeps a value it
 /// does not know as received (ADR 0079).

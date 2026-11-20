@@ -48,7 +48,7 @@ pub trait BlockClassifier: Send + Sync {
 /// The classifier of a composition that holds no Block classification
 /// rules: no document has a Block cause.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct NoBlocks;
+pub(crate) struct NoBlocks;
 
 impl BlockClassifier for NoBlocks {
     fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {

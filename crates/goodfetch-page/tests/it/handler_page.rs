@@ -22,17 +22,28 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_page::Launcher;
-use goodfetch_page::blocks::NoBlocks;
+use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, ProductVersion, Surface};
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_REQUESTS};
+use goodfetch_protocol::page::PageResponse;
 use goodfetch_recording_gate::RecordingGate;
 use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+
+/// The Block classifier of a composition that holds no Block
+/// classification rules, as Collie's own: no document has a Block cause.
+pub(crate) struct NoBlocks;
+
+impl BlockClassifier for NoBlocks {
+    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+        None
+    }
+}
 
 /// How long one call may take: the first page launches the browser.
 const CALL_DEADLINE: Duration = Duration::from_secs(60);

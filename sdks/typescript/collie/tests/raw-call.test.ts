@@ -1,13 +1,14 @@
 // The raw catalog call (ADR 0099, G8) on the Scripted engine as a Foxhound
 // engine, which a Collie program reaches: `call` on the Connection and on
-// each value sends the wire's JSON and answers the engine's unchanged, and
-// the main path's protections hold.
+// each value sends the wire's JSON, marked raw in its `_meta`, and answers
+// the engine's unchanged, and the main path's protections hold.
 import { Collie } from "@goodfetch/collie";
 import {
   CallCancelledError,
   ClosedError,
   DeadlineExceededError,
   ProgramError,
+  type RawParams,
 } from "@goodfetch/collie-client";
 import { recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
@@ -40,6 +41,17 @@ describe("The raw call on the Scripted engine as the Attached engine", () => {
       const named = await collie.call("run.failed_requests", { run_id: run.id(), blocked: false });
       const otherNamespace = await failure(run.call("page.goto", { url: "https://shop.test/" }));
       const ownParam = await failure(run.call("run.usage", { run_id: "another" }));
+      const ownMeta = [
+        await failure(collie.call("run.list", { _meta: { raw: false } })),
+        await failure(run.call("run.usage", { _meta: {} })),
+        await failure(
+          collie.call(
+            "run.list",
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- plain JavaScript, which the params' type refuses: a `toJSON` that serializes into a `_meta` of its own.
+            { toJSON: () => ({ _meta: { raw: false } }) } as unknown as RawParams,
+          ),
+        ),
+      ];
       const deadline = await failure(run.call("run.finish", {}, { timeout: 2 }));
       const stopping = new AbortController();
       const outcomes = run.call("run.outcomes", {}, { signal: stopping.signal });
@@ -86,6 +98,13 @@ describe("The raw call on the Scripted engine as the Attached engine", () => {
       );
       await clientCase.check("the value's own parameter is the value's to fill", () =>
         expect(ownParam).toMatchObject({ constructor: ProgramError, code: "invalid_params" }),
+      );
+      await clientCase.check("a `_meta` of the program's own fails before it is sent", () =>
+        expect(ownMeta).toEqual([
+          expect.objectContaining({ constructor: ProgramError, code: "invalid_params" }),
+          expect.objectContaining({ constructor: ProgramError, code: "invalid_params" }),
+          expect.objectContaining({ constructor: ProgramError, code: "invalid_params" }),
+        ]),
       );
       await clientCase.check(
         "the timeout is sent as the operation's own, and its failure raises its class",

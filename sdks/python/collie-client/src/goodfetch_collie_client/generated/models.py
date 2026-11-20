@@ -2006,6 +2006,39 @@ class RequestId(RootModel[int | str]):
     """A request's id, which its reply carries back."""
 
 
+class RequestMeta(BaseModel):
+    """
+    What a request's `_meta` holds (ADR 0132), which its runtime writes and
+    never a program: its Trace context, with no Baggage, and the raw mark of
+    a call a program made through the raw `call` (ADR 0099). A closed
+    object: the engine refuses any other key. The schema checks only that
+    each Trace context field is a string: a receiver drops a value it cannot
+    use, and never fails the call for it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    raw: bool | None = None
+    """
+    Whether the program sent the call through the raw `call`, the way
+    down to an operation its SDK does not generate (ADR 0099): an SDK
+    sets it on that call alone, and refuses a `_meta` the program writes
+    into its params, so a program neither forges nor removes it. The
+    engine validates and enforces a raw call as any other.
+    """
+    traceparent: str | None = None
+    """
+    The caller's span, as W3C Trace Context's `traceparent` header
+    holds it.
+    """
+    tracestate: str | None = None
+    """
+    Its vendors' values, as W3C Trace Context's `tracestate` header
+    holds them.
+    """
+
+
 class RequestSeed(BaseModel):
     """
     One request a crawl starts from (ADR 0093): a URL, the Label that picks
@@ -3278,29 +3311,6 @@ class TimeRange(BaseModel):
     """Its first point, included."""
     until: PointInTime | None = None
     """The point it ends before, excluded."""
-
-
-class TraceContext(BaseModel):
-    """
-    A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
-    and `tracestate`, which its runtime writes and never a program, with no
-    Baggage. The schema checks only that each is a string: a receiver drops
-    a value it cannot use, and never fails the call for it.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    traceparent: str | None = None
-    """
-    The caller's span, as W3C Trace Context's `traceparent` header
-    holds it.
-    """
-    tracestate: str | None = None
-    """
-    Its vendors' values, as W3C Trace Context's `tracestate` header
-    holds them.
-    """
 
 
 class UncertainEffect(BaseModel):

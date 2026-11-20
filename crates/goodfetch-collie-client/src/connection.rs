@@ -21,6 +21,7 @@ use std::time::Duration;
 use data_encoding::BASE64;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use goodfetch_protocol::error_code::ErrorCode;
+use goodfetch_protocol::jsonrpc::META;
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevel, LogLevelSet, SetLogLevelParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
@@ -278,7 +279,7 @@ impl ClientConnection {
 
     /// The call of `method` with `params`, whose reply reads as `T`.
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
-        Call::new(self.sender(), method, to_value(params))
+        Call::new(self.sender(), method, typed_params(method, params))
     }
 
     /// The raw call of `operation` (ADR 0099), its params and its result
@@ -289,7 +290,7 @@ impl ClientConnection {
 
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Query<T> {
-        Query::new(self.sender(), method, to_value(params))
+        Query::new(self.sender(), method, typed_params(method, params))
     }
 
     /// The handle the calls of the Connection's handles go through.
@@ -324,7 +325,7 @@ impl ClientConnection {
         SaveFile {
             connection: self.clone(),
             method: method.to_owned(),
-            params: to_value(params),
+            params: typed_params(method, params),
             path: path.to_owned(),
             call: call.to_owned(),
             timeout: None,
@@ -737,6 +738,20 @@ pub(crate) fn close_timeout() -> Duration {
 /// `params` as the call sends them.
 fn to_value(params: &impl Serialize) -> Result<serde_json::Value, Error> {
     serde_json::to_value(params).map_err(Error::shape)
+}
+
+/// The params of a typed call of `method` as the wire's JSON. A `_meta`
+/// among them is refused: the SDK writes a request's envelope, so a typed
+/// call is never marked raw (ADR 0099).
+fn typed_params(method: &str, params: &impl Serialize) -> Result<serde_json::Value, Error> {
+    let params = to_value(params)?;
+    if params
+        .as_object()
+        .is_some_and(|fields| fields.contains_key(META))
+    {
+        return Err(Error::own_meta(method));
+    }
+    Ok(params)
 }
 
 /// What a task on the Connection's runtime returned. A panic in it carries

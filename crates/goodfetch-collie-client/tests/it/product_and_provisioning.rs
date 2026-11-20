@@ -50,9 +50,9 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
     .await
     .unwrap();
     let seeds = json!({"seeds": [{"url": "https://shop.test/", "label": "page"}]});
-    let operation = failure(connection.call::<Value>("crawl.start", &seeds).await);
+    let operation = failure(connection.raw_call("crawl.start").params(seeds).await);
     let capped = json!({"settings": {"crawl": {"max_requests": 10}}});
-    let setting = failure(connection.call::<Value>("run.start", &capped).await);
+    let setting = failure(connection.raw_call("run.start").params(capped).await);
     let run = connection.start().await.unwrap();
     let not_installed = failure(run.new_page().await);
     let offline = failure(run.new_page().await);

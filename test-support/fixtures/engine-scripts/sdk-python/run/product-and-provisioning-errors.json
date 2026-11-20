@@ -28,6 +28,7 @@
       "expect": {
         "method": "crawl.start",
         "params": {
+          "_meta": { "raw": true },
           "seeds": [{ "url": "https://shop.test/", "label": "page" }]
         }
       }
@@ -54,6 +55,7 @@
       "expect": {
         "method": "run.start",
         "params": {
+          "_meta": { "raw": true },
           "settings": {
             "crawl": {
               "max_requests": 10

@@ -85,8 +85,9 @@ Decided in [ADR 0059](../adr/0059-dependencies-are-injected-as-values-and-only-t
 4. No fixed ports: bind port 0 and report the address, or use a Unix socket or named pipe in the test's folder.
 5. One Valkey per CI job, with a namespace per test.
 6. Resources shared by the whole user (keychain, service manager) run in a nextest test group, with unique names.
-7. Certificate authorities are made per test: the Proving ground's from its seed, a Daemon group's by `group init` into the test's folder.
-8. No test reads another test's data or depends on test order.
+7. Compile-fail tests (trybuild) run one at a time, in nextest's `compile-fail` test group, which selects every integration-test binary's `compile_fail` module: trybuild writes each test's cases into the one project it generates for the crate, and its lock between processes is best-effort, so two run at once can build each other's cases (issue 3069). A new compile-fail test goes into that module, and so joins the group.
+8. Certificate authorities are made per test: the Proving ground's from its seed, a Daemon group's by `group init` into the test's folder.
+9. No test reads another test's data or depends on test order.
 
 ### SDKs
 

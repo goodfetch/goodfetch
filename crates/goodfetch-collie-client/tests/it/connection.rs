@@ -27,6 +27,7 @@ use goodfetch_protocol::connection::{
     DeadlineExceededDetails, HelloParams, ProductVersion, Surface,
 };
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
+use goodfetch_protocol::page::PAGE_GOTO;
 use goodfetch_protocol::settings::SettingInvalidDetails;
 use tempfile::TempDir;
 
@@ -213,6 +214,21 @@ pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
     reply
 }
 
+/// What a scripted peer's engine answers `hello` with.
+fn said() -> serde_json::Value {
+    serde_json::json!({
+        "protocol_version": "0.1",
+        "product": "collie",
+        "product_version": "0.0.0",
+        "engine_instance": "01J0000000000000000000000",
+    })
+}
+
+/// What a scripted peer's engine answers `engine.info` with.
+fn info() -> serde_json::Value {
+    serde_json::json!({"product": "collie", "product_version": "0.0.0", "protocol_version": "0.1", "product_major": 0})
+}
+
 /// A call's `timeout` left out is not sent, `no_timeout` sends null, and a
 /// duration its milliseconds rounded up (ADR 0080): the wire side of the
 /// `call-timeout-three-states` case.
@@ -222,12 +238,7 @@ pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
 fn a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up() {
     use tokio::io::AsyncWriteExt as _;
     let (network, mut lines, mut writer) = scripted();
-    let said = serde_json::json!({
-        "protocol_version": "0.1",
-        "product": "collie",
-        "product_version": "0.0.0",
-        "engine_instance": "01J0000000000000000000000",
-    });
+    let said = said();
     let started = serde_json::json!({"run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc", "lifecycle": "running", "needs": "collie", "started_as": "new"});
     let report = serde_json::json!({
         "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
@@ -301,13 +312,8 @@ fn a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up() {
 fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
     use tokio::io::AsyncWriteExt as _;
     let (network, mut lines, mut writer) = scripted();
-    let said = serde_json::json!({
-        "protocol_version": "0.1",
-        "product": "collie",
-        "product_version": "0.0.0",
-        "engine_instance": "01J0000000000000000000000",
-    });
-    let info = serde_json::json!({"product": "collie", "product_version": "0.0.0", "protocol_version": "0.1", "product_major": 0});
+    let said = said();
+    let info = info();
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
         let peer = async {
@@ -353,6 +359,96 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
     });
 }
 
+/// Dropping the future of a call the catalog says is cancellable, once the
+/// call is sent, cancels it with `$/cancel` naming its id, without waiting
+/// (ADR 0080); the peer's late reply to it and the next call then go as
+/// usual.
+#[test]
+fn a_dropped_cancellable_call_is_cancelled_by_its_id() {
+    let read = after_a_dropped_call(PAGE_GOTO.name);
+
+    assert_eq!(read[0]["method"], PAGE_GOTO.name);
+    assert_eq!(
+        read[1],
+        serde_json::json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"id": read[0]["id"]}}),
+    );
+    assert_eq!(read[2]["method"], ENGINE_INFO.name);
+    assert_eq!(read.len(), 3);
+}
+
+/// Dropping the future of a call the catalog says is not cancellable sends
+/// no `$/cancel`, which the engine would ignore (ADR 0080): the peer reads
+/// the next call straight after it.
+#[test]
+fn a_dropped_call_that_is_not_cancellable_sends_no_cancel() {
+    let read = after_a_dropped_call(ENGINE_INFO.name);
+
+    let methods: Vec<_> = read.iter().map(|line| line["method"].clone()).collect();
+    assert_eq!(methods, [ENGINE_INFO.name, ENGINE_INFO.name]);
+}
+
+/// Every line a peer reads after `hello` when the client drops a call of
+/// `method` once the peer has read it, then makes an `engine.info` call and
+/// closes; the peer answers the dropped call only after reading that next
+/// call.
+fn after_a_dropped_call(method: &'static str) -> Vec<serde_json::Value> {
+    use tokio::io::AsyncWriteExt as _;
+    let (network, mut lines, mut writer) = scripted();
+    let said = said();
+    let info = info();
+    let runtime = goodfetch_test_support::runtime();
+    runtime.block_on(async {
+        let (sent, heard) = tokio::sync::oneshot::channel::<()>();
+        let peer = async {
+            let hello = lines.next_line().await.unwrap().unwrap();
+            writer.write_all(&reply(&hello, &said)).await.unwrap();
+            let dropped = lines.next_line().await.unwrap().unwrap();
+            sent.send(()).unwrap();
+            let mut read: Vec<serde_json::Value> = vec![serde_json::from_str(&dropped).unwrap()];
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let line: serde_json::Value = serde_json::from_str(&line).unwrap();
+                if line.get("id").is_some() {
+                    writer.write_all(&reply(&dropped, &info)).await.unwrap();
+                    writer
+                        .write_all(&reply(&line.to_string(), &info))
+                        .await
+                        .unwrap();
+                }
+                read.push(line);
+            }
+            writer.shutdown().await.unwrap();
+            read
+        };
+        let client = async {
+            let (connection, _) = ClientConnection::open(
+                ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                &network,
+                &Endpoint::InMemory,
+                hello(),
+            )
+            .await
+            .unwrap();
+            let call = connection
+                .call::<serde_json::Value>(method, &serde_json::json!({}))
+                .no_timeout();
+            tokio::select! {
+                replied = call => panic!("the peer never answers before the drop: {replied:?}"),
+                _ = heard => {}
+            }
+            let answered: Result<EngineInfo, Error> = connection
+                .call(ENGINE_INFO.name, &EngineInfoParams::default())
+                .no_timeout()
+                .await;
+            connection.close().await.unwrap();
+            answered
+        };
+        let (answered, read) = tokio::join!(client, peer);
+
+        assert_eq!(answered.unwrap().product, Product::Collie);
+        read
+    })
+}
+
 /// Opens a Connection to a peer that reads `hello` and answers it after
 /// `answer_after`, or never, within `timeout`, on the paused clock; the
 /// opening's result, and every request the peer read after `hello`.
@@ -362,12 +458,7 @@ fn open_within_against(
 ) -> (Result<(), Error>, Vec<serde_json::Value>) {
     use tokio::io::AsyncWriteExt as _;
     let (network, mut lines, mut writer) = scripted();
-    let said = serde_json::json!({
-        "protocol_version": "0.1",
-        "product": "collie",
-        "product_version": "0.0.0",
-        "engine_instance": "01J0000000000000000000000",
-    });
+    let said = said();
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
         let peer = async {

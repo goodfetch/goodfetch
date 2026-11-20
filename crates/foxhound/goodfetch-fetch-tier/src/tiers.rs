@@ -374,7 +374,7 @@ struct Opened {
 
 /// What a served document's hand-off to the CPU pool read of its Block
 /// cause (issue 2189).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Classified {
     /// The hand-off did not classify it: Block classification reads it in a
     /// hand-off of its own when asked.
@@ -1428,7 +1428,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 untouched: Arc::clone(&opened.untouched),
-                classified: opened.classified,
+                classified: opened.classified.clone(),
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
@@ -1929,9 +1929,11 @@ impl FetchTiers {
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
         // Its document's hand-off classified it, when it took one.
-        if let Classified::Read(classified) = page.classified {
+        if let Classified::Read(classified) = &page.classified {
             let received = run.clock().wall();
-            return classified.map(|block| (block, blocked(block, &response, received)));
+            return classified
+                .clone()
+                .map(|block| (block.clone(), blocked(block, &response, received)));
         }
         self.classified(&run, response, Arc::clone(&page.document))
             .await
@@ -1965,7 +1967,7 @@ impl FetchTiers {
                 block.map(|block| (block, response))
             })
             .await?;
-        Some((block, blocked(block, &response, received)))
+        Some((block.clone(), blocked(block, &response, received)))
     }
 
     /// The formats `request` names of the page `page_id`, served or a

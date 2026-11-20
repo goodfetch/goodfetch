@@ -908,7 +908,7 @@ fn with_every_block_blocked_a_replacement_rotates_within_a_block_and_says_so() {
     let ip_block = Effect::Blocked(BlockCause::IpBlock);
 
     let addresses = [
-        served(&mut pool, "shop.test", ip_block),
+        served(&mut pool, "shop.test", ip_block.clone()),
         served(&mut pool, "shop.test", ip_block),
         served(&mut pool, "shop.test", Effect::Success),
     ];

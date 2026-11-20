@@ -58,9 +58,9 @@ pub enum Action {
 
 /// What a crawl does with a request whose Session met a block of `cause`
 /// where `met` says (the module's doc).
-pub fn on_block(cause: BlockCause, met: Met) -> Action {
+pub fn on_block(cause: &BlockCause, met: Met) -> Action {
     let challenge = matches!(cause, BlockCause::Challenge | BlockCause::Captcha);
-    if cause == BlockCause::IpBlock && met.from_transport && !met.forced {
+    if *cause == BlockCause::IpBlock && met.from_transport && !met.forced {
         return Action::Sample;
     }
     match met.tier {

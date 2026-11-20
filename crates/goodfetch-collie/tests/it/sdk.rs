@@ -20,11 +20,14 @@ use serde_json::json;
 mod closing;
 mod engine_choice;
 mod events;
+#[cfg(unix)]
+mod interrupt;
 mod limits;
 mod logging;
 mod page;
 mod public_items;
 mod raw_call;
+mod settings;
 mod start;
 
 /// What a connection opens with: the test's environment, which names its

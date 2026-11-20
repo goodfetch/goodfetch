@@ -5,6 +5,7 @@
 //! works inside one too, where it blocks only the thread that calls it.
 
 use goodfetch_collie_client::blocking;
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
@@ -75,6 +76,12 @@ impl Collie {
         self.connection.start()
     }
 
+    /// What the connection runs with, as
+    /// [`crate::Collie::explain_settings`] says, which `send()` asks.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        self.connection.explain_settings()
+    }
+
     /// Closes the connection for every clone, as [`crate::Collie::close`]
     /// does, and returns once its linked engine, if any, has stopped.
     ///
@@ -96,6 +103,10 @@ impl blocking::Connection for Collie {
 
     fn call(&self, operation: &str) -> RawCall {
         Collie::call(self, operation)
+    }
+
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Collie::explain_settings(self)
     }
 
     fn close(&self) -> Result<(), Error> {

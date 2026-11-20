@@ -30,6 +30,7 @@ export { Sequence, type SequenceOptions } from "./sequence.ts";
 export { type DeprecatedSettings, onWire, type SettingsOnWire, type Spelling } from "./settings.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export { settingsOnWire } from "./generated/settings.ts";
+export { collieOperationNames } from "./generated/operations.ts";
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export {
   fromWire,

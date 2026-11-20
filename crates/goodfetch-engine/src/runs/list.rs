@@ -51,7 +51,7 @@ fn matches(row: &RunIndexRow, params: &RunListParams, text: Option<&str>) -> boo
         && equal(params.trigger, trigger(row))
         && equal(params.product, Some(row.needs))
         && equal(params.lifecycle, Some(row.lifecycle))
-        && equal(params.verdict, row.verdict)
+        && equal(params.verdict.as_ref(), row.verdict.as_ref())
         && equal(params.completeness, row.completeness)
         && within(params.started.as_ref(), Some(row.started_at))
         && within(params.ended.as_ref(), row.ended_at)
@@ -101,11 +101,12 @@ fn lifecycle_rank(lifecycle: Lifecycle) -> u8 {
     }
 }
 
-fn verdict_rank(verdict: Verdict) -> u8 {
+fn verdict_rank(verdict: &Verdict) -> u8 {
     match verdict {
         Verdict::Verified => 0,
         Verdict::Rejected => 1,
         Verdict::NeedsReview => 2,
+        _ => 3,
     }
 }
 
@@ -152,8 +153,8 @@ fn compare(key: RunSortKey, left: &RunIndexRow, right: &RunIndexRow) -> Ordering
             lifecycle_rank(left.lifecycle).cmp(&lifecycle_rank(right.lifecycle))
         }
         RunSortKey::Verdict => present_first(
-            left.verdict.map(verdict_rank),
-            right.verdict.map(verdict_rank),
+            left.verdict.as_ref().map(verdict_rank),
+            right.verdict.as_ref().map(verdict_rank),
         ),
         RunSortKey::Completeness => present_first(
             left.completeness.map(completeness_rank),

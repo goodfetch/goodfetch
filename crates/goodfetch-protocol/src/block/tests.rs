@@ -39,7 +39,7 @@ fn each_block_cause_is_on_the_wire_as_written_and_in_the_catalog_under_its_produ
     #[case] wire: &str,
     #[case] product: &str,
 ) {
-    let written = serde_json::to_value(cause).unwrap();
+    let written = serde_json::to_value(&cause).unwrap();
 
     assert_eq!(written, json!(wire));
     assert_eq!(

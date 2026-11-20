@@ -50,9 +50,9 @@ pub use goodfetch_collie::{
     ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
 };
 pub use goodfetch_collie_client::{
-    BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues,
-    Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Session, Start,
-    UsageKind, events, settings,
+    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
+    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
+    SchemaError, Session, Start, UsageKind, events, schemars, settings,
 };
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the

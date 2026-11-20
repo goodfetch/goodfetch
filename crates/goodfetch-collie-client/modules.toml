@@ -34,18 +34,22 @@
 # `published` is the Connection's own Subscription, which the streams of
 # the events the engine publishes on its event stream share (ADR 0081),
 # such as a Session's.
+# `answer` is a top-level result's typed view with the JSON it came from,
+# unknown fields kept (ADR 0082), which `generated`'s members answer;
+# `schema` is the Schema a program's own types cross the wire through.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
-blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
+answer = []
+blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
 connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "published", "raw_call", "rpc", "sync", "transport"]
 connection_type = ["call", "error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc"]
-field_values = ["call", "error"]
+field_values = ["answer", "call", "error"]
 file_saving = ["error"]
-generated = ["call", "event_stream", "host", "markers", "response", "settings"]
+generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
 handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
@@ -57,6 +61,7 @@ raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
 run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
+schema = []
 settings = ["call", "error"]
 sync = []
 transport = []

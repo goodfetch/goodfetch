@@ -14,7 +14,7 @@ use goodfetch_protocol::run::RunReport;
 /// What starting or finishing the Run fails with, but `closed`.
 pub async fn finish_one_run(connection: &impl Connection) -> Result<Option<RunReport>, Error> {
     match connection.start().await {
-        Ok(run) => run.finish().await.map(Some),
+        Ok(run) => run.finish().await.map(|report| Some(report.into_inner())),
         Err(error) if error.code() == ErrorCode::CLOSED => Ok(None),
         Err(error) => Err(error),
     }

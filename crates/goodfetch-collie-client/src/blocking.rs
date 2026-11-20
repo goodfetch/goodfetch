@@ -19,6 +19,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
 pub use twins::{Locator, Page, Run, Session};
@@ -101,11 +102,13 @@ impl ClientConnection {
 /// either Product's blocking connection.
 ///
 /// ```
-/// use goodfetch_collie_client::{Error, blocking};
+/// use goodfetch_collie_client::{Answer, Error, blocking};
 /// use goodfetch_protocol::run::RunReport;
 ///
 /// /// A library's helper, written once for either Product.
-/// fn start_and_finish(connection: &impl blocking::Connection) -> Result<RunReport, Error> {
+/// fn start_and_finish(
+///     connection: &impl blocking::Connection,
+/// ) -> Result<Answer<RunReport>, Error> {
 ///     connection.start().send()?.finish().send()
 /// }
 /// ```
@@ -434,7 +437,7 @@ impl<T> Query<T, ConfigExplainParams> {
     }
 }
 
-impl Query<PageRead, PageReadParams> {
+impl Query<Answer<PageRead>, PageReadParams> {
     /// The read whose values are read into `T`, as
     /// [`crate::Query::typed`] reads them.
     ///

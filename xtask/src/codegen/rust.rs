@@ -308,6 +308,11 @@ impl MemberModel {
             (Form::Closes, _) => "()".to_owned(),
             (_, Answers::Opened { handle, .. }) => handle.clone(),
             (_, Answers::Field { ty, .. }) => ty.clone(),
+            // A whole result keeps the JSON it came from, the fields this
+            // SDK does not know included, readable through `raw()` (ADR 0082).
+            (_, Answers::Result) if self.responds == Responds::No => {
+                format!("crate::Answer<{}>", self.result)
+            }
             (_, Answers::Result) => self.result.clone(),
         };
         let answered = self.responds.answered(answered, twin);

@@ -57,9 +57,9 @@ pub use collie::Collie;
 pub use composition::{composition, composition_with};
 pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues,
-    Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Session, Start,
-    UsageKind, events, settings,
+    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
+    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
+    SchemaError, Session, Start, UsageKind, events, schemars, settings,
 };
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{

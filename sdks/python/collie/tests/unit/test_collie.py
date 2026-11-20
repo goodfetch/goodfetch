@@ -64,13 +64,29 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
         pytest.param(
             AsyncConnection,
             AsyncCollie,
-            {"call", "close", "engine", "start", "__aenter__", "__aexit__"},
+            {
+                "call",
+                "close",
+                "engine",
+                "explain_settings",
+                "start",
+                "__aenter__",
+                "__aexit__",
+            },
             id="async",
         ),
         pytest.param(
             Connection,
             Collie,
-            {"call", "close", "engine", "start", "__enter__", "__exit__"},
+            {
+                "call",
+                "close",
+                "engine",
+                "explain_settings",
+                "start",
+                "__enter__",
+                "__exit__",
+            },
             id="sync",
         ),
     ],
@@ -578,6 +594,33 @@ async def test_fails_connect_when_its_engine_path_is_set_but_empty(
         "details": {
             "key": "GOODFETCH_COLLIE_ENGINE_PATH",
             "reason": "an empty value names no executable",
+        },
+    }
+
+
+@pytest.mark.covers("story:11-2", "error:setting_invalid")
+@three_ways
+async def test_fails_connect_when_its_listener_queue_takes_no_event(
+    way: Way,
+) -> None:
+    """A bound under 1 fails before any engine starts, naming the option."""
+    error = await failure(
+        way.open(
+            lambda: AsyncCollie.connect(env={}, max_listener_queue=0),
+            lambda: Collie.connect(env={}, max_listener_queue=0),
+        )
+    )
+
+    assert summary(error) == {
+        "code": "setting_invalid",
+        "group": "program",
+        "fix": (
+            "Pass max_listener_queue a whole number of 1 or more, or leave it "
+            "out for its default of 1024."
+        ),
+        "details": {
+            "key": "max_listener_queue",
+            "reason": "0 is no whole number of 1 or more",
         },
     }
 

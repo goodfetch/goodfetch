@@ -28,7 +28,7 @@ mod websocket;
 pub use self::stream::send_events;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::connection::{Form, NOT_IN_PRODUCT};
 
 use goodfetch_protocol::jsonrpc::{ErrorResponse, RequestId, Version};
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
@@ -96,11 +96,12 @@ fn not_in_product(
     CallError::new(&NOT_IN_PRODUCT, message, &details)
 }
 
-/// The line of a failure, the one conversion of an error for the wire.
-fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
+/// The line of a failure, the one conversion of an error for the wire, its
+/// names spelled in `form`, the Connection's (ADR 0099).
+fn failure_line(id: Option<RequestId>, error: &CallError, form: Form) -> Vec<u8> {
     line(&ErrorResponse {
         jsonrpc: Version,
         id,
-        error: error.to_error_object(),
+        error: error.to_error_object_in(form),
     })
 }

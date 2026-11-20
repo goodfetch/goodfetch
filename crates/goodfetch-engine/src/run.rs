@@ -65,7 +65,7 @@ use goodfetch_protocol::settings::{
     TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
@@ -75,7 +75,7 @@ use crate::runs::{
 };
 use crate::secrets::SecretError;
 use crate::settings::{
-    Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
+    self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
 /// The `run.*` handlers.
@@ -401,14 +401,54 @@ fn unbuilt(
     )
 }
 
+/// `error`'s message with the setting keys the Client set marked, which the
+/// Client reads in its own form (ADR 0099): the key refused at the Run's
+/// layer where the message first names it, and the closest one an unknown
+/// key gets. A key read from a file or the environment reads as written
+/// there, canonically, as does a key a `fix` names in a file to edit, and
+/// one the catalog lacks, as a Client may write one, as written.
+fn keys_marked(error: &SettingsError) -> String {
+    let message = error.to_string();
+    let (layer, keys) = match error {
+        SettingsError::Unknown {
+            key,
+            layer,
+            closest,
+        } => (*layer, [Some(key.as_str()), closest.as_deref()]),
+        SettingsError::Invalid { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
+        SettingsError::NotApplicable { key, layer, .. }
+        | SettingsError::Locked { key, layer, .. }
+        | SettingsError::Unavailable { key, layer, .. } => {
+            (Some(*layer), [Some(key.as_str()), None])
+        }
+        SettingsError::NotInProduct { .. }
+        | SettingsError::Format { .. }
+        | SettingsError::OlderMajorPolicy { .. } => (None, [None, None]),
+    };
+    if layer != Some(SettingsLayer::Run) {
+        return message;
+    }
+    keys.into_iter()
+        .flatten()
+        .filter(|key| settings::setting(key).is_some())
+        .fold(message, |message, key| {
+            message.replacen(
+                &format!("`{key}`"),
+                &format!("`{}`", named::setting(key)),
+                1,
+            )
+        })
+}
+
 /// [`settings_error`]'s translation, for the engine `identity` names,
-/// behind Goodfetch Cloud's gateway or not.
+/// behind Goodfetch Cloud's gateway or not: the setting its message names,
+/// and the closest one an unknown key gets, in its Client's form (ADR 0099).
 pub(crate) fn translated(
     error: &SettingsError,
     identity: &Identity,
     behind_gateway: bool,
 ) -> CallError {
-    let message = error.to_string();
+    let message = keys_marked(error);
     match error {
         SettingsError::Unknown {
             key,
@@ -1133,3 +1173,6 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         .await
         .map_err(|error| run_error(error, &context))
 }
+
+#[cfg(test)]
+mod tests;

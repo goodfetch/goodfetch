@@ -100,4 +100,9 @@ fn a_crawl_that_moves_to_another_address_once_flagged_is_verified() {
     let answer = proving_ground.judge(&submission("limits/2", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
+    assert_ne!(
+        address,
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)),
+        "the crawl was never flagged, so it never moved"
+    );
 }

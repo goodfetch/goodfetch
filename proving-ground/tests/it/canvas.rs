@@ -92,6 +92,14 @@ fn a_click_the_page_reports_untrusted_is_a_false_success() {
 
     assert_eq!(posted.status, 204);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(
+        answer["extra_effects"],
+        json!([{ "kind": "event", "event": "click", "target": "button", "trusted": false }])
+    );
+    assert_eq!(
+        answer["missing_effects"],
+        json!([{ "kind": "event", "event": "click", "target": "button", "trusted": true }])
+    );
 }
 
 #[test]

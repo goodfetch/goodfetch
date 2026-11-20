@@ -71,7 +71,9 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
     collie = await open_collie(way, env)
 
     operation = await failure(
-        collie.call("crawl.start", {"seeds": ["https://shop.test/"]})
+        collie.call(
+            "crawl.start", {"seeds": [{"url": "https://shop.test/", "label": "page"}]}
+        )
     )
     setting = await failure(
         collie.call("run.start", {"settings": {"crawl": {"max_requests": 10}}})

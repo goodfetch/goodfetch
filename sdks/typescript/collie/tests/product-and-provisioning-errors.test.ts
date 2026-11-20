@@ -56,7 +56,7 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
       const collie = await Collie.connect({ env, logger });
 
       const operation = await failure(
-        collie.call("crawl.start", { seeds: ["https://shop.test/"] }),
+        collie.call("crawl.start", { seeds: [{ url: "https://shop.test/", label: "page" }] }),
       );
       const setting = await failure(
         collie.call("run.start", { settings: { crawl: { max_requests: 10 } } }),

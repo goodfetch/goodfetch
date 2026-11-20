@@ -49,7 +49,7 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
     )
     .await
     .unwrap();
-    let seeds = json!({"seeds": ["https://shop.test/"]});
+    let seeds = json!({"seeds": [{"url": "https://shop.test/", "label": "page"}]});
     let operation = failure(connection.call::<Value>("crawl.start", &seeds).await);
     let capped = json!({"settings": {"crawl": {"max_requests": 10}}});
     let setting = failure(connection.call::<Value>("run.start", &capped).await);

@@ -28,7 +28,7 @@
       "expect": {
         "method": "crawl.start",
         "params": {
-          "seeds": ["https://shop.test/"]
+          "seeds": [{ "url": "https://shop.test/", "label": "page" }]
         }
       }
     },

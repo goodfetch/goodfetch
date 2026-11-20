@@ -215,15 +215,18 @@ fn a_hook_call_at_a_stage_this_reader_does_not_know_keeps_it() {
 /// instead of declaring a Hook that never runs.
 #[test]
 fn a_hook_declared_at_a_stage_this_reader_does_not_know_is_refused() {
-    let declared = |stage| {
-        serde_json::from_value::<CrawlHookDeclaration>(json!({ "name": "sign", "stage": stage }))
-    };
-
-    assert!(declared("a_newer_stage").is_err());
-    assert_eq!(
-        declared("before_request")
-            .expect("a known stage reads")
-            .stage,
-        CrawlHookStage::BeforeRequest
+    let declared = serde_json::from_value::<CrawlHookDeclaration>(
+        json!({ "name": "sign", "stage": "a_newer_stage" }),
     );
+
+    assert!(declared.is_err());
+}
+
+#[test]
+fn a_hook_declared_at_a_stage_this_reader_knows_reads() {
+    let declared: CrawlHookDeclaration =
+        serde_json::from_value(json!({ "name": "sign", "stage": "before_request" }))
+            .expect("a known stage reads");
+
+    assert_eq!(declared.stage, CrawlHookStage::BeforeRequest);
 }

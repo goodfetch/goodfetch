@@ -124,13 +124,18 @@ fn the_endings_a_reader_knows_are_the_schemas() {
 /// instead of answering an empty page.
 #[test]
 fn an_outcome_kind_filter_this_reader_does_not_know_is_refused() {
-    let filter = |kind| {
-        serde_json::from_value::<RunOutcomesParams>(json!({ "run_id": "run-1", "kinds": [kind] }))
-    };
-
-    assert!(filter("a_newer_kind").is_err());
-    assert_eq!(
-        filter("failed").expect("a known kind filters").kinds,
-        Some(vec![OutcomeKind::Failed])
+    let filter = serde_json::from_value::<RunOutcomesParams>(
+        json!({ "run_id": "run-1", "kinds": ["a_newer_kind"] }),
     );
+
+    assert!(filter.is_err());
+}
+
+#[test]
+fn an_outcome_kind_filter_this_reader_knows_reads() {
+    let params: RunOutcomesParams =
+        serde_json::from_value(json!({ "run_id": "run-1", "kinds": ["failed"] }))
+            .expect("a known kind filters");
+
+    assert_eq!(params.kinds, Some(vec![OutcomeKind::Failed]));
 }

@@ -1781,7 +1781,8 @@ impl Changed {
 }
 
 /// What `ending` is counted under in `request_counts`: its kind, and its
-/// skip reason, Error code or Block cause, none for `succeeded`.
+/// skip reason, Error code or Block cause, none for `succeeded` or an
+/// ending a newer engine wrote.
 fn counted_as(ending: &Ending) -> CountedAs {
     let name = match ending {
         Ending::Failed { error } => error.code.clone(),

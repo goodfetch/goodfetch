@@ -7,7 +7,6 @@
 //! since a Collie Run's Script Hook does too (ADR 0051).
 
 use schemars::JsonSchema;
-use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
@@ -95,14 +94,10 @@ impl CrawlHookStage {
 /// instead of declaring a Hook that never runs.
 fn known_stage<'de, D: Deserializer<'de>>(deserializer: D) -> Result<CrawlHookStage, D::Error> {
     match CrawlHookStage::deserialize(deserializer)? {
-        CrawlHookStage::Unknown(stage) => Err(D::Error::custom(format_args!(
-            "unknown Hook stage `{stage}`, expected one of {}",
-            CrawlHookStage::ALL
-                .iter()
-                .map(CrawlHookStage::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))),
+        CrawlHookStage::Unknown(stage) => Err(stage.refused(
+            "Hook stage",
+            &CrawlHookStage::ALL.each_ref().map(CrawlHookStage::as_str),
+        )),
         known => Ok(known),
     }
 }

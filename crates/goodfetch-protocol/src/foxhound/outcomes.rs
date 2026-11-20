@@ -16,7 +16,6 @@ use crate::point_in_time::PointInTime;
 use std::time::SystemTime;
 
 use schemars::JsonSchema;
-use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
@@ -356,21 +355,17 @@ fn known_kinds<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<Vec<OutcomeKind>>, D::Error> {
     let kinds = Option::<Vec<OutcomeKind>>::deserialize(deserializer)?;
-    if let Some(OutcomeKind::Unknown(kind)) = kinds
-        .iter()
-        .flatten()
-        .find(|kind| matches!(kind, OutcomeKind::Unknown(_)))
-    {
-        return Err(D::Error::custom(format_args!(
-            "unknown outcome kind `{kind}`, expected one of {}",
-            OutcomeKind::ALL
-                .iter()
-                .map(OutcomeKind::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
+    let unknown = kinds.iter().flatten().find_map(|kind| match kind {
+        OutcomeKind::Unknown(kind) => Some(kind),
+        _ => None,
+    });
+    match unknown {
+        Some(kind) => Err(kind.refused(
+            "outcome kind",
+            &OutcomeKind::ALL.each_ref().map(OutcomeKind::as_str),
+        )),
+        None => Ok(kinds),
     }
-    Ok(kinds)
 }
 
 /// One page of `run.outcomes`.

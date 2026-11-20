@@ -23,14 +23,6 @@ use rusqlite::Connection;
 
 use crate::work_items::{self, Changed, CountedAs};
 
-/// The kinds an ended request counts under.
-const KINDS: [OutcomeKind; 4] = [
-    OutcomeKind::Succeeded,
-    OutcomeKind::Failed,
-    OutcomeKind::Skipped,
-    OutcomeKind::Blocked,
-];
-
 /// The crawl's requests by state, as its Run state counts them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Tally {
@@ -59,7 +51,10 @@ impl Tally {
         };
         let (ended, _) = work_items::ended_counts(connection)?;
         for (kind, name, count) in ended {
-            let Some(kind) = KINDS.into_iter().find(|known| known.as_str() == kind) else {
+            let Some(kind) = OutcomeKind::ALL
+                .into_iter()
+                .find(|known| known.as_str() == kind)
+            else {
                 continue;
             };
             let count = i64::try_from(count).unwrap_or(i64::MAX);

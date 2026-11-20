@@ -125,7 +125,7 @@ fn name_of(encoded: serde_json::Result<serde_json::Value>) -> String {
 }
 
 /// What an ending is named by: its skip reason, Error code or Block cause,
-/// or `succeeded`.
+/// `succeeded`, or the tag of an ending a newer engine wrote.
 fn ended_as(ending: &Ending) -> String {
     match ending {
         Ending::Succeeded { .. } => "succeeded".to_owned(),

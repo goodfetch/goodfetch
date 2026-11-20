@@ -24,13 +24,7 @@ fn duplicate() -> CountedAs {
 /// What `tally` counts: the work items left, and the ended requests of
 /// each kind by what they count under.
 fn counted(tally: &Tally) -> (u64, Vec<(OutcomeKind, String, u64)>) {
-    let kinds = [
-        OutcomeKind::Succeeded,
-        OutcomeKind::Failed,
-        OutcomeKind::Skipped,
-        OutcomeKind::Blocked,
-    ];
-    let ended = kinds
+    let ended = OutcomeKind::ALL
         .into_iter()
         .flat_map(|kind| {
             tally

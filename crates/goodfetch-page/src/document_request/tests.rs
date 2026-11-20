@@ -6,6 +6,8 @@ use url::Url;
 
 use super::{DocumentRequest, Unread};
 
+mod installed;
+
 /// The value of `name` among the headers `request` sends to `url`.
 fn header(request: &DocumentRequest, url: &str, name: &str) -> Option<String> {
     request

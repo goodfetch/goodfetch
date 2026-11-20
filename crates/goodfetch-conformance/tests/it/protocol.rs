@@ -735,9 +735,12 @@ fn a_case_id_the_harness_does_not_run_is_refused() {
     )
     .unwrap_err();
 
-    assert_eq!(
-        refused.to_string(),
-        "the case `engine-info-is-fast` names no exchange the harness runs"
+    assert!(
+        matches!(
+            &refused,
+            SuiteError::UnknownCase { case } if case == "engine-info-is-fast"
+        ),
+        "{refused}"
     );
 }
 

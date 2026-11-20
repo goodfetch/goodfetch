@@ -1,7 +1,8 @@
 //! `xtask sdk-exports`: an SDK's manifest lists every public hand-written
 //! member its packages export, once however many entries export it, and no
 //! member they do not export or the generator writes (ADRs 0069, 0099). The
-//! fixture's TypeScript package is read by the repository's TypeScript.
+//! fixture's TypeScript package is read by the repository's TypeScript, its
+//! Rust crate from its source.
 //! Covers: story:11-186
 
 use rstest::rstest;
@@ -10,6 +11,8 @@ use crate::workspace::{Workspace, finding};
 
 const MANIFEST: &str = "sdks/typescript/manifest.toml";
 const COLLIE: &str = "sdks/typescript/collie/src/collie.ts";
+const RUST_MANIFEST: &str = "crates/foxhound/goodfetch-foxhound/manifest.toml";
+const RUST_SOURCE: &str = "crates/foxhound/goodfetch-foxhound/src";
 
 fn workspace() -> Workspace {
     let workspace = Workspace::from_fixture("sdk-exports");
@@ -121,6 +124,109 @@ fn check_refuses_a_line_naming_no_hand_written_export(
             "unused-line",
             &format!("{MANIFEST} {receiver}.{member}")
         )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A public item of the crate: one it declares at its root, in a public
+/// module, or in a private one its root re-exports, and each public method
+/// of an inherent `impl` of such a type, wherever the `impl` sits.
+#[rstest]
+#[case::function_at_the_root(
+    "lib.rs",
+    "pub use foxhound::{Foxhound, PAID_FETCHES};",
+    "pub use foxhound::{Foxhound, PAID_FETCHES};\n\n/// Seeds.\npub fn seed() {}",
+    "(crate)",
+    "seed"
+)]
+#[case::item_of_a_public_module(
+    "blocking.rs",
+    "/// The connection without async.",
+    "/// Spawns.\npub fn spawn() {}\n\n/// The connection without async.",
+    "blocking",
+    "spawn"
+)]
+#[case::method_of_a_re_exported_type(
+    "foxhound.rs",
+    "    /// Closes it.",
+    "    /// Aborts.\n    pub fn abort(&self) {}\n\n    /// Closes it.",
+    "Foxhound",
+    "abort"
+)]
+#[case::method_of_a_type_in_a_public_module(
+    "blocking.rs",
+    "    /// Opens a connection.",
+    "    /// Closes it.\n    pub fn close(&self) {}\n\n    /// Opens a connection.",
+    "blocking::Foxhound",
+    "close"
+)]
+fn check_refuses_a_public_rust_item_no_line_lists(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] receiver: &str,
+    #[case] member: &str,
+) {
+    let workspace = workspace();
+    workspace.edit(&format!("{RUST_SOURCE}/{file}"), from, to);
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unlisted",
+            &format!("{RUST_MANIFEST} {receiver}.{member}")
+        )],
+        "{}",
+        outcome.stdout
+    );
+    assert!(
+        outcome.stdout.contains(&format!(
+            "crate = \"goodfetch-foxhound\", receiver = \"{receiver}\", member = \"{member}\""
+        )),
+        "the finding names the line to add: {}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A crate's public item is only what a dependent crate reaches by name:
+/// not a `#[doc(hidden)]` method, not a member the generator writes, even on
+/// a hand-written type, and not another crate's type it re-exports, which
+/// that crate's manifest lists.
+#[rstest]
+#[case::member_the_crate_lacks("Foxhound", "abort", "[\"abort\"]", "closer")]
+#[case::hidden_member("Foxhound", "hidden", "[\"hidden\"]", "read")]
+#[case::member_the_generator_writes("Foxhound", "start", "[\"start\"]", "opener")]
+#[case::generated_type("(crate)", "Handle", "[\"handle\"]", "type")]
+#[case::generated_type_behind_a_path("blocking", "Waited", "[\"waited\"]", "type")]
+#[case::other_crates_type("(crate)", "Run", "[\"run\"]", "type")]
+#[case::item_of_a_test_module("tests", "helper", "[\"helper\"]", "read")]
+fn check_refuses_a_rust_line_naming_no_public_hand_written_item(
+    #[case] receiver: &str,
+    #[case] member: &str,
+    #[case] words: &str,
+    #[case] form: &str,
+) {
+    let workspace = workspace();
+    workspace.append(
+        RUST_MANIFEST,
+        &format!(
+            "\n[[member]]\ncrate = \"goodfetch-foxhound\"\nreceiver = \"{receiver}\"\nmember = \"{member}\"\nentry = \"none\"\nreason = \"A member of the test.\"\nwords = {words}\nform = \"{form}\"\n"
+        ),
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unused-line",
+            &format!("{RUST_MANIFEST} {receiver}.{member}")
+        )],
+        "{}",
+        outcome.stdout
     );
     assert_eq!(outcome.code, 1);
 }

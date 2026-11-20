@@ -1,0 +1,53 @@
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Foxhound"
+entry = "none"
+reason = "The Product's connection."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "PAID_FETCHES"
+entry = "none"
+reason = "A Usage kind."
+words = ["paid", "fetches"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "connect"
+entry = "none"
+reason = "The one factory."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "close"
+entry = "none"
+reason = "Closes it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Foxhound"
+entry = "none"
+reason = "The connection without async."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "connect"
+entry = "none"
+reason = "Opens a connection without async."
+words = ["connect"]
+form = "opener"

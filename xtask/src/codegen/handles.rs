@@ -53,7 +53,7 @@
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
-use super::layer::{Deprecation, Kind, Layer, Operation};
+use super::layer::{Deprecation, Kind, Layer, Operation, Stability};
 
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
@@ -129,6 +129,10 @@ pub(super) struct Listened {
     /// payload, which is what an opener of that handle answers, such as
     /// `page` for `session.page`'s `PageOpened`.
     pub(super) builds: Option<&'static str>,
+    /// Its semver status in the catalog, which its marker warns of.
+    pub(super) stability: Stability,
+    /// Its deprecation in the catalog, which its marker warns of.
+    pub(super) deprecated: Option<Deprecation>,
 }
 
 impl Listened {
@@ -661,6 +665,8 @@ fn listener<'a>(
                 payload: found.payload.0.clone(),
                 description: found.description.clone(),
                 builds: opened_by(layer, &found.payload.0),
+                stability: found.stability,
+                deprecated: found.deprecated.clone(),
             })
         })
         .collect::<Result<_>>()?;

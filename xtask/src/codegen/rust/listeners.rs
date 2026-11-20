@@ -66,6 +66,8 @@ struct Marker {
     /// payload.
     builds: Option<Built>,
     doc: String,
+    /// The warning of the event's own markers, if it has any.
+    warning: Option<String>,
 }
 
 /// A handle an event's payload names, as a stream hands it.
@@ -123,16 +125,20 @@ impl ListenerModel {
         }))
     }
 
-    /// The handle's `events` member in `twin`.
+    /// The handle's `events` member in `twin`, which warns of the markers
+    /// of the listener and of the event read, once per process (ADR 0030);
+    /// the blocking twin calls the async one.
     pub(super) fn member(&self, twin: Twin) -> String {
         let trait_name = &self.trait_name;
         let sealed = format!("<E as crate::events::sealed::{trait_name}>");
         let (returns, body) = match twin {
             Twin::Async => {
-                let warning = self
-                    .warning
-                    .as_ref()
-                    .map_or_else(String::new, |warning| format!("{warning}\n        "));
+                let warning = format!(
+                    "{}{sealed}::warn();\n        ",
+                    self.warning
+                        .as_ref()
+                        .map_or_else(String::new, |warning| format!("{warning}\n        "))
+                );
                 let params = format!(
                     "{} {{ {}: self.host.id().clone(), {}: {sealed}::EVENT }}",
                     self.params, self.id_field, self.event_field
@@ -199,6 +205,11 @@ fn markers(index: &Index, namespace: &str, listener: &Listener<'_>) -> Result<Ve
                     })
                     .transpose()?,
                 doc: comment(&listened.description),
+                warning: warning(
+                    &format!("{namespace}.{}", listened.wire),
+                    listened.stability,
+                    listened.deprecated.as_ref(),
+                ),
             })
         })
         .collect()
@@ -223,7 +234,7 @@ pub(super) fn module(header: &str, listeners: &[ListenerModel]) -> String {
         let trait_name = &listener.trait_name;
         let _ = write!(
             text,
-            "    /// What a `{trait_name}` names its event by.\n    pub trait {trait_name} {{\n        /// The value the call names it by.\n        const EVENT: {};\n        /// Its name in the engine's batches.\n        const NAME: &'static str;\n",
+            "    /// What a `{trait_name}` names its event by.\n    pub trait {trait_name} {{\n        /// The value the call names it by.\n        const EVENT: {};\n        /// Its name in the engine's batches.\n        const NAME: &'static str;\n\n        /// Warns of its markers, once per process (ADR 0030).\n        fn warn() {{}}\n",
             listener.event_type
         );
         if let Some(handle) = &listener.published {
@@ -264,8 +275,11 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
         "\n{}#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\npub struct {name};\n",
         marker.doc
     );
+    let warn = marker.warning.as_ref().map_or_else(String::new, |warning| {
+        format!("\n    fn warn() {{\n        {warning}\n    }}\n")
+    });
     let constants = format!(
-        "    const EVENT: {} = {}::{};\n    const NAME: &'static str = {:?};\n",
+        "    const EVENT: {} = {}::{};\n    const NAME: &'static str = {:?};\n{warn}",
         listener.event_type, listener.event_type, marker.variant, marker.event
     );
     let Some(handle) = &listener.published else {

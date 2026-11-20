@@ -984,12 +984,43 @@ pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
 /// 0078 and 0079), raised by the SDK runtime.
 pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "engine_exited",
-    description: "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+    description: "The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// The evidence `engine_exited` carries of how the engine ended (ADR
+/// 0078). Each field is always sent: a linked engine, which runs in the
+/// program's own process, has no exit code or signal, both `null`, and no
+/// stderr of its own, an empty tail.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineExitedDetails {
+    /// The engine's exit code; `null` when a signal ended it, or when it
+    /// is linked.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exit_code: Option<i32>,
+    /// The signal that ended it, such as `SIGKILL`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signal: Option<String>,
+    /// The last 64 KiB of its stderr, cut where a character starts.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stderr_tail: String,
+}
+
+impl EngineExitedDetails {
+    /// The evidence when nothing tells how the engine ended, as of a linked
+    /// engine: no exit code, no signal and an empty tail.
+    #[must_use]
+    pub const fn without_evidence() -> Self {
+        Self {
+            exit_code: None,
+            signal: None,
+            stderr_tail: String::new(),
+        }
+    }
+}
 
 /// A Connection to an engine that dropped while a call waited for its
 /// answer (ADRs 0031 and 0079), raised by the Client's own runtime, which

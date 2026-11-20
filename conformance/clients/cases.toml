@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "33"
+version = "34"
 
 [[capability]]
 name = "lifecycle"
@@ -98,13 +98,14 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # retryable, carrying the exit code, the signal and the last 64 KiB of the
 # engine's stderr, cut where a character starts; each stderr line reached
 # the host's logger at warning, and the SDK wrote nothing to its own stdout
-# or stderr. Rust's Attached transport and linked engine thread join with
-# issue 3029.
+# or stderr. Rust plays it linked, where the evidence holds no exit code,
+# signal or stderr; its client crate's Attached transport plays the Attached
+# part on the Scripted engine, as the Rust surface starts no Attached engine.
 [[capability.case]]
 id = "engine-exited-carries-its-evidence"
 covers = ["story:11-24", "story:11-27", "error:engine_exited"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 # Ctrl+C reaches only the host (ADRs 0078 and 0093; issues 1267 and 3063):
 # the Attached engine runs in a process group of its own, so SIGINT sent to
@@ -126,7 +127,7 @@ platforms = ["unix"]
 # opened it (ADR 0078; issue 1267): used in a child created by `fork`, it
 # fails with `connection_forked` and the fix "connect in the child process",
 # and writes nothing to the parent's engine, while a Connection the child
-# opens works. Node has no `fork`; Rust joins with issue 3029.
+# opens works. Node has no `fork`; Rust joins with issue 3062.
 [[capability.case]]
 id = "connection-used-after-fork"
 covers = ["story:11-23", "error:connection_forked"]

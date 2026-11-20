@@ -54,6 +54,7 @@ use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
 use super::layer::{Deprecation, Kind, Layer, Operation};
+use super::naming;
 
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
@@ -132,10 +133,12 @@ pub(super) struct Listened {
 }
 
 impl Listened {
-    /// Its name as a program passes it: Playwright's, its words joined in
-    /// lowercase, such as `pageerror` (ADR 0081).
-    pub(super) fn joined(&self) -> String {
-        self.wire.replace('_', "")
+    /// Its name as `form`'s program listens to it, by the rule the engine
+    /// names it by in its messages (ADR 0099): Playwright's in TypeScript
+    /// and Python, its words joined in lowercase, such as `pageerror` (ADR
+    /// 0081).
+    pub(super) fn spelled(&self, form: goodfetch_protocol::connection::Form) -> String {
+        naming::event(form, &self.wire, &self.payload)
     }
 }
 

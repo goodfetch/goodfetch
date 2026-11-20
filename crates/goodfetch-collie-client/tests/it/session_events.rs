@@ -35,7 +35,7 @@ const LOST_SCRIPT: &str = "sdk-rust/page/session-listener-lost-events.json";
 
 /// The Scripted engine as the Attached engine of `env`'s home, playing
 /// `script` with this crate's `hello`.
-fn scripted_engine(env: &TestEnv, script: &str) -> Endpoint {
+pub(crate) fn scripted_engine(env: &TestEnv, script: &str) -> Endpoint {
     scripted_engine_changed(env, script, |_steps| {})
 }
 

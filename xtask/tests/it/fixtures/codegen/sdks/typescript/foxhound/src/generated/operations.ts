@@ -14,6 +14,11 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "sample.crawl": { experimental: false, deprecated: undefined },
 };
 
+/** The name of each of Foxhound's operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */
+export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationTypes, string>> = {
+  "sample.crawl": "sample.crawl",
+};
+
 /** Foxhound's operations, each an async method. */
 export class FoxhoundOperations {
   readonly #caller: Caller<FoxhoundOperationTypes>;

@@ -4,9 +4,10 @@
 // read here. Foxhound contains Collie (ADR 0084), so its Connection raises
 // the classes of Collie's Error codes and of its own.
 import { collieErrorClasses } from "@goodfetch/collie-client";
-import type { ProductPackage } from "@goodfetch/collie-client/runtime";
+import { collieOperationNames, type ProductPackage } from "@goodfetch/collie-client/runtime";
 import { FOXHOUND_ENGINE_PATH_VARIABLE, FOXHOUND_EXECUTABLE } from "./generated/connection.ts";
 import { foxhoundErrorClasses } from "./generated/errors.ts";
+import { foxhoundOperationNames } from "./generated/operations.ts";
 import { settingsOnWire, type FoxhoundSettings } from "./generated/settings.ts";
 
 export const foxhound: ProductPackage<FoxhoundSettings> = {
@@ -16,6 +17,7 @@ export const foxhound: ProductPackage<FoxhoundSettings> = {
   executable: FOXHOUND_EXECUTABLE,
   enginePathVariable: FOXHOUND_ENGINE_PATH_VARIABLE,
   errorClasses: { ...collieErrorClasses, ...foxhoundErrorClasses },
+  operationNames: { ...collieOperationNames, ...foxhoundOperationNames },
   moduleUrl: import.meta.url,
   settingsOnWire,
 };

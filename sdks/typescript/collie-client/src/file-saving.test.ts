@@ -18,6 +18,7 @@ import {
   FileWriteFailedError,
   PathNotWritableError,
 } from "./generated/errors.ts";
+import { collieOperationNames } from "./generated/operations.ts";
 import type { Transport } from "./rpc.ts";
 
 let folder: string;
@@ -319,6 +320,7 @@ async function connected(engine: PlayedEngine): Promise<ClientConnection> {
     transport: engine.transport,
     needs: "collie",
     errorClasses: collieErrorClasses,
+    operationNames: collieOperationNames,
   });
   const hello = await engine.next();
   engine.send({

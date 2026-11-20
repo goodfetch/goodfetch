@@ -51,6 +51,7 @@ function playedEngine(): PlayedEngine {
 }
 
 const owner: ChannelOwner = {
+  operationNames: {},
   ended: () => Promise.resolve(new ClosedError("the transport ended")),
   failure: () => new ClosedError("the engine failed the call"),
 };

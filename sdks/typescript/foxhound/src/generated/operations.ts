@@ -55,6 +55,31 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "sample.crawl": { experimental: false, deprecated: undefined },
 };
 
+/** The name of each of Foxhound's operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */
+export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationTypes, string>> = {
+  "crawl.serve": "crawl.serve",
+  "crawl.start": "crawl.start",
+  "crawl_request.enqueue": "crawlRequest.enqueue",
+  "crawl_request.enqueue_links": "crawlRequest.enqueueLinks",
+  "crawl_request.links": "crawlRequest.links",
+  "crawl_request.push": "crawlRequest.push",
+  "dataset.list": "dataset.list",
+  "dataset.page": "dataset.page",
+  "dataset.query": "dataset.query",
+  "export.save_as": "export.saveAs",
+  "export.stream": "export.stream",
+  "run.add_seed": "run.addSeed",
+  "run.add_seeds": "run.addSeeds",
+  "run.export": "run.export",
+  "run.failed_requests": "run.failedRequests",
+  "run.outcomes": "run.outcomes",
+  "run.records": "run.records",
+  "run.rejected_records": "run.rejectedRecords",
+  "run.retry_failed": "run.retryFailed",
+  "run.seeds": "run.seeds",
+  "sample.crawl": "sample.crawl",
+};
+
 /** Foxhound's operations, each an async method. */
 export class FoxhoundOperations {
   readonly #caller: Caller<FoxhoundOperationTypes>;

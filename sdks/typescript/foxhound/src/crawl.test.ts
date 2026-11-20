@@ -195,6 +195,33 @@ describe("a Crawl", () => {
   );
 
   test(
+    "answers a handler's own exception with handler_failed, naming its type and message and carrying its stack",
+    { tags: ["error:handler_failed"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-handler-threw.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => {
+        const thrown = new TypeError("the price is missing");
+        thrown.stack = "TypeError: the price is missing\n    at handler (shop.ts:3:11)";
+        throw thrown;
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "throws closed from records() once its Run is closed, sending nothing",
     { tags: ["story:11-1015", "error:closed"] },
     async () => {

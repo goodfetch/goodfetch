@@ -139,12 +139,12 @@ platforms = ["unix"]
 # chained cause's text, while `operation` holds the catalog's name; a
 # secret the engine wrote to its stderr reaches no message. Python plays
 # it attached, an engine's exit ending its Connection; Rust as the Daemon's
-# Client, the Daemon dropping the Connection. TypeScript joins with issue
-# 3046.
+# Client, the Daemon dropping the Connection; TypeScript both ways, its
+# operations in camelCase, such as `run.newPage`.
 [[capability.case]]
 id = "runtime-errors-in-the-callers-form"
 covers = ["story:11-31", "story:11-192"]
-surfaces = ["sdk-python", "sdk-rust"]
+surfaces = ["sdk-python", "sdk-rust", "sdk-typescript"]
 modes = { sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # The catalog's operations reach the engine through the members generated

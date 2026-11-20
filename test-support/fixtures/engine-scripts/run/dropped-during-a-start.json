@@ -10,7 +10,8 @@
           "form": "typescript",
           "needs": "collie",
           "product_version": "0.0.0",
-          "log_level": "off"
+          "log_level": "off",
+          "token": "scripted-daemon-token"
         }
       }
     },

@@ -54,6 +54,7 @@
 )]
 
 use goodfetch_protocol::point_in_time;
+use rstest::rstest;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1896,56 +1897,53 @@ fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pe
     both.close();
 }
 
-/// Each level of the model, at each of its memory budgets.
-fn levels() -> Vec<(bool, u64)> {
-    [false, true]
-        .into_iter()
-        .flat_map(|batching| {
-            [0, SMALL_BUDGET, RunStateOptions::default().memory_budget]
-                .map(|budget| (batching, budget))
-        })
-        .collect()
-}
-
 /// An attempt's staged pages count against `crawl.max_requests` with the
 /// work items, less those another commit added since, which count once,
 /// and another attempt's staged pages do not count (#2169).
-#[test]
-fn an_attempts_staged_pages_count_against_the_bound_once() {
-    for level in levels() {
-        let bound = Bound {
-            max_requests: 5,
-            path_budget: PAGES,
-        };
-        let mut both = Lockstep::leased(2, level, bound);
-        both.enqueue(0, 2, None);
-        both.enqueue(1, 2, None);
-        both.enqueue(1, 3, None);
-        both.commits(1, &[2, 3]);
-        // 4 work items, and page 2, which the commit added, counts once.
-        both.enqueue(0, 4, None);
-        both.enqueue(0, 5, Some(NotAddedReason::MaxRequests));
-        both.commits(0, &[4]);
-        both.close();
-    }
+#[rstest]
+#[case::writing_each_attempt_with_no_memory((false, 0))]
+#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((true, 0))]
+#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
+fn an_attempts_staged_pages_count_against_the_bound_once(#[case] level: (bool, u64)) {
+    let bound = Bound {
+        max_requests: 5,
+        path_budget: PAGES,
+    };
+    let mut both = Lockstep::leased(2, level, bound);
+    both.enqueue(0, 2, None);
+    both.enqueue(1, 2, None);
+    both.enqueue(1, 3, None);
+    both.commits(1, &[2, 3]);
+    // 4 work items, and page 2, which the commit added, counts once.
+    both.enqueue(0, 4, None);
+    both.enqueue(0, 5, Some(NotAddedReason::MaxRequests));
+    both.commits(0, &[4]);
+    both.close();
 }
 
 /// A commit admits its attempt's staged pages again, each against the
 /// path budget the other commits brought nearer, and adds none past it
 /// (#2169).
-#[test]
-fn a_commit_adds_no_staged_page_past_the_bound() {
-    for level in levels() {
-        let bound = Bound {
-            max_requests: PAGES,
-            path_budget: 4,
-        };
-        let mut both = Lockstep::leased(2, level, bound);
-        both.enqueue(0, 2, None);
-        both.enqueue(0, 3, None);
-        both.enqueue(1, 4, None);
-        both.commits(1, &[4]);
-        both.commits(0, &[2]);
-        both.close();
-    }
+#[rstest]
+#[case::writing_each_attempt_with_no_memory((false, 0))]
+#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((true, 0))]
+#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
+fn a_commit_adds_no_staged_page_past_the_bound(#[case] level: (bool, u64)) {
+    let bound = Bound {
+        max_requests: PAGES,
+        path_budget: 4,
+    };
+    let mut both = Lockstep::leased(2, level, bound);
+    both.enqueue(0, 2, None);
+    both.enqueue(0, 3, None);
+    both.enqueue(1, 4, None);
+    both.commits(1, &[4]);
+    both.commits(0, &[2]);
+    both.close();
 }

@@ -64,9 +64,8 @@ pub(crate) enum Heard {
     },
 }
 
-/// A streaming call's id, which the Connection notes as it sends the call,
-/// so that one who cannot wait to hear it can still cancel the call in
-/// order.
+/// A call's id, which the Connection notes as it sends the call, so that
+/// one who cannot wait to hear it can still cancel the call in order.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CallId(Arc<OnceLock<i64>>);
 
@@ -77,21 +76,22 @@ impl CallId {
     }
 }
 
-/// The credits a streaming call is granted once sent, and where its id is
-/// noted.
-struct Granted {
-    credits: u32,
+/// Where a call's id is noted once sent, and the credits a streaming call
+/// is granted then, if any.
+struct Noted {
     id: CallId,
+    credits: Option<u32>,
 }
 
 /// What the Connection's correlating task acts on.
 enum Command {
-    /// Sends a call, then grants it the credits named, if any, with
-    /// `$/credit`, before anything sent after it.
-    Call(Outgoing, Option<Granted>),
+    /// Sends a call, notes its id where named, then grants it the credits
+    /// named, if any, with `$/credit`, before anything sent after it.
+    Call(Outgoing, Option<Noted>),
     /// Sends a notification.
     Notify(Notification),
-    /// Cancels a streaming call sent before it, once its id is noted.
+    /// Cancels a call sent before it, once its id is noted, while it waits
+    /// for its reply.
     CancelSent(CallId),
     /// Ends the Connection: no more calls, the output closed, every call
     /// in flight failed as closed.
@@ -114,20 +114,31 @@ impl Sender {
     /// with [`Sender::cancel_sent`], even when it stopped listening before
     /// it was sent.
     pub(crate) fn call_granting(&self, call: Outgoing, credits: u32) -> CallId {
+        self.call_noting(call, Some(credits))
+    }
+
+    /// Sends `call` and notes its id, so that its caller, who cannot wait
+    /// to hear it, cancels it with [`Sender::cancel_sent`] once it stops
+    /// waiting for its reply (ADR 0080).
+    pub(crate) fn call_cancellable(&self, call: Outgoing) -> CallId {
+        self.call_noting(call, None)
+    }
+
+    fn call_noting(&self, call: Outgoing, credits: Option<u32>) -> CallId {
         let id = CallId::default();
         self.send_call(
             call,
-            Some(Granted {
-                credits,
+            Some(Noted {
                 id: id.clone(),
+                credits,
             }),
         );
         id
     }
 
-    fn send_call(&self, call: Outgoing, granted: Option<Granted>) {
+    fn send_call(&self, call: Outgoing, noted: Option<Noted>) {
         if let Err(mpsc::error::SendError(Command::Call(call, _))) =
-            self.0.send(Command::Call(call, granted))
+            self.0.send(Command::Call(call, noted))
         {
             let _closed = call.reply.send(Err(Error::closed().in_call(&call.method)));
         }
@@ -144,9 +155,10 @@ impl Sender {
         let _closed = self.0.send(Command::Notify(cancelled(id)));
     }
 
-    /// Cancels the streaming call `call`, sent before this, with
-    /// `$/cancel`, after it and before anything sent after this, whether or
-    /// not its id was heard yet; one never sent is not cancelled.
+    /// Cancels the call `call`, sent before this, with `$/cancel`, after it
+    /// and before anything sent after this, whether or not its id was heard
+    /// yet; one never sent, or no longer waiting for its reply (answered, or
+    /// failed by the Connection), is not cancelled.
     pub(crate) fn cancel_sent(&self, call: &CallId) {
         let _closed = self.0.send(Command::CancelSent(call.clone()));
     }
@@ -239,7 +251,7 @@ async fn correlate(
     loop {
         tokio::select! {
             command = commands.recv() => match command {
-                Some(Command::Call(call, granted)) => {
+                Some(Command::Call(call, noted)) => {
                     next_id += 1;
                     let id = next_id;
                     let request = Request {
@@ -265,10 +277,12 @@ async fn correlate(
                     let unheard = call.notified.as_ref().is_some_and(|notified| {
                         matches!(notified.try_send(Heard::Sent(id)), Err(mpsc::error::TrySendError::Closed(_)))
                     });
-                    if let Some(granted) = granted {
+                    if let Some(noted) = noted {
                         // Its caller cancels it with `CancelSent`.
-                        let _noted = granted.id.0.set(id);
-                        send(&credited(id, granted.credits), &lines);
+                        let _noted = noted.id.0.set(id);
+                        if let Some(credits) = noted.credits {
+                            send(&credited(id, credits), &lines);
+                        }
                     } else if unheard {
                         // Its caller stopped listening before it was sent,
                         // so never learnt its id: the call is cancelled here.
@@ -278,7 +292,7 @@ async fn correlate(
                 }
                 Some(Command::Notify(notification)) => send(&notification, &lines),
                 Some(Command::CancelSent(call)) => {
-                    if let Some(id) = call.get() {
+                    if let Some(id) = call.get().filter(|id| pending.contains_key(id)) {
                         send(&cancelled(id), &lines);
                     }
                 }

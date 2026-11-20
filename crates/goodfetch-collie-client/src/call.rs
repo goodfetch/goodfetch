@@ -4,19 +4,23 @@
 //! Each holds its typed params, `P`, until it is sent, so the members the
 //! catalog gives a handle set their options on them; awaiting either only
 //! exchanges messages with the Connection's runtime, so it runs on any
-//! executor (ADR 0081).
+//! executor (ADR 0081). Dropping the future once its call is sent cancels
+//! the call with `$/cancel`, without waiting, when the catalog says the
+//! call is cancellable (ADR 0080).
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::entries;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::Error;
-use crate::rpc::{Outgoing, Sender};
+use crate::rpc::{CallId, Outgoing, Sender};
 
 /// A call's reply, as `.await` gives it.
 pub type Reply<T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>;
@@ -51,7 +55,8 @@ pub(crate) enum Timeout {
 }
 
 /// A call that waits for its reply, `T`, with its params, `P`. Nothing is
-/// sent until it is awaited.
+/// sent until it is awaited, and dropping the future once a cancellable
+/// call is sent cancels it with `$/cancel`, without waiting (ADR 0080).
 #[must_use = "a call is sent only when it is awaited"]
 pub struct Call<T, P = Value> {
     request: Request<P>,
@@ -181,7 +186,9 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
 
 /// A question the engine answers at once, `T`, with its params, `P`,
 /// without waiting on a page, a network or anything else, so it takes no
-/// timeout. Nothing is sent until it is awaited.
+/// timeout. Nothing is sent until it is awaited, and dropping the future
+/// once a cancellable query is sent cancels it with `$/cancel`, without
+/// waiting.
 #[must_use = "a query is sent only when it is awaited"]
 pub struct Query<T, P = Value> {
     request: Request<P>,
@@ -281,7 +288,8 @@ impl<P: Serialize> Request<P> {
     /// Sends the request, its params as JSON once `edit` changed them,
     /// and answers its reply's JSON once the handle noted it; a timer of
     /// the client's fails it past `timeout`. A request its handle settles
-    /// first is not sent.
+    /// first is not sent, and a cancellable one dropped before its reply is
+    /// cancelled.
     async fn send(
         self,
         timeout: Option<Duration>,
@@ -296,18 +304,58 @@ impl<P: Serialize> Request<P> {
         let mut params = serde_json::to_value(params).map_err(Error::shape)?;
         edit(&mut params);
         let (reply, replied) = oneshot::channel();
-        self.sender.call(Outgoing {
+        let call = Outgoing {
             method: self.method,
             params,
             timeout,
             reply,
             notified: None,
-        });
-        let result = replied.await.map_err(|_| Error::closed())??;
+        };
+        let mut waiting = if cancellable(&call.method) {
+            let call = self.sender.call_cancellable(call);
+            Some(Waiting {
+                sender: self.sender,
+                call,
+                replied: false,
+            })
+        } else {
+            self.sender.call(call);
+            None
+        };
+        let replied = replied.await;
+        if let Some(waiting) = &mut waiting {
+            waiting.replied = true;
+        }
+        let result = replied.map_err(|_| Error::closed())??;
         if let Some(note) = self.note {
             note(&result);
         }
         Ok(result)
+    }
+}
+
+/// Whether the catalog says a Client may cancel a call of `method` in
+/// flight; the engine ignores `$/cancel` for any other call, including one
+/// of a method the catalog does not know.
+fn cancellable(method: &str) -> bool {
+    entries::operations_of(Product::Foxhound)
+        .any(|operation| operation.name == method && operation.cancellable)
+}
+
+/// A sent cancellable call its caller waits on: dropped before its reply, as when the
+/// caller drops the call's future, it cancels the call with `$/cancel`
+/// without waiting (ADR 0080).
+struct Waiting {
+    sender: Sender,
+    call: CallId,
+    replied: bool,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        if !self.replied {
+            self.sender.cancel_sent(&self.call);
+        }
     }
 }
 

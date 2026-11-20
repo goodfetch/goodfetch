@@ -54,6 +54,7 @@ pub const BROWSER_ACCESS_MODE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -68,6 +69,7 @@ pub const STEALTH_FINGERPRINT_METHOD: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -82,6 +84,7 @@ pub const STEALTH_GENERATED_IDENTITY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -96,6 +99,7 @@ pub const STEALTH_IDENTITY_OS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -110,6 +114,7 @@ pub const STEALTH_IDENTITY_DEVICE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -124,6 +129,7 @@ pub const STEALTH_IDENTITY_BRAND: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -138,6 +144,7 @@ pub const STEALTH_HUMAN_INPUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -152,6 +159,7 @@ pub const STEALTH_CHROMIUM_BUILD: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -168,6 +176,7 @@ pub const STEALTH_ALLOWED_BUILDS: Setting = Setting {
     // No third-party build runs yet, so nothing reads the digests: a policy
     // that lists one is refused rather than ignored (ADR 0083).
     unbuilt: Some("third_party_stealth_builds"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -186,6 +195,7 @@ pub const IDENTIFIED_SIGNING_KEY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -253,6 +263,7 @@ pub const IDENTIFIED_SIGNATURE_AGENT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

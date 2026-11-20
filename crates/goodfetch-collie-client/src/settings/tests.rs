@@ -5,10 +5,12 @@ use goodfetch_protocol::run::durability::BatchThreshold;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{SettingNotApplicableDetails, SettingsLayer};
+use goodfetch_test_support::logged;
 use serde_json::json;
 
 use super::{
-    Settings, browser, checkpoint, content, egress, governor, network, run_state, session, timeout,
+    Settings, browser, checkpoint, content, egress, governor, network, run_state, sample, session,
+    timeout,
 };
 use crate::ErrorCode;
 
@@ -147,5 +149,40 @@ fn a_key_outside_the_scope_is_refused_naming_where_it_is_set(
                 fix: fix.to_owned(),
             })
         )
+    );
+}
+
+/// Setting a deprecated key warns once per process through `tracing`, and
+/// sends it as any other (ADR 0099).
+///
+/// Covers: story:11-182
+#[test]
+#[expect(
+    deprecated,
+    reason = "the sample's deprecated key is what the warning is for"
+)]
+fn setting_a_deprecated_key_warns_once_per_process_through_tracing() {
+    let (sent, log) = logged(|| {
+        let first = Settings::new().set(sample::ECHO_REPEATS, 2_u64);
+        let _again = Settings::new().set(sample::ECHO_REPEATS, 3_u64);
+        let _other = Settings::new().set(timeout::NAVIGATION, Duration::from_secs(1));
+        first.within(SettingScope::Run).unwrap()
+    });
+
+    let shown = String::from_utf8_lossy(&log);
+    assert_eq!(
+        shown
+            .matches(
+                "The setting `sample.echo_repeats` is deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces."
+            )
+            .count(),
+        1,
+        "{shown}"
+    );
+    assert_eq!(shown.matches("is deprecated").count(), 1, "{shown}");
+    assert!(shown.contains("WARN"), "{shown}");
+    assert_eq!(
+        serde_json::Value::Object(sent),
+        json!({ "sample": { "echo_repeats": 2 } })
     );
 }

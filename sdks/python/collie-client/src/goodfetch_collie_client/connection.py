@@ -51,6 +51,7 @@ from goodfetch_collie_client.generated.operations import (
     EXPERIMENTAL_OPERATIONS,
     AsyncCollieOperations,
 )
+from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.goodfetch_error import GoodfetchError, runtime_message
 from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.host_logging import (
@@ -61,7 +62,7 @@ from goodfetch_collie_client.host_logging import (
 )
 from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
-from goodfetch_collie_client.markers import warn_entry
+from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.opening_process import OpeningProcess
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
@@ -351,6 +352,7 @@ class ClientConnection:
         start tells it first with `connection.set_log_level`.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._opener.ensure_current("run.start")
         self.ensure_open("run.start")
         fields: dict[str, object] = {}

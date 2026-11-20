@@ -265,6 +265,10 @@ pub(super) struct Setting {
     /// setting only configuration or an Operator policy sets.
     #[serde(default)]
     pub(super) scopes: Vec<String>,
+    /// Its deprecation, if any, which each SDK warns of once per process
+    /// when a program sets it (ADR 0099).
+    #[serde(default)]
+    pub(super) deprecated: Option<Deprecation>,
 }
 
 /// Each setting's default, by name.

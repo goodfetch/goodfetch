@@ -11,6 +11,7 @@ fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Settin
         default: Value::Null,
         clearable,
         scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
+        deprecated: None,
     }
 }
 
@@ -274,4 +275,40 @@ fn two_fields_of_a_value_that_spell_one_name_are_refused() {
     let error = settings_module(&settings).unwrap_err();
 
     assert!(format!("{error:#}").contains("loginPage"), "{error:#}");
+}
+
+#[test]
+fn a_deprecated_setting_carries_its_deprecation_in_its_tsdoc_and_the_walkers_registry() {
+    let mut old = setting(
+        "timeout.wait",
+        json!({ "type": "integer" }),
+        false,
+        &["connection", "run"],
+    );
+    old.deprecated = Some(goodfetch_protocol::catalog::Deprecation {
+        since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+        replacement: Some("timeout.navigation".to_owned()),
+        earliest_removal: goodfetch_protocol::catalog::ProtocolVersion { major: 1, minor: 0 },
+        note: "Gone.".to_owned(),
+    });
+    let text = "Since 0.1, removed no earlier than 1.0: use `timeout.navigation` instead. Gone.";
+
+    let module = settings_module(&[old]).unwrap();
+
+    assert!(
+        interface(&module, "RunSettings").contains(&format!(
+            "     * `timeout.wait`.\n     *\n     * @deprecated {text}\n     */\n    readonly wait?: number;"
+        )),
+        "{module}"
+    );
+    assert!(
+        module.contains(&format!(
+            "const DEPRECATED_SETTINGS: DeprecatedSettings = new Map([\n  [\"timeout.wait\", {text:?}],\n]);"
+        )),
+        "{module}"
+    );
+    assert!(
+        module.contains("return onWire(settings, SPELLING, DEPRECATED_SETTINGS);"),
+        "{module}"
+    );
 }

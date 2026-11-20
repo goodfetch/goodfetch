@@ -1,5 +1,5 @@
 {
-  "description": "A Rust Client's hello accepted, then a Run started and two Sessions opened in it. The program reads each Session's `page` events from a stream: the Connection's one Subscription, `events.subscribe` with its credits, is sent before the first `session.on`, and the second stream shares it. The engine publishes eight events: a page of a third Session, events of another kind, two pages of the first Session and three of the second, interleaved; each stream hands only its own Session's pages, each a page whose `evaluate` reaches it, and the first Session's second page comes last, so every other event was handed out before the program reads it. The program reads the first Session's first page, the second Session's first two, past the first Session's page, then the first Session's second page, past the second Session's last. It drops the second Session's stream with its last page unread, which cancels its `session.on` alone and gives back that page's credit: with the three events no stream took and the four read, the Subscription's credits are granted again. It drops the first Session's stream, which cancels its `session.on`, then the Subscription no other stream holds. A new stream sends a new Subscription with all its credits; the engine publishes a page of its Session, then answers its `session.on` as the Session would close: the stream still hands that page, then ends, and the Subscription no other stream holds is cancelled. The Run finishes and the Client closes.",
+  "description": "A Rust Client's hello accepted, then a Run started and two Sessions opened in it. The program reads each Session's `page` events from a stream: the Connection's one Subscription, `events.subscribe` with its credits, is sent before the first `session.on`, and the second stream shares it. The engine publishes eight events: a page of a third Session, events of another kind, two pages of the first Session and three of the second, interleaved, and the Client grants their credits again as soon as it hears them, since each stream's own queue takes them; each stream hands only its own Session's pages, each a page whose `evaluate` reaches it, and the first Session's second page comes last, so every other event was handed out before the program reads it. The program reads the first Session's first page, the second Session's first two, past the first Session's page, then the first Session's second page, past the second Session's last. It drops the second Session's stream with its last page unread, which cancels its `session.on` alone. It drops the first Session's stream, which cancels its `session.on`, then the Subscription no other stream holds. A new stream sends a new Subscription with all its credits; the engine publishes a page of its Session, then answers its `session.on` as the Session would close: the stream still hands that page, then ends, and the Subscription no other stream holds is cancelled. The Run finishes and the Client closes.",
   "steps": [
     {
       "expect": {
@@ -177,6 +177,15 @@
     },
     {
       "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 5,
+          "credits": 8
+        }
+      }
+    },
+    {
+      "expect": {
         "method": "page.evaluate",
         "params": {
           "page_id": "page-1",
@@ -212,15 +221,6 @@
         "method": "$/cancel",
         "params": {
           "id": 7
-        }
-      }
-    },
-    {
-      "expect": {
-        "method": "$/credit",
-        "params": {
-          "id": 5,
-          "credits": 8
         }
       }
     },

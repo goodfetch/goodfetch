@@ -69,7 +69,9 @@ const SAMPLE_ECHOED: Event = Event {
 };
 
 /// `sample.echo_repeats`: the sample module's setting, which the sample
-/// operation does not read yet (the engine's list of unbuilt settings).
+/// operation does not read yet (the engine's list of unbuilt settings), and
+/// which is deprecated as `sample.echo` is, so each SDK's run-time warning
+/// and the release notes' list carry a real key.
 pub const SAMPLE_ECHO_REPEATS: Setting = Setting {
     name: "sample.echo_repeats",
     description: "How many times the sample operation repeats a text.",
@@ -80,6 +82,12 @@ pub const SAMPLE_ECHO_REPEATS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("sample_echo_repeats"),
+    deprecated: Some(Deprecation {
+        since: ARRIVED_IN,
+        replacement: None,
+        earliest_removal: ProtocolVersion { major: 1, minor: 0 },
+        note: "A sample setting, which the real catalog replaces.",
+    }),
     arrived_in: ARRIVED_IN,
 };
 

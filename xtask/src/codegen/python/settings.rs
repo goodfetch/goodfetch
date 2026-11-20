@@ -35,6 +35,14 @@ pub(super) const SETTINGS_ON_WIRE: &str = "settings_on_wire";
 /// [`SETTINGS_ON_WIRE`].
 pub(super) const SETTINGS_ON_WIRE_MODULE: &str = "goodfetch_collie_client.settings";
 
+/// The generated settings module's registry of the deprecated settings: each
+/// one's deprecation text, by its dotted wire key (ADR 0099).
+pub(super) const DEPRECATED_SETTINGS: &str = "DEPRECATED_SETTINGS";
+
+/// The markers module's function a member taking `settings` warns of each
+/// deprecated setting they set with, from [`DEPRECATED_SETTINGS`].
+pub(super) const WARN_DEPRECATED_SETTINGS: &str = "warn_deprecated_settings";
+
 /// A scope's settings type: the scope, its type's name, the prefix of its
 /// areas' classes and its docstring's summary.
 struct ScopeType {
@@ -117,13 +125,16 @@ fn key(name: &str) -> bool {
         && snake(name) == name
 }
 
-/// The settings module of Collie's client package: each scope's type.
+/// The settings module of Collie's client package: each scope's type, and
+/// [`DEPRECATED_SETTINGS`].
 pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
     let mut module = Module::default();
     for scope in &SCOPES {
         let level = tree(settings, Some(scope.scope))?;
         module.area(&level, scope, "")?;
     }
+    module.imports.insert(("collections.abc", "Mapping"));
+    module.imports.insert(("typing", "Final"));
     let mut text =
         docstring_header("The settings each scope opens with (ADR 0083), typed from the catalog.");
     text.push_str("\n\n");
@@ -131,6 +142,19 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
     for class in &module.classes {
         let _ = write!(text, "\n\n{class}");
     }
+    let _ = write!(
+        text,
+        "\n\n{DEPRECATED_SETTINGS}: Final[Mapping[str, str]] = {{\n"
+    );
+    for setting in settings {
+        if let Some(deprecated) = &setting.deprecated {
+            let _ = writeln!(text, "    {:?}: {:?},", setting.name, deprecated.message());
+        }
+    }
+    let _ = writeln!(
+        text,
+        "}}\n\"\"\"Each deprecated setting, by its dotted wire key, with its deprecation's one text.\"\"\""
+    );
     Ok(text)
 }
 
@@ -242,7 +266,12 @@ impl Module {
                     let _ = write!(
                         class,
                         "\n    {segment}: NotRequired[{annotation}]\n{}",
-                        docstring("    ", &described, Stability::Stable, None)
+                        docstring(
+                            "    ",
+                            &described,
+                            Stability::Stable,
+                            setting.deprecated.as_ref()
+                        )
                     );
                 }
                 Node::Area(children) => {

@@ -215,6 +215,18 @@ pub const LISTENER_EVENTS_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `listener_events_lost` names: the event the listener took, and how
+/// many of them it lost once its queue was full.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ListenerEventsLostDetails {
+    /// The event, such as `session.page`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub event: String,
+    /// How many of its events the listener lost.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lost: u64,
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),

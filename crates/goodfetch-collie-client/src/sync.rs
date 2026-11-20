@@ -4,9 +4,9 @@
 //! and its Subscription with its readers, a Run's state, the names
 //! `markers` has warned of and the callsites `logging` keeps, each held
 //! only to read or write a few words, or to queue a message, never across
-//! an `.await`, and whether a value a Run holds is closed. The Subscription
-//! is the one held while another is taken: the Connection's, then its
-//! readers'.
+//! an `.await`, and whether a value a Run holds is closed. Locks are taken
+//! inside another only in the Subscription, in one order: the
+//! Connection's, then its readers', then a reader's queue.
 #![expect(
     clippy::disallowed_types,
     reason = "the crate's sync module, the one place its locks and atomics are named (ADR 0060)"

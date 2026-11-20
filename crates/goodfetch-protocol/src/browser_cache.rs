@@ -300,6 +300,7 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

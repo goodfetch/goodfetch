@@ -5,7 +5,6 @@ sends the wire's JSON and answers the engine's unchanged, and the main
 path's protections hold. TypeScript's `raw-call.test.ts` is its twin.
 """
 
-import inspect
 from collections.abc import Awaitable
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -43,13 +42,14 @@ async def failure(call: Awaitable[object]) -> GoodfetchError:
     return raised.value
 
 
-async def locator_on(way: Way, page: "AsyncPage", selector: str) -> "AsyncLocator":
-    """`page`'s locator for `selector`, its methods async whatever the way."""
+def locator_on(way: Way, page: "AsyncPage", selector: str) -> "AsyncLocator":
+    """`page`'s locator for `selector`, its methods async whatever the way.
+
+    A builder is a plain method in both APIs (ADR 0099), so the sync way's
+    proxy hands the sync `Locator` itself, which `way.api` wraps.
+    """
     built = page.locator(selector)
-    if inspect.isawaitable(built):
-        # The sync way's proxy builds it in a worker thread, as any member.
-        return way.api(built, await built)
-    return built
+    return way.api(built, built)
 
 
 @pytest.mark.covers("story:11-181")
@@ -83,7 +83,7 @@ async def test_reaches_operations_the_sdk_does_not_generate(
     deadline = await failure(run.call("run.finish", timeout=timedelta(milliseconds=2)))
     page = await run.new_page()
     reloaded = await page.call("page.reload")
-    clicked = await (await locator_on(way, page, "#consent")).call("locator.click")
+    clicked = await locator_on(way, page, "#consent").call("locator.click")
     await run.close()
     on_closed_run = await failure(run.call("run.usage"))
     on_closed_page = await failure(page.call("page.reload"))

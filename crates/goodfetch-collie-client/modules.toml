@@ -17,7 +17,7 @@
 # the Connection both Products' connections implement (ADRs 0095 and 0099),
 # and `blocking` its blocking twin. `markers` warns once per process of a
 # deprecated or Experimental entry `generated` calls, or `run` serves by
-# hand (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
+# hand, and of a deprecated setting `settings` sets (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
 # Connection and on every handle (ADR 0099, G8), which refuses what the
 # engine would before it sends it through `call`'s builder.
 # `connect_timeout` types how long `connection` waits for `hello`'s answer,
@@ -31,7 +31,9 @@
 # the scope does not set (ADR 0083).
 # `published` is the Connection's own Subscription, which the streams of
 # the events the engine publishes on its event stream share (ADR 0081),
-# such as a Session's.
+# such as a Session's. `listener_queue` types how many unread events each
+# of those streams holds, the bound a Product crate's `max_listener_queue`
+# sets (ADR 0081).
 # `answer` is a top-level result's typed view with the JSON it came from,
 # unknown fields kept (ADR 0082), which `generated`'s members answer;
 # `schema` is the Schema a program's own types cross the wire through.
@@ -41,7 +43,7 @@ answer = []
 blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "published", "raw_call", "rpc", "sync", "transport"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "transport"]
 connection_type = ["error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc"]
@@ -52,14 +54,15 @@ handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
 line = []
+listener_queue = ["error"]
 logging = ["sync"]
 markers = ["logging", "sync"]
-published = ["error", "rpc", "sync"]
+published = ["error", "listener_queue", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
 run = ["connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 schema = []
-settings = ["call", "error"]
+settings = ["call", "error", "markers"]
 sync = []
 transport = []

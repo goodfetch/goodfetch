@@ -8,7 +8,14 @@
 // Subscription, which its listeners share, rather than on their calls; each
 // listener's own queue takes them, so a stalled one delays no other and,
 // past `maxListenerQueue`, ends with `listener_events_lost`.
-import { ClosedError, type ConsoleMessage, type Logger, type Page } from "@goodfetch/collie-client";
+import {
+  ClosedError,
+  type ConsoleMessage,
+  type Logger,
+  type Page,
+  type Subscription,
+  type WebSocketFrame,
+} from "@goodfetch/collie-client";
 import { pageOf } from "@goodfetch/collie-client/runtime";
 import {
   failure,
@@ -197,6 +204,95 @@ describe("a page's listeners", () => {
 
       expect(played.done()).toEqual({ kind: "finished" });
       expect(errored).toEqual([]);
+    },
+  );
+});
+
+/** What `page.on("websocket")`'s listener and each WebSocket's own listeners heard, and its Subscription; `received` also gets each frame received. */
+function listenToWebSockets(
+  page: Page,
+  received: (frame: WebSocketFrame) => void = () => {},
+): { readonly heard: string[]; readonly subscription: Subscription } {
+  const heard: string[] = [];
+  const subscription = page.on("websocket", (webSocket) => {
+    const name = webSocket.url.slice(-1);
+    heard.push(`${name} opened`);
+    webSocket.on("framesent", (frame) => {
+      heard.push(`${name} sent ${frame.payload}`);
+    });
+    webSocket.on("framereceived", (frame) => {
+      heard.push(`${name} received ${frame.payload}`);
+      received(frame);
+    });
+    webSocket.on("close", (closed) => {
+      heard.push(`${name} closed ${closed.webSocketId}`);
+    });
+  });
+  return { heard, subscription };
+}
+
+/** What the program hears of `page/web-socket.json`'s two WebSockets. */
+const HEARD = [
+  "a opened",
+  "a sent hello a",
+  "b opened",
+  "a received a1",
+  "b received b1",
+  "a closed ws-a",
+  "b closed ws-b",
+];
+
+describe("a page's WebSockets", () => {
+  test(
+    "each one's own `on` gets its frames alone, in order, and its close once",
+    { tags: ["story:5-48", "story:11-62", "story:11-63"] },
+    async () => {
+      const { collie, played } = await collieOn("page/web-socket.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const { heard, subscription } = listenToWebSockets(page);
+      await vi.waitFor(() => {
+        expect(heard).toHaveLength(HEARD.length);
+      });
+      subscription.close();
+      await run.finish();
+      await collie.close();
+
+      expect(heard).toEqual(HEARD);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "raise a thrown WebSocket listener's `listener_failed` from the next call on its page, which goes on listening",
+    { tags: ["story:5-48", "story:11-63", "error:listener_failed"] },
+    async () => {
+      const { collie, played } = await collieOn("page/web-socket.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+      const bug = new Error("the frame listener's bug");
+
+      const { heard, subscription } = listenToWebSockets(page, (frame) => {
+        if (frame.payload === "b1") {
+          throw bug;
+        }
+      });
+      await vi.waitFor(() => {
+        expect(heard).toHaveLength(HEARD.length);
+      });
+      const refused = await failure(page.evaluate("1"));
+      subscription.close();
+      await run.finish();
+      await collie.close();
+
+      expect(heard).toEqual(HEARD);
+      expect(refused).toMatchObject({
+        code: "listener_failed",
+        details: { event: "web_socket.frame_received" },
+        cause: bug,
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 });

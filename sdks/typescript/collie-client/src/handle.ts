@@ -28,13 +28,16 @@ export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes
   /**
    * Registers `listener` for `event` through `operation`, the handle's `on`
    * (ADR 0081), whose call is sent now and stays in flight until the
-   * `Subscription` closes or the value goes.
+   * `Subscription` closes or the value goes. With `opens`, `event` opens
+   * a value whose own events the call also carries, and `listener` gets
+   * that value in place of the payload.
    */
   listen<Name extends keyof Types & string, Payload>(
     operation: Name,
     params: Types[Name]["params"],
     event: string,
     listener: Listener<Payload>,
+    opens?: Opens<Payload>,
   ): Subscription;
   /**
    * Registers `listener` for `event` through `operation`, the handle's `on`
@@ -64,6 +67,30 @@ export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes
  * `listener_failed`.
  */
 export type Listener<Payload> = (payload: Payload, dropped: number) => unknown;
+
+/**
+ * A value an event opens (ADR 0081), such as the WebSocket of a page's
+ * `websocket`: the call that listens to that event also carries the
+ * value's own events, named `<namespace>.<event>`, each naming it by `id`.
+ */
+export interface Opens<Value> {
+  /** The namespace of its own events, such as `web_socket` for `web_socket.frame_received`. */
+  readonly namespace: string;
+  /** The field of each of those, and of the opening payload, that names it, such as `webSocketId`. */
+  readonly id: string;
+  /** Builds it from the opening payload, with what registers the listeners of its own events. */
+  readonly build: (payload: never, events: OpenedEvents) => Value;
+}
+
+/** What registers the listeners of an opened value's own events (ADR 0081). */
+export interface OpenedEvents {
+  /**
+   * Registers `listener` for `event`, one of the value's own events as the
+   * engine names it, until the `Subscription` returned closes or the call
+   * that opened the value ends.
+   */
+  listen<Payload>(event: string, listener: Listener<Payload>): Subscription;
+}
 
 /**
  * What `on` returns (ADR 0081): it closes synchronously, since nothing

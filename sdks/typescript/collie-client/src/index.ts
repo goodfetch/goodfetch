@@ -18,7 +18,14 @@ export type { Limits, Money } from "./limits.ts";
 export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
-export { Locator, Page, Session, type PageEvents } from "./generated/handles.ts";
+export {
+  Locator,
+  Page,
+  Session,
+  WebSocket,
+  type PageEvents,
+  type WebSocketEvents,
+} from "./generated/handles.ts";
 export type { Listener, Subscription } from "./handle.ts";
 export type { Handle, RawCallOptions, RawParams } from "./raw-call.ts";
 export type { Sequence } from "./sequence.ts";
@@ -69,4 +76,6 @@ export type {
   UnreadReason,
   Verdict,
   WebError,
+  WebSocketClosed,
+  WebSocketFrame,
 } from "./generated/index.ts";

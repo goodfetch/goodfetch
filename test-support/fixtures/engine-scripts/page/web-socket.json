@@ -1,0 +1,197 @@
+{
+  "description": "A Collie Client's hello accepted, then a Run started and a page opened in it. The program listens to the page's `web_socket`: the engine sends, on that one call, two WebSockets the page opened, each one's frames and each one's close, interleaved; the program closes its Subscription, which sends its `$/cancel`; the Run finishes and the Client closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.on",
+        "params": {
+          "page_id": "page-1",
+          "event": "web_socket"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 3,
+          "credits": 16
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 3,
+            "events": [
+              {
+                "position": 1,
+                "event": "page.web_socket",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-a",
+                  "url": "wss://20.actionability.test/a"
+                }
+              },
+              {
+                "position": 2,
+                "event": "web_socket.frame_sent",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-a",
+                  "payload": "hello a",
+                  "binary": false
+                }
+              },
+              {
+                "position": 3,
+                "event": "page.web_socket",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-b",
+                  "url": "wss://20.actionability.test/b"
+                }
+              },
+              {
+                "position": 4,
+                "event": "web_socket.frame_received",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-a",
+                  "payload": "a1",
+                  "binary": false
+                }
+              },
+              {
+                "position": 5,
+                "event": "web_socket.frame_received",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-b",
+                  "payload": "b1",
+                  "binary": false
+                }
+              },
+              {
+                "position": 6,
+                "event": "web_socket.close",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-a"
+                }
+              },
+              {
+                "position": 7,
+                "event": "web_socket.close",
+                "data": {
+                  "page_id": "page-1",
+                  "web_socket_id": "ws-b"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 3
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

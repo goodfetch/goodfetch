@@ -4,11 +4,13 @@
 //! member that registers a listener and returns its `Subscription`. A page's
 //! events come on its `on` call; a Session's, which the engine publishes on
 //! its event stream, on the Connection's own Subscription, and a payload
-//! that opened a handle reaches the listener as that handle.
+//! that opened a handle reaches the listener as that handle. A payload
+//! that opens a value whose own events the same call carries, as a page's
+//! `websocket` does, reaches it as that value, whose own `on` gets them.
 
 use std::fmt::Write as _;
 
-use super::super::handles::{Handle, Listened, Listener};
+use super::super::handles::{Handle, Listened, Listener, Opens};
 use super::super::layer::Stability;
 use super::super::naming::{camel, pascal, snake};
 use super::doc;
@@ -26,7 +28,7 @@ pub(super) fn emit(
     let events = events_constant(handle);
     if let Some(listener) = &handle.listener {
         return (
-            listened_events(class, listener, &events),
+            listened_events(class, listener, &events, registry),
             format!(
                 "\n{}",
                 listener_member(class, listener, handle, &events, registry)
@@ -54,9 +56,118 @@ fn events_constant(handle: &Handle<'_>) -> String {
 /// The events a handle's `listener` listens to, under Playwright's names
 /// (ADR 0081): the interface that types each one's payload, and the value
 /// its call names each by.
-fn listened_events(class: &str, listener: &Listener<'_>, events: &str) -> String {
-    let mut text = events_interface(class, listener);
+fn listened_events(class: &str, listener: &Listener<'_>, events: &str, registry: &str) -> String {
+    let mut text = String::new();
+    for listened in &listener.events {
+        if let Some(opens) = &listened.opens {
+            text.push_str(&opened_value(class, listened, opens, registry));
+        }
+    }
+    text.push_str(&events_interface(class, listener));
     text.push_str(&events_value(class, listener, events));
+    text.push_str(&opens_value(class, listener, events));
+    text
+}
+
+/// The value `listened` opens (ADR 0081): the interface of its own events
+/// under Playwright's names, the value its `on` names each by, and its
+/// class, which holds the opening payload's fields and whose `on` registers
+/// a listener of its own events on the call that listens to `listened`,
+/// warning of the markers the `registry` gives the event, as `on` does.
+fn opened_value(class: &str, listened: &Listened, opens: &Opens, registry: &str) -> String {
+    let value = pascal(&opens.namespace);
+    let constant = format!("{}_EVENTS", snake(&opens.namespace).to_uppercase());
+    let mut text = format!(
+        "\n/** The events a `{value}` listens to with `on`, under Playwright's names (ADR 0081), and what its listener gets of each. */\nexport interface {value}Events {{\n"
+    );
+    for own in &opens.events {
+        text.push_str(&doc("  ", &own.description, Stability::Stable, None));
+        let _ = writeln!(text, "  readonly {}: types.{};", own.joined(), own.payload);
+    }
+    let _ = write!(
+        text,
+        "}}\n\n/** The event each of `{value}Events` is, as the engine names it. */\nconst {constant} = {{\n"
+    );
+    for own in &opens.events {
+        let _ = writeln!(
+            text,
+            "  {}: \"{}.{}\",",
+            own.joined(),
+            opens.namespace,
+            own.wire
+        );
+    }
+    let _ = writeln!(
+        text,
+        "}} as const satisfies {{ readonly [Name in keyof {value}Events]: string }};\n"
+    );
+    text.push_str(&doc(
+        "",
+        &format!(
+            "What a `{class}`'s `{}` listener gets (ADR 0081). {}\n\nIts own events come on the `{class}`'s `on` call that opened it, until that call ends.",
+            listened.joined(),
+            listened.description
+        ),
+        Stability::Stable,
+        None,
+    ));
+    let _ = writeln!(text, "export class {value} {{");
+    for (name, description) in &opens.fields {
+        text.push_str(&doc("  ", description, Stability::Stable, None));
+        let _ = writeln!(
+            text,
+            "  readonly {}: types.{}[{:?}];",
+            camel(name),
+            listened.payload,
+            camel(name)
+        );
+    }
+    let _ = write!(
+        text,
+        "  readonly #events: OpenedEvents;\n\n  /** @internal The listener of a `{class}`'s `{joined}` gets one; a program never constructs one. */\n  constructor(payload: types.{payload}, events: OpenedEvents) {{\n",
+        joined = listened.joined(),
+        payload = listened.payload,
+    );
+    for (name, _) in &opens.fields {
+        let _ = writeln!(
+            text,
+            "    this.{name} = payload.{name};",
+            name = camel(name)
+        );
+    }
+    let _ = write!(
+        text,
+        "    this.#events = events;\n  }}\n\n  /** Registers `listener` for one of its own events (ADR 0081), which it gets one at a time, in order, each awaited before the next, until the `Subscription` returned closes or the call that opened it ends; one that throws is removed, and the next call on the `{class}` raises `listener_failed`. */\n  on<Name extends keyof {value}Events>(event: Name, listener: Listener<{value}Events[Name]>): Subscription {{\n    const listened = {constant}[event];\n    warnEntry({registry}, listened);\n    return this.#events.listen(listened, listener);\n  }}\n}}\n"
+    );
+    text
+}
+
+/// What builds each value an event of `listener` opens, and names that
+/// value's own events: none when no event opens one.
+fn opens_value(class: &str, listener: &Listener<'_>, events: &str) -> String {
+    let opened = listener
+        .events
+        .iter()
+        .filter_map(|listened| Some((listened, listened.opens.as_ref()?)))
+        .collect::<Vec<_>>();
+    if opened.is_empty() {
+        return String::new();
+    }
+    let mut text = format!(
+        "\n/** The value each of `{class}Events` that opens one builds, and the namespace and ID its own events name it by (ADR 0081). */\nconst {events}_OPENS: {{ readonly [Name in keyof {class}Events]?: Opens<{class}Events[Name]> }} = {{\n"
+    );
+    for (listened, opens) in opened {
+        let _ = writeln!(
+            text,
+            "  {}: {{ namespace: {:?}, id: {:?}, build: (payload: types.{}, events) => new {}(payload, events) }},",
+            listened.joined(),
+            opens.namespace,
+            camel(&format!("{}_id", opens.namespace)),
+            listened.payload,
+            pascal(&opens.namespace)
+        );
+    }
+    text.push_str("};\n");
     text
 }
 
@@ -82,9 +193,11 @@ fn events_interface(class: &str, listener: &Listener<'_>) -> String {
 /// What a listener gets of `listened`: the handle its payload opened, or
 /// its payload.
 fn gets(listened: &Listened) -> String {
-    listened
-        .builds
-        .map_or_else(|| format!("types.{}", listened.payload), pascal)
+    match (listened.builds, &listened.opens) {
+        (Some(namespace), _) => pascal(namespace),
+        (None, Some(opens)) => pascal(&opens.namespace),
+        (None, None) => format!("types.{}", listened.payload),
+    }
 }
 
 /// The value `listener`'s call names each of `<Class>Events` by.
@@ -125,9 +238,18 @@ fn listener_member(
         operation.stability,
         operation.deprecated.as_ref(),
     );
+    let opens = if listener
+        .events
+        .iter()
+        .any(|listened| listened.opens.is_some())
+    {
+        format!(", {events}_OPENS[event]")
+    } else {
+        String::new()
+    };
     let _ = write!(
         text,
-        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    return this.#host.listen({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, listener);\n  }}\n",
+        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    return this.#host.listen({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, listener{opens});\n  }}\n",
         warnings(operation),
         operation.name,
         camel(&handle.id.param),

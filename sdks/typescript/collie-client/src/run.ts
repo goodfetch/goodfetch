@@ -27,10 +27,11 @@ import {
 import { Page } from "./generated/handles.ts";
 import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
 import { collieWire } from "./generated/wire.ts";
-import type { HandleHost, Listener, Subscription } from "./handle.ts";
+import type { HandleHost, Listener, Opens, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { subscribe, subscribePublished, type Listening } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
+import { Opened } from "./opened.ts";
 import type { RawSend } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
@@ -262,44 +263,67 @@ function hostIn<Id>(
       released.register(host, { run, value, logger: reach.logger });
     }
   };
-  // What a listener of `event` registered through `operation` tells `value`.
+  // What tells `value` that a listener of `event` registered through `operation` threw.
+  const failedListener = (operation: string, event: string, cause: unknown): void => {
+    const error = new ListenerFailedError(
+      `${operation}: the listener of \`${event}\` threw, so it was removed`,
+      {
+        fix: "Fix the listener, then listen again with `on`.",
+        details: { event },
+        cause,
+      },
+    );
+    // Released first, nothing could raise it: it is logged.
+    if (value?.released === true) {
+      logFailures(reach.logger, [error]);
+    } else {
+      run.failures.push({ value, error });
+    }
+  };
+  // What a listener of `event` registered through `operation` tells
+  // `value`; with `opens`, it gets the value each event opens, whose own
+  // listeners' failures `value` hears too.
   const listeningTo = <Payload>(
     operation: string,
     event: string,
     listener: Listener<Payload>,
-  ): Listening<Payload> => ({
-    event,
-    listener: readingWire(event, listener),
-    failed: (cause) => {
-      const error = new ListenerFailedError(
-        `${operation}: the listener of \`${event}\` threw, so it was removed`,
-        {
-          fix: "Fix the listener, then listen again with `on`.",
-          details: { event },
-          cause,
-        },
-      );
-      // Released first, nothing could raise it: it is logged.
-      if (value?.released === true) {
-        logFailures(reach.logger, [error]);
-      } else {
-        run.failures.push({ value, error });
-      }
-    },
-    // A call its Connection's close cancelled, or that stopped as its
-    // value closed (a handler's attempt ending), ended with everything
-    // else; any other error, such as `page_events_lost`, ended this
-    // listener alone, and nothing else would say so.
-    ended: (error) => {
-      if (error instanceof CallCancelledError || error instanceof ClosedError) {
-        return;
-      }
-      logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {
-        event,
-        error,
-      });
-    },
-  });
+    opens?: Opens<Payload>,
+  ): Listening<Payload> => {
+    const opened =
+      opens === undefined
+        ? undefined
+        : new Opened(opens, readOnWire, (cause, thrower) => {
+            failedListener(operation, thrower, cause);
+          });
+    return {
+      event,
+      listener:
+        opens === undefined || opened === undefined
+          ? readingWire(event, listener)
+          : (data: unknown, dropped) => {
+              const payload = readOnWire(event, data);
+              // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the payload is the event's, which `opens` builds its value from.
+              return listener(opens.build(payload as never, opened.open(payload)), dropped);
+            },
+      opened,
+      failed: (cause) => {
+        failedListener(operation, event, cause);
+      },
+      // A call its Connection's close cancelled, or that stopped as its
+      // value closed (a handler's attempt ending), ended with everything
+      // else; any other error, such as `page_events_lost`, ended this
+      // listener alone, and nothing else would say so.
+      ended: (error) => {
+        if (error instanceof CallCancelledError || error instanceof ClosedError) {
+          return;
+        }
+        logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {
+          event,
+          error,
+        });
+      },
+    };
+  };
   // The Run's own calls also read their answer, since a Run report says when the Run ended.
   const sent = async <Result>(operation: string, send: () => Promise<Result>): Promise<Result> => {
     ensureCallable(operation);
@@ -353,11 +377,12 @@ function hostIn<Id>(
       params: CollieOperationTypes[Name]["params"],
       event: string,
       listener: Listener<Payload>,
+      opens?: Opens<Payload>,
     ): Subscription {
       ensureListenable(operation);
       return subscribe(
         (options) => reach.stream(operation, paramsOnWire(operation, params), options),
-        listeningTo(operation, event, listener),
+        listeningTo(operation, event, listener, opens),
       );
     },
     listenPublished<Name extends keyof CollieOperationTypes, Payload>(
@@ -394,13 +419,23 @@ function paramsOnWire(operation: keyof CollieOperationTypes, params: unknown): u
  * (ADRs 0092 and 0099); the payload's own data keeps its keys.
  */
 function readingWire<Payload>(event: string, listener: Listener<Payload>): Listener<Payload> {
-  const events: Readonly<Record<string, WirePath | undefined>> = collieWire.events;
-  const path = Object.hasOwn(events, event) ? events[event] : undefined;
+  const path = wirePathOf(event);
   return path === undefined
     ? listener
     : (payload, dropped) =>
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the payload is the event's as the catalog types it.
         listener(fromWire(payload, path, collieWire.types) as Payload, dropped);
+}
+
+/** The payload of `event`, as the engine names it, read as `readingWire` reads it. */
+function readOnWire(event: string, payload: unknown): unknown {
+  return fromWire(payload, wirePathOf(event), collieWire.types);
+}
+
+/** How the payload of `event` is read, when it has fields to read. */
+function wirePathOf(event: string): WirePath | undefined {
+  const events: Readonly<Record<string, WirePath | undefined>> = collieWire.events;
+  return Object.hasOwn(events, event) ? events[event] : undefined;
 }
 
 /** What stops a call given `given`, its own signal, that also stops when `signal` aborts. */

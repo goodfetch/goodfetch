@@ -184,8 +184,10 @@ fn a_served_documents_markup_states_what_it_can_of_a_link(
 /// A link a holder's markup hides inside a menu, a tab or a disclosure is
 /// one a person reveals by opening it: a `nav` or `menu` element, a menu,
 /// navigation or tab role, a `details` element, a `popover`, a `hidden`
-/// that a find in the page opens (`until-found`), or an element another
-/// names in `aria-controls`; a hidden plain holder reveals nothing.
+/// that a find in the page opens (`until-found`); a dialog role is no
+/// menu. An element another names in `aria-controls`, and a hidden plain
+/// holder that reveals nothing, are read from a served document's markup
+/// in `goodfetch-fetch-tier`'s `document` tests.
 ///
 /// Covers: story:8-228
 #[rstest]
@@ -197,8 +199,6 @@ fn a_served_documents_markup_states_what_it_can_of_a_link(
 #[case::a_tab_panel("div", &[("role", "tabpanel"), ("hidden", "")], false, true)]
 #[case::a_popover("div", &[("popover", "auto")], false, true)]
 #[case::hidden_until_found("div", &[("hidden", "UNTIL-FOUND")], false, true)]
-#[case::named_by_aria_controls("div", &[("id", "more"), ("hidden", "")], true, true)]
-#[case::a_plain_holder("div", &[("hidden", "")], false, false)]
 #[case::a_dialog_role_is_no_menu("div", &[("role", "dialog"), ("hidden", "")], false, false)]
 fn a_link_hidden_in_a_menu_tab_or_disclosure_reads_revealable(
     #[case] name: &str,

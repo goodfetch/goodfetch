@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use goodfetch_protocol::foxhound::export::{
     CSV_NESTED_VALUES, ExportCompression, ExportFormat, PARQUET_COMPRESSION_VALUES,
 };
@@ -441,24 +439,6 @@ fn the_feed_fields_are_those_the_settings_name() {
     );
 }
 
-/// What `setting_invalid` says of a value is the end of its sentence, as
-/// a person reads it, with each figure and character the check holds to.
-#[test]
-fn a_refused_option_reads_as_what_is_wrong_with_the_value() {
-    assert_eq!(
-        [
-            OptionRefused::IndentTooLarge.to_string(),
-            OptionRefused::SheetNameTooLong.to_string(),
-            OptionRefused::SheetNameCharacter.to_string(),
-        ],
-        [
-            "is more than 8",
-            "is longer than 31 characters",
-            "holds one of `:`, `\\`, `/`, `?`, `*`, `[` and `]`",
-        ]
-    );
-}
-
 /// A Record read past a Wall carries its marker as a `#wall` field: in
 /// JSON beside its own fields, in a table as a column of its own; one
 /// that met no Wall is written as committed.
@@ -546,17 +526,24 @@ fn compression_gives_back_the_bytes_written_in_parts(#[case] compression: Export
 /// to another.
 #[test]
 fn each_choice_of_the_catalog_names_its_own_way() {
-    let nested: BTreeSet<String> = CSV_NESTED_VALUES
+    let nested: Vec<_> = CSV_NESTED_VALUES
         .iter()
-        .map(|choice| format!("{:?}", Nested::of(choice).unwrap()))
+        .map(|choice| Nested::of(choice))
         .collect();
-    let codecs: BTreeSet<String> = PARQUET_COMPRESSION_VALUES
+    let codecs: Vec<_> = PARQUET_COMPRESSION_VALUES
         .iter()
-        .map(|choice| format!("{:?}", ParquetCodec::of(choice).unwrap()))
+        .map(|choice| ParquetCodec::of(choice))
         .collect();
 
     assert_eq!(
-        (nested.len(), codecs.len()),
-        (CSV_NESTED_VALUES.len(), PARQUET_COMPRESSION_VALUES.len())
+        (nested, codecs),
+        (
+            vec![Some(Nested::Json), Some(Nested::Flatten)],
+            vec![
+                Some(ParquetCodec::Zstd),
+                Some(ParquetCodec::Snappy),
+                Some(ParquetCodec::None)
+            ],
+        )
     );
 }

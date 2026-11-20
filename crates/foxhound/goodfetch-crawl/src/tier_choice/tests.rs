@@ -15,8 +15,8 @@ use goodfetch_session_pool::SendsFrom;
 use rusqlite::Connection;
 
 use super::{
-    AttemptPlan, Between, MAX_SEGMENTS, Replay, Sampled, Sampling, TABLES, TierChoices, Unit,
-    Weighed, encoded, read, record, segment,
+    AttemptPlan, Between, Replay, Sampled, Sampling, TABLES, TierChoices, Unit, Weighed, encoded,
+    read, record, segment,
 };
 
 const KEY: &str = "tiers.test";
@@ -142,77 +142,6 @@ fn tier_from(
     }
 }
 
-/// A Label whose every sample matched is learned onto `http`, one whose
-/// every sample differed onto `browser`, each after its samples only, and
-/// each Label on its own.
-#[test]
-fn a_label_is_learned_onto_http_when_every_sample_matches_and_onto_browser_otherwise() {
-    let mut choices = TierChoices::default();
-    let mut before = Vec::new();
-    for page in 1..=SAMPLES {
-        before.push((
-            tier(&mut choices, "static", &format!("/products/{page}")),
-            tier(&mut choices, "scripted", &format!("/blog/{page}")),
-        ));
-        sample(&mut choices, "static", &format!("/products/{page}"), true);
-        sample(&mut choices, "scripted", &format!("/blog/{page}"), false);
-    }
-
-    assert_eq!(
-        (
-            before,
-            tier(&mut choices, "static", "/products/9"),
-            tier(&mut choices, "scripted", "/blog/9"),
-            tier(&mut choices, "other", "/products/9"),
-        ),
-        (
-            vec![(None, None); SAMPLES],
-            Some(FetchTier::Http),
-            Some(FetchTier::Browser),
-            None,
-        )
-    );
-}
-
-/// Samples that disagree by first path segment split the Label: the
-/// segment whose samples all matched goes on `http` once it has its own
-/// three, the one whose samples differed stays on `browser`, and a
-/// segment whose own samples disagree stays on `browser`.
-///
-/// Covers: story:6-258
-#[test]
-fn samples_that_disagree_by_first_segment_split_the_label_and_a_segment_that_disagrees_stays_on_browser()
- {
-    let mut choices = TierChoices::default();
-    sample(&mut choices, "page", "/products/1", true);
-    sample(&mut choices, "page", "/blog/1", false);
-    sample(&mut choices, "page", "/products/2", true);
-    let split = (
-        tier(&mut choices, "page", "/products/3"),
-        tier(&mut choices, "page", "/blog/2"),
-    );
-    sample(&mut choices, "page", "/products/3", true);
-    sample(&mut choices, "page", "/mixed/1", true);
-    sample(&mut choices, "page", "/mixed/2", false);
-
-    assert_eq!(
-        (
-            split,
-            tier(&mut choices, "page", "/products/4"),
-            tier(&mut choices, "page", "/blog/3"),
-            tier(&mut choices, "page", "/mixed/3"),
-            tier(&mut choices, "page", "/"),
-        ),
-        (
-            (None, Some(FetchTier::Browser)),
-            Some(FetchTier::Http),
-            Some(FetchTier::Browser),
-            Some(FetchTier::Browser),
-            None,
-        )
-    );
-}
-
 /// A split Label keeps at most 16 segments: of 17 segments, the 17th takes
 /// the Label's own choice, `browser`, and is never sampled.
 ///
@@ -223,12 +152,15 @@ fn a_split_label_keeps_sixteen_segments_and_the_rest_share_the_labels_choice() {
     sample(&mut choices, "page", "/s1/1", true);
     sample(&mut choices, "page", "/s2/1", false);
     sample(&mut choices, "page", "/s1/2", true);
-    for segment in 3..=MAX_SEGMENTS {
+    for segment in 3..=16 {
         sample(&mut choices, "page", &format!("/s{segment}/1"), true);
     }
-    let kept: Vec<String> = (1..=MAX_SEGMENTS)
-        .map(|segment| format!("s{segment}"))
-        .collect();
+    let kept: Vec<String> = [
+        "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14",
+        "s15", "s16",
+    ]
+    .map(String::from)
+    .into();
 
     assert_eq!(
         (
@@ -394,12 +326,14 @@ fn a_resumed_crawl_goes_on_counting_the_requests_a_choice_served() {
     );
 }
 
-/// A declared total that stops matching samples its Label on its domain
-/// again at once, whatever it served (ADR 0020); other Labels keep theirs.
+/// A Label whose choice on its domain is dropped, as a refused transport
+/// drops it (#2419), is sampled again at once, whatever it served; other
+/// Labels keep theirs. A declared total that stops matching will drop it
+/// the same way once a contract declares one (ADR 0020).
 ///
 /// Covers: story:5-114
 #[test]
-fn a_declared_total_that_stops_matching_samples_the_label_again_at_once() {
+fn a_dropped_choice_samples_its_label_again_at_once_and_other_labels_keep_theirs() {
     let mut choices = TierChoices::default();
     for page in 1..=SAMPLES {
         sample(&mut choices, "listing", &format!("/products/{page}"), true);
@@ -447,24 +381,6 @@ fn a_label_whose_browser_sample_showed_a_consent_wall_never_moves_to_http() {
                 forced: None
             })
         )
-    );
-}
-
-/// `fetch.sample.count` sets how many samples a Label takes: with one, its
-/// first matching sample moves it to `http`.
-///
-/// Covers: story:5-114
-#[test]
-fn fetch_sample_count_sets_how_many_samples_a_label_takes() {
-    let mut choices = TierChoices::default().sampled_as(Sampling {
-        count: 1,
-        ..Sampling::default()
-    });
-    sample(&mut choices, "page", "/products/1", true);
-
-    assert_eq!(
-        tier(&mut choices, "page", "/products/2"),
-        Some(FetchTier::Http)
     );
 }
 

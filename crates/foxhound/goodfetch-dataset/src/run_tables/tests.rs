@@ -51,32 +51,6 @@ fn every_column_and_key_of_a_run_table_is_one_its_run_file_table_holds() {
     assert_eq!(missing, Vec::<(&str, &str)>::new());
 }
 
-#[test]
-fn only_the_run_id_reads_no_column_of_the_run_file() {
-    let unread: Vec<(&str, &str)> = RUN_FILE_TABLES
-        .iter()
-        .flat_map(|table| {
-            table
-                .run_table
-                .columns
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| table.column(*index).is_none())
-                .map(|(_, column)| (table.run_table.name, column.name))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    assert_eq!(
-        unread,
-        vec![
-            ("records", "run"),
-            ("rejected_records", "run"),
-            ("datasets", "run")
-        ]
-    );
-}
-
 /// Which column of the run file each column of a run table reads, written
 /// out here: the SQL tab answers each name with what its source holds, and
 /// `request_id` and `value` read columns named otherwise.

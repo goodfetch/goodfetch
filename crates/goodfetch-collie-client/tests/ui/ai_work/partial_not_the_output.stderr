@@ -1,0 +1,10 @@
+error[E0308]: `match` arms have incompatible types
+  --> tests/ui/ai_work/partial_not_the_output.rs:9:43
+   |
+ 7 | /     match ended {
+ 8 | |         Ended::Finished { output } => output,
+   | |                                       ------ this is found to be of type `String`
+ 9 | |         Ended::Stopped { partial, .. } => partial,
+   | |                                           ^^^^^^^ expected `String`, found `PartialOutput`
+10 | |     }
+   | |_____- `match` arms have incompatible types

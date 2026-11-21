@@ -18,6 +18,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Self, cast
 
+import anyio
+
 from goodfetch_test_support.daemon import Daemon
 from goodfetch_test_support.play_script import CORPUS
 from goodfetch_test_support.proving_ground import ProvingGround
@@ -262,6 +264,38 @@ def scripted_engine_record(home: Path) -> Path:
     or writes it, beside the script `scripted_engine_env` installed there.
     """
     return home / SCRIPTED_ENGINE_FOLDER / "record.jsonl"
+
+
+SCRIPTED_ENGINE_READ_DEADLINE_SECONDS = 10.0
+"""How long a test waits for the Scripted engine to read a Client's call."""
+
+
+def scripted_engine_client_methods(home: Path) -> list[object]:
+    """The methods of the Client's messages the Scripted engine under `home` read.
+
+    In their order; empty before the engine writes its record.
+    """
+    record = scripted_engine_record(home)
+    if not record.exists():
+        return []
+    entries = [json.loads(line) for line in record.read_text("utf-8").splitlines()]
+    return [
+        entry["message"].get("method") for entry in entries if entry["from"] == "client"
+    ]
+
+
+async def until_scripted_engine_read(home: Path, method: str, count: int = 1) -> None:
+    """Waits until the Scripted engine under `home` has read `count` calls of `method`.
+
+    The engine records each message as it reads it, one flushed JSON line
+    each, and signals nothing, so the wait polls its record. It fails after
+    `SCRIPTED_ENGINE_READ_DEADLINE_SECONDS`.
+    """
+    with anyio.fail_after(SCRIPTED_ENGINE_READ_DEADLINE_SECONDS):
+        while True:
+            if scripted_engine_client_methods(home).count(method) >= count:
+                return
+            await anyio.sleep(0.01)
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:

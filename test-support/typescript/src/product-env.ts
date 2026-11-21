@@ -3,7 +3,7 @@
 // engine-path variable of the SDK's Product pointing at that Product's
 // executable from the test tool manifest, or at the Scripted engine playing
 // a script of the shared corpus.
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { toolPath, type TestEnvDescription } from "./test-env.ts";
 
@@ -56,4 +56,25 @@ export function scriptedEngineEnv(
     GOODFETCH_HOME: home,
     [ENGINE_PATH_VARIABLES[product]]: engine,
   };
+}
+
+/**
+ * The methods of the Client's messages the Scripted engine under `home` has
+ * read, in its order: it records each message as it reads it, one flushed
+ * JSON line each. Empty before the engine writes its record.
+ */
+export function scriptedEngineClientMethods(home: string): unknown[] {
+  const record = join(home, "scripted-engine", "record.jsonl");
+  if (!existsSync(record)) {
+    return [];
+  }
+  return readFileSync(record, "utf8")
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line): unknown => JSON.parse(line))
+    .filter(
+      (entry): entry is { from: string; message: { method?: unknown } } =>
+        typeof entry === "object" && entry !== null && "from" in entry && entry.from === "client",
+    )
+    .map((entry) => entry.message.method);
 }

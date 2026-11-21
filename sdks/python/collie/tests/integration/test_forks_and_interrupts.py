@@ -35,8 +35,8 @@ from goodfetch_test_support import (
     ClientCaseRecord,
     TestEnv,
     Way,
+    scripted_engine_client_methods,
     scripted_engine_env,
-    scripted_engine_record,
     three_ways,
 )
 
@@ -67,15 +67,6 @@ def _seen(error: BaseException | None) -> list[object] | None:
         error.group,
         error.retryable,
         FORK_FIX in (error.fix or "").lower(),
-    ]
-
-
-def _client_methods(home: Path) -> list[object]:
-    """The methods of the Client's messages recorded under `home`."""
-    lines = scripted_engine_record(home).read_text("utf-8").splitlines()
-    record = [json.loads(line) for line in lines]
-    return [
-        each["message"].get("method") for each in record if each["from"] == "client"
     ]
 
 
@@ -209,7 +200,7 @@ async def test_a_forked_child_fails_on_its_parents_connection_and_connects_its_o
         "the child wrote nothing to the parent's engine, whose Run closed as if"
         " no child had been"
     ):
-        assert _client_methods(test_env.folder / "parent") == [
+        assert scripted_engine_client_methods(test_env.folder / "parent") == [
             "hello",
             "run.start",
             "run.abort",
@@ -273,7 +264,11 @@ def test_ctrl_c_reaches_only_the_host_whose_unwinding_closes_the_run(
         "the engine, in a group of its own, outlived the signal, got the Run's"
         " close, run.abort, and played its script to its end"
     ):
-        assert _client_methods(test_env.home) == ["hello", "run.start", "run.abort"]
+        assert scripted_engine_client_methods(test_env.home) == [
+            "hello",
+            "run.start",
+            "run.abort",
+        ]
         assert seen["warnings"] == []
     with client_case.check("the SDK wrote nothing to the host's stdout or stderr"):
         assert (stdout, stderr) == (b"", b"")

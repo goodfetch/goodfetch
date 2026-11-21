@@ -17,8 +17,8 @@
 //! `@goodfetch/` or `goodfetch-` prefix aside; a Rust `blocking::` twin is
 //! its async receiver, and a Rust crate's root is a TypeScript module's.
 //! `xtask sdk-exports` matches a manifest to the members its SDK exports
-//! ([`exports`]); their doc text and markers, and the Python SDK's manifest,
-//! are issue 2920's next parts.
+//! ([`exports`]), TypeScript's and Rust's; their doc text and markers, and
+//! the Python SDK's manifest, are issue 2920's next parts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"

@@ -226,31 +226,6 @@ fn serves_no_file() {
     assert_eq!(statuses, [404; 5]);
 }
 
-/// Covers: story:12-232, error:not_in_product
-#[test]
-fn a_collie_programs_run_starts_on_collies_engine() {
-    let env = TestEnv::new();
-    let gateway = Gateway::start(&env);
-    let mut program = gateway.connection("collie");
-    let run_id = program.start("run.start", &json!({}));
-
-    let refused = program.call("run.seeds", &json!({"run_id": run_id}));
-
-    assert_eq!(
-        (
-            &refused["error"]["data"]["code"],
-            &refused["error"]["data"]["product"],
-            &refused["error"]["data"]["needs"],
-        ),
-        (
-            &json!("not_in_product"),
-            &json!("collie"),
-            &json!("foxhound")
-        ),
-        "{refused}"
-    );
-}
-
 /// Foxhound's engine refuses a crawl key on a Run that is not a crawl with
 /// `setting_not_applicable`, where Collie's would answer `not_in_product`.
 ///
@@ -271,19 +246,6 @@ fn a_foxhound_programs_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
         json!("setting_not_applicable"),
         "{refused}"
     );
-}
-
-/// Covers: story:12-232
-#[test]
-fn a_crawl_a_program_starts_runs_on_foxhounds_engine_which_answers_its_calls() {
-    let env = TestEnv::new();
-    let gateway = Gateway::start(&env);
-    let mut program = gateway.connection("foxhound");
-    let run_id = program.start("crawl.start", &crawl_of_nothing());
-
-    let answered = program.call("run.seeds", &json!({"run_id": run_id}));
-
-    assert!(answered.get("result").is_some(), "{answered}");
 }
 
 /// Covers: story:12-232

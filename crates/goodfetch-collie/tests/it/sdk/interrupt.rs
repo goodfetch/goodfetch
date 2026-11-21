@@ -15,23 +15,19 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, RunId, StartedAs};
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::run::Tags;
-use goodfetch_test_support::{
-    ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, engine_script, real_time_runtime, tools,
-};
-use serde_json::Value;
+use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, real_time_runtime};
 use tokio::signal::unix::{SignalKind, signal};
 
 use super::options;
+use super::scripted::{attached_hello, client_methods, install_script};
 
 /// The variable naming the file the host writes the signal its handler
 /// got into, once it closed.
@@ -93,7 +89,7 @@ fn ctrl_c_reaches_the_host_alone_whose_handler_closes_the_run_linked() {
 #[test]
 fn ctrl_c_reaches_the_host_alone_whose_handler_closes_the_run_attached() {
     let env = TestEnv::new();
-    let engine = install_script(&env);
+    let engine = install_script(&env, "run/closed-while-running.json");
 
     let interrupted = interrupt(
         &env,
@@ -283,54 +279,4 @@ fn interrupt(env: &TestEnv, host: &str, variables: &[(&str, OsString)]) -> Inter
         signal: std::fs::read_to_string(&signal_file).unwrap_or_default(),
         stderr,
     }
-}
-
-/// This crate's `hello` to an Attached engine.
-fn attached_hello() -> HelloParams {
-    HelloParams {
-        needs: Some(Product::Collie),
-        ..HelloParams::new(
-            Surface::Rust,
-            ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-        )
-    }
-}
-
-/// Installs the Scripted engine's script in `env`'s home, the corpus's
-/// running Run closed, with the host's `hello`, and returns the Scripted
-/// engine's executable.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script before any async worker runs"
-)]
-fn install_script(env: &TestEnv) -> PathBuf {
-    let mut script: Value = serde_json::from_slice(
-        &std::fs::read(engine_script("run/closed-while-running.json")).unwrap(),
-    )
-    .unwrap();
-    script["steps"][0]["expect"]["params"] = serde_json::to_value(attached_hello()).unwrap();
-    let installed = env.home().join(ATTACHED_SCRIPT);
-    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    std::fs::write(&installed, serde_json::to_vec(&script).unwrap()).unwrap();
-    tools()
-        .unwrap()
-        .path(Tool::ScriptedEngine)
-        .unwrap()
-        .to_path_buf()
-}
-
-/// The methods of the Client's messages the Scripted engine recorded in
-/// `record`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the Scripted engine's record after its host exited"
-)]
-fn client_methods(record: &Path) -> Vec<String> {
-    std::fs::read_to_string(record)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .filter(|entry| entry["from"] == "client")
-        .filter_map(|entry| entry["message"]["method"].as_str().map(str::to_owned))
-        .collect()
 }

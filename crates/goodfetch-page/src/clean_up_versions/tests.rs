@@ -56,24 +56,31 @@ fn the_sources_state_is_replaced_whole_through_a_partial_file_that_does_not_stay
 /// calendar says when the test runs: the rule takes "now" (TESTING.md ›
 /// Time), so the embedded part's date only moves where it goes stale.
 /// Covers: story:5-97
-#[test]
-fn a_version_goes_stale_14_days_after_its_date_on_any_calendar() {
+#[rstest::rstest]
+#[case::a_day_before_its_date(
+    |published| published - jiff::SignedDuration::from_hours(24),
+    false
+)]
+#[case::on_its_date(|published| published, false)]
+#[case::a_second_before_fourteen_days_after(
+    |published| published + jiff::SignedDuration::from_secs(14 * 24 * 3600 - 1),
+    false
+)]
+#[case::fourteen_days_after(
+    |published| published + jiff::SignedDuration::from_hours(14 * 24),
+    true
+)]
+#[case::at_the_end_of_time(|_| jiff::Timestamp::MAX, true)]
+fn a_version_goes_stale_14_days_after_its_date_on_any_calendar(
+    #[case] now: fn(jiff::Timestamp) -> jiff::Timestamp,
+    #[case] stale: bool,
+) {
     let embedded = Version::embedded();
     let published = jiff::Timestamp::try_from(embedded.manifest.published_at).unwrap();
-    let stale_from = published + jiff::SignedDuration::from_hours(14 * 24);
-    let second = jiff::SignedDuration::from_secs(1);
 
-    assert_eq!(
-        [
-            published - jiff::SignedDuration::from_hours(24),
-            published,
-            stale_from - second,
-            stale_from,
-            jiff::Timestamp::MAX,
-        ]
-        .map(|now| embedded.stale(now)),
-        [false, false, false, true, true]
-    );
+    let judged = embedded.stale(now(published));
+
+    assert_eq!(judged, stale);
 }
 
 /// The test Clock's start.

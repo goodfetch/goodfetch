@@ -30,6 +30,7 @@ use crate::error::Error;
 use crate::handler::Streams;
 use crate::line;
 use crate::logging;
+use crate::opening_process::OpeningProcess;
 use crate::transport::{Exit, Link};
 
 /// How long a Connection whose engine ended it waits to hear how, before
@@ -130,9 +131,21 @@ pub(crate) struct Sender {
     commands: mpsc::UnboundedSender<Command>,
     /// How the Connection ended, set before it takes no more calls.
     ended: Arc<OnceLock<Ended>>,
+    opener: OpeningProcess,
 }
 
 impl Sender {
+    /// `connection_forked` unless the calling process opened the
+    /// Connection.
+    pub(crate) fn ensure_opener(&self) -> Result<(), Error> {
+        self.opener.ensure_current()
+    }
+
+    /// Whether the calling process opened the Connection.
+    pub(crate) fn in_opener(&self) -> bool {
+        self.opener.is_current()
+    }
+
     /// Sends `call`; its reply fails as the Connection ended once it has.
     pub(crate) fn call(&self, call: Outgoing) {
         self.send_call(call, None);
@@ -167,6 +180,10 @@ impl Sender {
     }
 
     fn send_call(&self, call: Outgoing, noted: Option<Noted>) {
+        if let Err(forked) = self.ensure_opener() {
+            let _gone = call.reply.send(Err(forked.in_call(&call.method)));
+            return;
+        }
         if let Err(mpsc::error::SendError(Command::Call(call, _))) =
             self.commands.send(Command::Call(call, noted))
         {
@@ -178,12 +195,12 @@ impl Sender {
     /// Grants the streaming call `id` `credits` more items with
     /// `$/credit`.
     pub(crate) fn credit(&self, id: i64, credits: u32) {
-        let _closed = self.commands.send(Command::Notify(credited(id, credits)));
+        self.hand(Command::Notify(credited(id, credits)));
     }
 
     /// Cancels the streaming call `id` with `$/cancel`.
     pub(crate) fn cancel(&self, id: i64) {
-        let _closed = self.commands.send(Command::Notify(cancelled(id)));
+        self.hand(Command::Notify(cancelled(id)));
     }
 
     /// Cancels the call `call`, sent before this, with `$/cancel`, after it
@@ -191,12 +208,20 @@ impl Sender {
     /// yet; one never sent, or no longer waiting for its reply (answered, or
     /// failed by the Connection), is not cancelled.
     pub(crate) fn cancel_sent(&self, call: &CallId) {
-        let _closed = self.commands.send(Command::CancelSent(call.clone()));
+        self.hand(Command::CancelSent(call.clone()));
     }
 
     /// Ends the Connection without waiting.
     pub(crate) fn close(&self) {
-        let _already_closed = self.commands.send(Command::Close);
+        self.hand(Command::Close);
+    }
+
+    /// Hands `command` to the Connection's tasks, unless they ended or the
+    /// calling process is not the opener, where they never run.
+    fn hand(&self, command: Command) {
+        if self.in_opener() {
+            let _closed = self.commands.send(command);
+        }
     }
 }
 
@@ -222,7 +247,11 @@ pub(crate) fn start(
         runtime,
         tracker,
     );
-    Sender { commands, ended }
+    Sender {
+        commands,
+        ended,
+        opener: OpeningProcess::current(),
+    }
 }
 
 /// What the correlating task learns, and tells every handle, of how the

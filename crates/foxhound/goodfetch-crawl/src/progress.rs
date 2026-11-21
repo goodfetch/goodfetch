@@ -418,7 +418,7 @@ fn put(
 
 /// The requests of `kind` that `counted` counts ended: how many, and how
 /// many under each skip reason, Error code or Block cause.
-fn ended_as(counted: &Tally, kind: OutcomeKind) -> (u64, Vec<CountOf>) {
+fn ended_as(counted: &Tally, kind: &OutcomeKind) -> (u64, Vec<CountOf>) {
     let by: Vec<CountOf> = counted
         .ended(kind)
         .map(|(name, count)| CountOf {
@@ -438,10 +438,10 @@ impl CrawlProgress {
             return false;
         };
         let (in_flight, listed) = part.listed(|_| true);
-        let (succeeded, _) = ended_as(counted, OutcomeKind::Succeeded);
-        let (failed, by_error_code) = ended_as(counted, OutcomeKind::Failed);
-        let (skipped, by_skip_reason) = ended_as(counted, OutcomeKind::Skipped);
-        let (blocked, by_block_cause) = ended_as(counted, OutcomeKind::Blocked);
+        let (succeeded, _) = ended_as(counted, &OutcomeKind::Succeeded);
+        let (failed, by_error_code) = ended_as(counted, &OutcomeKind::Failed);
+        let (skipped, by_skip_reason) = ended_as(counted, &OutcomeKind::Skipped);
+        let (blocked, by_block_cause) = ended_as(counted, &OutcomeKind::Blocked);
         let requests = RequestProgress {
             pending: counted.left().saturating_sub(shown(in_flight.len())),
             fetching: 0,

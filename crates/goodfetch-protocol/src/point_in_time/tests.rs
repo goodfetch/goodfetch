@@ -74,12 +74,10 @@ fn a_protocol_type_reads_an_absent_nullable_point_in_time_as_none() {
     assert_eq!(blocked.retry_after, None);
 }
 
-#[test]
-fn text_with_no_offset_is_refused() {
-    for text in ["2026-11-19T12:30:00", "2026-11-19", "noon"] {
-        assert!(
-            serde_json::from_value::<Holder>(json!({"at": text})).is_err(),
-            "{text}"
-        );
-    }
+#[rstest::rstest]
+#[case::a_time_with_no_offset("2026-11-19T12:30:00")]
+#[case::a_date_alone("2026-11-19")]
+#[case::no_date("noon")]
+fn text_with_no_offset_is_refused(#[case] text: &str) {
+    assert!(serde_json::from_value::<Holder>(json!({"at": text})).is_err());
 }

@@ -8,42 +8,7 @@
 use adblock::Engine;
 use adblock::lists::{FilterSet, ParseOptions};
 
-/// What a never-block entry keeps loading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Kind {
-    /// A challenge or CAPTCHA provider.
-    Challenge,
-    /// An anti-bot sensor, or the endpoint it reports to.
-    AntiBot,
-    /// An anti-fraud script.
-    AntiFraud,
-    /// A payment script.
-    Payment,
-    /// A Consent prompt's script or message, which Consent prompt rules
-    /// need to see (ADR 0048).
-    Consent,
-}
-
-/// One entry of the never-block list.
-#[derive(Clone, Copy, Debug)]
-pub struct Entry {
-    /// The vendor it is for.
-    pub vendor: &'static str,
-    /// What it keeps loading.
-    pub kind: Kind,
-    /// Its network rule, in Adblock Plus syntax.
-    pub rule: &'static str,
-    /// A request it keeps loading.
-    pub example: &'static str,
-}
-
 include!(concat!(env!("OUT_DIR"), "/never_block.rs"));
-
-/// Every entry of the never-block list.
-pub fn entries() -> &'static [Entry] {
-    ENTRIES
-}
 
 /// The never-block list, compiled.
 pub struct NeverBlock {
@@ -54,22 +19,11 @@ impl NeverBlock {
     /// Compiles the never-block list: a few dozen rules, in well under a
     /// millisecond.
     pub fn new() -> Self {
-        let rules: String = ENTRIES
-            .iter()
-            .flat_map(|entry| [entry.rule, "\n"])
-            .collect();
+        let rules: String = RULES.iter().flat_map(|rule| [*rule, "\n"]).collect();
         let mut set = FilterSet::new(false);
         set.add_filter_list(rules, ParseOptions::default());
         Self {
             engine: Engine::new_with_filter_set(set),
-        }
-    }
-
-    /// No entry at all: what the Filter lists alone would do, which the
-    /// tests compare the list with.
-    pub fn empty() -> Self {
-        Self {
-            engine: Engine::default(),
         }
     }
 
@@ -84,3 +38,6 @@ impl Default for NeverBlock {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

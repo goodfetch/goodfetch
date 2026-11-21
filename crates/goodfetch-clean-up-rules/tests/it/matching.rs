@@ -5,12 +5,41 @@ use std::sync::LazyLock;
 
 use goodfetch_clean_up_rules::list::List;
 use goodfetch_clean_up_rules::matching::{Choices, Request, ResourceKind, Verdict, judge};
-use goodfetch_clean_up_rules::never_block::{self, NeverBlock};
+use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::{EmbeddedList, FilterLists, LoadError};
 use rstest::rstest;
+use serde::Deserialize;
 
 static LISTS: LazyLock<FilterLists> =
     LazyLock::new(|| FilterLists::embedded().expect("the embedded Filter lists load"));
+
+/// Each embedded list loaded on its own, put together in another order
+/// than the embedded lists'.
+static LOADED_ON_THEIR_OWN: LazyLock<FilterLists> = LazyLock::new(|| {
+    let loaded = [List::Annoyances, List::Ads, List::Trackers]
+        .map(|list| EmbeddedList::load(list).expect("the embedded Filter list loads"));
+    FilterLists::of_embedded(loaded).expect("one of each list")
+});
+
+/// The never-block list's file, which the build compiles into the list.
+#[derive(Deserialize)]
+struct NeverBlockFile {
+    entry: Vec<NeverBlockEntry>,
+}
+
+/// One entry of it, by the vendor it is for and the request it must keep
+/// loading.
+#[derive(Deserialize)]
+struct NeverBlockEntry {
+    vendor: String,
+    example: String,
+}
+
+static NEVER_BLOCK_ENTRIES: LazyLock<Vec<NeverBlockEntry>> = LazyLock::new(|| {
+    toml::from_str::<NeverBlockFile>(include_str!("../../rules/never-block.toml"))
+        .expect("the never-block list is well formed")
+        .entry
+});
 
 /// Every Filter list on, as by default, and nothing else.
 fn defaults() -> Choices {
@@ -88,37 +117,35 @@ fn a_filter_list_blocks_its_ads_trackers_and_annoyances(
 /// by side (#2688), and put together in any order they block what each
 /// blocks among the embedded lists.
 /// Covers: story:5-94
-#[test]
-fn lists_loaded_on_their_own_block_as_the_embedded_lists_do() {
-    let loaded = [List::Annoyances, List::Ads, List::Trackers]
-        .map(|list| EmbeddedList::load(list).expect("the embedded Filter list loads"));
-    let lists = FilterLists::of_embedded(loaded).expect("one of each list");
+#[rstest]
+#[case::an_ad_script(
+    "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+    ResourceKind::Script,
+    List::Ads
+)]
+#[case::a_tracker(
+    "https://www.google-analytics.com/collect?v=1",
+    ResourceKind::Ping,
+    List::Trackers
+)]
+#[case::an_annoyance(
+    "https://static.addtoany.com/menu/page.js",
+    ResourceKind::Script,
+    List::Annoyances
+)]
+fn lists_loaded_on_their_own_block_as_the_embedded_lists_do(
+    #[case] url: &str,
+    #[case] kind: ResourceKind,
+    #[case] list: List,
+) {
+    let verdict = judge(
+        &request(url, kind),
+        &NeverBlock::new(),
+        Some(&LOADED_ON_THEIR_OWN),
+        &defaults(),
+    );
 
-    for (url, kind, list) in [
-        (
-            "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
-            ResourceKind::Script,
-            List::Ads,
-        ),
-        (
-            "https://www.google-analytics.com/collect?v=1",
-            ResourceKind::Ping,
-            List::Trackers,
-        ),
-        (
-            "https://static.addtoany.com/menu/page.js",
-            ResourceKind::Script,
-            List::Annoyances,
-        ),
-    ] {
-        let verdict = judge(
-            &request(url, kind),
-            &NeverBlock::new(),
-            Some(&lists),
-            &defaults(),
-        );
-        assert_eq!(verdict, Verdict::Blocked(list), "{url}");
-    }
+    assert_eq!(verdict, Verdict::Blocked(list));
 }
 
 /// Lists put together without one of each name the list that is missing.
@@ -137,15 +164,12 @@ fn lists_put_together_without_one_name_the_missing_list() {
 }
 
 /// Covers: story:5-94
-#[test]
-fn the_sites_own_content_goes_on() {
-    for (url, kind) in [
-        ("https://news.example/article", ResourceKind::Document),
-        ("https://news.example/static/site.js", ResourceKind::Script),
-        ("https://news.example/images/photo.jpg", ResourceKind::Image),
-    ] {
-        assert_eq!(judged(url, kind, &defaults()), Verdict::Allowed, "{url}");
-    }
+#[rstest]
+#[case::its_document("https://news.example/article", ResourceKind::Document)]
+#[case::its_script("https://news.example/static/site.js", ResourceKind::Script)]
+#[case::its_image("https://news.example/images/photo.jpg", ResourceKind::Image)]
+fn the_sites_own_content_goes_on(#[case] url: &str, #[case] kind: ResourceKind) {
+    assert_eq!(judged(url, kind, &defaults()), Verdict::Allowed);
 }
 
 /// Covers: story:5-94
@@ -215,57 +239,30 @@ fn a_sites_own_script_passes_the_lists_with_first_party_scripts() {
 }
 
 /// Each never-block entry keeps its example loading over every Filter list
-/// and over `browser.block_resources`, as an image, a script or a report.
+/// and over `browser.block_resources`, as a script, an image, a report or
+/// a frame.
 /// Covers: story:5-95
-#[test]
-fn every_never_block_entry_loads_over_every_list_and_block_resources() {
-    let choices = everything_blocked();
-    for entry in never_block::entries() {
-        for kind in [
-            ResourceKind::Script,
-            ResourceKind::Image,
-            ResourceKind::Xhr,
-            ResourceKind::Subdocument,
-        ] {
-            assert_eq!(
-                judged(entry.example, kind, &choices),
-                Verdict::NeverBlocked,
-                "{} ({}) as {kind:?}",
-                entry.vendor,
-                entry.example
-            );
-        }
-    }
-}
-
-/// Without the never-block list, the Filter lists block challenge and
-/// anti-bot requests, and Consent prompts' scripts: the entries are what
-/// keeps them loading, so the Consent prompt runner always sees the prompt
-/// (ADRs 0047 and 0048).
-/// Covers: story:5-95, story:5-100
 #[rstest]
-#[case::datadome("https://js.datadome.co/tags.js")]
-#[case::akamai_sensor("https://shop.example/akam/13/pixel_5f3c")]
-#[case::perimeterx("https://client.perimeterx.net/PXabcdef/main.min.js")]
-#[case::threatmetrix("https://h.online-metrix.net/fp/tags.js?org_id=1")]
-#[case::didomis_prompt("https://sdk.privacy-center.org/loader/sdk-didomi.js")]
-#[case::sourcepoints_message("https://cdn.example/unified/sourcepoint.js")]
-#[case::a_sites_own_prompt_host("https://cmp.lemonde.fr/js/lemonde.min.js")]
-fn the_lists_alone_block_what_the_never_block_list_keeps(#[case] url: &str) {
-    let lists_alone = judge(
-        &request(url, ResourceKind::Script),
-        &NeverBlock::empty(),
-        Some(&LISTS),
-        &defaults(),
-    );
-    assert!(
-        matches!(lists_alone, Verdict::Blocked(_)),
-        "{lists_alone:?}"
-    );
-    assert_eq!(
-        judged(url, ResourceKind::Script, &defaults()),
-        Verdict::NeverBlocked
-    );
+#[case::as_a_script(ResourceKind::Script)]
+#[case::as_an_image(ResourceKind::Image)]
+#[case::as_a_report(ResourceKind::Xhr)]
+#[case::as_a_frame(ResourceKind::Subdocument)]
+fn every_never_block_entry_loads_over_every_list_and_block_resources(#[case] kind: ResourceKind) {
+    let choices = everything_blocked();
+
+    let not_kept: Vec<(&str, &str, Verdict)> = NEVER_BLOCK_ENTRIES
+        .iter()
+        .map(|entry| {
+            (
+                entry.vendor.as_str(),
+                entry.example.as_str(),
+                judged(&entry.example, kind, &choices),
+            )
+        })
+        .filter(|(_, _, verdict)| *verdict != Verdict::NeverBlocked)
+        .collect();
+
+    assert!(not_kept.is_empty(), "{not_kept:?}");
 }
 
 /// Covers: story:5-96

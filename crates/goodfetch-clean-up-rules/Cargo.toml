@@ -37,6 +37,9 @@ zstd.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# Its tests read the never-block list's file, as the build does.
+serde.workspace = true
+toml.workspace = true
 ureq.workspace = true
 
 # Its tests start the Proving ground through the test tool manifest, so a

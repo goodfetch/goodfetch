@@ -972,7 +972,7 @@ fn view(connection: &Connection) -> View {
 fn counts(tally: &Tally) -> Counts {
     let ended = |kind| -> Vec<(String, u64)> {
         tally
-            .ended(kind)
+            .ended(&kind)
             .map(|(name, count)| (name.to_owned(), count))
             .collect()
     };

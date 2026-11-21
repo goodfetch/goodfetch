@@ -15,6 +15,7 @@ use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::removal::{self, HostCache, Removal, Rules, Share};
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_counted_work::{CountedWork, Row};
+use rstest::rstest;
 
 static LISTS: LazyLock<FilterLists> =
     LazyLock::new(|| FilterLists::embedded().expect("the embedded Filter lists load"));
@@ -282,12 +283,20 @@ fn a_list_turned_off_removes_nothing() {
 }
 
 /// Covers: story:5-98
-#[test]
-fn a_removal_over_a_fifth_of_the_main_contents_text_is_flagged() {
-    let shares = [(1000, 1000), (1000, 800), (1000, 799), (1000, 0), (0, 0)]
-        .map(|(before, after)| Share::of(before, after).flagged());
+#[rstest]
+#[case::nothing_taken(1000, 1000, false)]
+#[case::a_fifth_taken(1000, 800, false)]
+#[case::over_a_fifth_taken(1000, 799, true)]
+#[case::everything_taken(1000, 0, true)]
+#[case::an_empty_main_content(0, 0, false)]
+fn a_removal_over_a_fifth_of_the_main_contents_text_is_flagged(
+    #[case] before: usize,
+    #[case] after: usize,
+    #[case] flagged: bool,
+) {
+    let share = Share::of(before, after);
 
-    assert_eq!(shares, [false, false, true, true, false]);
+    assert_eq!(share.flagged(), flagged);
 }
 
 /// A page with a cookie notice the Consent prompt runner hid, in its light

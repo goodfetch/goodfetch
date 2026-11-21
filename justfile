@@ -432,6 +432,58 @@ mutants base="":
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
+# ADR 0072's full mutation run of the SDKs' hand-written runtimes, weekly once
+# the nightly tier is on (TESTING.md, Feature coverage): StrykerJS over the
+# TypeScript SDK (sdks/typescript/stryker.config.mjs) and mutmut over each
+# Python SDK package that has a `[tool.mutmut]` in its pyproject.toml, never
+# over what `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
+# target/mutants-sdks/typescript/, mutmut's log to
+# target/mutants-sdks/python/<package>.log and its results to the package's
+# `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
+# it. mutmut forks each mutant's tests, so its half needs Linux or macOS.
+# Neither run mutates what a test's child process imports, nor skips the
+# quarantined tests as `just test` does (#3199).
+# Mutation-tests the SDKs' runtimes: `just mutants-sdks [typescript | python | all]`.
+mutants-sdks sdk="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ sdk }}" in
+      typescript | python | all) ;;
+      *) echo "usage: just mutants-sdks [typescript | python | all]" >&2; exit 2 ;;
+    esac
+    # The tests find the commit's executables as under `just test`.
+    export GOODFETCH_TEST_SUITE=pre-merge
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    if [[ "{{ sdk }}" != python ]]; then
+      # Each StrykerJS test runner writes `stryker-setup-<n>.js` into the
+      # working directory and deletes it when it stops, unless StrykerJS
+      # kills it first (StrykerJS 10.1.1).
+      status=0
+      pnpm exec stryker run sdks/typescript/stryker.config.mjs || status=$?
+      rm -f stryker-setup-*.js
+      [[ $status -eq 0 ]] || exit "$status"
+    fi
+    if [[ "{{ sdk }}" != typescript ]]; then
+      logs="$PWD/target/mutants-sdks/python"
+      mkdir -p "$logs"
+      for manifest in sdks/python/*/pyproject.toml; do
+        grep -q '^\[tool\.mutmut\]$' "$manifest" || continue
+        package=$(dirname "$manifest")
+        log="$logs/$(basename "$package").log"
+        status=0
+        (cd "$package" && uv run --frozen mutmut run) 2>&1 | tee "$log" || status=$?
+        # mutmut also stops with 1 when the tests pass but none reaches a
+        # mutant, as when the runtime has no function to mutate (Foxhound's
+        # today): that package is reported, not failed.
+        if [[ $status -ne 0 ]] && grep -q "could not find any test case for any mutant" "$log"; then
+          echo "$package: no test reaches a mutant"
+          status=0
+        fi
+        [[ $status -eq 0 ]] || exit "$status"
+      done
+    fi
+
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
 # Playwright browsers, the Clean-up rules' inputs and other pinned inputs.

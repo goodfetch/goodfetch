@@ -4,21 +4,54 @@
 // `crawl_request.handle`, each answered by what its owner serves, and
 // stopped by the engine's `$/cancel`; and the end of the transport, which
 // fails every call still waiting with the reason the Connection gives and
-// stops every request still served. What waits is bounded
-// (ADR 0081: no SDK keeps a queue of calls): past its bound on calls waiting
-// or on bytes waiting to be written, a new call is refused at once.
+// stops every request still served. At most the engine's cap of calls,
+// which `hello`'s result advertises, are in flight; the rest wait in a
+// queue, sent in the order they were made as answers free their places,
+// each failing alone when its own timeout passes or its signal aborts
+// there, never sent (ADR 0038). What waits is bounded: past its bound on
+// calls waiting, sent or queued, or on bytes waiting to be written, a new
+// call is refused at once.
+import type { CallDeadline } from "./caller.ts";
 import { replyOfError } from "./errors.ts";
-import { inCall, type OperationNames } from "./goodfetch-error.ts";
+import { inCall, type ErrorLimit, type OperationNames } from "./goodfetch-error.ts";
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import {
   CallCancelledError,
   ConnectionOverloadedError,
+  DeadlineExceededError,
   SettingInvalidError,
   type GoodfetchError,
 } from "./generated/index.ts";
 
 /** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
 const CANCEL = "$/cancel";
+
+/** The longest delay a timer keeps, in milliseconds: a longer one fires at once. */
+const LONGEST_TIMER = 2 ** 31 - 1;
+
+/**
+ * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
+ * `waitedFor` started at `startedAt` (ADR 0080).
+ */
+export function phaseExceeded(
+  message: string,
+  fix: string,
+  limit: ErrorLimit,
+  startedAt: number,
+  waitedFor: "hello" | "close" | "calls_in_flight",
+): DeadlineExceededError {
+  return new DeadlineExceededError(message, {
+    code: "deadline_exceeded",
+    group: "deadline_exceeded",
+    retryable: true,
+    fix,
+    limit,
+    details: {
+      elapsed: Date.now() - startedAt,
+      waited_for: waitedFor,
+    },
+  });
+}
 
 /**
  * The bytes a Connection runs over: the engine's to read and the Client's
@@ -155,8 +188,27 @@ interface Waiting {
 
 /** The options of one call. */
 export interface ChannelCallOptions {
-  /** Cancels the call in flight, rejecting it with the signal's reason. */
+  /** Cancels the call in flight, rejecting it with the signal's reason; a queued call is never sent. */
   readonly signal?: AbortSignal | undefined;
+  /** The call's own timeout, which fails it with `deadline_exceeded` while it waits in the queue. */
+  readonly deadline?: CallDeadline | undefined;
+}
+
+/** A call the Client holds back while the engine's cap of calls is in flight. */
+interface Queued {
+  /** Its encoded request, sent once a place frees. */
+  readonly request: Uint8Array;
+  /** Fails it once its own timeout passes in the queue. */
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** The encoded notifications naming it, such as its `$/credit`, sent right after it. */
+  readonly notes: Uint8Array[];
+}
+
+/** The id a notification's params name, such as a `$/credit`'s call. */
+function namedId(params: unknown): MessageId | undefined {
+  const named =
+    typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
+  return typeof named === "number" || typeof named === "string" ? named : undefined;
 }
 
 /** The options of a call that stays in flight while the engine streams to it. */
@@ -177,6 +229,15 @@ export class Channel {
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly #owner: ChannelOwner;
   readonly #waiting = new Map<MessageId, Waiting>();
+  /**
+   * The calls sent and not answered yet, a cancelled one included until
+   * the engine answers its `$/cancel`, so they never pass its cap.
+   */
+  readonly #inFlight = new Set<MessageId>();
+  /** The calls held back past the cap, in the order they were made. */
+  readonly #queued = new Map<MessageId, Queued>();
+  /** How many calls the engine keeps in flight, none until `hello`'s result names it. */
+  #cap = Number.POSITIVE_INFINITY;
   /** The engine's requests being served, each stopped by its `$/cancel`. */
   readonly #serving = new Map<MessageId, AbortController>();
   #nextId = 0;
@@ -238,27 +299,164 @@ export class Channel {
       const waiting = this.#waiting.get(id);
       if (waiting !== undefined && signal !== undefined) {
         this.#waiting.delete(id);
-        this.#send({ method: CANCEL, params: { id } });
+        // A queued call leaves the queue unsent; a sent one is cancelled.
+        if (this.#unqueue(id) === undefined) {
+          this.#send({ method: CANCEL, params: { id } });
+        }
         waiting.reject(signal.reason);
       }
     };
     signal?.addEventListener("abort", abort, { once: true });
-    this.#write(request);
+    if (this.#inFlight.size < this.#cap) {
+      this.#dispatch(id, request);
+    } else {
+      this.#enqueue(id, method, request, options.deadline);
+    }
     const result = answer.finally(() => signal?.removeEventListener("abort", abort));
     return { id, result };
   }
 
-  /** Sends the notification `method`, such as `$/credit`. */
-  notify(method: string, params: unknown): void {
-    if (this.#failure === undefined) {
-      this.#send({ method, params });
+  /**
+   * Keeps at most `max` calls in flight from now on, the cap the engine's
+   * `hello` result advertises, queueing the rest (issue 2529).
+   */
+  capCallsInFlight(max: number): void {
+    this.#cap = max;
+    this.#drain();
+  }
+
+  /** Sends the call `id`, which holds a place in flight until it is answered. */
+  #dispatch(id: MessageId, request: Uint8Array): void {
+    this.#inFlight.add(id);
+    this.#write(request);
+  }
+
+  /**
+   * Holds the call `id` back until a place frees, failing it with
+   * `deadline_exceeded` once its own timeout passes first. Its bytes count
+   * as waiting to be written.
+   */
+  #enqueue(
+    id: MessageId,
+    method: string,
+    request: Uint8Array,
+    deadline: CallDeadline | undefined,
+  ): void {
+    this.#queuedWriteBytes += request.length;
+    const queued: Queued = { request, timer: undefined, notes: [] };
+    this.#queued.set(id, queued);
+    const value = deadline?.value;
+    if (deadline !== undefined && value !== undefined && value !== null) {
+      const startedAt = Date.now();
+      this.#arm(queued, startedAt + value, () => {
+        this.#expire(id, method, { key: deadline.key, value }, startedAt);
+      });
     }
   }
 
-  /** Fails every waiting call with its copy of `error`, sending each its `$/cancel`. */
+  /**
+   * Arms `queued`'s timer to `expire` it at `expiresAt`, in steps no longer
+   * than a timer keeps.
+   */
+  #arm(queued: Queued, expiresAt: number, expire: () => void): void {
+    const left = expiresAt - Date.now();
+    queued.timer = setTimeout(
+      () => {
+        if (left > LONGEST_TIMER) {
+          this.#arm(queued, expiresAt, expire);
+        } else {
+          expire();
+        }
+      },
+      Math.min(left, LONGEST_TIMER),
+    );
+  }
+
+  /** Takes the call `id` out of the queue: what was queued, if it was. */
+  #unqueue(id: MessageId): Queued | undefined {
+    const queued = this.#queued.get(id);
+    if (queued === undefined) {
+      return undefined;
+    }
+    this.#queued.delete(id);
+    clearTimeout(queued.timer);
+    this.#queuedWriteBytes -= queued.notes.reduce(
+      (bytes, note) => bytes + note.length,
+      queued.request.length,
+    );
+    return queued;
+  }
+
+  /**
+   * Fails the queued call `id`, never sent, once its own timeout of
+   * `limit`'s value passed since `startedAt`.
+   */
+  #expire(
+    id: MessageId,
+    method: string,
+    limit: { readonly key: string; readonly value: number },
+    startedAt: number,
+  ): void {
+    const waiting = this.#waiting.get(id);
+    if (this.#unqueue(id) === undefined || waiting === undefined) {
+      return;
+    }
+    this.#waiting.delete(id);
+    const exceeded = phaseExceeded(
+      `the call waited ${limit.value} ms, its \`${limit.key}\`, for a place among the engine's calls in flight, so it was not sent`,
+      "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+      { key: limit.key, value: limit.value, layer: "run", origin: "argument" },
+      startedAt,
+      "calls_in_flight",
+    );
+    waiting.reject(this.#inCall(exceeded, method));
+  }
+
+  /** Sends queued calls, in the order they were made, while places are free. */
+  #drain(): void {
+    while (this.#inFlight.size < this.#cap) {
+      const next = this.#queued.entries().next();
+      if (next.done === true) {
+        return;
+      }
+      const [id, { request, notes }] = next.value;
+      this.#unqueue(id);
+      this.#dispatch(id, request);
+      for (const note of notes) {
+        this.#write(note);
+      }
+    }
+  }
+
+  /**
+   * Sends the notification `method`, such as `$/credit`. One that names a
+   * queued call waits to follow it, since the engine drops a notification
+   * for a call it has not received.
+   */
+  notify(method: string, params: unknown): void {
+    if (this.#failure !== undefined) {
+      return;
+    }
+    const id = namedId(params);
+    const queued = id === undefined ? undefined : this.#queued.get(id);
+    if (queued === undefined) {
+      this.#send({ method, params });
+      return;
+    }
+    const note = encodeMessage({ method, params });
+    this.#queuedWriteBytes += note.length;
+    queued.notes.push(note);
+  }
+
+  /**
+   * Fails every waiting call with its copy of `error`, sending each sent
+   * one its `$/cancel`; a queued one is never sent.
+   */
   cancelAll(error: GoodfetchError): void {
     for (const [id, waiting] of this.#waiting) {
-      this.#send({ method: CANCEL, params: { id } });
+      if (this.#unqueue(id) === undefined) {
+        this.#send({ method: CANCEL, params: { id } });
+      }
       waiting.reject(this.#inCall(error, waiting.method));
     }
     this.#waiting.clear();
@@ -282,7 +480,7 @@ export class Channel {
     const { maxPendingCalls, maxQueuedWriteBytes } = this.#bounds;
     if (this.#waiting.size >= maxPendingCalls) {
       return new ConnectionOverloadedError(
-        `the Connection already holds ${this.#waiting.size} calls waiting for their answer, its bound, so this call was not sent`,
+        `the Connection already holds ${this.#waiting.size} calls waiting for their answer, sent or queued, its bound, so this call was not sent`,
         {
           fix: `Wait for earlier calls to end, or raise \`${PENDING_CALLS.spelled}\` in connect()'s settings.`,
           details: { bound: "pending_calls", value: maxPendingCalls },
@@ -381,10 +579,12 @@ export class Channel {
     }
     const failure = await this.#owner.ended(end);
     this.#failure = failure;
-    for (const waiting of this.#waiting.values()) {
+    for (const [id, waiting] of this.#waiting) {
+      this.#unqueue(id);
       waiting.reject(this.#inCall(failure, waiting.method));
     }
     this.#waiting.clear();
+    this.#inFlight.clear();
     // No answer reaches the engine any more: what serves its requests stops.
     for (const serving of this.#serving.values()) {
       serving.abort(failure);
@@ -448,16 +648,18 @@ export class Channel {
     switch (message.kind) {
       case "result":
       case "error": {
-        const waiting = message.id === null ? undefined : this.#waiting.get(message.id);
-        if (waiting === undefined || message.id === null) {
+        // Only a sent call is answered: a queued one keeps its place.
+        if (message.id === null || !this.#inFlight.delete(message.id)) {
           return;
         }
+        const waiting = this.#waiting.get(message.id);
         this.#waiting.delete(message.id);
         if (message.kind === "result") {
-          waiting.resolve(message.result);
+          waiting?.resolve(message.result);
         } else {
-          waiting.reject(this.#owner.failure(message.error));
+          waiting?.reject(this.#owner.failure(message.error));
         }
+        this.#drain();
         return;
       }
       case "request":
@@ -465,9 +667,7 @@ export class Channel {
         return;
       case "notification": {
         const params = message.params;
-        const named =
-          typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
-        const id = typeof named === "number" || typeof named === "string" ? named : undefined;
+        const id = namedId(params);
         if (id === undefined) {
           this.#owner.notified?.(message.method, params);
           return;

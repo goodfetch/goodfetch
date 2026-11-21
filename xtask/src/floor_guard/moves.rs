@@ -44,12 +44,14 @@ fn is_scanned(path: &str) -> bool {
         || path.split('/').any(|folder| folder == "generated"))
 }
 
-/// A test's file, where the Floor's type-test forms hold.
+/// A test's file, where the Floor's type-test forms hold. An SDK type test is
+/// `*.test-d.ts`.
 fn is_test_file(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     path.split('/')
         .any(|folder| matches!(folder, "tests" | "test"))
         || name.contains(".test.")
+        || name.contains(".test-d.")
         || name.contains(".spec.")
         || name.starts_with("test_")
         || name.ends_with("_test.py")

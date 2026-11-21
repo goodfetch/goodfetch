@@ -9,10 +9,11 @@ from collections.abc import Mapping
 from typing import Final
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
-from goodfetch_collie_client.markers import warn_experimental
+from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
 from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .settings import DEPRECATED_SETTINGS
 
 
 class AsyncFoxhoundOperations:
@@ -36,6 +37,7 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("crawl.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("crawl.start", params))
 
     async def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
@@ -132,6 +134,7 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.export")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(Export, await self._caller.call("run.export", params))
 
     async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
@@ -172,6 +175,7 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.retry_failed")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RetriedFailed, await self._caller.call("run.retry_failed", params))
 
     async def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
@@ -208,6 +212,7 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("crawl.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("crawl.start", params))
 
     def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
@@ -304,6 +309,7 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.export")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(Export, self._caller.call("run.export", params))
 
     def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
@@ -344,6 +350,7 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.retry_failed")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RetriedFailed, self._caller.call("run.retry_failed", params))
 
     def run_seeds(self, params: RunSeedsParams) -> RunSeeds:

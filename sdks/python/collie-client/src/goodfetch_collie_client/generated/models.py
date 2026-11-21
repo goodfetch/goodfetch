@@ -4516,6 +4516,14 @@ class HelloResult(BaseModel):
     of its events count within it, so a Client that meets a new one
     resyncs (ADR 0031).
     """
+    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many calls the engine keeps in flight on this Connection: one
+    more is refused with `too_many_calls`, so a Client sends at most
+    this many at once and queues the rest in the order they were made
+    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+    as the Scripted engine.
+    """
     private_endpoint: PrivateEndpoint | None = None
     """
     An Attached engine's private endpoint, reported to the Client of its

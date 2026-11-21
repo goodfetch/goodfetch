@@ -550,6 +550,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "warnDeprecatedOnWire"
+entry = "none"
+reason = "Warns once per process of each deprecated setting a raw run layer sets, `null` included, by a Product's generated `DeprecatedSettings` (ADR 0099), which Foxhound's generated operations call through their `warnDeprecatedSettings`."
+words = ["warn", "deprecated", "on", "wire"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "warnExperimental"
 entry = "none"
 reason = "ADR 0030's run-time warning of an Experimental entry, once per process through `process.emitWarning` (ADR 0099), which Foxhound's generated members call."
@@ -1481,6 +1490,15 @@ member = "cancelAll"
 entry = "none"
 reason = "The client runtime for a browser (ADR 0068): fails every waiting call, sending each its `$/cancel`."
 words = ["cancel", "all"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
+member = "capCallsInFlight"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): sends at most the engine's cap on calls in flight, which `hello` names, and queues the rest (ADR 0038)."
+words = ["cap", "calls", "in", "flight"]
 form = "runtime"
 
 [[member]]

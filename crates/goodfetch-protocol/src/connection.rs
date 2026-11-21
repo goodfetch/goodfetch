@@ -17,6 +17,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -588,6 +589,14 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub private_endpoint: Option<PrivateEndpoint>,
+    /// How many calls the engine keeps in flight on this Connection: one
+    /// more is refused with `too_many_calls`, so a Client sends at most
+    /// this many at once and queues the rest in the order they were made
+    /// (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+    /// as the Scripted engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max_calls_in_flight: Option<NonZeroU64>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR
@@ -815,6 +824,10 @@ impl WaitedFor {
     /// The engine's answer to `hello`, which opening a Connection waits
     /// for within `timeout.connect` (ADR 0083).
     pub const HELLO: Self = Self::named("hello");
+    /// A place among the Connection's calls in flight, which a call the
+    /// Client queued past the engine's cap waits for before it is sent
+    /// (ADR 0038).
+    pub const CALLS_IN_FLIGHT: Self = Self::named("calls_in_flight");
     /// A locator's matches to number what its count allows.
     pub const TARGET_COUNT: Self = Self::named("target_count");
     /// A locator's target to be detached.

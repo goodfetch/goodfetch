@@ -115,7 +115,9 @@ const READ_CHUNK: usize = 8 * 1024;
 
 /// How many calls one Connection keeps in flight: one more is refused with
 /// `too_many_calls`, and every other message is still read (issue 2312).
-const MAX_IN_FLIGHT: usize = 256;
+/// `hello`'s result advertises it, so a Client queues the rest under it
+/// (issue 2529).
+pub(super) const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
 const OUTGOING_LINES: usize = 64;

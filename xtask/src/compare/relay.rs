@@ -358,12 +358,6 @@ impl Relay {
         self.shared.tool.store(pid, Ordering::Relaxed);
     }
 
-    /// The commands counted so far.
-    #[cfg(test)]
-    pub(crate) fn commands(&self) -> u64 {
-        self.shared.commands.load(Ordering::SeqCst)
-    }
-
     /// The `/start` and `/end` marks, each once asked.
     pub(crate) fn marks(&self) -> (Option<Mark>, Option<Mark>) {
         *self

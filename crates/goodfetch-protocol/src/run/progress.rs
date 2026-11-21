@@ -7,6 +7,9 @@
 //! A crawl's parts, Foxhound's `CrawlRunProgress`, sit beside every Run's,
 //! and a Collie reader keeps them as it got them.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -17,7 +20,7 @@ use crate::catalog::{
 };
 use crate::storage::StorageLevel;
 
-use super::{Lifecycle, PointInTime, ProgressMessage, RunId, RunParams, RunReport, StopReason};
+use super::{Lifecycle, ProgressMessage, RunId, RunParams, RunReport, StopReason};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -33,8 +36,9 @@ pub struct RunProgress {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub position: u64,
     /// When the engine read it.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub at: SystemTime,
     /// Where the Run is.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lifecycle: Lifecycle,
@@ -45,9 +49,13 @@ pub struct RunProgress {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub epoch: u64,
     /// When its last Checkpoint was written, once one was.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub checkpoint_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub checkpoint_at: Option<SystemTime>,
     /// Each Human pause waiting (ADR 0092).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pauses: Vec<HumanPause>,
@@ -123,14 +131,19 @@ pub struct HumanPause {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub raised_by: PauseOrigin,
     /// Since when it waits.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub since: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub since: SystemTime,
     /// When it ends unanswered: the first of `timeout.human_pause` and, in
     /// a scheduled run, its pause timeout; none when it waits without
     /// limit.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub deadline: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub deadline: Option<SystemTime>,
 }
 
 /// Who raised a Human pause.

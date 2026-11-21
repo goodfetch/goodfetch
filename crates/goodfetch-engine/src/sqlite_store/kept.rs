@@ -69,11 +69,6 @@ impl<F: StoreFile> KeptStore<F> {
         }
     }
 
-    /// Its file.
-    pub(crate) fn file(&self) -> &F {
-        &self.file
-    }
-
     /// Runs `work` on the reads' connection, on a blocking thread of the
     /// writer's owner, the connection opened now if none is kept, and
     /// answers what it returned; with a `missing` answer, that one while

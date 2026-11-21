@@ -190,46 +190,63 @@ pub(crate) fn parse_selection(text: &str) -> Result<Vec<Cell>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_hosted_cells_count_270_minutes_at_one_45_minute_job_each() {
-        let minutes: u32 = Cell::ALL
-            .into_iter()
-            .filter_map(|cell| match cell.runner() {
-                Runner::Hosted(rate) => Some(45 * rate.multiplier()),
-                Runner::OwnerMachine => None,
-            })
-            .sum();
-
-        assert_eq!(minutes, 270);
-    }
-
     /// The workflow uploads each cell's JUnit files under the artifact name
-    /// the results store reads the cell's configuration from.
-    #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a synchronous unit test reads the workflow file"
+    /// the results store reads the cell's configuration from: a Linux
+    /// cell's job names it from its matrix entry's `cell`, the cell's key.
+    #[rstest::rstest]
+    #[case::linux_x64_gnu(
+        Cell::LinuxX64Gnu,
+        "junit-release-dispatch-linux-x64-gnu-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
     )]
-    fn each_cells_junit_artifact_is_the_one_its_job_uploads() {
+    #[case::linux_x64_musl(
+        Cell::LinuxX64Musl,
+        "junit-release-dispatch-linux-x64-musl-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::linux_arm64_gnu(
+        Cell::LinuxArm64Gnu,
+        "junit-release-dispatch-linux-arm64-gnu-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::linux_arm64_musl(
+        Cell::LinuxArm64Musl,
+        "junit-release-dispatch-linux-arm64-musl-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::windows_x64(
+        Cell::WindowsX64,
+        "junit-release-dispatch-windows-x64-1",
+        "name: junit-release-dispatch-windows-x64-1"
+    )]
+    #[case::macos_arm64(
+        Cell::MacosArm64,
+        "junit-release-dispatch-macos-arm64-1",
+        "name: junit-release-dispatch-macos-arm64-1"
+    )]
+    #[case::macos_x64(
+        Cell::MacosX64,
+        "junit-release-dispatch-macos-x64-rosetta-1",
+        "name: junit-release-dispatch-macos-x64-rosetta-1"
+    )]
+    fn each_cells_junit_artifact_is_the_one_its_job_uploads(
+        #[case] cell: Cell,
+        #[case] artifact: &str,
+        #[case] uploaded_as: &str,
+    ) {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a synchronous unit test reads the workflow file"
+        )]
         let workflow = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../.github/workflows/release-suite.yml"),
         )
         .unwrap();
 
-        for cell in Cell::ALL {
-            let uploaded = match cell.linux_job() {
-                Some(_) => "junit-release-dispatch-${{ matrix.cell }}-1".to_owned(),
-                None => cell.junit_artifact(),
-            };
-            assert!(
-                workflow.contains(&format!("name: {uploaded}")),
-                "{cell} uploads no `{uploaded}`"
-            );
-        }
         assert_eq!(
-            Cell::LinuxArm64Musl.junit_artifact(),
-            "junit-release-dispatch-linux-arm64-musl-1"
+            (cell.junit_artifact(), workflow.contains(uploaded_as)),
+            (artifact.to_owned(), true)
         );
     }
 

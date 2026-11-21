@@ -53,10 +53,12 @@
     reason = "the model reads the test Clock and the seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
+use rstest::rstest;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::admission::Keys;
@@ -74,8 +76,8 @@ use goodfetch_protocol::foxhound::frontier::{
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::page::{Locator, PageId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::run::durability::BatchThreshold;
-use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -95,7 +97,7 @@ use crate::run_state::{
 };
 use crate::staging::Staging;
 use crate::tier_choice::TierChoices;
-use crate::work_items::{self, Changed, Failure, Leased, Unsuccessful};
+use crate::work_items::{self, Again, Changed, Failure, Leased, Unsuccessful};
 
 /// How many pages a case's crawl may be given: few, so that most are
 /// given more than once.
@@ -114,7 +116,7 @@ const POLICY: CrawlPolicy = CrawlPolicy {
 const KEYED_AT_ONCE: usize = 2;
 
 /// The tables of a crawl's run file.
-const TABLES: [RunStateTables; 12] = [
+const TABLES: [RunStateTables; 13] = [
     work_items::TABLES,
     crate::labels::TABLES,
     crate::tier_choice::TABLES,
@@ -125,6 +127,7 @@ const TABLES: [RunStateTables; 12] = [
     goodfetch_frontier::BOUNDS_TABLES,
     goodfetch_frontier::RULES_TABLES,
     goodfetch_frontier::payload::TABLES,
+    crate::invariants::fixture::PAGE_DECLARED,
     goodfetch_frontier::sitemap::TABLES,
     goodfetch_frontier::trap_links::TABLES,
 ];
@@ -915,8 +918,8 @@ fn page(url: &str) -> usize {
 
 /// When the model's attempts end: their outcomes' times are not its
 /// subject.
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn failure(code: &str) -> Failure {
@@ -969,7 +972,7 @@ fn view(connection: &Connection) -> View {
 fn counts(tally: &Tally) -> Counts {
     let ended = |kind| -> Vec<(String, u64)> {
         tally
-            .ended(kind)
+            .ended(&kind)
             .map(|(name, count)| (name.to_owned(), count))
             .collect()
     };
@@ -1384,7 +1387,7 @@ impl Subject {
                             if !settled {
                                 // No job ran: its work item stays leased.
                                 let committed = crawl.stored().commits();
-                                crawl.state.settled(leased, false, committed);
+                                crawl.state.settled(leased, Again::Not, committed);
                             }
                             return false;
                         }
@@ -1422,20 +1425,22 @@ impl Subject {
             .block_on(async { stored.end(outcome).await.await })
             .unwrap();
         crawl.state.changed(written.answer.changed);
-        let (ended, retried) = match written.answer.ended {
+        let (ended, again) = match written.answer.ended {
             Ended::Committed(committed) => {
                 let _clock = self.runtime.enter();
                 let committed = lease.committed(Ok(Some(Ok(committed)))).unwrap();
                 // The model reads every page it leases back from the file.
                 crawl.state.added(committed.keyed, written.commits);
-                (true, false)
+                (true, Again::Not)
             }
-            Ended::LeaseLost => (false, false),
-            Ended::Unsuccessful { ended, retried, .. } => (ended, ended && retried),
+            Ended::LeaseLost => (false, Again::Not),
+            Ended::Unsuccessful { ended, again, .. } => {
+                (ended, if ended { again } else { Again::Not })
+            }
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
         if !settled {
-            crawl.state.settled(leased, retried, written.commits);
+            crawl.state.settled(leased, again, written.commits);
         }
         if ended {
             crawl.in_flight -= 1;
@@ -1747,7 +1752,7 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         written.answer.ended,
         Ended::Unsuccessful {
             ended: true,
-            retried: false,
+            again: Again::Not,
             ..
         }
     ));
@@ -1757,7 +1762,9 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         .crawl
         .as_mut()
         .expect("invariant: the crawl runs until the case ends");
-    crawl.state.settled(leased.clone(), false, written.commits);
+    crawl
+        .state
+        .settled(leased.clone(), Again::Not, written.commits);
 
     let waiting = subject
         .runtime
@@ -1890,56 +1897,53 @@ fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pe
     both.close();
 }
 
-/// Each level of the model, at each of its memory budgets.
-fn levels() -> Vec<(bool, u64)> {
-    [false, true]
-        .into_iter()
-        .flat_map(|batching| {
-            [0, SMALL_BUDGET, RunStateOptions::default().memory_budget]
-                .map(|budget| (batching, budget))
-        })
-        .collect()
-}
-
 /// An attempt's staged pages count against `crawl.max_requests` with the
 /// work items, less those another commit added since, which count once,
 /// and another attempt's staged pages do not count (#2169).
-#[test]
-fn an_attempts_staged_pages_count_against_the_bound_once() {
-    for level in levels() {
-        let bound = Bound {
-            max_requests: 5,
-            path_budget: PAGES,
-        };
-        let mut both = Lockstep::leased(2, level, bound);
-        both.enqueue(0, 2, None);
-        both.enqueue(1, 2, None);
-        both.enqueue(1, 3, None);
-        both.commits(1, &[2, 3]);
-        // 4 work items, and page 2, which the commit added, counts once.
-        both.enqueue(0, 4, None);
-        both.enqueue(0, 5, Some(NotAddedReason::MaxRequests));
-        both.commits(0, &[4]);
-        both.close();
-    }
+#[rstest]
+#[case::writing_each_attempt_with_no_memory((false, 0))]
+#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((true, 0))]
+#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
+fn an_attempts_staged_pages_count_against_the_bound_once(#[case] level: (bool, u64)) {
+    let bound = Bound {
+        max_requests: 5,
+        path_budget: PAGES,
+    };
+    let mut both = Lockstep::leased(2, level, bound);
+    both.enqueue(0, 2, None);
+    both.enqueue(1, 2, None);
+    both.enqueue(1, 3, None);
+    both.commits(1, &[2, 3]);
+    // 4 work items, and page 2, which the commit added, counts once.
+    both.enqueue(0, 4, None);
+    both.enqueue(0, 5, Some(NotAddedReason::MaxRequests));
+    both.commits(0, &[4]);
+    both.close();
 }
 
 /// A commit admits its attempt's staged pages again, each against the
 /// path budget the other commits brought nearer, and adds none past it
 /// (#2169).
-#[test]
-fn a_commit_adds_no_staged_page_past_the_bound() {
-    for level in levels() {
-        let bound = Bound {
-            max_requests: PAGES,
-            path_budget: 4,
-        };
-        let mut both = Lockstep::leased(2, level, bound);
-        both.enqueue(0, 2, None);
-        both.enqueue(0, 3, None);
-        both.enqueue(1, 4, None);
-        both.commits(1, &[4]);
-        both.commits(0, &[2]);
-        both.close();
-    }
+#[rstest]
+#[case::writing_each_attempt_with_no_memory((false, 0))]
+#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((true, 0))]
+#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
+fn a_commit_adds_no_staged_page_past_the_bound(#[case] level: (bool, u64)) {
+    let bound = Bound {
+        max_requests: PAGES,
+        path_budget: 4,
+    };
+    let mut both = Lockstep::leased(2, level, bound);
+    both.enqueue(0, 2, None);
+    both.enqueue(0, 3, None);
+    both.enqueue(1, 4, None);
+    both.commits(1, &[4]);
+    both.commits(0, &[2]);
+    both.close();
 }

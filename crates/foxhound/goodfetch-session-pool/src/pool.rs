@@ -57,7 +57,7 @@ use crate::settings::PoolSettings;
 use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
 
 /// What an attempt's ending says of the Session that served it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Its page succeeded.
     Success,
@@ -462,6 +462,9 @@ impl SessionPool {
                 BlockCause::PaymentRequired | BlockCause::ConsentRequired | BlockCause::Decoy => {
                     None
                 }
+                // A cause this engine does not know says nothing of the
+                // Session: its classification never gives one.
+                _ => None,
             },
         };
         if let Some(retirement) = retirement {

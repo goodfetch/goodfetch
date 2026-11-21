@@ -13,30 +13,40 @@
 //! The crawl's Datasets, refused with `dataset_duplicate` or
 //! `dataset_key_invalid` before the Run begins, its Labels and
 //! `crawl.payload.max_size` are recorded with the Run, and a seed whose Payload does not fit them fails the start with
-//! `payload_invalid` before the Run begins; under a Run ID that names a
-//! Run, whose seeds are not checked again, a Label whose Payload schema
-//! changed under a pending Payload that fails it refuses the start with
-//! `payload_schema_changed` before any work (ADR 0082). A Label whose
+//! `payload_invalid` before the Run begins, and a seed or a sitemap rule
+//! naming a Label the crawl does not declare with `label_unknown` (ADR
+//! 0093); under a Run ID that names a Run, whose seeds are not checked
+//! again, a pending request of a Label the crawl no longer declares
+//! refuses the start with `label_unknown`, and a Label whose Payload schema
+//! changed under a pending Payload that fails it with
+//! `payload_schema_changed`, before any work (ADRs 0082 and 0102). A Label whose
 //! settings can never be served is refused with `setting_not_applicable`
 //! before the Run begins (ADRs 0110 and 0120), and which requests keep
 //! their URLs' fragments is recorded with the Run, so a start under its ID
 //! that changes `crawl.keep_url_fragment` is refused with
 //! `setting_not_applicable`. Such a start that drops a Dataset holding
 //! Records is refused with `dataset_unknown`, and one that changes its key
-//! with `dataset_key_invalid` (ADR 0103); its declarations, a code-free
-//! crawl's extraction among them, are recorded when the Run resumes.
+//! with `dataset_key_invalid` (ADR 0103); its declarations, its Labels and
+//! a code-free crawl's extraction among them, are recorded when the Run
+//! resumes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
-use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
-use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
+use goodfetch_engine::admission::Keys;
+use goodfetch_engine::egress::Policy;
+use goodfetch_engine::run::{
+    checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error, start_error,
+};
+use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_SERVE, CRAWL_START, CrawlExtraction, CrawlStartParams, LabelDeclaration, Seed,
+};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
@@ -50,6 +60,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
+use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
@@ -62,7 +73,7 @@ use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
 use crate::tier_choice::{self, TierChoices};
-use crate::work_items;
+use crate::work_items::{self, CheckedSeed};
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
@@ -129,9 +140,16 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    redeclared.record(&run).await;
-                    // Boxed: a Run's delivery is a large future, built once per Run.
-                    Box::pin(delivery::resume(run, context, settings, crawls, tiers)).await;
+                    let hooks = redeclared.record(&run).await;
+                    // Boxed: the resumed delivery's future is large.
+                    Box::pin(delivery::resume(
+                        run,
+                        context,
+                        settings,
+                        (crawls, tiers),
+                        hooks,
+                    ))
+                    .await;
                 })
             }),
             DRIVING,
@@ -204,12 +222,13 @@ async fn start(
             run: Some(Product::Foxhound),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
@@ -232,12 +251,10 @@ async fn start(
     } else {
         work_items::check_seeds(&invariants, seeds, &work)?
     };
-    let declared = params.labels;
-    let redeclaring = (datasets.clone(), params.extraction.clone());
-    let opening = datasets.clone();
-    let serving = invariants.clone();
+    let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
+    let hooks = params.hooks;
     let started = context
         .runs()
         .start(Start {
@@ -247,23 +264,13 @@ async fn start(
             needs: Product::Foxhound,
             inputs,
             ended_by: DRIVING.ended_by,
-            initialize: Some(Box::new(move |connection| {
-                invariants.record(connection)?;
-                labels::record(connection, &declared)?;
-                datasets.record(connection)?;
-                code_free::record(connection, recording.as_ref())?;
-                let mut positions = match keys {
-                    Some(keys) => work_items::Positions::keying(connection, keys)?,
-                    None => work_items::Positions::of(connection)?,
-                };
-                let answers = run_state::admission::admit_seeds(
-                    connection,
-                    &mut positions,
-                    (&seeding, &invariants),
-                    &admitted,
-                )?;
-                goodfetch_frontier::seeds::answered(connection, &answers)
-            })),
+            initialize: Some(initialize(
+                invariants,
+                (declared, datasets, recording),
+                keys,
+                seeding,
+                admitted,
+            )),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened: settings.resolved().weakened(),
             binding: None,
@@ -274,7 +281,7 @@ async fn start(
         })
         .await
         .map_err(start_error)?;
-    Ok(match started {
+    match started {
         Started::New(run) => {
             let started = RunStarted {
                 run_id: run.id().clone(),
@@ -289,19 +296,65 @@ async fn start(
                 crawls.open(&run, egress, serving, opening).await,
                 crawls,
                 settings,
-                (tiers, labels, TierChoices::default(), code_free),
+                (tiers, labels, TierChoices::default(), (code_free, hooks)),
             ));
-            started
+            Ok(started)
         }
-        Started::Existing(existing) => redeclared.keep(existing, redeclaring, &crawls).await,
+        // An interrupted Run resumes under the declarations this start
+        // checked (ADR 0102), its driver recording them.
+        Started::Interrupted(run_id) => {
+            let kept = (opening, serving.payloads().clone(), extraction);
+            redeclared.keep(&run_id, kept, hooks, &crawls).await;
+            resume_run(&context, run_id, None, settings).await
+        }
+        Started::Ended(ended) => {
+            let kept = (opening, serving.payloads().clone(), extraction);
+            redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
+            Ok(ended)
+        }
+    }
+}
+
+/// A new crawl's first rows: its `invariants`, declared Labels, Datasets
+/// and code-free extraction, then its `admitted` seeds, keyed with `keys`
+/// when its gates key work items and under the `seeding` egress policy.
+fn initialize(
+    invariants: Invariants,
+    (declared, datasets, recording): (
+        BTreeMap<String, LabelDeclaration>,
+        Datasets,
+        Option<CrawlExtraction>,
+    ),
+    keys: Option<Keys>,
+    seeding: Policy,
+    admitted: Vec<CheckedSeed>,
+) -> Initialize {
+    Box::new(move |connection| {
+        invariants.record(connection)?;
+        labels::record(connection, &declared)?;
+        datasets.record(connection)?;
+        code_free::record(connection, recording.as_ref())?;
+        let mut positions = match keys {
+            Some(keys) => work_items::Positions::keying(connection, keys)?,
+            None => work_items::Positions::of(connection)?,
+        };
+        let answers = run_state::admission::admit_seeds(
+            connection,
+            &mut positions,
+            (&seeding, &invariants),
+            &admitted,
+        )?;
+        goodfetch_frontier::seeds::answered(connection, &answers)
     })
 }
 
 /// Whether a Run `run_id` exists (never when the start names none), which
 /// a start under its ID goes on with (ADR 0102), its seeds not admitted
 /// again, once it may go on under the
-/// crawl's `invariants`: refused with `payload_schema_changed` before any
-/// work when a declared Label's Payload schema changed and a pending
+/// crawl's `invariants`: refused with `label_unknown` before any work when
+/// a pending request names a Label the crawl no longer declares (ADR
+/// 0102), with `payload_schema_changed` when a declared Label's Payload
+/// schema changed and a pending
 /// Payload of it fails the new one (ADR 0082), with
 /// `setting_not_applicable` when the Labels' fragments differ from those
 /// the Run began with (ADR 0120), and with `dataset_unknown` or
@@ -326,14 +379,16 @@ async fn schema_unchanged(
     let changed = match reader
         .read(move |connection| {
             let began = labels::Fragments::read(connection)?;
+            let pending = work_items::pending_labels(connection)?;
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            Ok((began, Began::read(connection)?, changed))
+            Ok((began, Began::read(connection)?, pending, changed))
         })
         .await
     {
-        Ok((began, began_with, changed)) => {
+        Ok((began, began_with, pending, changed)) => {
+            invariants.payloads().resumes(&pending, run_id.as_str())?;
             invariants.fragments().unchanged(&began, run_id.as_str())?;
             datasets.resumes(&began_with, run_id.as_str())?;
             changed

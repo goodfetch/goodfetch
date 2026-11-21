@@ -7,8 +7,6 @@
 //! engine's own HTTP client ([`super::otlp`]); never otherwise, so nothing
 //! leaves the machine unless configured.
 
-use std::time::SystemTime;
-
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::settings::Resolved;
@@ -79,9 +77,7 @@ pub(super) fn export(
         let mut record = logger.create_log_record();
         record.set_event_name(EVENT_NAME);
         record.set_severity_number(Severity::Info);
-        if let Ok(time) = exported.entry.time.as_str().parse::<jiff::Timestamp>() {
-            record.set_timestamp(SystemTime::from(time));
-        }
+        record.set_timestamp(exported.entry.time);
         record.set_body(AnyValue::from(line.to_owned()));
         record.add_attribute(
             "goodfetch.audit.sequence",

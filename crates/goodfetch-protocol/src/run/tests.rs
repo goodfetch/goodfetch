@@ -1,6 +1,6 @@
 use rstest::rstest;
 
-use super::{RunId, RunIdInvalid, Tags};
+use super::{RunId, RunIdInvalid, Tags, TagsInvalid};
 use crate::catalog::{Product, SharedType};
 
 #[rstest]
@@ -63,6 +63,19 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
     #[case] read: bool,
 ) {
     assert_eq!(serde_json::from_value::<Tags>(tags).is_ok(), read);
+}
+
+/// A program builds tags by the same bounds the wire reads them by.
+#[rstest]
+#[case::sixteen_tags_of_sixty_four_characters(vec!["é".repeat(64); 16], Ok(16))]
+#[case::none(Vec::new(), Ok(0))]
+#[case::seventeen_tags(vec!["t".to_owned(); 17], Err(TagsInvalid::TooMany))]
+#[case::a_tag_of_sixty_five_characters(vec!["t".repeat(65)], Err(TagsInvalid::TooLong))]
+fn tags_parse_by_the_bounds_the_wire_reads(
+    #[case] tags: Vec<String>,
+    #[case] expected: Result<usize, TagsInvalid>,
+) {
+    assert_eq!(Tags::parse(tags).map(|tags| tags.iter().count()), expected);
 }
 
 /// A warning of a crawl's is Foxhound's alone, so Collie's SDKs never type it;
@@ -265,5 +278,49 @@ fn a_model_usage_without_a_whole_price_keeps_each_models_priced_part() {
             serde_json::to_value(&read).unwrap(),
         ),
         (true, Some(4200), sent)
+    );
+}
+
+/// A Rust program's batch threshold goes on the wire as the value it reads
+/// back from (ADRs 0083 and 0142).
+#[rstest]
+#[case::a_count(serde_json::json!(500))]
+#[case::none(serde_json::json!("none"))]
+fn a_batch_threshold_writes_the_value_it_is_read_from(#[case] value: serde_json::Value) {
+    let read = super::durability::BatchThreshold::read(&value).unwrap();
+
+    assert_eq!(serde_json::to_value(read).unwrap(), value);
+}
+
+/// The Stop reasons a reader knows are the members the schema lists, so a
+/// known reason whose fields do not read is never kept as unknown.
+#[test]
+fn the_stop_reasons_a_reader_knows_are_the_schemas() {
+    let schema = schemars::schema_for!(super::StopReason);
+    let mut listed: Vec<&str> = schema.as_value()["oneOf"]
+        .as_array()
+        .expect("a tagged union lists its members")
+        .iter()
+        .filter_map(|member| member["properties"]["kind"]["const"].as_str())
+        .collect();
+    let mut known = super::StopReason::KNOWN_TAGS.to_vec();
+    listed.sort_unstable();
+    known.sort_unstable();
+
+    assert_eq!(known, listed);
+}
+
+#[test]
+fn a_verdict_filter_this_reader_does_not_know_is_refused() {
+    let filter = |verdict| {
+        serde_json::from_value::<super::list::RunListParams>(
+            serde_json::json!({ "verdict": verdict }),
+        )
+    };
+
+    assert!(filter("a_newer_verdict").is_err());
+    assert_eq!(
+        filter("verified").expect("a known Verdict filters").verdict,
+        Some(super::Verdict::Verified)
     );
 }

@@ -21,7 +21,7 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    SESSION_SOURCE, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
+    RunOrigin, SESSION_SOURCE, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
 };
 use serde_json::{Map, Value};
 
@@ -91,6 +91,8 @@ impl LabelPools {
                                 key: SESSION_SOURCE.name.to_owned(),
                                 layer: Some(SettingsLayer::Run),
                                 reason: error.to_string(),
+                                limit: None,
+                                fix: None,
                             },
                         )
                     })?,
@@ -105,6 +107,7 @@ impl LabelPools {
                 key: key.to_owned(),
                 value: value.clone(),
                 layer: SettingsLayer::Run,
+                origin: Some(RunOrigin::Settings),
             });
             pools.insert(name.clone(), OwnPool { source, login });
         }
@@ -131,8 +134,9 @@ impl LabelPools {
 
     /// The setting that gives the Sessions of `pool` a login, a Label's
     /// own `session.source` or `login`, which the Label's layer, the Run,
-    /// set: `None` for a pool that holds none, and for the Run's, which
-    /// the Run's settings say (#2418).
+    /// set through the Label's `settings`, its origin (ADRs 0083 and 0093):
+    /// `None` for a pool that holds none, and for the Run's, which the
+    /// Run's settings say (#2418).
     pub fn login(&self, pool: &PoolKey) -> Option<&SettingLimit> {
         match pool {
             PoolKey::Run => None,

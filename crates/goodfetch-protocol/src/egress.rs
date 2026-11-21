@@ -73,6 +73,7 @@ pub const EGRESS_ALLOWED_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -87,6 +88,7 @@ pub const EGRESS_BLOCKED_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -101,6 +103,7 @@ pub const EGRESS_OFFLINE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -116,6 +119,7 @@ pub const EGRESS_NO_PRIVATE_ENDPOINTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

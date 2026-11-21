@@ -43,8 +43,8 @@ use std::collections::BTreeMap;
 
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
 use goodfetch_cdp::{NetError, Subscription};
-use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
@@ -97,8 +97,9 @@ pub(crate) struct Request<'a> {
     pub(crate) post_data: Option<&'a str>,
     /// The most redirects it follows: 0 answers a 3xx itself.
     pub(crate) max_redirects: u32,
-    /// The option that set that count, in the caller's spelling, which
-    /// `too_many_redirects` names.
+    /// The option that set that count, by its canonical name, which
+    /// `too_many_redirects` names: its message in its Client's form, its
+    /// details canonically (ADR 0099).
     pub(crate) option: &'a str,
     /// The Run's limits on the body.
     pub(crate) limits: Limits,
@@ -624,7 +625,7 @@ impl<'a> Load<'a> {
             &TOO_MANY_REDIRECTS,
             format!(
                 "the request to {first} was redirected again after {count} redirects, past its `{}`",
-                self.request.option
+                named::parameter(self.request.option)
             ),
             &TooManyRedirectsDetails {
                 url: first.clone(),

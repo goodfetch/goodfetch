@@ -58,6 +58,7 @@ use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::settings::catalog_default;
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
+use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_MAX_STAGED_ENQUEUES, EFFECT_STAGING_REFUSED, STAGING_FULL,
     StagingFullDetails,
@@ -174,6 +175,13 @@ pub(crate) struct Marked {
 
 /// What an attempt staged, set aside while another run of it stages.
 pub(crate) struct SetAside(Entry);
+
+impl SetAside {
+    /// The Records the attempt pushed, in order, read where they are.
+    pub(crate) fn records(&self) -> &[PushedRecord] {
+        self.0.records.records()
+    }
+}
 
 /// What an attempt staged, taken out to commit.
 #[derive(Default)]
@@ -341,8 +349,9 @@ impl Staging {
     /// Sets aside what the attempt of `work_item` under `lease_epoch`
     /// staged so far and stages anew, while a run whose staging is then
     /// discarded runs after it: a sample's `discovered_api` run, which
-    /// needs the browser's run before it (ADR 0103). `None` once the
-    /// attempt ended.
+    /// needs the browser's run before it (ADR 0103), or the Record stage's
+    /// Hooks, which read its Records where they are (ADR 0104). `None`
+    /// once the attempt ended.
     pub(crate) fn set_aside(&self, work_item: &str, lease_epoch: u64) -> Option<SetAside> {
         let mut entries = self.entries();
         let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;

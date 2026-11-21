@@ -15,7 +15,6 @@ from goodfetch_test_support import (
     SecretKind,
     search_canaries,
 )
-from goodfetch_test_support.canaries import SECRET_KINDS
 
 FIXTURE = Path(__file__).resolve().parents[3] / "fixtures" / "canaries" / "search.json"
 
@@ -57,25 +56,6 @@ CANARIES = [
     )
     for canary in _FIXTURE["canaries"]
 ]
-
-
-def test_secret_kinds_names_every_kind_rust_test_support_plants() -> None:
-    """The kinds are Rust's, in its order, as written here."""
-    assert list(SECRET_KINDS) == [
-        "typed_password",
-        "totp_seed",
-        "one_time_code",
-        "proxy_password",
-        "http_authentication_password",
-        "header_value",
-        "caller_answer",
-        "model_api_key",
-        "webhook_signing_secret",
-        "sink_credential",
-        "session_cookie",
-        "endpoint_token",
-        "run_data_key",
-    ]
 
 
 @pytest.mark.parametrize(

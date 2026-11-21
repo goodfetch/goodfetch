@@ -20,8 +20,12 @@ use crate::site::Site;
 const RUN_ID: &str = "answered";
 
 /// The `crawl.start` of the keep-alive crawl from `failing`, every other
-/// setting at its default.
-fn start(engine: &mut Attached, failing: &str) -> Value {
+/// setting at its default, each request it hands answered by `handler`.
+fn start(
+    engine: &mut Attached,
+    failing: &str,
+    handler: &mut impl FnMut(&Value) -> Option<Value>,
+) -> Value {
     engine.call(
         "start",
         "crawl.start",
@@ -29,8 +33,9 @@ fn start(engine: &mut Attached, failing: &str) -> Value {
             "run_id": RUN_ID,
             "seeds": [seed(failing)],
             "settings": { "crawl": { "keep_alive": true } },
+            "labels": { "page": {} },
         }),
-        &mut |_| None,
+        handler,
     )
 }
 
@@ -74,7 +79,7 @@ fn at_batch_a_kill_right_after_an_answer_loses_no_call_that_no_page_will_make_ag
     let (failing, streamed) = (site.page("/failing"), site.page("/streamed"));
 
     let mut killed = site.engine(&env);
-    start(&mut killed, &failing);
+    start(&mut killed, &failing, &mut |_| None);
     let retried = retry_the_failed_request(&mut killed);
     let set = killed.call(
         "set",
@@ -102,13 +107,7 @@ fn at_batch_a_kill_right_after_an_answer_loses_no_call_that_no_page_will_make_ag
         handled.borrow_mut().push(url.clone());
         Some(json!({ "result": { "records": [{ "dataset": "pages", "data": { "url": url } }] } }))
     };
-    let again = start(&mut resuming, &failing);
-    let resumed = resuming.call(
-        "resume",
-        "run.resume",
-        &json!({ "run_id": RUN_ID, "settings": { "crawl": { "keep_alive": true } } }),
-        &mut answer,
-    );
+    let again = start(&mut resuming, &failing, &mut answer);
     let value = resuming.call(
         "get",
         "key_value_store.get",
@@ -144,14 +143,12 @@ fn at_batch_a_kill_right_after_an_answer_loses_no_call_that_no_page_will_make_ag
     assert_eq!(
         (
             &again["result"]["started_as"],
-            &resumed["result"]["started_as"],
             &value["result"]["value"],
             &listed["result"]["requests"],
             handled,
             &finished["result"]["lifecycle"],
         ),
         (
-            &json!("existing"),
             &json!("resumed"),
             &json!(3),
             &json!([]),

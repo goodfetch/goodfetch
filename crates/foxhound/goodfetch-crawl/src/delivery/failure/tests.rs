@@ -93,6 +93,9 @@ fn details(value: Value) -> Map<String, Value> {
 )]
 #[case::page_check("page_check_failed", json!({ "url": URL }), Why::PageCheckFailed { noindex: None })]
 #[case::handler(HANDLER_FAILED.name, json!({}), Why::Handler)]
+#[case::a_hooks_own_exception("hook_failed", json!({ "wrapped_code": null }), Why::Hook)]
+#[case::a_hooks_wrapped_code("hook_failed", json!({ "wrapped_code": "header_forbidden" }), Why::Other)]
+#[case::a_hooks_deadline("deadline_exceeded", json!({ "limit": { "key": "timeout.hook" } }), Why::Other)]
 #[case::unknown("something_else", json!({ "error": "net::ERR_CONNECTION_REFUSED" }), Why::Other)]
 fn an_error_object_is_classed_as_it_enters(
     #[case] code: &str,

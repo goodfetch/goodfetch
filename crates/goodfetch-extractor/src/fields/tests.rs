@@ -341,6 +341,88 @@ fn a_row_lacking_a_field_keeps_its_other_fields() {
     );
 }
 
+/// A field's locator ladder (issue 1972) reads what its first rung that
+/// found an element found: a value field from one find per rung, a list
+/// from one find per rung, and each row's field from its rungs' entries in
+/// the row, in the order of the fields' names; a field none of whose rungs
+/// found an element is null with the reason it has with one locator.
+#[test]
+fn a_ladders_first_rung_that_found_an_element_gives_its_value() {
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    let read = read(
+        &[
+            (
+                "name",
+                json!({ "locator": css("h2"), "fallbacks": [css("h3"), css("h1"), css("b")] }),
+            ),
+            (
+                "names",
+                json!({ "list": { "locator": css("li b"), "fallbacks": [css("li a")] } }),
+            ),
+            (
+                "offers",
+                json!({
+                    "rows": css("li"),
+                    "fields": {
+                        "name": { "locator": css("a") },
+                        "price": { "locator": css(".cost"), "fallbacks": [css(".price")] },
+                    },
+                }),
+            ),
+            (
+                "sku",
+                json!({ "locator": css(".sku"), "fallbacks": [css(".id")] }),
+            ),
+        ],
+        vec![
+            Found::One(None),
+            Found::One(None),
+            Found::One(Some(element("h1", "Delta", &[]))),
+            Found::One(Some(element("b", "Bold", &[]))),
+            Found::List(Vec::new()),
+            Found::List(vec![element("a", "Delta", &[]), element("a", "Box", &[])]),
+            Found::Rows(vec![
+                vec![
+                    Some(element("a", "Delta", &[])),
+                    None,
+                    Some(element("span", "12", &[])),
+                ],
+                vec![
+                    Some(element("a", "Box", &[])),
+                    Some(element("span", "9", &[])),
+                    Some(element("span", "10", &[])),
+                ],
+                vec![Some(element("a", "Kite", &[])), None, None],
+            ]),
+            Found::One(None),
+            Found::One(None),
+        ],
+    );
+
+    assert_eq!(
+        (read.values, read.unread),
+        (
+            json!({
+                "name": "Delta",
+                "names": ["Delta", "Box"],
+                "offers": [
+                    { "name": "Delta", "price": "12" },
+                    { "name": "Box", "price": "9" },
+                    { "name": "Kite", "price": null },
+                ],
+                "sku": null,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+            vec![
+                unread(json!({ "field": "/offers/2/price", "reason": "no_element" })).unwrap(),
+                unread(json!({ "field": "/sku", "reason": "no_element" })).unwrap(),
+            ],
+        )
+    );
+}
+
 /// A list or rows whose locators found nothing is an empty array.
 #[rstest]
 #[case::a_list(json!({ "list": { "locator": { "kind": "css", "selector": "li" } } }), Found::List(Vec::new()))]

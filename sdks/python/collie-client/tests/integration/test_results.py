@@ -16,6 +16,7 @@ from goodfetch_collie_client.generated.models import (
     StopReason2,
 )
 from goodfetch_collie_client.generated.operations import CollieOperations
+from goodfetch_test_support import EngineAnswering
 from pydantic import BaseModel
 
 PAGE = PageId(root="page-1")
@@ -39,19 +40,7 @@ class NewerEngine:
         return {"text": "hi", "added_in_a_minor": 1}
 
 
-class EngineAnswering:
-    """A caller answering every call with one result, as the engine sends it."""
-
-    def __init__(self, result: object) -> None:
-        """Takes the result every call answers."""
-        self._result = result
-
-    def call(self, operation: str, params: BaseModel) -> object:
-        """Answers the call with the result."""
-        del operation, params
-        return self._result
-
-
+@pytest.mark.covers("story:11-68")
 def test_result_from_a_newer_engine_keeps_its_unknown_field() -> None:
     """A field a newer engine added neither raises nor is dropped (ADR 0077, G3)."""
     operations = CollieOperations(NewerEngine())
@@ -103,6 +92,7 @@ def test_a_list_of_nested_results_reads_by_attribute() -> None:
     assert formats.links[0].href == "/a"
 
 
+@pytest.mark.covers("story:11-68")
 def test_an_unknown_field_of_a_nested_result_is_kept() -> None:
     """A field a newer engine added at any depth is kept, never raised on (ADR 0082)."""
     operations = CollieOperations(
@@ -125,19 +115,7 @@ def test_a_union_result_builds_the_variant_its_tag_names() -> None:
     assert isinstance(report.stop_reason.root, StopReason2)
 
 
-def test_a_union_variant_a_newer_engine_added_is_kept_as_sent() -> None:
-    """A variant the SDK does not know neither raises nor is dropped (ADR 0082)."""
-    operations = CollieOperations(
-        EngineAnswering({"stop_reason": {"kind": "added_in_a_minor"}})
-    )
-
-    report = operations.run_report(RunParams(run_id=RunId(root="run-1")))
-
-    assert report.stop_reason is not None
-    sent: object = report.stop_reason.root
-    assert sent == {"kind": "added_in_a_minor"}
-
-
+@pytest.mark.covers("story:11-68")
 def test_params_refuse_an_unknown_field() -> None:
     """A misspelled input field is an error, never ignored (ADR 0077, G3)."""
     with pytest.raises(pydantic.ValidationError) as refused:

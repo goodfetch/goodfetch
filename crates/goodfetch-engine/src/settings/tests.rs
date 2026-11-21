@@ -290,10 +290,86 @@ fn an_operator_policy_lock_refuses_every_higher_layers_value(#[case] layer: Sett
                 key: "timeout.navigation".to_owned(),
                 value: json!(10_000),
                 layer: SettingsLayer::OperatorPolicy,
+                origin: None,
             },
             fix: "ask the operator to change the Operator policy's lock on `timeout.navigation`"
                 .to_owned(),
         }
+    );
+}
+
+/// A program's registered handler is the run layer's value with the origin
+/// `registered`, which the program never wrote: a lock, from an Operator
+/// policy or a Recipe, wins over it with no refusal (ADR 0104's amendment
+/// of ADR 0083).
+#[rstest]
+#[case::by_an_operator_policy(
+    Layers {
+        operator_policy: policy(json!({}), json!({ "timeout": { "navigation": 10_000 } }), json!({})),
+        ..Layers::default()
+    },
+    SettingsLayer::OperatorPolicy,
+    json!(10_000)
+)]
+#[case::by_a_recipe(
+    Layers {
+        recipe: Some(recipe(json!({ "timeout": { "navigation": 4_000 } }), &[])),
+        ..Layers::default()
+    },
+    SettingsLayer::Recipe,
+    json!(4_000)
+)]
+fn a_lock_wins_over_a_registered_value_with_no_refusal(
+    #[case] mut layers: Layers,
+    #[case] locking: SettingsLayer,
+    #[case] locked: Value,
+) {
+    layers.run = values(
+        SettingsLayer::Run,
+        json!({ "timeout": { "navigation": 9_000 } }),
+    )
+    .from_origin(RunOrigin::Registered);
+
+    let effective = resolved(&layers);
+
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
+    assert_eq!(
+        (
+            &navigation.value,
+            navigation.layer,
+            navigation.origin,
+            navigation.locked_by
+        ),
+        (&locked, locking, None, Some(locking))
+    );
+}
+
+/// Unlocked, the registered value is the run layer's, with its origin.
+#[test]
+fn an_unlocked_registered_value_is_the_run_layers_with_its_origin() {
+    let layers = Layers {
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": 9_000 } }),
+        )
+        .from_origin(RunOrigin::Registered),
+        ..every_layer_sets_navigation()
+    };
+
+    let effective = resolved(&layers);
+
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
+    assert_eq!(
+        (&navigation.value, navigation.layer, navigation.origin),
+        (
+            &json!(9_000),
+            SettingsLayer::Run,
+            Some(RunOrigin::Registered)
+        )
     );
 }
 
@@ -452,6 +528,7 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
             key: "timeout.navigation".to_owned(),
             value: json!({ "minimum": 1_000, "maximum": 10_000 }),
             layer: SettingsLayer::Recipe,
+            origin: None,
         }
     );
 }
@@ -690,12 +767,19 @@ fn a_raw_client_key_is_refused_with_setting_invalid_without_its_value(
     let refused = Values::read(layer, &nested(set), Product::Collie).unwrap_err();
 
     let shown = format!("{refused} {refused:?}");
+    let SettingsError::Invalid {
+        key,
+        layer: refused_in,
+        ..
+    } = &refused
+    else {
+        panic!("not setting_invalid: {shown}");
+    };
     assert_eq!(
-        (refused.code(), shown.contains("c4n4ryk3y")),
-        ("setting_invalid", false),
+        (key.as_str(), *refused_in, shown.contains("c4n4ryk3y")),
+        ("tls.client_certificates", Some(layer), false),
         "{shown}"
     );
-    assert!(shown.contains("tls.client_certificates"), "{shown}");
 }
 
 /// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:tls.accept_invalid_certs
@@ -835,6 +919,7 @@ fn an_honesty_guarantee_stays_locked_whatever_the_layer(
                 key: key.to_owned(),
                 value: json!(true),
                 layer: SettingsLayer::Default,
+                origin: None,
             },
             fix: format!("`{key}` is an honesty guarantee no layer changes"),
         }
@@ -893,6 +978,57 @@ fn stealth_allowed_builds_is_set_only_in_an_operator_policy(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// `timeout.connect`, which `connect()` and the CLI read from the project
+/// file before they connect, is taken from the project file alone: the
+/// machine's own layers, which only the engine reads once reached, a
+/// Recipe and a `settings` option are refused naming the project file
+/// (ADR 0083).
+///
+/// Covers: setting:timeout.connect
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, Some("setting_not_applicable"))]
+#[case::user_configuration(SettingsLayer::UserConfiguration, Some("setting_not_applicable"))]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, None)]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn timeout_connect_is_set_only_in_the_project_file(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let layers = only(layer, "timeout.connect", &json!(5_000));
+
+    let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+    let (code, fix) = match &outcome {
+        Ok(_) => (None, None),
+        Err(error @ SettingsError::NotApplicable { fix, .. }) => {
+            (Some(error.code()), Some(fix.as_str()))
+        }
+        Err(error) => panic!("{error:?}"),
+    };
+    assert_eq!(code, refused);
+    assert!(
+        fix.is_none_or(|fix| fix.contains("the project file")),
+        "{fix:?}"
+    );
+}
+
+/// `timeout.connect` is 30 s by default, which `config explain` shows set
+/// by the default layer (ADR 0083).
+///
+/// Covers: setting:timeout.connect
+#[test]
+fn timeout_connect_is_thirty_seconds_by_default() {
+    let effective = resolved(&Layers::default());
+
+    let connect = effective.effective(catalog_key("timeout.connect")).unwrap();
+
+    assert_eq!(
+        (&connect.value, connect.layer),
+        (&json!(30_000), SettingsLayer::Default)
+    );
+}
+
 /// The layers with `set` for the user configuration and `run` for the Run.
 fn user_and_run(set: Value, run: Value) -> Layers {
     Layers {
@@ -945,27 +1081,6 @@ fn an_inherited_stealth_item_yields_to_an_access_mode_that_is_not_stealth(
 
     let setting = serde_json::to_value(&explained).unwrap()["settings"][0].clone();
     assert_eq!(setting.get("yields_to").cloned(), yields_to);
-}
-
-/// Covers: story:3-88, setting:crawl.handler.concurrency
-#[test]
-fn a_value_above_an_operator_policy_cap_is_refused() {
-    let mut layers = only(SettingsLayer::Run, "crawl.handler.concurrency", &json!(64));
-    layers.operator_policy = policy(
-        json!({}),
-        json!({}),
-        json!({ "crawl": { "handler": { "concurrency": 8 } } }),
-    );
-
-    let refused = refusal(&layers);
-
-    let SettingsError::Locked { limit, .. } = refused else {
-        panic!("expected setting_locked, got {refused:?}");
-    };
-    assert_eq!(
-        (limit.value, limit.layer),
-        (json!(8), SettingsLayer::OperatorPolicy)
-    );
 }
 
 /// Covers: story:3-88, setting:crawl.handler.concurrency
@@ -1519,6 +1634,7 @@ proptest! {
 
 mod operator_policy;
 mod presets;
+mod scopes;
 mod unbuilt;
 mod versions;
 
@@ -1753,87 +1869,38 @@ fn over_configuration(
 /// configuration still widen it (positive control).
 /// Covers: story:4-4, error:setting_locked, setting:egress.allowed_domains, setting:egress.blocked_domains
 #[rstest]
-#[case::allowed_every_host_narrowed_by_a_model(
-    "egress.allowed_domains", json!(["*"]), SettingsLayer::Run, true, json!(["scope.test"]), true
-)]
-#[case::allowed_narrowed_to_a_subdomain_by_a_model(
-    "egress.allowed_domains", json!(["scope.test", "elsewhere.test"]), SettingsLayer::Run, true, json!(["www.scope.test"]), true
-)]
-#[case::allowed_narrowed_in_another_spelling_by_a_model(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["WWW.Scope.Test."]), true
-)]
-#[case::allowed_emptied_by_a_model(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!([]), true
-)]
-#[case::allowed_widened_by_a_model(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test", "elsewhere.test"]), false
-)]
-#[case::allowed_widened_to_a_parent_by_a_model(
-    "egress.allowed_domains", json!(["www.scope.test"]), SettingsLayer::Run, true, json!(["scope.test"]), false
-)]
-#[case::allowed_widened_to_every_host_by_a_model(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["*"]), false
-)]
-#[case::allowed_widened_by_a_name_sharing_a_suffix(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["evilscope.test"]), false
-)]
-#[case::allowed_widened_by_an_entry_that_is_no_host(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test/path"]), false
-)]
-#[case::allowed_widened_by_a_models_project_configuration(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, true, json!(["elsewhere.test"]), false
-)]
-#[case::allowed_narrowed_by_a_recipe(
-    "egress.allowed_domains", json!(["*"]), SettingsLayer::Recipe, false, json!(["scope.test"]), true
-)]
-#[case::allowed_widened_by_a_recipe(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Recipe, false, json!(["elsewhere.test"]), false
-)]
-#[case::allowed_widened_by_the_programs_own_code(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, false, json!(["scope.test", "elsewhere.test"]), true
-)]
-#[case::allowed_widened_by_project_configuration(
-    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, false, json!(["*"]), true
-)]
-#[case::blocked_added_to_by_a_model(
-    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["ads.test", "tracker.test"]), true
-)]
-#[case::blocked_widened_to_a_parent_by_a_model(
-    "egress.blocked_domains", json!(["www.ads.test"]), SettingsLayer::Run, true, json!(["ads.test"]), true
-)]
-#[case::blocked_entry_removed_by_a_model(
-    "egress.blocked_domains", json!(["ads.test", "tracker.test"]), SettingsLayer::Run, true, json!(["ads.test"]), false
-)]
-#[case::blocked_entry_replaced_by_its_subdomain_by_a_model(
-    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["www.ads.test"]), false
-)]
-#[case::blocked_every_host_dropped_by_a_model(
-    "egress.blocked_domains", json!(["*"]), SettingsLayer::Run, true, json!(["ads.test"]), false
-)]
-#[case::blocked_entry_removed_by_a_recipe(
-    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Recipe, false, json!([]), false
-)]
-#[case::blocked_added_to_by_a_recipe(
-    "egress.blocked_domains", json!([]), SettingsLayer::Recipe, false, json!(["ads.test"]), true
-)]
-#[case::blocked_entry_removed_by_the_programs_own_code(
-    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, false, json!([]), true
-)]
+#[case::allowed_every_host_narrowed_by_a_model("egress.allowed_domains", json!(["*"]), SettingsLayer::Run, true, json!(["scope.test"]), Ok(json!(["scope.test"])))]
+#[case::allowed_narrowed_to_a_subdomain_by_a_model("egress.allowed_domains", json!(["scope.test", "elsewhere.test"]), SettingsLayer::Run, true, json!(["www.scope.test"]), Ok(json!(["www.scope.test"])))]
+#[case::allowed_narrowed_in_another_spelling_by_a_model("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["WWW.Scope.Test."]), Ok(json!(["WWW.Scope.Test."])))]
+#[case::allowed_emptied_by_a_model("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!([]), Ok(json!([])))]
+#[case::allowed_widened_by_a_model("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test", "elsewhere.test"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_to_a_parent_by_a_model("egress.allowed_domains", json!(["www.scope.test"]), SettingsLayer::Run, true, json!(["scope.test"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_to_every_host_by_a_model("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["*"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_by_a_name_sharing_a_suffix("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["evilscope.test"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_by_an_entry_that_is_no_host("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test/path"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_by_a_models_project_configuration("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, true, json!(["elsewhere.test"]), locked("egress.allowed_domains"))]
+#[case::allowed_narrowed_by_a_recipe("egress.allowed_domains", json!(["*"]), SettingsLayer::Recipe, false, json!(["scope.test"]), Ok(json!(["scope.test"])))]
+#[case::allowed_widened_by_a_recipe("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Recipe, false, json!(["elsewhere.test"]), locked("egress.allowed_domains"))]
+#[case::allowed_widened_by_the_programs_own_code("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, false, json!(["scope.test", "elsewhere.test"]), Ok(json!(["scope.test", "elsewhere.test"])))]
+#[case::allowed_widened_by_project_configuration("egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, false, json!(["*"]), Ok(json!(["*"])))]
+#[case::blocked_added_to_by_a_model("egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["ads.test", "tracker.test"]), Ok(json!(["ads.test", "tracker.test"])))]
+#[case::blocked_widened_to_a_parent_by_a_model("egress.blocked_domains", json!(["www.ads.test"]), SettingsLayer::Run, true, json!(["ads.test"]), Ok(json!(["ads.test"])))]
+#[case::blocked_entry_removed_by_a_model("egress.blocked_domains", json!(["ads.test", "tracker.test"]), SettingsLayer::Run, true, json!(["ads.test"]), locked("egress.blocked_domains"))]
+#[case::blocked_entry_replaced_by_its_subdomain_by_a_model("egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["www.ads.test"]), locked("egress.blocked_domains"))]
+#[case::blocked_every_host_dropped_by_a_model("egress.blocked_domains", json!(["*"]), SettingsLayer::Run, true, json!(["ads.test"]), locked("egress.blocked_domains"))]
+#[case::blocked_entry_removed_by_a_recipe("egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Recipe, false, json!([]), locked("egress.blocked_domains"))]
+#[case::blocked_added_to_by_a_recipe("egress.blocked_domains", json!([]), SettingsLayer::Recipe, false, json!(["ads.test"]), Ok(json!(["ads.test"])))]
+#[case::blocked_entry_removed_by_the_programs_own_code("egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, false, json!([]), Ok(json!([])))]
 fn a_model_and_a_recipe_only_narrow_the_domain_policy(
     #[case] key: &str,
     #[case] configured: Value,
     #[case] layer: SettingsLayer,
     #[case] for_model: bool,
     #[case] value: Value,
-    #[case] taken: bool,
+    #[case] expected: Result<Value, (&'static str, String)>,
 ) {
     let resolved = over_configuration(key, &configured, layer, for_model, &value);
 
-    let expected = if taken {
-        Ok(value)
-    } else {
-        Err(("setting_locked", key.to_owned()))
-    };
     assert_eq!(resolved, expected);
 }
 
@@ -1845,35 +1912,35 @@ fn a_model_and_a_recipe_only_narrow_the_domain_policy(
 /// configuration set `off` (positive controls).
 /// Covers: story:5-100, error:setting_locked, setting:consent.handling
 #[rstest]
-#[case::off_from_a_recipe("answer", SettingsLayer::Recipe, false, "off", false)]
-#[case::off_from_a_model("answer", SettingsLayer::Run, true, "off", false)]
+#[case::off_from_a_recipe(
+    "answer",
+    SettingsLayer::Recipe,
+    false,
+    "off",
+    locked("consent.handling")
+)]
+#[case::off_from_a_model("answer", SettingsLayer::Run, true, "off", locked("consent.handling"))]
 #[case::off_from_a_models_project_configuration(
     "answer",
     SettingsLayer::ProjectConfiguration,
     true,
     "off",
-    false
+    locked("consent.handling")
 )]
-#[case::detect_from_a_recipe("answer", SettingsLayer::Recipe, false, "detect", true)]
-#[case::detect_from_a_model("answer", SettingsLayer::Run, true, "detect", true)]
-#[case::answer_from_a_model("detect", SettingsLayer::Run, true, "answer", true)]
-#[case::off_from_the_programs_own_code("answer", SettingsLayer::Run, false, "off", true)]
-#[case::off_from_project_configuration(
-    "answer",
-    SettingsLayer::ProjectConfiguration,
-    false,
-    "off",
-    true
-)]
-#[case::off_from_user_configuration("answer", SettingsLayer::UserConfiguration, false, "off", true)]
-#[case::off_a_model_repeats("off", SettingsLayer::Run, true, "off", true)]
-#[case::off_a_recipe_repeats("off", SettingsLayer::Recipe, false, "off", true)]
+#[case::detect_from_a_recipe("answer", SettingsLayer::Recipe, false, "detect", Ok(json!("detect")))]
+#[case::detect_from_a_model("answer", SettingsLayer::Run, true, "detect", Ok(json!("detect")))]
+#[case::answer_from_a_model("detect", SettingsLayer::Run, true, "answer", Ok(json!("answer")))]
+#[case::off_from_the_programs_own_code("answer", SettingsLayer::Run, false, "off", Ok(json!("off")))]
+#[case::off_from_project_configuration("answer", SettingsLayer::ProjectConfiguration, false, "off", Ok(json!("off")))]
+#[case::off_from_user_configuration("answer", SettingsLayer::UserConfiguration, false, "off", Ok(json!("off")))]
+#[case::off_a_model_repeats("off", SettingsLayer::Run, true, "off", Ok(json!("off")))]
+#[case::off_a_recipe_repeats("off", SettingsLayer::Recipe, false, "off", Ok(json!("off")))]
 fn a_model_and_a_recipe_never_switch_consent_handling_off(
     #[case] configured: &str,
     #[case] layer: SettingsLayer,
     #[case] for_model: bool,
     #[case] value: &str,
-    #[case] taken: bool,
+    #[case] expected: Result<Value, (&'static str, String)>,
 ) {
     let resolved = over_configuration(
         "consent.handling",
@@ -1883,11 +1950,6 @@ fn a_model_and_a_recipe_never_switch_consent_handling_off(
         &json!(value),
     );
 
-    let expected = if taken {
-        Ok(json!(value))
-    } else {
-        Err(("setting_locked", "consent.handling".to_owned()))
-    };
     assert_eq!(resolved, expected);
 }
 
@@ -1923,27 +1985,20 @@ fn consent_handling_off_weakens_the_run_and_detect_does_not(#[case] layer: Setti
 /// (positive control).
 /// Covers: story:4-4, error:setting_locked, setting:egress.private_ranges
 #[rstest]
-#[case::fewer_from_a_model(true, false)]
-#[case::fewer_from_the_programs_own_code(false, true)]
+#[case::fewer_from_a_model(true, locked("egress.private_ranges"))]
+#[case::fewer_from_the_programs_own_code(false, Ok(json!(["127.0.0.0/8"])))]
 fn a_model_never_sets_the_private_ranges_even_to_fewer(
     #[case] for_model: bool,
-    #[case] taken: bool,
+    #[case] expected: Result<Value, (&'static str, String)>,
 ) {
-    let fewer = json!(["127.0.0.0/8"]);
-
     let resolved = over_configuration(
         "egress.private_ranges",
         &json!(["127.0.0.0/8", "10.0.0.0/8"]),
         SettingsLayer::Run,
         for_model,
-        &fewer,
+        &json!(["127.0.0.0/8"]),
     );
 
-    let expected = if taken {
-        Ok(fewer)
-    } else {
-        Err(("setting_locked", "egress.private_ranges".to_owned()))
-    };
     assert_eq!(resolved, expected);
 }
 
@@ -1953,13 +2008,13 @@ fn a_model_never_sets_the_private_ranges_even_to_fewer(
 /// and still never widens it.
 /// Covers: story:4-4, story:3-87, error:setting_locked, setting:egress.allowed_domains
 #[rstest]
-#[case::narrower_where_unexposed(false, json!(["www.scope.test"]), false)]
-#[case::narrower_where_exposed(true, json!(["www.scope.test"]), true)]
-#[case::wider_where_exposed(true, json!(["elsewhere.test"]), false)]
+#[case::narrower_where_unexposed(false, json!(["www.scope.test"]), locked("egress.allowed_domains"))]
+#[case::narrower_where_exposed(true, json!(["www.scope.test"]), Ok(json!(["www.scope.test"])))]
+#[case::wider_where_exposed(true, json!(["elsewhere.test"]), locked("egress.allowed_domains"))]
 fn a_recipes_domain_policy_stays_locked_unless_exposed(
     #[case] exposed: bool,
     #[case] value: Value,
-    #[case] taken: bool,
+    #[case] expected: Result<Value, (&'static str, String)>,
 ) {
     let key = "egress.allowed_domains";
     let exposure = Exposure {
@@ -1980,12 +2035,12 @@ fn a_recipes_domain_policy_stays_locked_unless_exposed(
 
     let resolved = over_layers(&layers, key);
 
-    let expected = if taken {
-        Ok(value)
-    } else {
-        Err(("setting_locked", key.to_owned()))
-    };
     assert_eq!(resolved, expected);
+}
+
+/// The refusal [`over_layers`] gives for a locked `key`.
+fn locked(key: &str) -> Result<Value, (&'static str, String)> {
+    Err(("setting_locked", key.to_owned()))
 }
 
 /// What `key` resolves to under `layers`: the value taken, or the
@@ -2008,16 +2063,20 @@ fn over_layers(layers: &Layers, key: &str) -> Result<Value, (&'static str, Strin
 /// program's own code and configuration do (positive controls).
 /// Covers: story:8-93, error:setting_locked, setting:proxy.kind
 #[rstest]
-#[case::from_the_programs_own_code(SettingsLayer::Run, false, true)]
-#[case::from_a_model(SettingsLayer::Run, true, false)]
-#[case::from_a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, false)]
-#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, true)]
-#[case::from_a_recipe(SettingsLayer::Recipe, false, true)]
-#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, true)]
+#[case::from_the_programs_own_code(SettingsLayer::Run, false, Ok(json!("mobile")))]
+#[case::from_a_model(SettingsLayer::Run, true, locked("proxy.kind"))]
+#[case::from_a_models_project_configuration(
+    SettingsLayer::ProjectConfiguration,
+    true,
+    locked("proxy.kind")
+)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, Ok(json!("mobile")))]
+#[case::from_a_recipe(SettingsLayer::Recipe, false, Ok(json!("mobile")))]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, Ok(json!("mobile")))]
 fn a_model_never_sets_the_proxy_kind_a_recipe_and_the_program_do(
     #[case] layer: SettingsLayer,
     #[case] for_model: bool,
-    #[case] taken: bool,
+    #[case] expected: Result<Value, (&'static str, String)>,
 ) {
     let mut layers = only(layer, "proxy.kind", &json!("mobile"));
     if for_model {
@@ -2027,11 +2086,6 @@ fn a_model_never_sets_the_proxy_kind_a_recipe_and_the_program_do(
 
     let resolved = over_layers(&layers, "proxy.kind");
 
-    let expected = if taken {
-        Ok(json!("mobile"))
-    } else {
-        Err(("setting_locked", "proxy.kind".to_owned()))
-    };
     assert_eq!(resolved, expected);
 }
 

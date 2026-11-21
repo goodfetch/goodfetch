@@ -28,6 +28,18 @@ impl Arguments {
             token,
         }
     }
+
+    /// The API with `token`, which reading the issues needs: without one, a
+    /// private repository answers 404 for every issue.
+    pub(crate) fn authenticated<'a>(&'a self, token: Option<&'a str>) -> Result<Api<'a>> {
+        if token.is_none() {
+            anyhow::bail!(
+                "no GitHub token to read the issues of {} with: set GITHUB_TOKEN, or log the GitHub CLI in (`gh auth login`)",
+                self.repository
+            );
+        }
+        Ok(self.api(token))
+    }
 }
 
 #[derive(Clone, Copy)]

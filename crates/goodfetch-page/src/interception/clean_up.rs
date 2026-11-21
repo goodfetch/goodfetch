@@ -16,9 +16,7 @@ use goodfetch_engine::settings::{
     Resolved, RunSettings, Values, catalog_value, get_or_default, value_as,
 };
 use goodfetch_protocol::catalog::Setting;
-use goodfetch_protocol::page::{
-    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, LIVE_VIEW_HIDING,
-};
+use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING};
 use goodfetch_protocol::settings::{
     CONSENT_HANDLING, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
@@ -112,19 +110,6 @@ pub(crate) fn run_needs_lists(run: &Run) -> bool {
     )
     .needs_lists()
 }
-
-/// The settings a Session's own `settings` may set, which its pages take
-/// over the Run's: the Clean-up rules' choices, and whether its sites'
-/// service workers run (ADR 0121).
-pub(crate) const SESSION_KEYS: [&str; 7] = [
-    FILTER_LISTS_ADS.name,
-    FILTER_LISTS_TRACKERS.name,
-    FILTER_LISTS_ANNOYANCES.name,
-    FILTER_LISTS_FIRST_PARTY_SCRIPTS.name,
-    BROWSER_BLOCK_RESOURCES.name,
-    BROWSER_SERVICE_WORKERS.name,
-    LIVE_VIEW_HIDING.name,
-];
 
 /// The value of `setting` a Session's pages take: `own`, the Session's own
 /// settings, else `run`, its Run's resolved settings; its catalog default

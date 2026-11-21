@@ -48,6 +48,11 @@ impl Site {
     pub(crate) fn engine(&self, env: &TestEnv) -> Attached {
         engine_on(env, &self.0)
     }
+
+    /// [`Site::engine`], on a Connection whose `hello` sets `settings`.
+    pub(crate) fn engine_setting(&self, env: &TestEnv, settings: &Value) -> Attached {
+        crate::attached_setting(env, settings).settings_by_default(&self.settings())
+    }
 }
 
 /// Foxhound's Attached engine as [`crate::attached`] starts it, whose

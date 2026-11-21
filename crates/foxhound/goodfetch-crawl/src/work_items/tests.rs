@@ -19,6 +19,7 @@
     reason = "the queues' readings may start from any moment (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::CountedWork;
@@ -35,7 +36,6 @@ use goodfetch_frontier::{
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use goodfetch_protocol::foxhound::report::SitemapReport;
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -277,7 +277,7 @@ impl Subject {
     /// Ends the attempt of `id` under `lease_epoch`, done or retried.
     fn ends(&self, id: String, lease_epoch: u64, retried: bool) {
         self.write(move |connection| {
-            let ended_at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+            let ended_at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap();
             if retried {
                 super::end(
                     connection,
@@ -322,7 +322,7 @@ impl Subject {
         self.runtime.block_on(self.owner.wait());
         let connection = after_crash(&self.vfs, &self.path).unwrap();
         let lost = Failure::new("handler_lost", "the handler was lost");
-        let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+        let at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap();
         super::recover_leases(&connection, &lost, u32::MAX, &at, &mut Changed::default()).unwrap();
         let now = tokio::time::Instant::now();
         let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));

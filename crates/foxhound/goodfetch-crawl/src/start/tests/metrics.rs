@@ -18,7 +18,9 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{Reply, SITEMAP, crawl_on, dependencies, engine, page_of, records, run_file, seeds};
+use super::{
+    Reply, SITEMAP, connected_on, crawl_on, dependencies, engine, page_of, records, run_file, seeds,
+};
 use crate::work_items;
 
 /// The value of the series `name` of `registry`, if it has one.
@@ -78,7 +80,7 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "queued", "seeds": seeds(3), "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    json!({ "run_id": "queued", "seeds": seeds(3), "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -112,7 +114,7 @@ fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "measured", "seeds": seeds(1) }),
+                    json!({ "run_id": "measured", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -181,7 +183,7 @@ fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } } }),
+                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -220,7 +222,7 @@ fn pages_and_lease_reads(budget: u64) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "leases", "seeds": seeds(5), "settings": settings }),
+                    json!({ "run_id": "leases", "seeds": seeds(5), "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -306,17 +308,19 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
     let (engine, registry, _provider) = metered();
     let mut pages = Vec::new();
 
-    crawl_on(
+    connected_on(
         &engine,
+        &json!({ "timeout": { "run": 600_000 } }),
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "left",
                         "seeds": seeds(1),
-                        "settings": { "crawl": { "keep_alive": true }, "timeout": { "run": 600_000 } },
+                        "settings": { "crawl": { "keep_alive": true } },
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -394,7 +398,7 @@ fn attempts_whose_crawls_progress_no_reader_takes_serialize_no_request_in_flight
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "unread", "seeds": seeds(3) }),
+                    json!({ "run_id": "unread", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -447,7 +451,7 @@ fn attempts_after_a_subscription_to_the_engines_events_ended_serialize_no_reques
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "subscribed", "seeds": seeds(1) }),
+                    json!({ "run_id": "subscribed", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -468,7 +472,7 @@ fn attempts_after_a_subscription_to_the_engines_events_ended_serialize_no_reques
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "ended", "seeds": seeds(3) }),
+                    json!({ "run_id": "ended", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -510,7 +514,7 @@ fn a_reader_that_takes_one_value_of_a_crawls_progress_serializes_its_requests_in
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "read", "seeds": seeds(1) }),
+                    json!({ "run_id": "read", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -555,7 +559,7 @@ fn records_and_writer_jobs(staging: fn(&Value) -> Reply) -> (usize, Option<f64>)
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "pushed", "seeds": seeds(1) }),
+                    json!({ "run_id": "pushed", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -635,6 +639,7 @@ fn memory_while_a_link_is_enqueued(level: &str, budget: u64) -> (Option<f64>, Op
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "held",
                         "seeds": seeds(1),
                         "settings": {
@@ -688,28 +693,35 @@ fn within_the_memory_budget_memory_holds_the_visits_and_no_lookup_reads_the_run_
 }
 
 /// ADR 0142's "Nothing removed" row of the file-first Frontier:
-/// `run_state.memory.budget: 0`, at any level. At the levels that batch
-/// attempts memory keeps no visit the file holds, so the link's duplicate
-/// check reads the run file and counts as a spilled lookup; at the levels
-/// that write each attempt, memory holds no visit at all and every lookup
-/// reads the run file, as before ADR 0142.
+/// `run_state.memory.budget: 0` at a level that batches attempts. Memory
+/// keeps no visit the file holds, so the link's duplicate check reads the
+/// run file and counts as a spilled lookup.
 ///
 /// Covers: setting:run_state.memory.budget, setting:run_state.durability
 #[rstest]
-#[case::batch("batch", true)]
-#[case::off("off", true)]
-#[case::full("full", false)]
-#[case::fast("fast", false)]
-#[case::periodic("periodic", false)]
-fn at_a_memory_budget_of_0_each_level_reads_the_frontier_from_the_run_file(
+#[case::batch("batch")]
+#[case::off("off")]
+fn at_a_memory_budget_of_0_a_batching_level_reads_the_link_s_visit_from_the_run_file(
     #[case] level: &str,
-    #[case] batches: bool,
+) {
+    let (_, spilled) = memory_while_a_link_is_enqueued(level, 0);
+
+    assert!(spilled.is_some_and(|spilled| spilled >= 1.0), "{spilled:?}");
+}
+
+/// ADR 0142's "Nothing removed" row at a level that writes each attempt:
+/// memory holds no visit at all and every lookup reads the run file, as
+/// before ADR 0142, so neither gauge moves.
+///
+/// Covers: setting:run_state.memory.budget, setting:run_state.durability
+#[rstest]
+#[case::full("full")]
+#[case::fast("fast")]
+#[case::periodic("periodic")]
+fn at_a_memory_budget_of_0_a_level_writing_each_attempt_holds_no_visit_in_memory(
+    #[case] level: &str,
 ) {
     let (bytes, spilled) = memory_while_a_link_is_enqueued(level, 0);
 
-    if batches {
-        assert!(spilled.is_some_and(|spilled| spilled >= 1.0), "{spilled:?}");
-    } else {
-        assert_eq!((bytes.unwrap_or(0.0), spilled.unwrap_or(0.0)), (0.0, 0.0));
-    }
+    assert_eq!((bytes.unwrap_or(0.0), spilled.unwrap_or(0.0)), (0.0, 0.0));
 }

@@ -1,30 +1,30 @@
 {
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "e1e78bd25d1f32a53935695b61dfcebf58b5d430c118912c44339e962a4317b5",
-    "output": "fb02152a7bce15d746d9087fc767a42d7720ccd2dc68e54ff5ff40b1a96324b0",
+    "input": "89649fc0ef33b49e9508a84b76101cb9cf209f34e47f6aeb8f68d2e015172e42",
+    "output": "6d1f22c60627fc57d9bdd145f0972058679ae9766c0a2a138df4d091f9866984",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "e45d53574f6371b62408862db590975f1d1efba6d0000a4b31af51978bb3bbae",
-    "output": "d8b8cee08f0f753e378c06a778cbdf63c9522982b4c86ef6c97c656a5c40f41e",
+    "input": "84748f7e29e57392e3a4921b6681dd3bc1afbfbe6fc37edcebb0d40e30018e8b",
+    "output": "6a773fd83452441dbdbddc71abd28d9fed5414a568783f9a299801ff67ae8d81",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "58f6d9da27f005e5ea53c721d44fb1a67a254333460057a555b1e04c8ca3c490",
-    "output": "f1ef1d946730d10fd754d426504cd42124b72ca495e0a84dea874afab3b43a20",
+    "input": "ff3db02c623ca4b3f082d3e04e74ba6dd2e82c7c69149f7e7c0c7efcc275a2b5",
+    "output": "2e40763c8cd9b588f865aad5c86ac91173a0623148f5063219678fcce2a5f15f",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "9b6892a32cd8b4025631609c9f749e6410e3ee08c7b63e852e518043ebc2fe96",
-    "output": "f9fee1e7641a4377c7ed5676096eeb2b9e2b12db2c76984511bae4d3946edcca",
+    "input": "49714aaad0cd05ff47209ec2ec0619389a81f8d6cc5aa5bf0d723d913d639070",
+    "output": "21c4e1ac142592fbf39af722cea50fe66d00932649869c78bf440f9a3e27f146",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
@@ -38,8 +38,8 @@
     }
   },
   "test-support/typescript/src/generated/result-document.ts": {
-    "input": "19733594314009103fbf0c3778bb98a38c3a7bc4b3d859a596de3fc31e5bf8b3",
-    "output": "9084afe233a58dc3a178f69f59a4158f84a522f72aed07244ad65b755d214aed",
+    "input": "1c95f34dd9e15f84109943db1dfb87608c44dd3eee4d772c45ed28decd3ce4fd",
+    "output": "331a253caa25d88f7f67425bfeeec1b2c23a86289d28a5e686adcd28733f7304",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

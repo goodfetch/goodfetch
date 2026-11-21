@@ -89,11 +89,6 @@ impl UpgradePaths {
         }
         Ok(Self { sources })
     }
-
-    /// The majors it lists.
-    pub fn sources(&self) -> &[String] {
-        &self.sources
-    }
 }
 
 /// Why `upgrade-files` changed nothing.

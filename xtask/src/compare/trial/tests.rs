@@ -12,7 +12,8 @@ fn spider(capacity: usize) -> Config {
     }
 }
 
-/// Foxhound and Spider run as their executables; Crawlee's script runs on
+/// Foxhound, Spider and the other Rust sides run as their executables, with
+/// nothing but the arguments every side takes; Crawlee's script runs on
 /// Node.js and Scrapy's on the Python environment beside it, so the tool's
 /// process is the interpreter running the side, with no launcher between.
 #[test]
@@ -20,6 +21,10 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
     let spider = invocation(spider(64), Path::new("/s/spider"));
     let crawlee = invocation(Config::Crawlee, Path::new("/c/crawl.mjs"));
     let scrapy = invocation(Config::Scrapy, Path::new("/p/crawl.py"));
+    let rust_side = |config| {
+        let side = invocation(config, Path::new("/r/side"));
+        (side.program, side.arguments)
+    };
 
     assert_eq!(
         (
@@ -28,13 +33,25 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
             crawlee.arguments,
             scrapy.program.as_path(),
             scrapy.arguments,
+            [
+                Config::CrawleeRs,
+                Config::Pagesift,
+                Config::OpenSpider,
+                Config::Crawlberg,
+            ]
+            .map(rust_side),
         ),
         (
             Path::new("/s/spider"),
             Some("node"),
             vec!["/c/crawl.mjs".into()],
-            Path::new("/p/.venv/bin/python"),
+            Path::new(if cfg!(windows) {
+                "/p/.venv/Scripts/python.exe"
+            } else {
+                "/p/.venv/bin/python"
+            }),
             vec!["/p/crawl.py".into()],
+            [(); 4].map(|()| (Path::new("/r/side").to_owned(), Vec::new())),
         )
     );
 }
@@ -55,66 +72,22 @@ fn foxhounds_program_runs_on_node() {
     );
 }
 
-/// crawlee-rs's side runs as its executable, with nothing but the
-/// arguments every side takes.
-#[test]
-fn crawlee_rs_runs_as_its_executable() {
-    let crawlee_rs = invocation(Config::CrawleeRs, Path::new("/r/crawlee-rs"));
-
-    assert_eq!(
-        (crawlee_rs.program.as_path(), crawlee_rs.arguments),
-        (Path::new("/r/crawlee-rs"), Vec::new())
-    );
-}
-
-/// pagesift's side runs as its executable, with nothing but the arguments
-/// every side takes.
-#[test]
-fn pagesift_runs_as_its_executable() {
-    let pagesift = invocation(Config::Pagesift, Path::new("/r/pagesift"));
-
-    assert_eq!(
-        (pagesift.program.as_path(), pagesift.arguments),
-        (Path::new("/r/pagesift"), Vec::new())
-    );
-}
-
-/// OpenSpider's side runs as its executable, with nothing but the
-/// arguments every side takes.
-#[test]
-fn openspider_runs_as_its_executable() {
-    let openspider = invocation(Config::OpenSpider, Path::new("/r/openspider"));
-
-    assert_eq!(
-        (openspider.program.as_path(), openspider.arguments),
-        (Path::new("/r/openspider"), Vec::new())
-    );
-}
-
-/// crawlberg's side runs as its executable, with nothing but the arguments
-/// every side takes.
-#[test]
-fn crawlberg_runs_as_its_executable() {
-    let crawlberg = invocation(Config::Crawlberg, Path::new("/r/crawlberg"));
-
-    assert_eq!(
-        (crawlberg.program.as_path(), crawlberg.arguments),
-        (Path::new("/r/crawlberg"), Vec::new())
-    );
-}
-
 /// fastCRW's side runs as its executable, told where the server it starts
 /// is: the `crw-server` that `cargo install` left in the `bin` folder
 /// beside it.
 #[test]
 fn fastcrw_runs_as_its_executable_with_the_server_beside_it() {
     let fastcrw = invocation(Config::FastCrw, Path::new("/r/release/fastcrw"));
+    let server = format!("/r/release/bin/crw-server{}", std::env::consts::EXE_SUFFIX);
 
     assert_eq!(
-        (fastcrw.program.as_path(), fastcrw.arguments),
+        (
+            fastcrw.program.as_path(),
+            fastcrw.arguments.iter().map(Path::new).collect::<Vec<_>>()
+        ),
         (
             Path::new("/r/release/fastcrw"),
-            vec!["--server".into(), "/r/release/bin/crw-server".into()]
+            vec![Path::new("--server"), Path::new(&server)]
         )
     );
 }

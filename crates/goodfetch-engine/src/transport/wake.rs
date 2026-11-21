@@ -31,8 +31,8 @@ struct Listening {
 }
 
 /// Listens for wakes: on a Unix socket at `place` on macOS and Linux, and
-/// on a named pipe named after `place`'s file name on Windows. Answers the
-/// endpoint a waiter's row names.
+/// on a named pipe named after `place`'s folder and file names on Windows.
+/// Answers the endpoint a waiter's row names.
 ///
 /// It blocks on the file system, so it runs as its owner's blocking work
 /// ([`crate::tasks::TaskOwner::blocking`]), in the runtime's context, which
@@ -72,8 +72,11 @@ pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     Ok((WakeListener(Listening(listener)), endpoint))
 }
 
-/// Listens for wakes on a named pipe named after `place`'s file name, as
-/// blocking work as on Unix.
+/// Listens for wakes on a named pipe named after `place`'s folder and file
+/// names, as blocking work as on Unix. A pipe's name is global to the host,
+/// so the folder, made for this endpoint alone, keeps it apart from every
+/// other engine's: with the file name alone, a second engine's pipe was
+/// refused, the first holding its name as its first instance.
 ///
 /// # Errors
 ///
@@ -81,11 +84,16 @@ pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
 #[cfg(windows)]
 pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     use tokio::net::windows::named_pipe::ServerOptions;
+    let folder = place
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("goodfetch");
     let file = place
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("wake");
-    let name = format!(r"\\.\pipe\goodfetch-{file}");
+    let name = format!(r"\\.\pipe\{folder}-{file}");
     let server = ServerOptions::new()
         .first_pipe_instance(true)
         .create(&name)?;
@@ -172,3 +180,6 @@ pub fn is_gone(error: &io::Error) -> bool {
         io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
     )
 }
+
+#[cfg(test)]
+mod tests;

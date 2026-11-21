@@ -10,7 +10,7 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -355,6 +355,16 @@ impl TestEnv {
     /// The cleared environment of every child the test starts.
     pub fn env(&self) -> &BTreeMap<String, String> {
         &self.env
+    }
+
+    /// [`TestEnv::env`] as a map of OS strings, the form an SDK's connect
+    /// options take an environment in.
+    #[must_use]
+    pub fn env_os(&self) -> BTreeMap<OsString, OsString> {
+        self.env
+            .iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect()
     }
 
     /// The test's seed (ADR 0060).

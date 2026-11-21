@@ -21,6 +21,25 @@
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
 //!   a choice as its `Literal` strings, and the member wraps it.
+//! - A `new_<value>` member's `settings` takes the scope's settings type,
+//!   which `settings_on_wire` sends, durations in whole milliseconds
+//!   (`settings`, ADR 0083).
+//! - A call's own `timeout` takes a `timedelta`, never a number of
+//!   milliseconds, which `timeout_of` sends in whole milliseconds, rounded
+//!   up, refusing one of zero or less before it is sent; the docstring
+//!   gives the default of the setting it sets for the call alone, as a
+//!   `timedelta` (ADR 0080).
+//!
+//! - A handle's listener is its `on`, overloaded once per type its
+//!   listener gets so each event's listener is typed (`listeners`, ADR
+//!   0081). A Session's gets the pages it opened as page handles.
+//! - A member with deprecated forms, a deprecated keyword or a deprecated
+//!   value of a choice, has an `@overload` free of them, then one for each,
+//!   marked with PEP 702's `@deprecated`, which takes that keyword or that
+//!   value alone, so pyright and mypy report a call that uses it and no
+//!   other (ADR 0099), and last one that takes every form, as the
+//!   implementation does, so a call whose value only its type gives still
+//!   resolves.
 //!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
@@ -33,14 +52,37 @@ use std::fmt::Write as _;
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
-use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
+use super::super::handles::{
+    Builder, DEPRECATION, Form, Handle, HandleId, Member, Overload, Parameters,
+};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
-use super::{CALLER_MODULE, deprecation_message, docstring, header};
+use super::super::settings_tree::SETTINGS;
+use super::settings::{
+    DEPRECATED_SETTINGS, SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, WARN_DEPRECATED_SETTINGS,
+    scope_settings,
+};
+use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
+
+mod listeners;
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
+/// The module of the hand-written base each handle class extends: the raw
+/// call on its value (ADR 0099).
+const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
+
+/// The markers module's function a listener warns of its event's markers
+/// with, read from the events module's registries.
+const WARN_ENTRY: &str = "warn_entry";
+
+/// A call's own optional parameter that bounds it (ADR 0080).
+const TIMEOUT: &str = "timeout";
+
+/// The hand-written function of [`HANDLE_MODULE`] that sends a call's own
+/// `timeout`, refusing one no deadline can be before it is sent (ADR 0080).
+const TIMEOUT_OF: &str = "timeout_of";
 
 /// One of the two forms of each handle: the async class or its sync twin.
 #[derive(Clone, Copy)]
@@ -49,6 +91,8 @@ struct Mode {
     prefix: &'static str,
     /// The host type the class takes.
     host: &'static str,
+    /// The hand-written class each handle extends, which gives its raw call.
+    base: &'static str,
     /// `async ` or nothing, before `def`.
     asynchronous: &'static str,
     /// `await ` or nothing, before a call.
@@ -63,6 +107,7 @@ struct Mode {
 const ASYNC: Mode = Mode {
     prefix: "Async",
     host: "AsyncHandleHost",
+    base: "AsyncHandle",
     asynchronous: "async ",
     awaits: "await ",
     enter: "__aenter__",
@@ -73,6 +118,7 @@ const ASYNC: Mode = Mode {
 const SYNC: Mode = Mode {
     prefix: "",
     host: "HandleHost",
+    base: "Handle",
     asynchronous: "",
     awaits: "",
     enter: "__enter__",
@@ -87,9 +133,19 @@ struct Imports {
     typing: BTreeSet<&'static str>,
     models: bool,
     deprecated: bool,
-    /// Whether a member takes an optional parameter, which defaults to the
-    /// `not_given` sentinel.
-    not_given: bool,
+    /// Whether it names pydantic's `BaseModel`, as a listener's map of
+    /// payloads does.
+    base_model: bool,
+    /// The functions of the markers module its members call: a listener's
+    /// `warn_entry` reads the events' markers besides.
+    markers: BTreeSet<&'static str>,
+    /// The names it imports from the handle module besides the hosts: the
+    /// `not_given` sentinel when a member takes an optional parameter, and
+    /// [`TIMEOUT_OF`] when a member takes its own `timeout`, a `timedelta`.
+    handle: BTreeSet<&'static str>,
+    /// The settings types its members take, from the generated settings
+    /// module, with [`SETTINGS_ON_WIRE`] when there is one.
+    settings: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -128,8 +184,14 @@ fn primitive(kind: &str) -> Option<&'static str> {
 }
 
 /// `schema`'s wrapped value, when it is a reference, alone or beside
-/// `null`, to a definition that wraps one wire value.
-fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapped> {
+/// `null`, to a definition that wraps one wire value: of a choice, the
+/// values `takes` keeps.
+fn wrapped(
+    schema: &Value,
+    layer: &Layer,
+    imports: &mut Imports,
+    takes: impl Fn(&str) -> bool,
+) -> Option<Wrapped> {
     let (reference, nullable) = match schema["anyOf"].as_array() {
         Some(variants) => {
             let mut values = variants.iter().filter(|variant| variant["type"] != "null");
@@ -160,7 +222,11 @@ fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapp
     let annotation = match choices {
         Some(Some(choices)) if !choices.is_empty() => {
             imports.typing.insert("Literal");
-            let choices: Vec<String> = choices.iter().map(|choice| format!("{choice:?}")).collect();
+            let choices: Vec<String> = choices
+                .iter()
+                .filter(|choice| takes(choice))
+                .map(|choice| format!("{choice:?}"))
+                .collect();
             format!("Literal[{}]", choices.join(", "))
         }
         Some(_) => return None,
@@ -175,12 +241,13 @@ fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapp
 
 /// The keywords that describe a value without restricting it: the JSON
 /// Schema annotations, and the bundle's `arrived_in`, the version that
-/// added it.
-const ANNOTATIONS: [&str; 7] = [
+/// added it, and `deprecation`, the deprecation it marks (ADR 0099).
+const ANNOTATIONS: [&str; 8] = [
     "$comment",
     "arrived_in",
     "default",
     "deprecated",
+    DEPRECATION,
     "description",
     "examples",
     "title",
@@ -272,17 +339,41 @@ struct Signature {
     declared: String,
     /// The constructor call, with every parameter but the optional ones.
     construct: String,
-    /// The optional ones, each set on the built model when passed: its
-    /// name and the expression that passes it.
-    optional: Vec<(String, String)>,
+    /// The optional ones, each set on the built model when passed.
+    optional: Vec<Optional>,
 }
 
+/// An optional parameter, set on the built model when passed.
+struct Optional {
+    name: String,
+    /// The expression that passes it.
+    passed: String,
+    /// The statement run first when it is passed: `settings`' warning of
+    /// each deprecated setting it sets (ADR 0099).
+    first: Option<String>,
+}
+
+/// The optional parameters a member types from the catalog rather than the
+/// bundle: `timeout` after its timeout setting (ADR 0080), and `settings`
+/// as the type of the scope it opens (ADR 0083).
+#[derive(Clone, Copy, Default)]
+struct CatalogTyped<'a> {
+    timeout_setting: Option<&'a str>,
+    settings_type: Option<&'static str>,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is one input of the one signature, which a struct would only rename"
+)]
 fn signature(
     layer: &Layer,
     owner: &str,
     model: &str,
     parameters: &Parameters,
+    typed: CatalogTyped<'_>,
     id: &HandleId,
+    overload: Overload<'_>,
     imports: &mut Imports,
 ) -> Result<Signature> {
     let schema = layer
@@ -302,8 +393,11 @@ fn signature(
             annotation,
             model,
             nullable,
-        }) = wrapped(property, layer, imports)
-        {
+        }) = wrapped(property, layer, imports, |value| {
+            overload.takes(name, value)
+        }) {
+            // A deprecated value's overload takes that value alone.
+            let nullable = nullable && !overload.chosen_value_of(name);
             return Ok(if nullable {
                 (
                     format!("{annotation} | None"),
@@ -337,10 +431,43 @@ fn signature(
     }
     let mut optional = Vec::new();
     for name in &parameters.optional {
-        let (spelled, passed) = spell(name, imports)?;
-        imports.not_given = true;
-        declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
-        optional.push((name.clone(), passed));
+        if overload.leaves_out(name) {
+            continue;
+        }
+        let mut first = None;
+        let (spelled, passed) = match (
+            typed.timeout_setting.filter(|_| name == TIMEOUT),
+            typed.settings_type.filter(|_| name == SETTINGS),
+        ) {
+            (Some(setting), _) => {
+                imports.handle.insert(TIMEOUT_OF);
+                (
+                    "timedelta | None".to_owned(),
+                    format!("{TIMEOUT_OF}({name}, {setting:?})"),
+                )
+            }
+            (None, Some(settings)) => {
+                imports.settings.insert(settings);
+                imports.markers.insert(WARN_DEPRECATED_SETTINGS);
+                first = Some(format!(
+                    "{WARN_DEPRECATED_SETTINGS}({name}, {DEPRECATED_SETTINGS})"
+                ));
+                (settings.to_owned(), format!("{SETTINGS_ON_WIRE}({name})"))
+            }
+            (None, None) => spell(name, imports)?,
+        };
+        // A deprecated form's overload is chosen by passing it.
+        if overload.chosen_by(name) {
+            declared.push(format!("{name}: {spelled}"));
+        } else {
+            imports.handle.extend(["NotGiven", "not_given"]);
+            declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
+        }
+        optional.push(Optional {
+            name: name.clone(),
+            passed,
+            first,
+        });
     }
     let model = imports.model(model);
     Ok(Signature {
@@ -361,13 +488,48 @@ fn build(signature: &Signature, local: &str, text: &mut String) -> String {
         return signature.construct.clone();
     }
     let _ = writeln!(text, "        {local} = {}", signature.construct);
-    for (name, passed) in &signature.optional {
-        let _ = writeln!(
-            text,
-            "        if not isinstance({name}, NotGiven):\n            {local}.{name} = {passed}"
-        );
+    for Optional {
+        name,
+        passed,
+        first,
+    } in &signature.optional
+    {
+        let _ = writeln!(text, "        if not isinstance({name}, NotGiven):");
+        if let Some(first) = first {
+            let _ = writeln!(text, "            {first}");
+        }
+        let _ = writeln!(text, "            {local}.{name} = {passed}");
     }
     local.to_owned()
+}
+
+/// The description of `member`'s docstring: its operation's, then the
+/// default its own `timeout` takes and each of its deprecated forms.
+fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
+    let operation = member.operation;
+    let description = match &member.timeout_setting {
+        Some(setting) => format!(
+            "{}\n\n{}",
+            operation.description,
+            timeout_default(layer, &operation.name, setting)?
+        ),
+        None => operation.description.clone(),
+    };
+    Ok(member
+        .deprecated_forms
+        .iter()
+        .fold(description, |mut text, form| {
+            let used = match &form.value {
+                Some(value) => format!("`{}={value:?}`", form.param),
+                None => format!("`{}`", form.param),
+            };
+            let _ = write!(
+                text,
+                "\n\nDeprecated: {used}. {}",
+                form.deprecation.message()
+            );
+            text
+        }))
 }
 
 /// One member, a method of the class that holds `self._host`.
@@ -380,14 +542,23 @@ fn member(
 ) -> Result<String> {
     let operation = member.operation;
     let (params, result) = (&operation.params.0, &operation.result.0);
-    let signature = signature(
-        layer,
-        &operation.name,
-        params,
-        &member.parameters,
-        id,
-        imports,
-    )?;
+    let typed = CatalogTyped {
+        timeout_setting: member.timeout_setting.as_deref(),
+        settings_type: scope_settings(member)?,
+    };
+    let signature_of = |overload, imports: &mut Imports| {
+        signature(
+            layer,
+            &operation.name,
+            params,
+            &member.parameters,
+            typed,
+            id,
+            overload,
+            imports,
+        )
+    };
+    let signature = signature_of(Overload::Every, imports)?;
     let Mode {
         prefix,
         asynchronous,
@@ -403,10 +574,31 @@ fn member(
     let mut text = String::new();
     if let Some(deprecated) = &operation.deprecated {
         imports.deprecated = true;
-        let _ = writeln!(
+        text.push_str(&deprecated_decorator(deprecated));
+    }
+    if !member.deprecated_forms.is_empty() {
+        imports.typing.insert("overload");
+        imports.deprecated = true;
+        let current = signature_of(Overload::Current(&member.deprecated_forms), imports)?;
+        let _ = write!(
             text,
-            "    @deprecated({:?})",
-            deprecation_message(deprecated)
+            "    @overload\n    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+            member.name, current.declared
+        );
+        for form in &member.deprecated_forms {
+            let deprecated = signature_of(Overload::Deprecated(form), imports)?;
+            let _ = write!(
+                text,
+                "    @overload\n{}    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+                deprecated_decorator(&form.deprecation),
+                member.name,
+                deprecated.declared
+            );
+        }
+        let _ = write!(
+            text,
+            "    @overload\n    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+            member.name, signature.declared
         );
     }
     let _ = writeln!(
@@ -416,9 +608,15 @@ fn member(
     );
     text.push_str(&docstring(
         "        ",
-        &operation.description,
+        &description(layer, member)?,
         operation.stability,
         operation.deprecated.as_ref(),
+    ));
+    text.push_str(&warnings(
+        &operation.name,
+        operation.stability,
+        operation.deprecated.as_ref(),
+        &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
     let call = format!("{awaits}self._host.call({:?}, {sent})", operation.name);
@@ -443,6 +641,37 @@ fn member(
     Ok(text)
 }
 
+/// The sentence that gives the default of `setting`, the Duration setting
+/// a call's own `timeout` sets for the call alone, as a `timedelta`, in
+/// the largest unit that keeps it whole, or as none.
+fn timeout_default(layer: &Layer, owner: &str, setting: &str) -> Result<String> {
+    let default = match layer
+        .setting_defaults
+        .get(setting)
+        .map(|default| (default, default.as_u64()))
+    {
+        Some((Value::Null, _)) => "none".to_owned(),
+        Some((_, Some(millis))) => {
+            let (unit, size) = [
+                ("days", 86_400_000),
+                ("hours", 3_600_000),
+                ("minutes", 60_000),
+                ("seconds", 1_000),
+            ]
+            .into_iter()
+            .find(|(_, size)| millis > 0 && millis % size == 0)
+            .unwrap_or(("milliseconds", 1));
+            format!("`timedelta({unit}={})`", millis / size)
+        }
+        _ => bail!(
+            "operation `{owner}`: its `timeout` sets `{setting}`, which the catalog gives no default of whole milliseconds or null"
+        ),
+    };
+    Ok(format!(
+        "Left out, `timeout` takes the Run's `{setting}`, by default {default}."
+    ))
+}
+
 /// A value `handle` builds without a call: a sync method, or a property
 /// when it takes nothing.
 fn builder(
@@ -458,7 +687,9 @@ fn builder(
         &builder.builds,
         &builder.type_name,
         &builder.parameters,
+        CatalogTyped::default(),
         id,
+        Overload::Every,
         imports,
     )?;
     let mut text = String::new();
@@ -498,6 +729,10 @@ fn classes(
         "\n    def __init__(self, host: {host}) -> None:\n        \"\"\"Takes what it reaches its engine through; a program never constructs one.\"\"\"\n        self._host = host\n"
     );
     let mut text = String::new();
+    // The async classes come first, so the listener's map precedes both.
+    if mode.prefix == ASYNC.prefix {
+        text.push_str(&listeners::declarations(handle, imports));
+    }
     for sub_object in &handle.sub_objects {
         let _ = write!(
             text,
@@ -513,11 +748,13 @@ fn classes(
     }
     let _ = write!(
         text,
-        "\n\nclass {class}:\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}",
+        "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}\n        super().__init__(host, {:?}, {:?})\n",
+        mode.base,
         handle.namespace,
-        constructor.trim_end()
+        constructor.trim_end(),
+        handle.namespace,
+        handle.id.param
     );
-    text.push('\n');
     for sub_object in &handle.sub_objects {
         let _ = writeln!(
             text,
@@ -537,6 +774,10 @@ fn classes(
     for held in &handle.members {
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);
+    }
+    if handle.listener.is_some() || handle.published_listener.is_some() {
+        text.push('\n');
+        text.push_str(&listeners::member(layer, handle, mode, imports)?);
     }
     for built in &handle.builders {
         text.push('\n');
@@ -573,23 +814,54 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         layer.product.name()
     ));
     text.push('\n');
+    if imports.handle.contains(TIMEOUT_OF) {
+        text.push_str("from datetime import timedelta\n");
+    }
     imports.typing.insert("Self");
     let typing: Vec<&str> = imports.typing.into_iter().collect();
     let _ = writeln!(text, "from typing import {}", typing.join(", "));
-    if imports.deprecated {
-        text.push_str("\nfrom typing_extensions import deprecated\n");
+    if imports.deprecated || imports.base_model {
+        text.push('\n');
     }
-    let not_given = if imports.not_given {
-        ", NotGiven, not_given"
-    } else {
-        ""
-    };
+    if imports.base_model {
+        text.push_str("from pydantic import BaseModel\n");
+    }
+    if imports.deprecated {
+        text.push_str("from typing_extensions import deprecated\n");
+    }
+    let handle = imports
+        .handle
+        .iter()
+        .fold(String::new(), |names, name| names + ", " + name);
     let _ = writeln!(
         text,
-        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{not_given}"
+        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}"
     );
+    text.push_str(&markers_import(&imports.markers));
+    let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
+    if !imports.settings.is_empty() {
+        let _ = writeln!(
+            text,
+            "from {SETTINGS_ON_WIRE_MODULE} import {SETTINGS_ON_WIRE}"
+        );
+    }
+    let events = imports.markers.contains(WARN_ENTRY);
+    if imports.models || events || !imports.settings.is_empty() {
+        text.push('\n');
+    }
     if imports.models {
-        text.push_str("\nfrom . import models\n");
+        text.push_str("from . import models\n");
+    }
+    if events {
+        text.push_str("from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS\n");
+    }
+    if !imports.settings.is_empty() {
+        let types: Vec<&str> = imports.settings.iter().copied().collect();
+        let _ = writeln!(
+            text,
+            "from .settings import {DEPRECATED_SETTINGS}, {}",
+            types.join(", ")
+        );
     }
     text.push_str(&body);
     Ok(text)

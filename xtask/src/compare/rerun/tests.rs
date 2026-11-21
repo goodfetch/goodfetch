@@ -1,5 +1,5 @@
 use super::{of, words};
-use crate::compare::recipe_arguments;
+use crate::compare::tests::recipe_arguments;
 
 /// The command that reruns a run started with `arguments` after the
 /// recipe's own.

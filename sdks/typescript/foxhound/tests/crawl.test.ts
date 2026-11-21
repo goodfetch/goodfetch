@@ -4,14 +4,14 @@
 // the `catalog` family and the oracle judges its Records, and a handler
 // that fails its first attempt shows the Crawl request delivered again and
 // the failed attempt's Record never committed (ADRs 0003 and 0093).
-import { Foxhound, seed, type DatasetRecord } from "@goodfetch/foxhound";
+import { Foxhound, seed, type CrawlSettings, type DatasetRecord } from "@goodfetch/foxhound";
 import { judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { catalog, listing, products } from "./programs/catalog.ts";
 import { failsOnce } from "./programs/fails-once.ts";
 
 /** The settings every crawl here runs with: its pages over `http`, one handler call at a time. */
-const settings = { fetch: { tier: "http" }, crawl: { handler: { concurrency: 1 } } };
+const settings: CrawlSettings = { fetch: { tier: "http" }, crawl: { handler: { concurrency: 1 } } };
 
 /** Runs a crawl from `start` whose handler fails its first attempt, then reads its Dataset. */
 async function crawlFailingOnce(

@@ -1,9 +1,11 @@
 """A guest program: it imports, connects, runs the tracer and closes (ADR 0078).
 
 It records what the SDK changed in its process at each stage into the file
-its first argument names, and runs one of the three ways its second
-argument names: `asyncio`, `trio` or `sync`. It writes nothing to stdout
-or stderr itself, so anything there is the SDK's. TypeScript's
+its first argument names, with each warning the host's filters let through
+and the stage it came at: import, connect, or the Run after them. It runs
+one of the three ways its second argument names: `asyncio`, `trio` or
+`sync`. It writes nothing to stdout or stderr itself, so anything there is
+the SDK's. TypeScript's
 `tests/fixtures/guest.ts` is its twin.
 """
 
@@ -132,31 +134,44 @@ def state() -> dict[str, object]:
     }
 
 
-Stages: TypeAlias = tuple[dict[str, object], dict[str, object], str]
-"""The state before connecting, the state after closing, and the Run's lifecycle.
+Stages: TypeAlias = tuple[dict[str, object], int, dict[str, object], str]
+"""The state before connecting, how many warnings were heard once connected, the
+state after closing, and the Run's lifecycle.
 
 Both states are read inside the event loop: asyncio and Trio install a
 SIGINT handler of their own while their loop runs.
 """
 
 
-async def run_async(env: Mapping[str, str]) -> Stages:
+async def run_async(
+    env: Mapping[str, str], heard: list[warnings.WarningMessage]
+) -> Stages:
     """Connects with the async API, runs the tracer and closes."""
     from goodfetch_collie import AsyncCollie
 
     before_connect = state()
-    traced = await start_and_finish(await AsyncCollie.connect(env=env))
-    return before_connect, state(), traced.report.lifecycle
+    collie = await AsyncCollie.connect(env=env)
+    connected = len(heard)
+    traced = await start_and_finish(collie)
+    return before_connect, connected, state(), traced.report.lifecycle
 
 
-def run_sync(env: Mapping[str, str]) -> Stages:
+def run_sync(env: Mapping[str, str], heard: list[warnings.WarningMessage]) -> Stages:
     """Connects with the sync API, starts a Run, finishes it and closes."""
     from goodfetch_collie import Collie
 
     before_connect = state()
     with Collie.connect(env=env) as collie:
+        connected = len(heard)
         report = collie.start().finish()
-    return before_connect, state(), report.lifecycle
+    return before_connect, connected, state(), report.lifecycle
+
+
+def stage(index: int, imported: int, connected: int) -> str:
+    """The stage of the warning heard `index`th."""
+    if index < imported:
+        return "import"
+    return "connect" if index < connected else "run"
 
 
 def main(out: Path, way: str) -> None:
@@ -165,14 +180,21 @@ def main(out: Path, way: str) -> None:
     recording = RecordingEnviron(os.environ)
     # The swap records reads, and clears nothing: the map behind it stays the same.
     os.__dict__["environ"] = recording
-    before_import = state()
-    importlib.import_module("goodfetch_collie")
+    # The host's channel (ADR 0078), heard before the first stage, so each
+    # stage's filters are the same: each warning the host's filters let
+    # through is recorded where they would have shown it on stderr.
+    with warnings.catch_warnings(record=True) as heard:
+        before_import = state()
+        importlib.import_module("goodfetch_collie")
 
-    after_import = state()
-    os.__dict__["environ"] = recording.environ
-    before_connect, after_close, lifecycle = (
-        run_sync(env) if way == "sync" else anyio.run(run_async, env, backend=way)
-    )
+        after_import = state()
+        imported = len(heard)
+        os.__dict__["environ"] = recording.environ
+        before_connect, connected, after_close, lifecycle = (
+            run_sync(env, heard)
+            if way == "sync"
+            else anyio.run(run_async, env, heard, backend=way)
+        )
     out.write_text(
         json.dumps(
             {
@@ -185,6 +207,14 @@ def main(out: Path, way: str) -> None:
                     {f"{reader}: {key}" for reader, key in recording.read}
                 ),
                 "lifecycle": lifecycle,
+                "warnings": [
+                    {
+                        "stage": stage(index, imported, connected),
+                        "category": warning.category.__name__,
+                        "message": str(warning.message),
+                    }
+                    for index, warning in enumerate(heard)
+                ],
             }
         ),
         "utf-8",

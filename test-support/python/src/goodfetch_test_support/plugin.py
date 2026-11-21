@@ -10,6 +10,9 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
   which a test overrides with its seed (ADR 0063);
 - `daemon`, the Daemon of the test's home, run by `product`'s executable,
   which a test asks for by overriding `with_daemon` to return `True`;
+- `with_browser`, which a test whose engine opens a page overrides to
+  return `True`: the home's Browser cache laid out, and the Proving
+  ground's hosts reachable;
 - `anyio_backend`, over asyncio and trio, named: a session where trio does
   not import fails rather than drop it (ADR 0069);
 - `client_case`, the `ClientCaseRecord` of the Client conformance case a
@@ -139,17 +142,25 @@ def with_daemon() -> bool:
 
 
 @pytest.fixture
+def with_browser() -> bool:
+    """Whether the test's engine opens a page: not unless the test overrides it."""
+    return False
+
+
+@pytest.fixture
 def test_env(
     request: pytest.FixtureRequest,
     proving_ground_seed: int | None,
     with_daemon: bool,
+    with_browser: bool,
     product: Product,
 ) -> Iterator[TestEnv]:
     """The test's setup from `goodfetch-test-env`, torn down after the test.
 
     It starts a Proving ground when `proving_ground_seed` names a seed, and
     the Daemon of `product`'s executable in the test's home when
-    `with_daemon` is `True`. The teardown stops the Daemon and fails the
+    `with_daemon` is `True`, and lays out a Browser when `with_browser` is.
+    The teardown stops the Daemon and fails the
     test when a process it started is still alive; a failed test's folder
     stays for its evidence, as a Rust test's does.
     """
@@ -160,6 +171,7 @@ def test_env(
         os.environ,
         proving_ground_seed=proving_ground_seed,
         daemon=product if with_daemon else None,
+        browser=with_browser,
     )
     yield env
     env.close(failed=item.stash.get(_FAILED, False))

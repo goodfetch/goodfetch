@@ -8,12 +8,10 @@
 # worktree busy or the disk short lists itself as skipped in
 # ~/test-health/results.txt and fails. Each starts `origin/main`'s script, not
 # the checkout's, which nothing fast-forwards; the script then runs the scripts
-# of the commit it tests. The post-merge run has no line here: each `just
-# merge` gate starts it as it ends (ci/merge-pr.sh, #2619).
+# of the commit it tests.
 GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
 # ADR 0072's mutation testing, advisory: the Rust `main` changed in the last
 # 24 hours, daily, within 150 minutes.
 47 6 * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/test-health/scheduled.sh) && nice -n 10 bash -c "$script" scheduled mutants origin/main'
-# The constrained test-health run (ADR 0064): the Pre-merge suite on half the
-# CPU and memory, a fresh order seed, weekly on Sundays, within 120 minutes.
-17 9 * * 0 bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/test-health/scheduled.sh) && nice -n 10 bash -c "$script" scheduled constrained origin/main'
+# The constrained test-health run (ADR 0064) left the cron on 2026-11-19 (ADR
+# 0135's amendment of that day); `just test-health constrained` runs by hand.

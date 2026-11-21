@@ -18,6 +18,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Journal, Keys, Waiting};
@@ -31,7 +32,6 @@ use goodfetch_engine::run_state::{
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
 use goodfetch_frontier::{SharedBudget, sitemap};
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::{Changes, SessionPool};
 use rusqlite::Connection;
 
@@ -790,7 +790,7 @@ impl Stored {
         &self,
         (work_item, lease_epoch): (String, u64),
         unsuccessful: Unsuccessful,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Ran<(Ended, Changed)>, StateError> {
         Ok(self
             .writer
@@ -823,7 +823,7 @@ impl Stored {
     pub(crate) async fn end_unsent(
         &self,
         unsent: Vec<(String, Failure)>,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Ran<Changed>, StateError> {
         let ended = Syncing::Attempt {
             ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
@@ -905,7 +905,7 @@ impl Stored {
         &self,
         counted: Counted,
         (unwritten, retry_max): (Failure, u32),
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<(Option<Vec<CompletenessReason>>, Changed), StateError> {
         let (intake, teacher) = (self.intake.clone(), Arc::clone(&self.teacher));
         Ok(self

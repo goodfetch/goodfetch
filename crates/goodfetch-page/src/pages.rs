@@ -55,9 +55,9 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
-use goodfetch_protocol::connection::{Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
@@ -202,7 +202,64 @@ pub fn contribution_with(
         let page_id = PageId(params.page()?.into_owned());
         product.call(&page_id, operation.name, read, context)
     });
-    contribution.guarded(&guard)
+    let contribution = contribution.guarded(&guard);
+    if pages.product.encloses_calls() {
+        contribution.enclosed(&enclosing_handler(&pages))
+    } else {
+        contribution
+    }
+}
+
+/// What ends a call on a handler's page at its handler's end (ADR 0080):
+/// the enclosing call a served page's Product names, else the one a browser
+/// page's lease names; a call on a page no call encloses, as on every page
+/// a program opens, keeps its answer. `observed` says whether a navigation
+/// was under way on the page, or what document a served page held. Only a
+/// Product whose pages a call may enclose is given it.
+fn enclosing_handler(pages: &Pages) -> Enclose {
+    let found_in = Arc::new((pages.sessions.clone(), Arc::clone(&pages.product)));
+    Enclose::new(move |_, params, context, answer| {
+        let Some(page_id) = params.page() else {
+            return answer;
+        };
+        let page_id = PageId(page_id.into_owned());
+        let (found_in, clock) = (Arc::clone(&found_in), context.engine().clock());
+        Box::pin(async move {
+            let (sessions, product) = &*found_in;
+            if let Some(enclosing) = product.enclosing(&page_id) {
+                let observe = || {
+                    product.document(&page_id).map(|document| {
+                        format!("page `{}` served from `{}`", page_id.0, document.url)
+                    })
+                };
+                return enclosing.bound(&clock, answer, observe).await;
+            }
+            let Ok(page) = sessions.page(&page_id).await else {
+                return answer.await;
+            };
+            // Past its lease, the page refuses the call itself with
+            // `attempt_ended` (ADRs 0003 and 0087), which the handler's
+            // end, passed before the lease's, would answer first with
+            // `deadline_exceeded`.
+            let Some(enclosing) = page
+                .driver
+                .value()
+                .lease()
+                .filter(|lease| lease.check().is_ok())
+                .and_then(|lease| lease.enclosing())
+            else {
+                return answer.await;
+            };
+            let observe = || {
+                Some(if page.driver.navigation_waits() {
+                    format!("a navigation under way on page `{}`", page_id.0)
+                } else {
+                    format!("no navigation under way on page `{}`", page_id.0)
+                })
+            };
+            enclosing.bound(&clock, answer, observe).await
+        })
+    })
 }
 
 /// Adds the handlers of `page.evaluate`, of `locator.evaluate_all` and of
@@ -223,7 +280,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.page_id,
                             (&expression, params.world),
                             (Injection::Evaluate, PAGE_EVALUATE.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -244,7 +301,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.locator.page_id,
                             (&expression, params.world),
                             (Injection::EvaluateAll, LOCATOR_EVALUATE_ALL.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -265,51 +322,42 @@ fn with_request_handler(contribution: Contribution, pages: &Pages) -> Contributi
     let requesting = pages.clone();
     contribution.with_handler(Handler::new(
         &PAGE_REQUEST,
-        move |params: PageRequestParams, context: CallContext| {
+        move |params: PageRequestParams, _: CallContext| {
             let pages = requesting.clone();
-            async move { Box::pin(pages.request(params, context.surface())).await }
+            async move { Box::pin(pages.request(params)).await }
         },
     ))
 }
 
 /// The count of redirects `page.request` follows, `max_redirects` or its
 /// default; `setting_invalid` above the browser-fetch tier's count, its
-/// option spelled for `surface` (ADR 0118).
-fn redirect_count(max_redirects: Option<u32>, surface: Surface) -> Result<u32, CallError> {
+/// parameter spelled in its Client's form (ADRs 0099 and 0118).
+fn redirect_count(max_redirects: Option<u32>) -> Result<u32, CallError> {
     let count = max_redirects.unwrap_or(MAX_REDIRECTS);
     if count <= MAX_REDIRECTS {
         return Ok(count);
     }
-    let option = max_redirects_option(surface);
     Err(CallError::new(
         &SETTING_INVALID,
         format!(
-            "`{option}` is {count}, above {MAX_REDIRECTS}: the browser-fetch tier that sends `page.request` follows at most {MAX_REDIRECTS} redirects"
+            "`{}` is {count}, above {MAX_REDIRECTS}: the browser-fetch tier that sends `page.request` follows at most {MAX_REDIRECTS} redirects",
+            named::parameter(MAX_REDIRECTS_PARAMETER)
         ),
         &SettingInvalidDetails {
-            key: option.to_owned(),
+            key: MAX_REDIRECTS_PARAMETER.to_owned(),
             layer: Some(SettingsLayer::Run),
             reason: format!(
                 "{count} is above {MAX_REDIRECTS}, the most redirects a request follows"
             ),
+            limit: None,
+            fix: None,
         },
     ))
 }
 
-/// `page.request`'s count of redirects, in `surface`'s spelling.
-fn max_redirects_option(surface: Surface) -> &'static str {
-    match surface {
-        Surface::SdkTypescript => "maxRedirects",
-        Surface::SdkPython
-        | Surface::Rust
-        | Surface::Cli
-        | Surface::Mcp
-        | Surface::Kennel
-        | Surface::Cloud
-        | Surface::BrowserHost
-        | Surface::Worker => "max_redirects",
-    }
-}
+/// `page.request`'s parameter that counts its redirects, by its canonical
+/// name.
+const MAX_REDIRECTS_PARAMETER: &str = "max_redirects";
 
 /// Adds the handlers of `page.on`, each listening from when its call
 /// arrives until the call goes and sending its events on the call itself,
@@ -341,10 +389,13 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 let armed = waiting.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
-                    Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
+                    Ok(events.wait_for_request_finished(pattern, context.form(), deadline))
                 });
                 let pages = finishing.clone();
-                async move { pages.waited(&params.page_id, armed?).await }
+                in_call(
+                    (PAGE_WAIT_FOR_REQUEST_FINISHED.name, context.form()),
+                    async move { pages.waited(&params.page_id, armed?).await },
+                )
             },
         ))
         .with_handler(Handler::new(
@@ -354,7 +405,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok((events, deadline))
                 });
-                let (surface, pages) = (context.surface(), reading_pages.clone());
+                let (form, pages) = (context.form(), reading_pages.clone());
                 // A body the engine kept reads from the Run's folder, even on
                 // a crashed page (ADR 0085); any other read is a call on the
                 // page, as its waits are: a page that ends under it raises
@@ -364,7 +415,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     if let Some(kept) = events.kept(&params.request_id) {
                         return kept;
                     }
-                    let body = Box::pin(events.body(&params.request_id, surface, deadline));
+                    let body = Box::pin(events.body(&params.request_id, form, deadline));
                     pages.waited(&params.page_id, body).await
                 }
             },
@@ -756,6 +807,17 @@ fn with_page_read_handlers(contribution: Contribution, pages: &Pages) -> Contrib
         ))
 }
 
+/// Answers `call`, a call of the operation named first, from a Client
+/// writing names in the form named second: its failure headed by the
+/// operation in that form, with `operation` its canonical name (ADRs 0079
+/// and 0099).
+async fn in_call<T>(
+    (operation, form): (&'static str, Form),
+    call: impl Future<Output = Result<T, CallError>>,
+) -> Result<T, CallError> {
+    call.await.map_err(|error| error.in_call(operation, form))
+}
+
 /// Adds the handlers of the locator actions.
 fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let (clicking, filling, pressing) = (pages.clone(), pages.clone(), pages.clone());
@@ -764,7 +826,7 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
             &LOCATOR_CLICK,
             move |params: ClickParams, context: CallContext| {
                 let pages = clicking.clone();
-                async move {
+                in_call((LOCATOR_CLICK.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_CLICK.name,
@@ -773,14 +835,14 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_FILL,
             move |params: FillParams, context: CallContext| {
                 let pages = filling.clone();
-                async move {
+                in_call((LOCATOR_FILL.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_FILL.name,
@@ -789,19 +851,19 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_PRESS,
             move |params: PressParams, context: CallContext| {
                 let pages = pressing.clone();
-                async move {
+                in_call((LOCATOR_PRESS.name, context.form()), async move {
                     let action = Action::press(&params.key);
                     pages
                         .act(LOCATOR_PRESS.name, params.locator, action, &context)
                         .await
-                }
+                })
             },
         ))
 }
@@ -1177,10 +1239,10 @@ impl Pages {
         )
         .await?;
         let touched = self.interception.lists_blocked(page_id) > blocked_before;
-        if let Some(block) = block
+        if let Some(block) = &block
             && !(touched && block.checks_the_browser())
         {
-            return Err(blocked::blocked(block, &response, received));
+            return Err(blocked::blocked(block.clone(), &response, received));
         }
         let judged =
             recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
@@ -1229,7 +1291,7 @@ impl Pages {
                 duration,
                 spent,
             },
-            surface: context.surface(),
+            form: context.form(),
             hiding: Hidden {
                 live: page.hiding.as_deref(),
                 sheets: &page.sheets,
@@ -1257,15 +1319,10 @@ impl Pages {
     /// Sends the request `params` names from its page's Session, through
     /// the browser-fetch tier, from a page of the Session the engine opens
     /// for it and closes after it, and answers its response, whose body the
-    /// page's events keep, whole or as cut, for `response.body`; its errors
-    /// are spelled for `surface`.
+    /// page's events keep, whole or as cut, for `response.body`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_REQUEST.name, run_id = tracing::field::Empty, url.origin = goodfetch_engine::log::origin(&params.url)))]
-    async fn request(
-        &self,
-        params: PageRequestParams,
-        surface: Surface,
-    ) -> Result<PageResponse, CallError> {
-        let max_redirects = redirect_count(params.max_redirects, surface)?;
+    async fn request(&self, params: PageRequestParams) -> Result<PageResponse, CallError> {
+        let max_redirects = redirect_count(params.max_redirects)?;
         headers_sent(params.headers.as_ref())?;
         let (page, spent) = self
             .open(&params.page_id, |page| {
@@ -1282,7 +1339,7 @@ impl Pages {
             headers: params.headers.as_ref(),
             post_data: params.post_data.as_deref(),
             max_redirects,
-            option: max_redirects_option(surface),
+            option: MAX_REDIRECTS_PARAMETER,
             limits,
             read: browser_fetch::BodyRead::Whole,
         };
@@ -1332,14 +1389,14 @@ impl Pages {
     /// it, on the page `page_id`, in `world`, the main world when absent,
     /// for the operation `operation`, and answers its JSON; a main-world
     /// call marks the Session in Provenance as `injection`. Its errors are
-    /// spelled for `surface`.
+    /// spelled in `form`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn evaluate(
         &self,
         page_id: &PageId,
         (expression, world): (&str, Option<World>),
         (injection, operation): (Injection, &'static str),
-        surface: Surface,
+        form: Form,
     ) -> Result<Evaluated, CallError> {
         let (page, _) = self
             .open(page_id, |page| {
@@ -1360,7 +1417,7 @@ impl Pages {
                 page.driver.evaluate(expression, world, operation),
             )
             .await?;
-        page_functions::answered(returns, (surface, operation))
+        page_functions::answered(returns, (form, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`

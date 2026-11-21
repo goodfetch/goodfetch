@@ -123,10 +123,15 @@ fn stops_shown(items: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// The project configuration file [`project`] writes in `env`'s home.
+fn project_file(env: &TestEnv) -> std::path::PathBuf {
+    env.home().join("project").join("goodfetch.toml")
+}
+
 /// A project configuration file listing `STOPPED` in
 /// `wall.refetch_domains`, written in the test home, as a Client sends it.
 fn project(env: &TestEnv) -> Value {
-    let path = env.home().join("project").join("goodfetch.toml");
+    let path = project_file(env);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
@@ -149,7 +154,10 @@ fn item(details: &Value, actions: &[&str]) -> Value {
     })
 }
 
-const ANSWERS: [&str; 3] = [
+/// Where a settings file is in a test home.
+type FileIn = fn(&TestEnv) -> String;
+
+const ANSWERS: &[&str] = &[
     "needs_you.remove_refetch_domain",
     "needs_you.deny_wall_domain",
     "needs_you.dismiss",
@@ -167,16 +175,46 @@ const ANSWERS: [&str; 3] = [
     "wall.refetch_domains = [\"other.test\", \"walled.test\"]\n",
     "",
     false,
-    Some(("user_configuration", USER_CONFIGURATION_FILE, false)),
+    Some((
+        "user_configuration",
+        (|env: &TestEnv| file(env, USER_CONFIGURATION_FILE)) as FileIn,
+        false,
+        ANSWERS,
+    )),
 )]
 #[case::listed_in_the_operator_policy(
     "",
     "version = \"0.1\"\n\n[settings]\nwall.refetch_domains = [\"walled.test\"]\n",
     false,
-    Some(("operator_policy", OPERATOR_POLICY_FILE, false)),
+    Some((
+        "operator_policy",
+        (|env: &TestEnv| file(env, OPERATOR_POLICY_FILE)) as FileIn,
+        false,
+        ANSWERS,
+    )),
 )]
-#[case::covered_only_by_a_star("wall.refetch_domains = [\"*\"]\n", "", false, Some(("user_configuration", USER_CONFIGURATION_FILE, true)))]
-#[case::listed_in_project_configuration("", "", true, Some(("project_configuration", "", false)))]
+#[case::covered_only_by_a_star(
+    "wall.refetch_domains = [\"*\"]\n",
+    "",
+    false,
+    Some((
+        "user_configuration",
+        (|env: &TestEnv| file(env, USER_CONFIGURATION_FILE)) as FileIn,
+        true,
+        ANSWERS,
+    )),
+)]
+#[case::listed_in_project_configuration(
+    "",
+    "",
+    true,
+    Some((
+        "project_configuration",
+        (|env: &TestEnv| project_file(env).display().to_string()) as FileIn,
+        false,
+        &["needs_you.deny_wall_domain", "needs_you.dismiss"][..],
+    )),
+)]
 #[case::listed_nowhere_any_more("wall.refetch_domains = [\"other.test\"]\n", "", false, None)]
 /// Covers: setting:wall.denied_domains
 #[case::denied(
@@ -189,7 +227,7 @@ fn a_stopped_refetch_is_listed_with_the_layer_that_lists_its_domain(
     #[case] configuration: &str,
     #[case] policy: &str,
     #[case] in_project: bool,
-    #[case] expected: Option<(&str, &str, bool)>,
+    #[case] expected: Option<(&str, FileIn, bool, &[&str])>,
 ) {
     let env = TestEnv::new();
     configure(&env, configuration);
@@ -197,9 +235,6 @@ fn a_stopped_refetch_is_listed_with_the_layer_that_lists_its_domain(
         write(&env, OPERATOR_POLICY_FILE, policy);
     }
     let project = in_project.then(|| project(&env));
-    let project_file = project
-        .as_ref()
-        .map(|project| project["path"].as_str().unwrap().to_owned());
 
     let items = attached_on(&stopping_engine(&env), &env, |mut client| async move {
         opened(&mut client, "kennel").await;
@@ -215,19 +250,13 @@ fn a_stopped_refetch_is_listed_with_the_layer_that_lists_its_domain(
 
     let expected: Vec<Value> = expected
         .into_iter()
-        .map(|(layer, name, star)| {
-            let path = project_file.clone().unwrap_or_else(|| file(&env, name));
-            let actions: &[&str] = if layer == "project_configuration" {
-                &ANSWERS[1..]
-            } else {
-                &ANSWERS
-            };
+        .map(|(layer, path, star, actions)| {
             item(
                 &json!({
                     "domain": STOPPED,
                     "cause": "challenge",
                     "layer": layer,
-                    "file": path,
+                    "file": path(&env),
                     "only_star": star,
                 }),
                 actions,

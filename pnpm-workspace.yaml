@@ -14,6 +14,9 @@ packages:
   # The handled scenario's Foxhound program (issue 2317), on Foxhound's own
   # SDK.
   - xtask/compare-foxhound
+  # The library Foxhound's tests use (story 11-180), a package of its own so
+  # that pnpm reads its peer dependency on the Collie client package.
+  - sdks/typescript/foxhound/tests/libraries/*
 
 overrides:
   # The Allure report (`allure`, its `@allurereport/core` and `ci`) takes

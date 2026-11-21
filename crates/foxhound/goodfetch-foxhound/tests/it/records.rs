@@ -63,6 +63,7 @@ impl Session {
                 "seeds": seeds,
                 "datasets": [{ "name": "pages" }],
                 "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+                "labels": { "page": {} },
             }),
         );
         self.until(|session| session.replies.contains_key("start"));

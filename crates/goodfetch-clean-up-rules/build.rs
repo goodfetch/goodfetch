@@ -215,16 +215,17 @@ enum Kind {
     Consent,
 }
 
-/// The never-block list as a Rust table of `Entry` values.
+/// The never-block list's rules as a Rust table, each under a comment
+/// naming its entry's vendor, kind and example.
 fn never_block(text: &str) -> String {
     let list: NeverBlock = toml::from_str(text)
         .unwrap_or_else(|error| panic!("invariant: {NEVER_BLOCK} is well formed: {error}"));
-    let mut table = String::from("pub(crate) const ENTRIES: &[Entry] = &[\n");
+    let mut table = String::from("pub(crate) const RULES: &[&str] = &[\n");
     for entry in &list.entry {
         writeln!(
             table,
-            "    Entry {{ vendor: {:?}, kind: Kind::{:?}, rule: {:?}, example: {:?} }},",
-            entry.vendor, entry.kind, entry.rule, entry.example
+            "    // {:?} ({:?}), for {:?}\n    {:?},",
+            entry.vendor, entry.kind, entry.example, entry.rule
         )
         .expect("invariant: writing to a String cannot fail");
     }

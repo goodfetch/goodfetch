@@ -39,19 +39,24 @@
 mod cdp;
 mod counted_work;
 mod deny;
+mod deprecated_settings;
 mod digest;
 mod emit;
 mod emitter;
+mod error_codes;
 mod executables;
 mod facts;
 mod handles;
 mod helpers;
 mod layer;
+mod members;
 mod names;
-mod naming;
+mod open_values;
 mod projection;
 mod python;
 mod refused;
+mod rust;
+mod settings_tree;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -70,7 +75,10 @@ use crate::environment::Environment;
 use crate::features;
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::naming;
 use layer::Layer;
+pub(crate) use members::{HandleMember, handle_members};
+pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
 
 /// Where `goodfetch-protocol`'s committed outputs live.
 const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
@@ -146,6 +154,18 @@ enum Generator {
 }
 
 impl Generator {
+    /// The text of `input`, the JSON Schema this generator reads. Every
+    /// `json-schema-to-typescript` input has each `$ref` beside other
+    /// keywords moved into an `allOf` first.
+    fn input_text(self, mut input: Value) -> Result<Vec<u8>> {
+        if let Self::Json2ts = self
+            && let Some(definitions) = input.get_mut("$defs")
+        {
+            refs_beside_siblings_into_all_of(definitions);
+        }
+        json_text(&input)
+    }
+
     /// The tools whose versions shape this generator's output, each with the
     /// lockfile that pins it: `datamodel-code-generator` formats its output
     /// with ruff.
@@ -264,6 +284,31 @@ const JSON2TS_OPTIONS: [&str; 5] = [
     "-1",
 ];
 
+/// Moves every `$ref` that has sibling keywords into an `allOf` beside them,
+/// as JSON Schema 2020-12 reads them. `json-schema-to-typescript` reads a
+/// `$ref` as draft-07 does: it drops the siblings, and once its referent is
+/// also referred to bare, it gives the property the referent's description
+/// in place of its own (issue 2895).
+fn refs_beside_siblings_into_all_of(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.len() > 1
+                && let Some(reference) = object.remove("$ref")
+            {
+                object.insert(
+                    "allOf".to_owned(),
+                    Value::Array(vec![serde_json::json!({ "$ref": reference })]),
+                );
+            }
+            object
+                .values_mut()
+                .for_each(refs_beside_siblings_into_all_of);
+        }
+        Value::Array(items) => items.iter_mut().for_each(refs_beside_siblings_into_all_of),
+        _ => {}
+    }
+}
+
 /// What one language's generator gives for one package's layer.
 struct Generated {
     /// The files `xtask codegen` writes itself, by name in the layer's folder.
@@ -297,6 +342,7 @@ impl Plan {
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
+            rust::FOLDER,
             test_support::FOLDER,
             facts::TEST_SUPPORT_FOLDER,
             facts::XTASK_FOLDER,
@@ -355,6 +401,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(catalog_lists(&catalog)?);
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
@@ -406,6 +453,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(cdp::generate(root)?);
 
     let version = product_version(root)?;
+    let collie_layer = Layer::new(&bundle, &collie, &foxhound, Product::Collie, &version)?;
+    files.extend(rust::generate(root, &collie_layer)?);
     let mut externals = Vec::new();
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
@@ -416,11 +465,12 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         for (name, text) in generated.files {
             files.insert(format!("{}/{name}", package.folder), text.into_bytes());
         }
+        let generator = package.language.generator();
         externals.push(External {
             output: format!("{}/{}", package.folder, generated.types.output),
-            generator: package.language.generator(),
+            generator,
             input_name: layer::input_name(package.product),
-            input: json_text(&generated.types.input)?,
+            input: generator.input_text(generated.types.input)?,
             prefix: generated.types.prefix,
             header: generated.types.header,
         });
@@ -458,6 +508,17 @@ fn standalone(bundle: &Value, key: &str) -> Result<Value> {
         ),
     );
     Ok(Value::Object(schema))
+}
+
+/// The files listing what the catalog declares: Rust's Error codes and the
+/// release notes' deprecated settings keys.
+fn catalog_lists(catalog: &Value) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut lists = Vec::from(error_codes::files(catalog)?);
+    lists.push((
+        deprecated_settings::path(),
+        deprecated_settings::generate(catalog)?.into_bytes(),
+    ));
+    Ok(lists)
 }
 
 /// JSON as every generated file writes it: pretty, with a final newline.

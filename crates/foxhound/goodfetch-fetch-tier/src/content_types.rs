@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::charset::content_type;
 use crate::sniffing::sniff;
+use goodfetch_encoding::content_type;
 
 /// HTML's essence.
 const HTML: &str = "text/html";

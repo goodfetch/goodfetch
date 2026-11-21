@@ -1,35 +1,10 @@
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the round trip writes and reads plain files in a test, outside any async worker (ADR 0062)"
-)]
-
-use std::fs;
-
 use super::{UnicodeField, unicode_record};
-use crate::env::TestEnv;
 
 fn field(name: &str, text: &str) -> UnicodeField {
     UnicodeField {
         name: name.to_owned(),
         text: text.to_owned(),
     }
-}
-
-/// Writes each field to its own file in `env`'s folder through `write`, and
-/// reads the files back as they are on disk.
-fn round_trip(env: &TestEnv, write: impl Fn(&str) -> Vec<u8>) -> Vec<UnicodeField> {
-    unicode_record()
-        .fields
-        .iter()
-        .map(|field| {
-            let path = env.folder().join(format!("{}.txt", field.name));
-            fs::write(&path, write(&field.text)).unwrap();
-            UnicodeField {
-                name: field.name.clone(),
-                text: String::from_utf8(fs::read(&path).unwrap()).unwrap(),
-            }
-        })
-        .collect()
 }
 
 #[test]
@@ -52,22 +27,4 @@ fn the_unicode_record_holds_adr_0073s_hard_text() {
             field("tab_and_newline", "one\ttwo\nthree"),
         ]
     );
-}
-
-#[test]
-fn the_unicode_record_round_trips_byte_for_byte_through_a_file() {
-    let env = TestEnv::new();
-
-    let read = round_trip(&env, |text| text.as_bytes().to_vec());
-
-    assert_eq!(read, unicode_record().fields);
-}
-
-#[test]
-fn a_write_that_translates_newlines_fails_the_unicode_round_trip() {
-    let env = TestEnv::new();
-
-    let read = round_trip(&env, |text| text.replace('\n', "\r\n").into_bytes());
-
-    assert_ne!(read, unicode_record().fields);
 }

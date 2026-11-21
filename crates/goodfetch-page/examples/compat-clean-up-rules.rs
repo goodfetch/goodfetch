@@ -15,6 +15,7 @@ use goodfetch_protocol::clean_up_rules::{
     CleanUpRulesManifest, MANIFEST_FILE, RulesLists, RulesSource,
 };
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
+use goodfetch_protocol::point_in_time;
 
 /// ADR 0059's test `Clock` start.
 const START: &str = "2026-01-05T09:00:00Z";
@@ -51,8 +52,10 @@ fn main() {
     let manifest = CleanUpRulesManifest {
         format_version: CLEAN_UP_RULES.version,
         source: RulesSource::Upstream,
-        published_at: START.parse().expect("invariant: an RFC 3339 time"),
-        expires_at: Some(EXPIRES.parse().expect("invariant: an RFC 3339 time")),
+        published_at: point_in_time::from_rfc3339(START).expect("invariant: an RFC 3339 time"),
+        expires_at: Some(
+            point_in_time::from_rfc3339(EXPIRES).expect("invariant: an RFC 3339 time"),
+        ),
         lists: RulesLists {
             ads: LISTS[0].0.to_owned(),
             trackers: LISTS[1].0.to_owned(),

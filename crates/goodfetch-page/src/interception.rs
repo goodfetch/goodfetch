@@ -119,9 +119,6 @@ use tokio_util::sync::CancellationToken;
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
-pub(crate) use self::clean_up::SESSION_KEYS;
-#[cfg(test)]
-pub(crate) use self::clean_up::run_needs_lists;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
@@ -1248,6 +1245,8 @@ fn policy_of(run: &Run) -> Result<Policy, CallError> {
                 key: invalid.setting.to_owned(),
                 layer: None,
                 reason: format!("`{}` is no host", invalid.entry),
+                limit: None,
+                fix: None,
             },
         )
     })

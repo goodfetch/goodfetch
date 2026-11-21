@@ -1,34 +1,36 @@
 //! A crawl's Completeness reasons as a function of its run file (spec
 //! #581's Testing Decisions: pure rules in process): the requests whose
 //! latest outcome is a skip for the Model allowance make it `incomplete`,
-//! counted, a request skipped for it and then handled counting none; no
-//! fetch tier or AI verb raises the skip on Foxhound's executable yet
+//! counted; no fetch tier or AI verb raises the skip on Foxhound's executable yet
 //! (#1102), so this is where the reason is pinned (ADR 0107). The requests
 //! whose latest outcome is `failed` make it `incomplete` too, counted by
 //! Error code, those failed with `response_unavailable` under their own
-//! reason (#2509).
+//! reason (#2509). That a re-admitted request's next outcome takes its
+//! last one's place in the counts is
+//! `outcomes::tests::readmission`'s
+//! `the_request_counts_kept_equal_each_ended_requests_latest_outcome`.
 
 #![expect(
     clippy::disallowed_methods,
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
-use std::collections::BTreeMap;
+use goodfetch_protocol::point_in_time;
 
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_frontier::{BOUNDS_TABLES, RULES_TABLES};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, OutcomeRequest, SkipReason,
 };
-use goodfetch_protocol::run::{AxisReason, Completeness, PointInTime};
+use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::Connection;
 
 use super::short_of_scope;
 use crate::work_items::{self, TABLES};
 
 /// A run file in memory holding the crawl's tables and, in commit order,
-/// each work item's outcome, counted as the crawl's writes count it: a
-/// later outcome of a work item takes the place of its earlier one.
+/// each work item's latest outcome, counted as the crawl's writes count
+/// it.
 fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
     let connection = Connection::open_in_memory().unwrap();
     for tables in [TABLES, BOUNDS_TABLES, RULES_TABLES] {
@@ -36,11 +38,7 @@ fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
             connection.execute_batch(statement).unwrap();
         }
     }
-    let mut latest: BTreeMap<&str, &Ending> = BTreeMap::new();
     for (position, (work_item, ending)) in (1_u64..).zip(outcomes) {
-        if let Some(earlier) = latest.insert(work_item, ending) {
-            work_items::count(&connection, earlier, -1).unwrap();
-        }
         work_items::count(&connection, ending, 1).unwrap();
         let outcome = CrawlRequestOutcome {
             position,
@@ -52,7 +50,7 @@ fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
             },
             attempts: 1,
             errors: Vec::new(),
-            ended_at: PointInTime::from_rfc3339("2026-10-24T06:00:00Z".to_owned()),
+            ended_at: point_in_time::from_rfc3339("2026-10-24T06:00:00Z").unwrap(),
             ending: ending.clone(),
         };
         connection
@@ -109,8 +107,6 @@ fn requests_the_model_allowance_skipped_leave_the_crawl_incomplete_counted() {
         ("2", skipped(SkipReason::ModelAllowance)),
         ("3", skipped(SkipReason::Handler)),
         ("4", succeeded()),
-        ("5", skipped(SkipReason::ModelAllowance)),
-        ("5", succeeded()),
     ]);
 
     assert_eq!(
@@ -139,7 +135,7 @@ fn a_crawl_nothing_cut_has_no_reason() {
 /// each outlasted their lease, is a page the results miss, and so are the
 /// pages only it linked: the crawl is `incomplete`, its failed requests
 /// counted by Error code, those failed with `response_unavailable` keeping
-/// their own reason, and a request failed then handled counting none.
+/// their own reason.
 ///
 /// Covers: story:6-309
 #[test]
@@ -149,9 +145,7 @@ fn failed_requests_leave_the_crawl_incomplete_counted() {
         ("2", failed("handler_lost")),
         ("3", failed("handler_failed")),
         ("4", failed("response_unavailable")),
-        ("5", failed("handler_lost")),
         ("5", succeeded()),
-        ("6", succeeded()),
     ]);
 
     assert_eq!(

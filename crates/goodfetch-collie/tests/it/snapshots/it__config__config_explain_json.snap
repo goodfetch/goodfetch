@@ -62,6 +62,30 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
     },
     {
       "applied": true,
+      "key": "timeout.agent",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 600000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.ai",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 120000,
+      "weakens": false
+    },
+    {
+      "applied": true,
       "key": "timeout.close",
       "layer": "default",
       "products": [
@@ -69,6 +93,17 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "foxhound"
       ],
       "user_settable": true,
+      "value": 30000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.connect",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
       "value": 30000,
       "weakens": false
     },
@@ -94,6 +129,54 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
       ],
       "user_settable": true,
       "value": 5000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.hook",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 10000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.human_pause",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 86400000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.launch",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 30000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.model",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 60000,
       "weakens": false
     },
     {
@@ -124,6 +207,18 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
     {
       "applied": true,
       "key": "timeout.secret",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 30000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "timeout.sink_write",
       "layer": "default",
       "products": [
         "collie",

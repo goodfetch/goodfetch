@@ -1,0 +1,81 @@
+## Upgrades and version mismatches
+
+Decided in [ADR 0066](../adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md). Suites are the Quick, Pre-merge and Release suites of [Test suites, local commands and time budgets](https://github.com/goodfetch/goodfetch/issues/276).
+
+### The format registry
+
+- **Every versioned format is registered in `goodfetch-protocol`** with its version, schema and rule. A format read by an engine or spoken by a peer and missing from the registry is a bug.
+  _Why:_ every check below is generated from the registry, so a registered format cannot miss one.
+- **Expected outcomes come from the compatibility functions**, never from a hard-coded version pair. Each function is itself tested against a literal table.
+
+### The Compatibility corpus
+
+- **A new format lands with its `compat/<format>/head/` set and its scenario**: a `compat-<format>` example in the package that owns the format, which `xtask compat write` runs with the folder to write into.
+- **Never edit a fixture by hand.** Regenerate `head/` with `xtask compat write`; `xtask compat check` fails on drift, and on a writer whose second run writes other bytes than its first: it runs each writer twice. A passing check notes, for each writer, `note[identical]` with the digest both runs wrote, so its log is never empty and two checks' logs show whether their output was identical.
+- **Never change a frozen set** (`compat/<format>/<major>.<minor>/`). If the reading of an old file must change, change its snapshot in a reviewed pull request whose changelog entry says so.
+  _Why:_ a frozen file is what a released version really wrote.
+- **Change a format's schema only with a version bump** once a frozen set exists. `xtask compat check` fails otherwise.
+- **Bump a format's version only on `main`.** A patch never changes one: `xtask release` compares a patch's `head/` versions and schemas with the `x.y.0` tag's.
+- **Freeze from the release tag.** `xtask compat freeze --tag <tag>` copies the tag's `head/`, never `main`'s, which may hold unreleased versions. The release's entry in `compat/releases.toml` records its format versions, and `xtask compat check` requires a frozen set for each.
+- **Fixtures cover the whole schema:** every property in a JSON document and a non-null value in every column. They hold synthetic data and Secret references only.
+- **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.
+  _Why:_ "it opens" misses a misread.
+
+### `upgrade-files`
+
+- **Each source in `compat/upgrade-paths.toml` is tested from every frozen set:** golden result, idempotent, the previous major's files unchanged, unrelated files untouched. A source not in the table and a newer major are refused.
+
+### Refusals
+
+- **Every refusal is tested from a fabricated version**, generated per format by `xtask compat refusals` into `crates/goodfetch-protocol/generated/refusals/<format>/`, one file per case: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy, and the lowest minor of the shared stores of [ADR 0098](../adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md)). The Error code and message are snapshotted. Between an engine and a Browser host only another major is refused: a fabricated `hello` of another minor checks that both sides settle on the lower one, and a Session needing more than an older Browser host's minor checks `browser_host_outdated` (ADR 0096).
+- **A handshake refusal is the reply to `hello`**, before any other message, and the connection then closes. Never test refusal with a time budget.
+- **Test each handshake refusal twice:** in the Quick suite, in process, by sending the fabricated `hello` to the handshake code over an in-memory transport; in the Pre-merge suite, through the conformance harness's own `hello` to a running engine. No build carries a version override.
+  _Why:_ the Quick suite starts no process and binds no socket.
+- **The Product check is a handshake refusal too** ([ADR 0095](../adr/0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)): a Client that needs Foxhound is refused by a Collie engine with `not_in_product`, before the version check; a Collie Client is accepted by a Foxhound engine; a Group member of the other Product is refused by the peer protocol's handshake; a `hello` that says it is Goodfetch Cloud's gateway makes a Collie engine's `not_in_product` give ADR 0096's gateway `fix`; and a Browser host's `hello` meets no Product check. Each case is tested in process in the Quick suite; in the Pre-merge suite, `hello`'s through the conformance harness and the peer handshake's through a Daemon of the other Product joining a group.
+
+### Released artifacts
+
+- **Skew covers every released minor of the current major**, latest patch of each: SDKs, each Product's Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through their Product's engine-path variable, `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Browser host in both directions (older engines against the current Browser host, and the current engine against older Browser hosts, which settle on the lower minor) and first-party Plugins.
+- **An old Client runs its own release's Journeys** ([ADR 0063](../adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)) from its tag, against the current binary given by path. Each variant keeps its own Proving ground and Goodfetch home. A Journey that asserts something outside semver is fixed on `main`, and its variant is excluded by variant ID (`J-NNN@<surface>`), with a reason, in `compat/skew-exclusions.toml`.
+- **Skew runs per Product:** each Product's Clients and SDKs over stdio against the current executable of the same Product, and each old Journey against the current executable of its Product. An older Collie opens the current files of the formats both Products carry; an older Foxhound, those of Foxhound's.
+- **Test a pair across Products where a promise covers it:** the Product check of `hello` that [ADR 0095](../adr/0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md) adds, for every pair of Products, with fabricated `hello`s as version refusals are (the [Product check's cases](#refusals)); and, where [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486) lets two installs share a file, an older Collie opening the one the current Foxhound wrote. A released Collie Client is not run again against Foxhound's executable: the containment checks show Foxhound serves Collie's operations unchanged.
+- **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
+- **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
+  _Why:_ it upgrades from the git target branch and passes with a skip on a SemVer-breaking bump or an unchanged chart.
+- **Rolling upgrades and the Helm upgrade run on Foxhound,** whose load includes a Partitioned crawl. A Quick check renders Collie's and Foxhound's charts with `helm template` and fails on any difference but the image.
+- **Older engines open the files the current engine wrote.** The Usage-ledger family and the list of installed executables open; the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy open unless their lowest minor is newer ([ADR 0098](../adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md)); a current Checkpoint, Plan, project settings file and Schedule file are refused with the upgrade message. Two majors run side by side on one machine.
+- **Old artifacts come only from `compat/releases.toml`,** fetched from the pinned artifact mirror with the trusted root before the outbound deny, and checked by digest and by `gh attestation verify --bundle --custom-trusted-root`. One local command fetches the same set.
+- **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
+  _Why:_ a test that passes because nothing ran hides decay, as SQLite's and Cargo's skipped old-binary tests do.
+
+### Suites
+
+| Check | Suite |
+|---|---|
+| Corpus golden reads, fabricated refusals of files and of `hello` in process, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
+| Corpus replays, handshake refusals through the conformance harness, `upgrade-files` against the binary | Pre-merge |
+| Every test that needs released artifacts: the skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | Release |
+
+- **Tests that need released artifacts belong to the Release suite**, which the merge queue runs. Its nightly rerun and its run on each release's own bytes cover them; none is a nightly-only job.
+- **Group each older minor's skew checks into as few jobs as fit the job budget.** One job per check exceeds the 20 concurrent jobs after two minors.
+- **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency on standard runners; larger runners are declined while there is no revenue (ADR 0076).
+  _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
+
+### Two Products on one machine
+
+Decided in [ADR 0098](../adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md). Skew between the two Products' released versions follows [ADR 0094](../adr/0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md).
+
+- **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
+  - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
+  - a Foxhound installed but never run becomes the pick when the `daemon restart` that a refusal's `fix` names under `engine: daemon` runs, from the path the Client would run attached;
+  - a Collie Client refused by version on a machine with Collie alone is told to run its own executable's `daemon restart`, a Rust Client to install its Product's executable at its version first, and either is told to install Foxhound at its version only when its own executable would still not be the pick, while an older Foxhound that can be the pick counts as installed;
+  - when only a linked program has raised a store's lowest minor past every installed executable, `daemon start` fails with the version refusal, and an `auto` Client runs attached;
+  - after a newer Collie raises the Run index's lowest minor past an installed older Foxhound, the pick is that Collie, the Foxhound Daemon takes no new run and hands over to it once its live runs end, and Collie's Schedules keep working;
+  - a Collie Client never moves the Daemon to Collie while a Foxhound that can be the pick counts as installed, so Clients of the two Products alternating restart it at most once;
+  - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`;
+  - a Collie run and a Foxhound run through one proxy set to `politeness.proxy.concurrency: 1` never have two requests in flight through it, and a 429 a Collie page meets leaves the Politeness file's domain limits unchanged.
+- **"Installed" and the clean-up run on the test `Clock`** (Quick suite): an entry whose executable is gone still counts within `browser_cache.max_unused_age`; a build pinned by a counting entry or declared by an installed Plugin, launched within that age, or held by a running browser is kept; an entry the engine cannot read is kept; a program's entry that links a newer Foxhound through its Rust crate, and an executable's entry gone from its path with no versioned copy, keep their builds but are never the pick.
+- **A newer engine raises the lowest minor only for what an older one would misread** (Quick suite, from fabricated versions): a newer minor that adds a Run index row an older engine reads leaves the marker unchanged, and one that writes a user configuration key its minor added raises it to that minor.
+- **An older Collie opens every file Goodfetch home shares, as the current Foxhound wrote it** (Release suite, with ADR 0094's skew): the Usage ledger, the known-certificates store, the Politeness file, the list of installed executables, the Run index, the Schedule store, the Saved identity store, user configuration, the Operator policy, the Plugin store and the Browser cache. Each holds Foxhound's own entries, such as a run and a Schedule that need Foxhound, Foxhound's setting keys of a minor the older Collie knows, a Sink Plugin and the Politeness file's domain limits. The older Collie keeps them untouched and deletes none of the current Foxhound's downloads. It reads the Daemon's runtime file and tokens and the active-major marker to find and reach the Daemon. The Response cache, run folders and the per-install database follow their own rules: it runs without a newer Response cache, and refuses to resume a run a newer engine wrote.
+- **Kill the clean-up after its rename** with the real-process crash tests: the next run finishes the deletion, and no browser ever launches from a half-deleted build.
+- **A Collie engine leaves Foxhound's entries untouched:** rewriting user configuration keeps Foxhound's keys byte for byte; resuming a run that needs Foxhound answers `not_in_product` and leaves the run file's hash unchanged; a Collie Daemon records each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`.

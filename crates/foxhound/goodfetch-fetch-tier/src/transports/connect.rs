@@ -288,6 +288,11 @@ impl Device {
         Self
     }
 
+    #[expect(
+        clippy::unused_self,
+        clippy::unnecessary_wraps,
+        reason = "it binds as the other OSes' `Device` does, which reads itself and can fail"
+    )]
     fn bind(&self, _socket: &socket2::SockRef<'_>, _address: SocketAddr) -> io::Result<()> {
         Ok(())
     }

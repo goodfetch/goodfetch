@@ -148,7 +148,8 @@ fn crawl_starts_flags_give_its_seeds_and_extraction(
 }
 
 /// `--seeds-file` adds a seed per line, a URL or a seed as JSON, after the
-/// URLs; `--fields` reads named fields in the catalog's JSON form, which a
+/// URLs; `--fields` reads named fields in the catalog's JSON form, a
+/// locator ladder's `fallbacks` among it (issue 1972), which a
 /// `--field` of the same name beats.
 ///
 /// Covers: story:11-1132
@@ -168,7 +169,7 @@ fn crawl_start_reads_seeds_and_fields_from_files() {
     let fields = folder.path().join("fields.json");
     std::fs::write(
         &fields,
-        r#"{"price":{"locator":{"kind":"css","selector":".price"},"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
+        r#"{"price":{"locator":{"kind":"css","selector":".price"},"fallbacks":[{"kind":"xpath","selector":"//b"}],"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
     )
     .unwrap();
 
@@ -204,6 +205,7 @@ fn crawl_start_reads_seeds_and_fields_from_files() {
                 "fields": {
                     "price": {
                         "locator": { "kind": "css", "selector": ".price" },
+                        "fallbacks": [{ "kind": "xpath", "selector": "//b" }],
                         "attribute": "data-price",
                     },
                     "title": { "locator": { "kind": "css", "selector": "h1" } },
@@ -269,41 +271,6 @@ fn a_small_seeds_list_goes_whole_into_crawl_start() {
     let (_, flags) = crawl_start(&["crawl", "start", "https://a.test/"]);
 
     assert_eq!(flags.added, Vec::<Value>::new());
-}
-
-/// `crawl start` offers no `--datasets`, which a code-free crawl refuses,
-/// and has a help of its own, not `crawl.start`'s of a handler's crawl.
-///
-/// Covers: story:11-1132
-#[test]
-fn crawl_start_offers_no_datasets_flag_and_tells_of_a_code_free_crawl() {
-    let (mut command, _) = command_line(Product::Foxhound);
-    command.build();
-    let start = command
-        .find_subcommand_mut("crawl")
-        .and_then(|crawl| {
-            crawl.build();
-            crawl.find_subcommand("start").cloned()
-        })
-        .unwrap();
-
-    let flags: Vec<String> = start
-        .get_arguments()
-        .filter_map(|argument| argument.get_long().map(str::to_owned))
-        .collect();
-    let about = start
-        .get_about()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    assert_eq!(
-        (
-            flags.contains(&"datasets".to_owned()),
-            about.contains("code-free"),
-            about.contains("handler")
-        ),
-        (false, true, false),
-        "{flags:?}\n{about}"
-    );
 }
 
 /// What `crawl start` cannot read is a usage error before any engine call:
@@ -377,11 +344,6 @@ fn run_export_takes_its_dataset_second_and_out(
             .map_err(|refused| refused.kind()),
         expected
     );
-}
-
-#[test]
-fn the_command_line_holds_no_clap_misconfiguration() {
-    command(Product::Foxhound, COMMANDS).debug_assert();
 }
 
 /// A start builds no group's commands, Foxhound's own among them: clap

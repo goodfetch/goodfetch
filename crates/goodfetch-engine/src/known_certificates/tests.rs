@@ -10,10 +10,13 @@
     reason = "the tests read the corpus files and edit the store's rows as a damaged disk would; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::tls::CertificatePin;
 use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
@@ -30,12 +33,17 @@ fn now() -> Timestamp {
 }
 
 /// The same moment, as a pin's `pinned_at` reads.
-fn at_start() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn at_start() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn store(env: &TestEnv) -> KnownCertificates {
     KnownCertificates::of(&Home::new(env.home().to_path_buf()), None, owner())
+}
+
+/// The file of the store [`store`] opens in `env`'s home.
+fn store_file(env: &TestEnv) -> PathBuf {
+    Home::new(env.home().to_path_buf()).known_certificates()
 }
 
 /// An owner of the store's writer and lookups, as tasks of the test's
@@ -214,7 +222,7 @@ async fn a_lookup_answers_while_another_connection_holds_the_stores_write_lock(
         .record_change("os_user", "intranet.example", &key(2), None, later())
         .await
         .unwrap();
-    let writer = Connection::open(store.path()).unwrap();
+    let writer = Connection::open(store_file(&env)).unwrap();
     writer.execute_batch("BEGIN IMMEDIATE").unwrap();
 
     let answered = match lookup {
@@ -238,7 +246,7 @@ fn an_engine_making_the_store_beside_another_engines_write_pins_its_key() {
 
     let runtime = goodfetch_test_support::runtime();
 
-    let pinned = crate::sqlite_wal::tests::opened_beside_a_write(store.path(), || {
+    let pinned = crate::sqlite_wal::tests::opened_beside_a_write(&store_file(&env), || {
         runtime.block_on(store.pin(
             "os_user",
             "expired.certificates.test",
@@ -296,7 +304,7 @@ async fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host(
     let pin = CertificatePin {
         host: "intranet.example".to_owned(),
         spki_sha256: Some(key(2).to_string()),
-        pinned_at: Some(PointInTime::from_rfc3339("2026-01-05T10:00:00Z".to_owned())),
+        pinned_at: Some(point_in_time::from_rfc3339("2026-01-05T10:00:00Z").unwrap()),
         run_id: Some(run("stopped")),
         changed_spki_sha256: None,
     };
@@ -364,7 +372,7 @@ async fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
         .pin("os_user", "intranet.example", &key(1), None, now())
         .await
         .unwrap();
-    Connection::open(store.path())
+    Connection::open(store_file(&env))
         .unwrap()
         .execute("UPDATE pins SET spki_sha256 = x'0102'", [])
         .unwrap();
@@ -459,7 +467,7 @@ async fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &s
         )
         .await
         .unwrap();
-    Connection::open(store.path())
+    Connection::open(store_file(&env))
         .unwrap()
         .execute(damage, [])
         .unwrap();
@@ -496,7 +504,7 @@ async fn a_store_never_written_holds_no_pin_and_is_not_created() {
         ),
         (Found::Unpinned, Vec::new())
     );
-    assert!(!store.path().exists());
+    assert!(!store_file(&env).exists());
 }
 
 /// A store of `version`, written by this engine then relabelled.
@@ -506,7 +514,7 @@ async fn store_at_version(env: &TestEnv, version: &str) -> KnownCertificates {
         .pin("os_user", "intranet.example", &key(1), None, now())
         .await
         .unwrap();
-    Connection::open(store.path())
+    Connection::open(store_file(env))
         .unwrap()
         .execute("UPDATE format SET version = ?1", [version])
         .unwrap();
@@ -551,8 +559,8 @@ async fn the_head_sets_store_opens_and_takes_another_pin() {
     let head = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../compat/known-certificates/head");
     let store = store(&env);
-    std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
-    Connection::open(store.path())
+    std::fs::create_dir_all(store_file(&env).parent().unwrap()).unwrap();
+    Connection::open(store_file(&env))
         .unwrap()
         .execute_batch(&std::fs::read_to_string(head.join("known-certificates.sql")).unwrap())
         .unwrap();
@@ -619,7 +627,7 @@ async fn the_wal_stays_beside_the_store_once_its_writers_connection_closed() {
         .unwrap();
     owner.stop().await;
 
-    assert!(wal_of(store.path()).exists());
+    assert!(wal_of(&store_file(&env)).exists());
 }
 
 /// An engine's store opens its file once for its writes and once for its
@@ -684,7 +692,7 @@ async fn pins_taken_survive_a_power_cut_while_the_engine_holds_the_store() {
 
     vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
     let connection =
-        goodfetch_test_support::after_crash(&vfs, &store.path().to_string_lossy()).unwrap();
+        goodfetch_test_support::after_crash(&vfs, &store_file(&env).to_string_lossy()).unwrap();
 
     let hosts: Vec<String> = connection
         .prepare("SELECT host FROM pins ORDER BY host")

@@ -54,15 +54,17 @@ use std::time::Duration;
 use futures_util::FutureExt as _;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
-use goodfetch_protocol::catalog::{Product, Reach};
+use goodfetch_protocol::catalog::{Product, Reach, SettingScope};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
-    NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, CancelledBy, Form, HELLO,
+    HelloParams, NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, Surface,
     TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::settings::RunOrigin;
+use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -83,7 +85,7 @@ use crate::clock::Clock;
 use crate::composition::params::Arrived;
 use crate::composition::{
     Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, InputSender,
+    DaemonSide, Driver, Handler, Handlers, InputSender,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -93,8 +95,9 @@ use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
+use crate::run::translated;
 use crate::runs::Runs;
-use crate::settings::get_or_default;
+use crate::settings::{Opening as SettingsOpening, SettingsError, check_scope, get_or_default};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
@@ -125,7 +128,7 @@ const UNKNOWN_METHOD: &str = "(unknown)";
 #[derive(Clone)]
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
-    pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    pub(crate) handlers: Handlers,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -488,7 +491,9 @@ async fn serve_carried(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        form: OnceLock::new(),
         behind_gateway: OnceLock::new(),
+        settings: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
@@ -827,7 +832,10 @@ impl Session<'_> {
             }
             (ConnectionEffect::Answer, Message::Unreadable(error)) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                if self.send(failure_line(error.id, &failure)).await {
+                if self
+                    .send(failure_line(error.id, &failure, self.form()))
+                    .await
+                {
                     Flow::Continue
                 } else {
                     Flow::Close
@@ -875,11 +883,12 @@ impl Session<'_> {
                     "a Connection opens with `hello`",
                 );
                 record(self.named(call.method()), Some(error.code()));
-                self.send(failure_line(Some(id), &error)).await;
+                self.send(failure_line(Some(id), &error, self.form())).await;
             }
             Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                self.send(failure_line(error.id, &failure)).await;
+                self.send(failure_line(error.id, &failure, self.form()))
+                    .await;
             }
             Message::Notification(_) => {
                 tracing::debug!("a notification before `hello` closes the Connection");
@@ -909,7 +918,7 @@ impl Session<'_> {
             "a Connection opens with `hello` once",
         );
         record(self.named(call.method()), Some(error.code()));
-        if self.send(failure_line(Some(id), &error)).await {
+        if self.send(failure_line(Some(id), &error, self.form())).await {
             Flow::Continue
         } else {
             Flow::Close
@@ -995,22 +1004,28 @@ impl Session<'_> {
             )
             .map(|accepted| {
                 let surface = accepted.surface;
-                (accepted, surface, hello.log_level)
+                let form = hello.form.unwrap_or(surface.form());
+                (accepted, surface, form, hello.log_level, hello.settings)
             }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
-            Ok(accepted) => Ok(accepted),
+            Ok((accepted, surface, form, log_level, settings)) => self
+                .checked_settings(&settings, surface, accepted.behind_gateway)
+                .await
+                .map(|()| (accepted, surface, form, log_level, settings))
+                // A refused setting reads in the form the `hello` declares.
+                .map_err(|error| (error, form)),
             Err(refusal) => {
                 let handover = match &daemon {
                     Some(daemon) if refusal.by_product_or_version() => daemon.refusing().await,
                     _ => false,
                 };
-                Err(refusal.into_error(handover))
+                Err((refusal.into_error(handover), self.form()))
             }
         };
         match answered {
-            Ok((mut accepted, surface, log_level)) => {
+            Ok((mut accepted, surface, form, log_level, settings)) => {
                 record(HELLO, None);
                 self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
@@ -1019,6 +1034,8 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                let _ = self.connection.form.set(form);
+                let _ = self.connection.settings.set(settings);
                 // Each CLI command is a Connection of its own, and the Runs
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel
@@ -1044,14 +1061,47 @@ impl Session<'_> {
                     Flow::Close
                 }
             }
-            Err(error) => {
+            Err((error, form)) => {
                 record(HELLO, Some(error.code()));
                 trace::record_failure(&span, error.code(), error.wire_code());
                 drop(span);
-                self.send(failure_line(Some(id), &error)).await;
+                self.send(failure_line(Some(id), &error, form)).await;
                 self.rejected()
             }
         }
+    }
+
+    /// Checks `own`, the Connection's own settings as its `hello` gives
+    /// them, from `surface`: each key at the connection scope, then every
+    /// layer resolved over them as beneath a Run it starts, so a locked or
+    /// capped key is refused at the `hello` rather than at each start (ADR
+    /// 0083).
+    async fn checked_settings(
+        &self,
+        own: &Map<String, Value>,
+        surface: Surface,
+        behind_gateway: bool,
+    ) -> Result<(), CallError> {
+        if own.is_empty() {
+            return Ok(());
+        }
+        let identity = &self.dispatch.identity;
+        let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
+        check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
+        self.connection
+            .engine
+            .settings()
+            .open(SettingsOpening {
+                run: None,
+                project: None,
+                recipe: None,
+                settings: own.clone(),
+                origin: Some(RunOrigin::Settings),
+                acting_for_model: surface.acts_for_model(),
+            })
+            .await
+            .map(drop)
+            .map_err(refused)
     }
 
     /// Its `hello` was refused: it closes.
@@ -1126,7 +1176,7 @@ impl Session<'_> {
             return Flow::Continue;
         };
         record(self.named(method), Some(error.code()));
-        if self.send(failure_line(Some(id), &error)).await {
+        if self.send(failure_line(Some(id), &error, self.form())).await {
             Flow::Continue
         } else {
             Flow::Close
@@ -1204,6 +1254,7 @@ impl Session<'_> {
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        let form = self.form();
         // Each call keeps its own task (the audit's E1-4, kept by #1898):
         // the Connection goes on reading while a handler waits, a
         // `$/cancel` reaches the call at once, and [`MAX_IN_FLIGHT`] caps
@@ -1217,8 +1268,9 @@ impl Session<'_> {
                         &CALL_CANCELLED,
                         "The call was cancelled by its Client.",
                         &CallCancelledDetails {
-                            by: StoppedBy::Client,
+                            by: CancelledBy::Client,
                             closed: None,
+                            person: None,
                         },
                     )),
                 }
@@ -1233,7 +1285,7 @@ impl Session<'_> {
                 Err(error) => {
                     record(operation.name, Some(error.code()));
                     trace::record_failure(&span, error.code(), error.wire_code());
-                    failure_line(Some(id.clone()), &error)
+                    failure_line(Some(id.clone()), &error, form)
                 }
             };
             drop(span);
@@ -1331,6 +1383,13 @@ impl Session<'_> {
 }
 
 impl Session<'_> {
+    /// The form its Client writes names in (ADR 0099), which a failure's
+    /// marked names are spelled in; the catalog's own names before the
+    /// `hello` declared one.
+    fn form(&self) -> Form {
+        self.connection.form.get().copied().unwrap_or(Form::Catalog)
+    }
+
     /// `method` as a record names it: a name of the catalog, `hello` or
     /// `$/cancel`, or [`UNKNOWN_METHOD`] for any other, which a Client
     /// wrote and no log keeps (ADR 0132's bounded values).

@@ -12,18 +12,22 @@
     clippy::disallowed_methods,
     reason = "the tests read the user's session from their own process, and the service's files themselves"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )
 )]
 
 #[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
 
+#[cfg(unix)]
 use goodfetch_protocol::home::DaemonFile;
-use goodfetch_test_client::DaemonClient;
-use goodfetch_test_client::HomeLayout;
+#[cfg(unix)]
+use goodfetch_test_client::{DaemonClient, HomeLayout};
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
 use goodfetch_test_support::{DaemonEndpoint, RuntimeFile};

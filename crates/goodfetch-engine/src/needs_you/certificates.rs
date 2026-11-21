@@ -70,7 +70,7 @@ fn item(waiting: &Waiting, person: &str) -> NeedsYouItem {
     NeedsYouItem {
         id: format!("{CHANGED_CERTIFICATE}:{host}"),
         kind: CHANGED_CERTIFICATE.to_owned(),
-        since: waiting.seen_at.clone(),
+        since: waiting.seen_at,
         run: waiting.run_id.clone(),
         schedule: None,
         summary: format!(

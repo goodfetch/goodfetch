@@ -13,6 +13,7 @@
     reason = "a synchronous corpus writer that builds its runtime, writes files and runs on the test Clock (ADRs 0059 and 0066)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
@@ -38,7 +39,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::{RUN_INDEX, per_major};
 use goodfetch_protocol::needs_you::NeedsYouItem;
-use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_test_client::Hello;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -182,7 +183,8 @@ impl Primitives for Waiting {
             Ok(vec![NeedsYouItem {
                 id: WAITING.to_owned(),
                 kind: "corpus_waiting".to_owned(),
-                since: PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+                since: point_in_time::from_rfc3339("2026-01-05T09:00:00Z")
+                    .expect("invariant: the corpus's time is RFC 3339"),
                 run: None,
                 schedule: None,
                 summary: "The corpus waits for a person.".to_owned(),

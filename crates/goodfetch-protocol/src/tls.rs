@@ -14,6 +14,9 @@
 //! person's answers, offered only in an interactive CLI prompt (ADRs 0011
 //! and 0042).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -22,7 +25,7 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -42,6 +45,7 @@ pub const TLS_TRUSTED_CAS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -66,6 +70,7 @@ pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
     weakens: Some(accepts_any_invalid_certificate),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -134,6 +139,19 @@ impl ClientCertificateConfiguration {
     }
 }
 
+/// The table [`ClientCertificateConfiguration::read`] reads it back from,
+/// its key the reference's text.
+impl Serialize for ClientCertificateConfiguration {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut table = serializer.serialize_struct("ClientCertificateConfiguration", 2)?;
+        table.serialize_field("certificate", &self.certificate)?;
+        table.serialize_field("key", self.key.as_str())?;
+        table.end()
+    }
+}
+
 /// A value of `tls.client_certificates`.
 pub const CLIENT_CERTIFICATE_SHAPE: ValueShape = ValueShape {
     name: "ClientCertificateConfiguration",
@@ -170,6 +188,7 @@ pub const TLS_CLIENT_CERTIFICATES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -269,9 +288,13 @@ pub struct CertificatePin {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub spki_sha256: Option<String>,
     /// When it was pinned; none when the row cannot be read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub pinned_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub pinned_at: Option<SystemTime>,
     /// The Run whose connection pinned it; none outside a Run or when the
     /// row cannot be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

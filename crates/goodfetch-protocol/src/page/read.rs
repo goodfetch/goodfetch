@@ -11,10 +11,15 @@
 //! locator finds; or rows, `{"rows": <locator>, "fields": {…}}`, a value
 //! field of each name read under each element the base locator finds, the
 //! first element under it each one's locator finds. A row lacking a field
-//! keeps its other fields.
+//! keeps its other fields. A value field's locator may be the first rung of
+//! a ladder, its `fallbacks` tried in turn when it finds nothing (issue
+//! 1972).
 //!
 //! The declaration's types live here, on Collie's side of the protocol, and
 //! Foxhound's code-free crawl takes the same in its `extraction.fields`.
+
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
 
 use std::collections::BTreeMap;
 
@@ -24,7 +29,6 @@ use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageId};
 use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
-use crate::run::PointInTime;
 
 /// One named field (ADR 0147): a value field, a list or rows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -62,18 +66,27 @@ pub struct RowsField {
     pub fields: BTreeMap<String, ValueField>,
 }
 
-/// A value field (ADRs 0123 and 0147): the first element its locator finds
-/// in the page, its text, its runs of white space read as one space and
-/// trimmed, or one of its attributes, an `href` or `src` resolved against
-/// the document's base URL; optionally a capture group of a regular
-/// expression over that text; then its Value transform. A field the page
-/// does not give is null, with why.
+/// A value field (ADRs 0123 and 0147): the first element its locator
+/// ladder finds in the page, its locator tried first, then each of its
+/// `fallbacks` in turn until one finds an element; its text, its runs of
+/// white space read as one space and trimmed, or one of its attributes, an
+/// `href` or `src` resolved against the document's base URL; optionally a
+/// capture group of a regular expression over that text; then its Value
+/// transform. A field the page does not give is null, with why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ValueField {
     /// What finds its element.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub locator: FieldLocator,
+    /// Its locator ladder's further rungs: when `locator` finds no
+    /// element, the first of these, in order, that finds one supplies it;
+    /// in a list, the first that finds any; in rows, the first that finds
+    /// one under the row's element. Each is checked as `locator` is when
+    /// the call or crawl starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fallbacks: Vec<FieldLocator>,
     /// The attribute read in place of the element's text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -86,6 +99,55 @@ pub struct ValueField {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub transform: FieldTransform,
+}
+
+impl ValueField {
+    /// Its locator ladder's rungs, in the order they are tried: its
+    /// `locator`, then each of its `fallbacks`.
+    pub fn rungs(&self) -> impl Iterator<Item = &FieldLocator> {
+        std::iter::once(&self.locator).chain(&self.fallbacks)
+    }
+}
+
+/// One find a field's read makes in a page, every tier finding each of a
+/// field's in turn and the extractor keeping, of a ladder's, the first
+/// rung's that found an element (issue 1972).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FieldFind<'field> {
+    /// The first element a rung of a value field's ladder finds.
+    One(&'field FieldLocator),
+    /// Every element a rung of a list's ladder finds.
+    List(&'field FieldLocator),
+    /// Every element `rows` finds, and under each, the first element each
+    /// of `fields` finds.
+    Rows {
+        /// What finds each row's element.
+        rows: &'field FieldLocator,
+        /// Each rung of each of the row's fields' ladders, by the field's
+        /// name, in the order of their names, then in the order of its
+        /// rungs.
+        fields: Vec<(&'field str, &'field FieldLocator)>,
+    },
+}
+
+impl PageField {
+    /// The finds its read makes, in order: one per rung of a value field's
+    /// or a list's ladder, and rows' one.
+    #[must_use]
+    pub fn finds(&self) -> Vec<FieldFind<'_>> {
+        match self {
+            Self::Value(field) => field.rungs().map(FieldFind::One).collect(),
+            Self::List(list) => list.list.rungs().map(FieldFind::List).collect(),
+            Self::Rows(rows) => vec![FieldFind::Rows {
+                rows: &rows.rows,
+                fields: rows
+                    .fields
+                    .iter()
+                    .flat_map(|(name, field)| field.rungs().map(move |rung| (name.as_str(), rung)))
+                    .collect(),
+            }],
+        }
+    }
 }
 
 /// What finds a field's element, named by `kind`: a CSS selector or an
@@ -232,9 +294,13 @@ pub struct TransformProvenance {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pattern: Option<String>,
     /// A relative time's anchor: the fetch time of the page's document.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub anchor: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub anchor: Option<SystemTime>,
 }
 
 /// One of the engine's closed list of Value transforms (ADR 0123).

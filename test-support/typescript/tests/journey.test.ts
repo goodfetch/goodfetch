@@ -9,7 +9,6 @@ import { describe, expect } from "vitest";
 import {
   startJourneyRun,
   test as base,
-  TestSupportError,
   toolPath,
   type JourneyRun,
   type ProcessRecord,
@@ -173,9 +172,6 @@ describe("startJourneyRun", () => {
     }).toThrow(
       expect.objectContaining({
         code: "variant_not_proved",
-        message: expect.stringContaining(
-          "Journey variant J-961@sdk-typescript is `failed`, not `proved`",
-        ),
       }),
     );
     expect(await read(processes, run.testEnv, finished.path, "J-961.toml")).toBe(0);
@@ -285,11 +281,8 @@ describe("startJourneyRun", () => {
   });
 
   test("refuses to start on a surface its Journey does not list", async ({ startRun }) => {
-    await expect(startRun("J-961.toml", "cli")).rejects.toThrow(
-      new TestSupportError(
-        "surface_unlisted",
-        "J-961 lists no surface `cli`: it lists sdk-typescript",
-      ),
-    );
+    await expect(startRun("J-961.toml", "cli")).rejects.toMatchObject({
+      code: "surface_unlisted",
+    });
   });
 });

@@ -9,6 +9,24 @@ export const PRODUCT_VERSION = "0.0.0";
 /** The executable's hidden command that serves one Connection over stdio. */
 export const ATTACHED_ENGINE_COMMAND = "attached-engine";
 
+/** The prefix every deployment variable has, which ADR 0034 reserves. */
+export const DEPLOYMENT_PREFIX = "GOODFETCH_";
+
+/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */
+export const DEPLOYMENT_VARIABLES = [
+  "GOODFETCH_BROWSERS_PATH",
+  "GOODFETCH_CHANNEL",
+  "GOODFETCH_COLLIE_ENGINE_PATH",
+  "GOODFETCH_DAEMON_ADDRESS",
+  "GOODFETCH_DAEMON_DRAIN_GRACE",
+  "GOODFETCH_FOXHOUND_ENGINE_PATH",
+  "GOODFETCH_HOME",
+  "GOODFETCH_OPS_ADDRESS",
+  "GOODFETCH_TEST_SEED",
+  "GOODFETCH_TOKEN",
+  "GOODFETCH_URL",
+] as const;
+
 /** The variable naming Collie's executable (ADR 0090). */
 export const COLLIE_ENGINE_PATH_VARIABLE = "GOODFETCH_COLLIE_ENGINE_PATH";
 

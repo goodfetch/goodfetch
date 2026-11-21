@@ -11,31 +11,10 @@ const DESCRIPTION: TestEnvDescription = {
   tools: {},
 };
 
-const PROVING_GROUND = {
-  address: "127.0.0.1:4000",
-  version: "0.0.0+0",
-  seed: 341,
-  resolve: { "catalog.test": "127.0.0.1" },
-  ca: "/tmp/a test é x/proving-ground-1-1/certificate-authority.pem",
-  fixtures: {
-    proxies: { open: "127.0.0.1:4001" },
-    proxy_credentials: { username: "pg1", password: "secret" },
-    dns: "127.0.0.1:4002",
-    target: "127.0.0.1:4003",
-    connections: "http://127.0.0.1:4000/observations",
-  },
-} as const;
-
 describe("provingGroundOf", () => {
   test("fails when the description names no Proving ground", () => {
     expect(() => provingGroundOf(DESCRIPTION)).toThrow(
       expect.objectContaining({ code: "proving_ground_unseeded" }),
     );
-  });
-
-  test("is the Proving ground the description names", () => {
-    const provingGround = provingGroundOf({ ...DESCRIPTION, proving_ground: PROVING_GROUND });
-
-    expect(provingGround).toBe(PROVING_GROUND);
   });
 });

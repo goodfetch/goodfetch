@@ -421,6 +421,8 @@ where
     W: AsyncWrite + Unpin + Send,
 {
     /// The driver, reading messages of at most `limit` bytes.
+    /// Kept for its test: the framer holds a message past the real
+    /// [`MAX_FRAME`] (256 MiB) before it drops it, too much for the Quick suite.
     #[cfg(test)]
     fn with_frame_limit(mut self, limit: usize) -> Self {
         self.frame_limit = limit;

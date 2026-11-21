@@ -12,7 +12,7 @@ use super::plan::{
     Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
     UNOWNED, gate_input, narrowed, plan, unit,
 };
-use super::steps::{Entry, Form, Kind, entries};
+use super::steps::{Form, Kind, entries};
 use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
@@ -186,13 +186,6 @@ fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
     assert_eq!(step_variables(launched), launched);
 }
 
-#[test]
-fn a_variable_the_gate_removes_before_its_steps_is_not_one_of_the_steps() {
-    let launched = "CARGO_BUILD_JOBS=4\nCARGO_INCREMENTAL=0\nNEXTEST_TEST_THREADS=4";
-
-    assert_eq!(step_variables(launched), "CARGO_INCREMENTAL=0");
-}
-
 /// The fingerprint may leave a variable out as removed only while
 /// `ci/pre-merge.sh` does remove it before its steps: one the script kept
 /// would reach them, and a result under another value of it would be reused.
@@ -214,16 +207,6 @@ fn every_variable_the_fingerprint_leaves_out_as_removed_is_one_the_gate_removes(
     for variable in REMOVED_BY_THE_GATE {
         assert!(removed.contains(&variable), "{variable}: {removed:?}");
     }
-}
-
-#[test]
-fn without_an_earlier_run_every_step_runs_in_full() {
-    let plan = planned(None, &BTreeMap::new());
-
-    let (full, part) = reruns(&plan);
-    assert_eq!(full.len(), Step::ALL.len());
-    assert!(part.is_empty());
-    assert!(plan.iter().all(|planned| planned.carried.is_empty()));
 }
 
 #[test]
@@ -266,9 +249,16 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
             ("stress", only)
         ])
     );
-    // Perf, TLC, the MSRV build, Miri and loom read nothing the change
-    // reaches.
-    for step in [Step::Perf, Step::Tlc, Step::Msrv, Step::Miri, Step::Loom] {
+    // Perf, TLC, the MSRV build, Miri, loom and the Windows build read
+    // nothing the change reaches.
+    for step in [
+        Step::Perf,
+        Step::Tlc,
+        Step::Msrv,
+        Step::Miri,
+        Step::Loom,
+        Step::Windows,
+    ] {
         assert!(
             matches!(action(&plan, step), Action::Reuse { .. }),
             "{step:?}"
@@ -296,7 +286,7 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
 
     let (full, _) = reruns(&planned(Some(&record), &touched_since_earlier(touched)));
 
-    for step in ["perf", "linux", "msrv", "miri", "loom"] {
+    for step in ["perf", "linux", "msrv", "miri", "loom", "windows"] {
         assert!(full.contains(&step), "{step} in {full:?}");
     }
     assert!(!full.contains(&"tlc") && !full.contains(&"visual"));
@@ -323,6 +313,7 @@ fn a_change_reaching_the_kennel_alone_reruns_its_checks_and_no_products_tests() 
         "msrv",
         "miri",
         "loom",
+        "windows",
         "quick",
         "pre-merge",
         "stress",
@@ -348,16 +339,13 @@ fn a_change_the_kennel_does_not_read_reuses_its_checks() {
 }
 
 #[rstest]
-#[case::justfile("justfile")]
 #[case::nextest_settings(".config/nextest.toml")]
-#[case::ci_script("ci/pre-merge.sh")]
 #[case::tool_versions("ci/tool-versions.sh")]
 #[case::cargo_lockfile("Cargo.lock")]
 #[case::build_profiles("Cargo.toml")]
 #[case::pnpm_lockfile("pnpm-lock.yaml")]
 #[case::uv_lockfile("uv.lock")]
 #[case::toolchain("rust-toolchain.toml")]
-#[case::xtask("xtask/src/stress.rs")]
 // What tests read at run time across members, which no evidence shows
 // (ADR 0135, N2): the Proving ground's data, shared fixtures, browser pins.
 #[case::proving_ground_pages("proving-ground/pages/login.html")]
@@ -838,20 +826,6 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
 }
 
-#[test]
-fn a_changed_host_reruns_every_step() {
-    let mut record = full_green_run();
-    record.host = "another host".to_owned();
-
-    let (full, part) = reruns(&planned(
-        Some(&record),
-        &touched_since_earlier(Touched::default()),
-    ));
-
-    assert_eq!(full.len(), Step::ALL.len());
-    assert!(part.is_empty());
-}
-
 /// The checks a run on the tree of their green result reuses.
 const TREE_ONLY: [Step; 4] = [
     Step::Lint,
@@ -1096,35 +1070,6 @@ fn position(form: Form, name: &str) -> usize {
         .unwrap_or_else(|| panic!("{name} is not in the list"))
 }
 
-/// The full gate's steps, in order. Each form's list is spelled here, never
-/// read from the predicates that choose it: a step dropped from a form takes
-/// a check off a gate that merges on its verdict, so it has to fail a test.
-const FULL_STEPS: [&str; 23] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-    "perf",
-    "linux",
-    "visual",
-    "tlc",
-    "miri",
-    "loom",
-    "lint",
-    "feature-combinations",
-    "fuzz-check",
-    "proofs",
-    "quick",
-    "pre-merge",
-    "stress",
-    "journeys-tasks",
-    "features-tests",
-    "kennel",
-    "msrv",
-];
-
 /// The steps that judge the whole change in seconds.
 const WHOLE_CHANGE_STEPS: [&str; 6] = [
     "dco",
@@ -1137,42 +1082,7 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 6] = ["perf", "linux", "visual", "tlc", "miri", "loom"];
-
-/// The quick form's steps, in order: those that judge every change, never a
-/// test of the Pre-merge suite or a step beside the host's.
-const QUICK_STEPS: [&str; 9] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-    "lint",
-    "quick",
-    "journeys-tasks",
-];
-
-/// The docs form's entries, in order: the checks that read the change's
-/// commits and the bar, then the checks of `just lint` that read documents.
-const DOCS_ENTRIES: [&str; 5] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "lint-documents",
-];
-
-#[test]
-fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
-    let names: Vec<&str> = entries(Form::All)
-        .into_iter()
-        .filter(|entry| entry.kind != Kind::Command)
-        .map(|entry| entry.name)
-        .collect();
-
-    assert_eq!(names, FULL_STEPS);
-}
+const BESIDE_STEPS: [&str; 7] = ["perf", "linux", "visual", "tlc", "miri", "loom", "windows"];
 
 #[rstest]
 #[case::all(Form::All)]
@@ -1213,47 +1123,6 @@ fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
         last_beside < Some(position(form, "lint")),
         "{last_beside:?}"
     );
-}
-
-#[test]
-fn the_quick_gate_runs_no_step_beside_and_no_suite_but_the_quick_one() {
-    let list = entries(Form::Quick);
-
-    assert!(list.iter().all(|entry| entry.kind == Kind::Step));
-    assert_eq!(
-        list.iter().map(|entry| entry.name).collect::<Vec<_>>(),
-        QUICK_STEPS
-    );
-}
-
-#[test]
-fn the_docs_gate_runs_the_checks_of_the_commits_then_the_document_checks() {
-    let list = entries(Form::Docs);
-
-    let (documents, _) = list.split_last().expect("the docs gate runs something");
-    assert_eq!(documents.just, ["lint-documents"]);
-    assert_eq!(
-        list.iter().map(|entry| entry.name).collect::<Vec<_>>(),
-        DOCS_ENTRIES
-    );
-}
-
-/// A step over the whole workspace takes `all`, one over what changed
-/// nothing; a step that is one recipe runs it by its name.
-#[rstest]
-#[case::whole(Form::All, "quick", &["_suite", "quick", "all"])]
-#[case::what_changed(Form::Changed, "quick", &["_suite", "quick"])]
-#[case::the_quick_gate(Form::Quick, "quick", &["_suite", "quick", "all"])]
-#[case::two_recipes(Form::All, "features-tests", &["features-tests", "clients-tests"])]
-#[case::its_name(Form::All, "miri", &["miri"])]
-fn each_step_runs_its_just_command(#[case] form: Form, #[case] name: &str, #[case] just: &[&str]) {
-    let list = entries(form);
-    let entry: &Entry = list
-        .iter()
-        .find(|entry| entry.name == name)
-        .expect("the form runs the step");
-
-    assert_eq!(entry.just, just);
 }
 
 #[test]

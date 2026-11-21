@@ -155,14 +155,29 @@ fn received(wakes: &mut broadcast::Receiver<Wake>) -> Vec<String> {
         .collect()
 }
 
-/// Waits for the next wake `wakes` receives, at most a few seconds.
+/// Waits for the next wake `wakes` receives, at most [`WAKE_WITHIN`] of
+/// real time. A wake crosses a real socket, or a named pipe on Windows, so
+/// a blocking task holds the paused clock still meanwhile (TESTING.md,
+/// Time): otherwise the runtime, idle while the wake is on its way, moves
+/// the clock past the timeout before the wake arrives. The task lets the
+/// clock go once the wake arrives or [`WAKE_WITHIN`] passes, and the
+/// timeout then ends a wait no wake answered.
 async fn next_wake(wakes: &mut broadcast::Receiver<Wake>) -> String {
-    let wake = tokio::time::timeout(Duration::from_secs(10), wakes.recv())
-        .await
-        .expect("a wake arrives")
-        .unwrap();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "holding the paused clock still is the blocking task's whole job (TESTING.md, Time)"
+    )]
+    let holding = tokio::task::spawn_blocking(move || released.recv_timeout(WAKE_WITHIN));
+    let wake = tokio::time::timeout(WAKE_WITHIN, wakes.recv()).await;
+    drop(release);
+    holding.await.unwrap().unwrap_err();
+    let wake = wake.expect("a wake arrives").unwrap();
     format!("{}@{}", wake.run_id, wake.key)
 }
+
+/// How long [`next_wake`] waits for a wake.
+const WAKE_WITHIN: Duration = Duration::from_secs(10);
 
 fn run<T>(test: impl AsyncFnOnce(&TaskOwner) -> T) -> T {
     goodfetch_test_support::runtime().block_on(async {

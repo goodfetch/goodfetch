@@ -7,10 +7,14 @@ use goodfetch_protocol::page::read::PageField;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{Answer, answer_of};
+use super::{Answer, answer_of, argument};
 
 fn declared(fields: Value) -> BTreeMap<String, PageField> {
     serde_json::from_value(fields).unwrap()
+}
+
+fn css(selector: &str) -> Value {
+    json!({ "kind": "css", "selector": selector })
 }
 
 fn element(tag: &str, text: &str) -> FieldElement {
@@ -94,4 +98,65 @@ fn an_answer_the_page_never_gives_reads_as_none(#[case] answer: Value) {
     }));
 
     assert_eq!(answer_of(&answer, &fields), None);
+}
+
+/// A field with no `fallbacks` sends its one locator, as before; a ladder
+/// (issue 1972) sends one entry per rung under the field's name, a row's
+/// field one per rung under its rows, so the page function reads every
+/// rung as it reads one locator.
+#[test]
+fn a_ladder_sends_one_entry_per_rung_and_a_field_without_one_its_locator() {
+    let fields = declared(json!({
+        "names": { "list": { "locator": css("li b"), "fallbacks": [css("li a")] } },
+        "offers": {
+            "rows": css("tr"),
+            "fields": {
+                "price": { "locator": css(".cost"), "fallbacks": [css(".price")] },
+                "seller": { "locator": css(".seller") },
+            },
+        },
+        "title": { "locator": css("h1") },
+    }));
+
+    assert_eq!(
+        argument(&fields),
+        json!({ "fields": [
+            { "name": "names", "kind": "list", "locator": css("li b") },
+            { "name": "names", "kind": "list", "locator": css("li a") },
+            { "name": "offers", "kind": "rows", "locator": css("tr"), "fields": [
+                { "name": "price", "locator": css(".cost") },
+                { "name": "price", "locator": css(".price") },
+                { "name": "seller", "locator": css(".seller") },
+            ] },
+            { "name": "title", "kind": "one", "locator": css("h1") },
+        ] })
+    );
+}
+
+/// The page's answer to a ladder holds one find per rung, which the
+/// extractor reads; an answer holding one find for a field of two rungs is
+/// one the page never gives.
+#[test]
+fn a_ladders_answer_holds_one_find_per_rung() {
+    let fields = declared(json!({
+        "title": { "locator": css("h2"), "fallbacks": [css("h1")] },
+    }));
+    let answer = |found: Value| json!({ "baseUrl": "https://example.test/", "found": found });
+
+    assert_eq!(
+        (
+            answer_of(
+                &answer(json!([null, answered_element("h1", "Title")])),
+                &fields
+            ),
+            answer_of(&answer(json!([answered_element("h1", "Title")])), &fields),
+        ),
+        (
+            Some(Answer::Found {
+                base_url: "https://example.test/".to_owned(),
+                found: vec![Found::One(None), Found::One(Some(element("h1", "Title")))],
+            }),
+            None,
+        )
+    );
 }

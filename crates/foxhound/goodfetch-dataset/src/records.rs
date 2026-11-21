@@ -13,16 +13,17 @@
 //! a Sink share, which [`Pages`] reads a page at a time.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::StoredTime;
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
-use goodfetch_protocol::run::PointInTime;
-use rusqlite::Connection;
+use rusqlite::{Connection, ToSql as _};
 
 use crate::rejections::{self, Rejection};
 
@@ -86,7 +87,7 @@ pub struct Committing<'a> {
     /// The crawl request's URL.
     pub url: &'a str,
     /// When the attempt commits.
-    pub at: &'a PointInTime,
+    pub at: &'a SystemTime,
     /// The Provenance of each Record it commits.
     pub provenance: &'a RecordProvenance,
     /// The engine's masks, which hold the values the Run resolved.
@@ -121,6 +122,9 @@ pub fn commit(
         &serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
         Scope::Kept,
     );
+    // The commit's time, written once for all of its Records.
+    let committed_at = StoredTime(*committing.at);
+    let committed_at = committed_at.to_sql()?;
     let mut counted: Vec<DatasetRecords> = Vec::new();
     let work = committing.work;
     for (record, schema_hash) in records.records.iter().zip(&records.schema_hashes) {
@@ -131,7 +135,7 @@ pub fn commit(
             &record.dataset,
             committing.request_id,
             committing.url,
-            committing.at.as_str(),
+            &committed_at,
             masks.json(&record.data, Scope::Kept),
             schema_hash.as_deref(),
             &provenance,
@@ -465,7 +469,7 @@ pub(crate) fn dataset_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<Datase
         value,
         request_id: row.get(2)?,
         url: row.get(3)?,
-        committed_at: PointInTime::from_rfc3339(row.get(4)?),
+        committed_at: row.get::<_, StoredTime>(4)?.0,
         provenance,
     })
 }

@@ -274,19 +274,6 @@ pub fn find_project(folder: &Path) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-/// Reads the project configuration at `path`, on an engine of `engine`.
-/// Blocking.
-///
-/// # Errors
-///
-/// As [`SettingsFiles::load`].
-pub fn load_project(path: &Path, engine: Product) -> Result<Values, SettingsError> {
-    match read(path, SettingsLayer::ProjectConfiguration)? {
-        Some(text) => configuration(SettingsLayer::ProjectConfiguration, &text, engine),
-        None => Ok(Values::default()),
-    }
-}
-
 /// Reads user configuration's text, on an engine of `engine` at the Product
 /// version `version`, whose minor must meet the file's lowest minor (ADR
 /// 0098).

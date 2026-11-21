@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use goodfetch_counted_work::Row;
+use goodfetch_engine::Params;
 use goodfetch_engine::metrics::Metrics;
+use serde_json::Value;
 
 use crate::message_scenario::{self as scenario, Logs, Plant, Sent, Traffic};
 
@@ -23,7 +25,13 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, u64, Sent) {
     let work = metrics.counted_work().clone();
     let plant = planted.map(|row| {
         let work = work.clone();
-        Arc::new(move |_: goodfetch_engine::Params<'_>| work.count(row)) as Plant
+        match row {
+            // One more read of the call's params, which counts itself.
+            Row::MessageDecodes => {
+                Arc::new(|params: Params<'_>| drop(params.read::<Value>())) as Plant
+            }
+            _ => Arc::new(move |_: Params<'_>| work.count(row)) as Plant,
+        }
     });
     let sent = scenario::run(TRAFFIC, logs, metrics, plant, home.path());
     (
@@ -74,8 +82,8 @@ fn every_message_is_read_without_a_copy_and_encoded_once() {
 /// the type the request's handler takes, `hello`'s among them (ADR 0140's
 /// E1): dispatch takes their `_meta` and the Run and Session IDs its span
 /// names from that pass. A `$/credit` and a reply to a handler request are
-/// no request and count none; a plant adds one for each call that went
-/// through a handler.
+/// no request and count none; a plant that reads each handled call's
+/// params once more adds one decode for each.
 #[test]
 fn each_decode_of_a_requests_params_is_counted() {
     let requests = u64::try_from(TRAFFIC.requests()).unwrap();

@@ -354,3 +354,112 @@ fn a_unit_whose_fingerprint_a_build_has_not_written_yet_stays() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert!(exists(&workspace, &output));
 }
+
+/// More free bytes than any file system has: a target is always under it.
+const ALWAYS_UNDER: &str = "1000000000";
+
+/// Reads each fingerprint file of a unit, as a build checking it does.
+fn read_fingerprint(workspace: &Workspace, profile: &str, name: &str, hash: &str) {
+    let folder = workspace
+        .path()
+        .join(format!("{profile}/.fingerprint/{name}-{hash}"));
+    for entry in std::fs::read_dir(folder).unwrap() {
+        std::fs::read(entry.unwrap().path()).unwrap();
+    }
+}
+
+/// Under `--free-gb`, a target whose file system has less free than the line
+/// loses the units no build read longest ago, keeping each one a build may
+/// have read within `--keep-hours`: with no re-arm yet, `relatime` may lag a
+/// day, so a unit read five hours ago stays as well.
+#[test]
+fn under_the_free_space_line_what_no_build_read_within_the_keep_hours_goes() {
+    let workspace = Workspace::from_fixture("empty");
+    let old = library(&workspace, "target/debug", "old", DEAD, 30);
+    let recent = library(&workspace, "target/debug", "recent", LIVE, 5);
+    let orphan = format!("target/debug/deps/liborphan-{ORPHAN}.rlib");
+    workspace.write(&orphan, b"orphan");
+
+    let outcome = sweep(
+        &workspace,
+        &["--free-gb", ALWAYS_UNDER, "--keep-hours", "3"],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(old.iter().all(|file| !exists(&workspace, file)));
+    assert!(!exists(&workspace, &orphan));
+    assert!(recent.iter().all(|file| exists(&workspace, file)));
+    assert!(
+        outcome.stdout.contains("no build read in the last 3 h")
+            && outcome.stdout.contains(&format!("line {ALWAYS_UNDER} GB")),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn at_or_over_the_free_space_line_nothing_goes() {
+    let workspace = Workspace::from_fixture("empty");
+    let old = library(&workspace, "target/debug", "old", DEAD, 72);
+
+    let outcome = sweep(&workspace, &["--free-gb", "0"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(old.iter().all(|file| exists(&workspace, file)));
+}
+
+/// Each `--free-gb` run re-arms the access times of the units it keeps, so
+/// the next read is recorded at once instead of up to a day late: a unit
+/// unread since a re-arm goes once the keep window has passed it, and one
+/// read since stays.
+#[test]
+fn a_unit_re_armed_then_unread_goes_and_one_read_since_stays() {
+    let workspace = Workspace::from_fixture("empty");
+    let idle = library(&workspace, "target/debug", "idle", DEAD, 0);
+    let busy = library(&workspace, "target/debug", "busy", LIVE, 0);
+    // Read once after their last change, as a build does: `relatime` now
+    // records no later read of them for a day.
+    let tick = Duration::from_millis(50);
+    std::thread::sleep(tick);
+    read_fingerprint(&workspace, "target/debug", "idle", DEAD);
+    read_fingerprint(&workspace, "target/debug", "busy", LIVE);
+    std::thread::sleep(tick);
+    let armed = sweep(&workspace, &["--free-gb", "0"]);
+    assert_eq!(armed.code, 0, "{}", armed.stderr);
+    std::thread::sleep(tick);
+    read_fingerprint(&workspace, "target/debug", "busy", LIVE);
+
+    let outcome = sweep(
+        &workspace,
+        &["--free-gb", ALWAYS_UNDER, "--keep-hours", "0"],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(idle.iter().all(|file| !exists(&workspace, file)));
+    assert!(busy.iter().all(|file| exists(&workspace, file)));
+}
+
+/// Under the line, a profile a Cargo process holds is left whole too.
+#[test]
+fn under_the_free_space_line_a_profile_a_cargo_process_has_locked_is_left_whole() {
+    let workspace = Workspace::from_fixture("empty");
+    let dead = library(&workspace, "target/debug", "old", DEAD, 72);
+    workspace.write("target/debug/.cargo-lock", b"");
+    let lock = File::options()
+        .write(true)
+        .open(workspace.path().join("target/debug/.cargo-lock"))
+        .unwrap();
+    lock.lock().unwrap();
+
+    let outcome = sweep(&workspace, &["--free-gb", ALWAYS_UNDER]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(dead.iter().all(|file| exists(&workspace, file)));
+    assert!(
+        outcome
+            .stdout
+            .contains("left whole, a Cargo process holds its .cargo-lock"),
+        "{}",
+        outcome.stdout
+    );
+}

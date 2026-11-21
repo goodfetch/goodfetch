@@ -330,6 +330,13 @@ fn value_invalid(key: String, reason: ValueInvalidReason) -> CallError {
             ),
             "Read it with `get`, which answers the JSON value.",
         ),
+        // The SDKs' own refusals, before sending or after reading (ADR
+        // 0082): the engine receives only JSON and no schema for a key.
+        ValueInvalidReason::ValueNotJson | ValueInvalidReason::ValueSchema => (
+            Refused::Value,
+            format!("The Key-value store refused the value of {key:?}."),
+            "Store a JSON value the call's schema accepts.",
+        ),
         ValueInvalidReason::KeyEmpty => (
             Refused::Key,
             "The Key-value store refused an empty key.".to_owned(),
@@ -355,6 +362,7 @@ fn value_invalid(key: String, reason: ValueInvalidReason) -> CallError {
             key,
             refused,
             reason,
+            path: None,
             fix: fix.to_owned(),
         },
     )

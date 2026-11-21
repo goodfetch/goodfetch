@@ -2,11 +2,13 @@
 //! Product's executable run as `attached-engine` under the test's
 //! environment, its stdout read through `StrictStdout`, so a log line there
 //! fails the test, and each message it sends read as one of the protocol's
-//! (ADR 0038). When it ends without exiting by itself, killed or left to the
-//! test's teardown, it records the calls it read answered in the test's
+//! (ADR 0038). When it is killed or dropped while it runs rather than
+//! ended by the test, it records the calls it read answered in the test's
 //! answer record: the killed engine's log loses the dispatch records its
 //! writer's thread had not written yet (ADR 0122), which the exercise audit
-//! reads (#1779).
+//! reads (#1779). Dropped while it runs, its input ends and the drop waits,
+//! up to the message deadline, for it to exit, so the test's teardown finds
+//! it gone (ADR 0069).
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -359,6 +361,17 @@ impl Attached {
 
 impl Drop for Attached {
     fn drop(&mut self) {
+        // An Attached engine exits once its input ends and its Connection
+        // closes. Dropped while it runs, it is waited for here, up to the
+        // message deadline, so the test's teardown does not race its exit
+        // (issue 2805). One still running then is left to the teardown,
+        // which stops it and fails the test (ADR 0069). A test already
+        // panicking skips the wait: its teardown stops what still runs.
+        drop(self.stdin.take());
+        if !std::thread::panicking() {
+            // Best effort: a wait that fails leaves the engine to the teardown.
+            let _ = self.process.wait_within(MESSAGE_DEADLINE);
+        }
         // A folder already gone means the test's teardown ran, copying the
         // record that nothing can add to any more.
         if self.exited || !self.folder.is_dir() {

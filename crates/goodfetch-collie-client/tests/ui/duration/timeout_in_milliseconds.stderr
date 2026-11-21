@@ -1,0 +1,13 @@
+error[E0308]: mismatched types
+ --> tests/ui/duration/timeout_in_milliseconds.rs:4:60
+  |
+4 |     let _goto = page.goto("https://example.test/").timeout(30_000);
+  |                                                    ------- ^^^^^^ expected `Duration`, found integer
+  |                                                    |
+  |                                                    arguments to this method are incorrect
+  |
+note: method defined here
+ --> src/call.rs
+  |
+  |     pub fn timeout(mut self, timeout: Duration) -> Self {
+  |            ^^^^^^^

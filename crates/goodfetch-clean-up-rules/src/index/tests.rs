@@ -112,31 +112,24 @@ fn candidates_of(selectors: &[&str], element: &str) -> Vec<String> {
 }
 
 #[rstest]
-#[case::an_equal_value(r#"[href="/sites/16/2"]"#, true)]
-#[case::an_equal_value_of_another_case(r#"[href="/SITES/16/2"]"#, true)]
-#[case::another_value(r#"[href="/sites/16/3"]"#, false)]
-#[case::a_prefix(r#"a[href^="/sites/"]"#, true)]
-#[case::another_prefix(r#"a[href^="https://ads.example/"]"#, false)]
-#[case::a_suffix(r#"[href$="16/2"]"#, true)]
-#[case::another_suffix(r#"[href$=".gif"]"#, false)]
-#[case::a_substring(r#"[href*="es/1"]"#, true)]
-#[case::another_substring(r#"[href*="&maxads="]"#, false)]
-#[case::a_word("[href~=Sites]", true)]
-#[case::a_dash_match("[href|='/sites']", true)]
-#[case::another_attributes_value(r#"[title="/sites/16/2"]"#, false)]
-#[case::the_attribute_alone("[href]", true)]
+#[case::an_equal_value(r#"[href="/sites/16/2"]"#, &[r#"[href="/sites/16/2"]"#])]
+#[case::an_equal_value_of_another_case(r#"[href="/SITES/16/2"]"#, &[r#"[href="/SITES/16/2"]"#])]
+#[case::another_value(r#"[href="/sites/16/3"]"#, &[])]
+#[case::a_prefix(r#"a[href^="/sites/"]"#, &[r#"a[href^="/sites/"]"#])]
+#[case::another_prefix(r#"a[href^="https://ads.example/"]"#, &[])]
+#[case::a_suffix(r#"[href$="16/2"]"#, &[r#"[href$="16/2"]"#])]
+#[case::another_suffix(r#"[href$=".gif"]"#, &[])]
+#[case::a_substring(r#"[href*="es/1"]"#, &[r#"[href*="es/1"]"#])]
+#[case::another_substring(r#"[href*="&maxads="]"#, &[])]
+#[case::a_word("[href~=Sites]", &["[href~=Sites]"])]
+#[case::a_dash_match("[href|='/sites']", &["[href|='/sites']"])]
+#[case::another_attributes_value(r#"[title="/sites/16/2"]"#, &[])]
+#[case::the_attribute_alone("[href]", &["[href]"])]
 fn an_element_is_tested_against_the_attribute_rules_its_value_could_match(
     #[case] selector: &str,
-    #[case] tested: bool,
+    #[case] expected: &[&str],
 ) {
     let candidates = candidates_of(&[selector], r#"<a href="/Sites/16/2">A page</a>"#);
 
-    assert_eq!(
-        candidates,
-        if tested {
-            vec![selector.to_owned()]
-        } else {
-            vec![]
-        }
-    );
+    assert_eq!(candidates, expected);
 }

@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 use crate::affected::{commit_all, repository, value};
 use crate::github::GitHub;
-use rstest::rstest;
 
 #[cfg(unix)]
 use crate::workspace::write_executable;
@@ -49,6 +48,7 @@ fn plan_with(workspace: &Workspace, records: &Path, environment: &str, extra: &[
 
 /// The plan for the head checked out, as `xtask gate plan` prints it and
 /// `ci/pre-merge.sh` reads it.
+#[cfg(unix)]
 pub(crate) fn plan_text(workspace: &Workspace, records: &Path) -> String {
     planned(workspace, records, "CI=", &[]).stdout
 }
@@ -470,10 +470,13 @@ const SHUFFLED: [&str; 4] = [
 #[case::ci_perf("ci/perf.sh", &["perf"], false)]
 #[case::ci_linux("ci/linux.sh", &["linux"], false)]
 #[case::ci_visual("ci/visual/run.sh", &["visual"], false)]
-#[case::ci_container("ci/container.sh", &["linux", "perf", "visual"], false)]
+#[case::ci_container("ci/container.sh", &["linux", "perf", "visual", "windows"], false)]
 #[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
 #[case::ci_miri("ci/miri.toml", &["miri"], false)]
 #[case::ci_loom("ci/loom.toml", &["loom"], false)]
+#[case::ci_windows("ci/windows.sh", &["windows"], false)]
+#[case::ci_windows_image("ci/windows/Containerfile", &["windows"], false)]
+#[case::ci_windows_skips("ci/windows/skips.toml", &["windows"], false)]
 fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
     #[case] path: &str,
     #[case] steps: &[&str],
@@ -531,7 +534,9 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
         second.why["pre-merge"]
     );
     // Its evidence reaches xtask's tests alone, which no crate depends on.
-    for step in ["perf", "msrv", "miri", "loom", "tlc", "visual", "kennel"] {
+    for step in [
+        "perf", "msrv", "miri", "loom", "windows", "tlc", "visual", "kennel",
+    ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }
@@ -780,7 +785,7 @@ fn a_run_in_another_environment_reuses_nothing() {
 /// version is not reused with it at another, whichever step ran it. A
 /// stand-in first on `PATH` (and before Cargo's own folder, where Cargo
 /// looks for its subcommands) gives the other version.
-#[rstest]
+#[rstest::rstest]
 #[case::just("just")]
 #[case::rustups_toolchains("rustup")]
 #[case::typos("typos")]
@@ -826,6 +831,7 @@ fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
 
 /// `PATH` with `folder` first, then Cargo's own folder, where Cargo looks
 /// for its subcommands before `PATH`, then the host's.
+#[cfg(unix)]
 fn path_starting_with(folder: &Path) -> std::ffi::OsString {
     let cargo_home = std::env::var_os("CARGO_HOME").map_or_else(
         || Path::new(&std::env::var_os("HOME").unwrap()).join(".cargo"),
@@ -1501,7 +1507,9 @@ fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_wha
     suites.insert("xtask".to_owned());
     assert_eq!(members(&second, "quick"), suites);
     assert_eq!(members(&second, "pre-merge"), suites);
-    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri", "loom"] {
+    for step in [
+        "perf", "visual", "tlc", "kennel", "msrv", "miri", "loom", "windows",
+    ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }

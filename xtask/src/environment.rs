@@ -1,11 +1,16 @@
 //! What every command reads from its process, which `main` alone gathers
 //! (ADR 0059): the workspace's folder, the Cargo that runs `xtask`,
-//! GitHub's token, whether the host has a LazyFS build, the Goodfetch
+//! GitHub's token, whether the host has a LazyFS build, the cap on a counts
+//! benchmark's Callgrind processes, the Goodfetch
 //! variables a measured executable must not inherit and the bytes the
 //! environment takes in a child's arguments area.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+
+/// The variable a benchmark reads its cap on the Callgrind processes it runs
+/// at once from: test support's `callgrind::bounded` reads it (#2520).
+pub(crate) const CALLGRIND_AT_ONCE_VARIABLE: &str = "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE";
 
 pub(crate) struct Environment {
     /// The names of the process's `GOODFETCH_*` variables, which a
@@ -24,6 +29,9 @@ pub(crate) struct Environment {
     /// Whether `GOODFETCH_LAZYFS` names a LazyFS build, as `just
     /// lazyfs-test` sets it on Linux.
     pub(crate) lazyfs: bool,
+    /// `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, as given: the cap on the
+    /// Callgrind processes a counts benchmark runs at once (#2520).
+    pub(crate) callgrind_at_once: Option<OsString>,
     /// Whether `CI` is set: CI runs every part, so a missing tool fails
     /// there rather than listing its part as skipped (ADR 0061).
     pub(crate) ci: bool,
@@ -47,6 +55,7 @@ impl Environment {
                 .and_then(|token| token.into_string().ok())
                 .filter(|token| !token.is_empty()),
             lazyfs: variable("GOODFETCH_LAZYFS").is_some(),
+            callgrind_at_once: variable(CALLGRIND_AT_ONCE_VARIABLE),
             ci: variable("CI").is_some_and(|value| !value.is_empty()),
             programs: variable("PATH")
                 .map(|path| std::env::split_paths(&path).collect())

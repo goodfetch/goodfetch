@@ -10,6 +10,7 @@
     reason = "tests run on the test Clock (ADR 0059)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
@@ -19,7 +20,6 @@ use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
 use goodfetch_protocol::needs_you::{
     NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams, NeedsYouRemoval, PAGE,
 };
-use goodfetch_protocol::run::PointInTime;
 use rstest::rstest;
 use serde_json::{Map, json};
 use tokio::sync::watch;
@@ -101,7 +101,7 @@ fn item(id: &str, kind: &str, since: &str) -> NeedsYouItem {
     NeedsYouItem {
         id: id.to_owned(),
         kind: kind.to_owned(),
-        since: PointInTime::from_rfc3339(since.to_owned()),
+        since: point_in_time::from_rfc3339(since).unwrap(),
         run: None,
         schedule: None,
         summary: format!("{id} waits"),
@@ -400,7 +400,7 @@ fn an_item_its_source_resolves_leaves_the_list_and_one_that_changes_keeps_its_si
         started.changes(2).await;
 
         let critical = NeedsYouItem {
-            since: PointInTime::from_rfc3339("2026-10-24T10:05:00Z".to_owned()),
+            since: point_in_time::from_rfc3339("2026-10-24T10:05:00Z").unwrap(),
             summary: "disk is critical".to_owned(),
             ..low.clone()
         };

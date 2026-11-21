@@ -38,12 +38,12 @@ function colliePage(opened: CollieDriverPage): DriverPage {
   return {
     async goto(url) {
       const navigated = await opened.goto(url);
-      return navigated.response?.status ?? null;
+      return navigated?.status ?? null;
     },
     async step(step) {
       if (step.action === "read") {
         const evaluated = await opened.evaluate(READ);
-        return readText(evaluated.value);
+        return readText(evaluated);
       }
       const target = opened.locator(step.selector);
       if (step.action === "click") await target.click();

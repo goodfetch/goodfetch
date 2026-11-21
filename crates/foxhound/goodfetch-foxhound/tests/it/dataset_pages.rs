@@ -102,7 +102,7 @@ fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_co
     let mut live = Value::Null;
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "listed", "seeds": seeds(&site, 3), "datasets": declared(), "settings": at_full() }),
+        &json!({ "run_id": "listed", "seeds": seeds(&site, 3), "datasets": declared(), "settings": at_full(), "labels": { "page": {} } }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n == 3 {
@@ -172,7 +172,7 @@ fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
     let mut pages: Vec<Value> = Vec::new();
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "paged", "seeds": seeds(&site, 20), "datasets": declared(), "settings": at_full() }),
+        &json!({ "run_id": "paged", "seeds": seeds(&site, 20), "datasets": declared(), "settings": at_full(), "labels": { "page": {} } }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n >= 9
@@ -254,7 +254,7 @@ fn filters_sorts_and_columns_run_in_the_engine() {
     ];
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "filtered", "seeds": seeds(&site, 1), "datasets": declared() }),
+        &json!({ "run_id": "filtered", "seeds": seeds(&site, 1), "datasets": declared(), "labels": { "page": {} } }),
         &mut |inside, handle| {
             for book in &books {
                 push(inside, handle, "books", book);

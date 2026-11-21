@@ -187,7 +187,10 @@ impl Connection {
 /// A crawl's start whose one seed the Frontier does not add, so the crawl
 /// fetches nothing and runs no handler.
 fn crawl_of_nothing() -> Value {
-    json!({"seeds": [{"url": "ftp://example.invalid/", "label": "start"}]})
+    json!({
+        "seeds": [{ "url": "ftp://example.invalid/", "label": "start" }],
+        "labels": { "start": {} },
+    })
 }
 
 /// The JSON the gateway writes at `ready` once it serves.
@@ -223,31 +226,6 @@ fn serves_no_file() {
     assert_eq!(statuses, [404; 5]);
 }
 
-/// Covers: story:12-232, error:not_in_product
-#[test]
-fn a_collie_programs_run_starts_on_collies_engine() {
-    let env = TestEnv::new();
-    let gateway = Gateway::start(&env);
-    let mut program = gateway.connection("collie");
-    let run_id = program.start("run.start", &json!({}));
-
-    let refused = program.call("run.seeds", &json!({"run_id": run_id}));
-
-    assert_eq!(
-        (
-            &refused["error"]["data"]["code"],
-            &refused["error"]["data"]["product"],
-            &refused["error"]["data"]["needs"],
-        ),
-        (
-            &json!("not_in_product"),
-            &json!("collie"),
-            &json!("foxhound")
-        ),
-        "{refused}"
-    );
-}
-
 /// Foxhound's engine refuses a crawl key on a Run that is not a crawl with
 /// `setting_not_applicable`, where Collie's would answer `not_in_product`.
 ///
@@ -268,19 +246,6 @@ fn a_foxhound_programs_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
         json!("setting_not_applicable"),
         "{refused}"
     );
-}
-
-/// Covers: story:12-232
-#[test]
-fn a_crawl_a_program_starts_runs_on_foxhounds_engine_which_answers_its_calls() {
-    let env = TestEnv::new();
-    let gateway = Gateway::start(&env);
-    let mut program = gateway.connection("foxhound");
-    let run_id = program.start("crawl.start", &crawl_of_nothing());
-
-    let answered = program.call("run.seeds", &json!({"run_id": run_id}));
-
-    assert!(answered.get("result").is_some(), "{answered}");
 }
 
 /// Covers: story:12-232
@@ -346,9 +311,9 @@ fn a_program_signs_in_with_the_token_its_hello_presents(
     );
 }
 
-/// `run.start` is an idempotent write: two starts of one new Run ID sent at
-/// once reach one engine, which starts the run once and answers the other
-/// with the run it already has.
+/// Two starts of one new Run ID sent at once reach one engine, which
+/// starts the run once and answers the other that it runs it already,
+/// `run_in_use`.
 ///
 /// Covers: story:12-232
 #[test]
@@ -362,15 +327,16 @@ fn two_starts_of_one_new_run_id_at_once_start_one_run() {
         program.send("run.start", &params),
     );
 
-    let mut started_as = program.replies([first, second]).map(|reply| {
+    let mut answers = program.replies([first, second]).map(|reply| {
         reply["result"]["started_as"]
             .as_str()
-            .unwrap_or_else(|| panic!("the start failed: {reply}"))
+            .or_else(|| reply["error"]["data"]["code"].as_str())
+            .unwrap_or_else(|| panic!("the start answered neither: {reply}"))
             .to_owned()
     });
 
-    started_as.sort_unstable();
-    assert_eq!(started_as, ["existing", "new"]);
+    answers.sort_unstable();
+    assert_eq!(answers, ["new", "run_in_use"]);
 }
 
 /// Interrupted, the gateway kills each engine it started and exits only

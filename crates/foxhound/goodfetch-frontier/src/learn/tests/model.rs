@@ -646,7 +646,7 @@ impl StateMachineTest for Subject {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:6-216, story:6-217, story:6-218, story:6-222
+    /// Covers: story:6-216, story:6-217, story:6-222
     #[test]
     fn learned_rules_merge_and_stop_as_the_reference_model_says_through_kills(
         sequential 1..60 => Subject

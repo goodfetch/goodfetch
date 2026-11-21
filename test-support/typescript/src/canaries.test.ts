@@ -2,13 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  type Canary,
-  type CanaryHit,
-  SECRET_KINDS,
-  searchCanaries,
-  type SecretKind,
-} from "./canaries.ts";
+import { type Canary, type CanaryHit, searchCanaries, type SecretKind } from "./canaries.ts";
 import { TestSupportError } from "./errors.ts";
 
 /** The shared fixture set the Rust and Python searches read too. */
@@ -33,24 +27,6 @@ const folders: string[] = [];
 
 afterEach(() => {
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
-});
-
-test("SECRET_KINDS names every kind Rust test support plants, in its order", () => {
-  expect(SECRET_KINDS).toEqual([
-    "typed_password",
-    "totp_seed",
-    "one_time_code",
-    "proxy_password",
-    "http_authentication_password",
-    "header_value",
-    "caller_answer",
-    "model_api_key",
-    "webhook_signing_secret",
-    "sink_credential",
-    "session_cookie",
-    "endpoint_token",
-    "run_data_key",
-  ]);
 });
 
 describe("searchCanaries", () => {

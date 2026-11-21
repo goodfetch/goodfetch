@@ -4,8 +4,11 @@
 //! launched and its foreground form, and the one a command's Connection
 //! runs on; `governor.blocking_threads` caps their blocking threads. The
 //! runtimes name the two kinds, `gf-worker` and `gf-blocking`, so
-//! `/proc/<pid>/task` tells them apart. Linux only, where `/proc` lists a
-//! process's threads with their names.
+//! `/proc/<pid>/task` tells them apart once their names settle: a new thread
+//! carries the name of the thread that started it until it names itself, so
+//! a blocking thread a worker starts reads as a worker for a moment (issue
+//! 2970), and a test counts the workers with [`workers_once`]. Linux only,
+//! where `/proc` lists a process's threads with their names.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -35,8 +38,9 @@ const WORKER: &str = "gf-worker";
 /// The name of a thread of a runtime's blocking pool.
 const BLOCKING: &str = "gf-blocking";
 
-/// How long a runtime may take to start its workers on a loaded machine; a
-/// test that passes never waits it out.
+/// How long a runtime may take to start its workers, and a thread one of
+/// them started to name itself, on a loaded machine; a test that passes
+/// never waits it out.
 const STARTED: Duration = Duration::from_secs(10);
 
 /// The threads of the process `pid` named `name`, as `/proc/<pid>/task`
@@ -53,7 +57,9 @@ fn threads_named(pid: u32, name: &str) -> usize {
 }
 
 /// The workers of the process `pid` once there are `expected`, or as many
-/// as it had when [`STARTED`] ran out.
+/// as it had when [`STARTED`] ran out. One read is not enough: a blocking
+/// thread a worker just started still carries the worker's name until it
+/// runs and names itself.
 fn workers_once(pid: u32, expected: usize) -> usize {
     let deadline = Instant::now() + STARTED;
     loop {
@@ -71,7 +77,8 @@ fn only_child(pid: u32) -> u32 {
     children.trim().parse().unwrap()
 }
 
-/// One worker a core, as Tokio counts the cores the test may use.
+/// One thread a core, as Tokio and the engine count the cores the test may
+/// use.
 fn per_core() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
@@ -92,7 +99,7 @@ fn an_attached_engine_has_the_workers_the_setting_says(
     let mut engine = Attached::start(&env, COLLIE);
     engine.open(&Hello::needing(Product::Collie));
 
-    let workers = threads_named(engine.pid(), WORKER);
+    let workers = workers_once(engine.pid(), expected);
     engine.finish();
 
     assert_eq!(workers, expected);
@@ -100,13 +107,14 @@ fn an_attached_engine_has_the_workers_the_setting_says(
 
 /// Many calls that each read the Usage ledger on a blocking thread, sent at
 /// once, start no more blocking threads than `governor.blocking_threads`
-/// caps, 4 by default. A blocking thread outlives its work by Tokio's
+/// caps, one a core by default. A blocking thread outlives its work by Tokio's
 /// keep-alive of 10 seconds, longer than the calls take, so the threads
 /// alive once they are answered are every one they started.
 /// Covers: setting:governor.blocking_threads, command:usage.list
 #[rstest]
-#[case::by_default("", 4)]
+#[case::by_default("", per_core())]
 #[case::at_a_count("governor.blocking_threads = 2\n", 2)]
+#[case::per_core("governor.blocking_threads = \"per_core\"\n", per_core())]
 fn blocking_work_never_takes_more_threads_than_the_cap(#[case] settings: &str, #[case] cap: usize) {
     let env = TestEnv::new();
     env.user_configuration(settings);
@@ -232,7 +240,7 @@ fn either_setting_at_0_is_setting_invalid(#[case] key: &str) {
     let mut engine = Attached::start(&env, COLLIE);
     let opened = engine.open(&Hello::needing(Product::Collie));
     let called = engine.ask(1, "config.explain", &json!({ "keys": [key] }));
-    let workers = threads_named(engine.pid(), WORKER);
+    let workers = workers_once(engine.pid(), 2);
     engine.finish();
 
     assert_eq!(
@@ -302,7 +310,7 @@ fn config_explain_shows_both_and_the_operator_policy_locks_them() {
         (shown(&by_default), shown(&locked)),
         (
             vec![
-                json!(["governor.blocking_threads", 4, "default", null]),
+                json!(["governor.blocking_threads", "per_core", "default", null]),
                 json!(["governor.worker_threads", 2, "default", null]),
             ],
             vec![

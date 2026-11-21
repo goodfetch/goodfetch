@@ -8,6 +8,10 @@
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
+//!
+//! Size: one contract, what every Connection speaks whatever its Product:
+//! its opening, its cancel and the Error codes with their details, kept
+//! whole so the codes' details stand beside the calls that answer them.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -23,6 +27,7 @@ use crate::catalog::{
 };
 use crate::jsonrpc::RequestId;
 use crate::log::LogLevel;
+use crate::open_value::UnknownValue;
 use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -112,6 +117,21 @@ impl Surface {
             | Self::Kennel
             | Self::Cloud
             | Self::BrowserHost => false,
+        }
+    }
+
+    /// The form a Client of this surface writes names in when its `hello`
+    /// declares none (ADR 0099): an SDK's own language, the CLI's and the
+    /// MCP server's, TypeScript for a Script sandbox worker, which runs Code
+    /// mode, and the catalog's for every other surface.
+    pub fn form(self) -> Form {
+        match self {
+            Self::SdkTypescript | Self::Worker => Form::Typescript,
+            Self::SdkPython => Form::Python,
+            Self::Rust => Form::Rust,
+            Self::Cli => Form::Cli,
+            Self::Mcp => Form::Tool,
+            Self::Kennel | Self::Cloud | Self::BrowserHost => Form::Catalog,
         }
     }
 
@@ -442,8 +462,8 @@ pub struct HelloParams {
     /// The surface it comes from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Surface,
-    /// The form its user writes names in (ADR 0099); none until each
-    /// surface names its own.
+    /// The form its user writes names in (ADR 0099), which every SDK
+    /// declares; without one, the engine takes its surface's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub form: Option<Form>,
@@ -482,13 +502,20 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub keep_daemon_alive: bool,
+    /// The Connection's own settings, nested by key: the run layer at the
+    /// connection scope, which every Run it starts inherits beneath its
+    /// own (ADR 0083). A key the connection scope does not take is refused
+    /// with `setting_not_applicable`, and the `hello` with it.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 impl HelloParams {
     /// The `hello` every Client builds on: the protocol version this
     /// crate speaks, `surface`, its own `product_version`, and every other
     /// field at its default, no form, token, Product, log level, relayed
-    /// surface or keep-alive, which a caller sets by struct update.
+    /// surface, keep-alive or settings, which a caller sets by struct update.
     pub fn new(surface: Surface, product_version: ProductVersion) -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
@@ -500,6 +527,7 @@ impl HelloParams {
             log_level: None,
             client_surface: None,
             keep_daemon_alive: false,
+            settings: serde_json::Map::new(),
         }
     }
 }
@@ -715,6 +743,30 @@ pub struct DeadlineExceededDetails {
     /// What it waited for, such as `first_byte` or `navigation`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub waited_for: WaitedFor,
+    /// The enclosing call whose timeout ended it, when that call's end came
+    /// before its own (ADR 0080): `limit` is then that call's timeout.
+    /// Absent when its own timeout ended it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub ended_by: Option<EnclosingCall>,
+    /// The last state seen before it ended, such as a navigation under way
+    /// on its page, when the engine saw one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub observed: Option<String>,
+}
+
+/// The enclosing call a timeout belongs to, as `deadline_exceeded`'s
+/// `ended_by` names it (ADR 0080): the calls made inside a call inherit its
+/// end, so none outlasts it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EnclosingCall {
+    /// Its operation, such as `crawl_request.handle`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub operation: String,
+    /// Its request's id on its Connection.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub call_id: RequestId,
 }
 
 /// What a call past its deadline waited for, as `deadline_exceeded` names
@@ -758,6 +810,11 @@ impl WaitedFor {
     pub const RUN_END: Self = Self::named("Run's end");
     /// A Run's next safe point.
     pub const RUN_SAFE_POINT: Self = Self::named("Run's next safe point");
+    /// A call's answer, which an enclosing call's end came before.
+    pub const ANSWER: Self = Self::named("answer");
+    /// The engine's answer to `hello`, which opening a Connection waits
+    /// for within `timeout.connect` (ADR 0083).
+    pub const HELLO: Self = Self::named("hello");
     /// A locator's matches to number what its count allows.
     pub const TARGET_COUNT: Self = Self::named("target_count");
     /// A locator's target to be detached.
@@ -796,22 +853,70 @@ impl fmt::Display for WaitedFor {
     }
 }
 
-/// Who stopped a call (ADR 0113).
+/// Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+/// call the stop cancels names it as its `by` (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {
-    /// A Client, such as through `$/cancel`.
+    /// A Client, through `run.abort`.
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
     Program,
-    /// The browser, outside every Client: a page's window closed there, or
-    /// the browser quit (ADR 0113).
+    /// The browser, outside every Client.
     Browser,
 }
 
-/// What was closed under a call that `call_cancelled` ended (ADR 0113).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Who stopped a call that `call_cancelled` ended (ADR 0113): the
+/// vocabulary of an Agent's `abort` (ADR 0100), plus `browser`. A value a
+/// newer engine adds is kept as received (ADR 0079).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum CancelledBy {
+    /// A person, through a Client that acts for them (ADR 0031).
+    Person,
+    /// Another Client, such as through `$/cancel`.
+    Client,
+    /// The program, closing a parent value from another task or thread.
+    Program,
+    /// The browser, outside every Client: a page's window closed there, or
+    /// the browser quit.
+    Browser,
+    /// Who a newer engine names that this reader does not know, kept as
+    /// received.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl CancelledBy {
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
+    }
+}
+
+/// Whoever stopped a Run stopped the calls in flight under it.
+impl From<StoppedBy> for CancelledBy {
+    fn from(by: StoppedBy) -> Self {
+        match by {
+            StoppedBy::Client => Self::Client,
+            StoppedBy::Program => Self::Program,
+            StoppedBy::Browser => Self::Browser,
+        }
+    }
+}
+
+/// What was closed or stopped under a call that `call_cancelled` ended
+/// (ADR 0113). A value a newer engine adds is kept as received (ADR 0079).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum ClosedValue {
     /// Its page.
     Page,
@@ -819,19 +924,42 @@ pub enum ClosedValue {
     Session,
     /// Its page's browser.
     Browser,
+    /// Its Run, stopped.
+    Run,
+    /// Its Connection.
+    Connection,
+    /// What a newer engine names that this reader does not know, kept as
+    /// received.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
-/// What `call_cancelled` details.
+impl ClosedValue {
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
+    }
+}
+
+/// What `call_cancelled` details (ADR 0113).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CallCancelledDetails {
     /// Who stopped the call.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub by: StoppedBy,
-    /// What was closed under it, when something was rather than the call
-    /// itself cancelled.
+    pub by: CancelledBy,
+    /// What was closed or stopped under it, when something was rather than
+    /// the call itself cancelled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub closed: Option<ClosedValue>,
+    /// Whom the stopping Client acts for (ADR 0031), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub person: Option<String>,
 }
 
 /// A call on a value its program already closed (ADR 0078), raised by the
@@ -839,6 +967,18 @@ pub struct CallCancelledDetails {
 pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "closed",
     description: "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Connection, or a value under it, used in a process other than the one
+/// that opened it, such as a forked child (ADR 0078), raised by the SDK
+/// runtime itself, which leaves the opening process's engine untouched.
+pub const CONNECTION_FORKED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "connection_forked",
+    description: "The call was made in another process than the one that opened its Connection, such as a child created by `fork`: a Connection and every Run, Session or Page under it belong to the process that opened them. Connect in the child process.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -916,12 +1056,43 @@ pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
 /// 0078 and 0079), raised by the SDK runtime.
 pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "engine_exited",
-    description: "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+    description: "The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// The evidence `engine_exited` carries of how the engine ended (ADR
+/// 0078). Each field is always sent: a linked engine, which runs in the
+/// program's own process, has no exit code or signal, both `null`, and no
+/// stderr of its own, an empty tail.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineExitedDetails {
+    /// The engine's exit code; `null` when a signal ended it, or when it
+    /// is linked.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exit_code: Option<i32>,
+    /// The signal that ended it, such as `SIGKILL`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signal: Option<String>,
+    /// The last 64 KiB of its stderr, cut where a character starts.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stderr_tail: String,
+}
+
+impl EngineExitedDetails {
+    /// The evidence when nothing tells how the engine ended, as of a linked
+    /// engine: no exit code, no signal and an empty tail.
+    #[must_use]
+    pub const fn without_evidence() -> Self {
+        Self {
+            exit_code: None,
+            signal: None,
+            stderr_tail: String::new(),
+        }
+    }
+}
 
 /// A Connection to an engine that dropped while a call waited for its
 /// answer (ADRs 0031 and 0079), raised by the Client's own runtime, which
@@ -971,6 +1142,7 @@ pub const ENTRIES: Entries = Entries {
         CALL_CANCELLED,
         DEADLINE_EXCEEDED,
         CLOSED,
+        CONNECTION_FORKED,
         INTERNAL,
         ENGINE_PANICKED,
         CONNECTION_OVERLOADED,

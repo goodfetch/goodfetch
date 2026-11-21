@@ -73,6 +73,15 @@ fn text(contents: &[u8]) -> String {
     }
 }
 
+/// A definition's path, which the plan joins under the fixture home with
+/// the host's separator, written with `/`, so one snapshot serves every
+/// host.
+fn slashed(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 /// Covers: story:3-21
 #[rstest]
 #[case::launchd(ServiceManager::Launchd)]
@@ -88,7 +97,7 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
     let files: Vec<String> = planned
         .files
         .iter()
-        .map(|file| format!("--- {}\n{}", file.path.display(), text(&file.contents)))
+        .map(|file| format!("--- {}\n{}", slashed(&file.path), text(&file.contents)))
         .collect();
     let commands: Vec<String> = planned
         .register
@@ -97,7 +106,13 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
             let arguments: Vec<String> = command
                 .arguments
                 .iter()
-                .map(|argument| argument.to_string_lossy().into_owned())
+                .map(|argument| {
+                    if planned.files.iter().any(|file| file.path == *argument) {
+                        slashed(Path::new(argument))
+                    } else {
+                        argument.to_string_lossy().into_owned()
+                    }
+                })
                 .collect();
             format!("$ {} {}", command.program, arguments.join(" | "))
         })

@@ -12,6 +12,7 @@ export {
 export { ClientCaseRecord } from "./case-log.ts";
 export { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
 export { failure } from "./failure.ts";
+export { recordingLogger } from "./recording-logger.ts";
 export { test, type TestSupportFixtures } from "./fixtures.ts";
 export { locales, timeZones, type TimeZoneCase } from "./locales.ts";
 export {
@@ -52,6 +53,11 @@ export {
 export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
 export { productEnv, scriptedEngineEnv, type Product } from "./product-env.ts";
+export {
+  startScriptedDaemon,
+  type ScriptedDaemon,
+  type ScriptedDaemonMode,
+} from "./scripted-daemon.ts";
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   judgeTask,

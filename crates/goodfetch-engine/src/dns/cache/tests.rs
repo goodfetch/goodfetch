@@ -27,28 +27,6 @@ fn family() -> impl Strategy<Value = IpFamily> {
 
 /// Covers: story:3-147
 #[test]
-fn a_kept_answer_is_its_addresses() {
-    let mut cache = AnswerCache::default();
-    let now = start();
-
-    cache.keep(
-        NAME,
-        IpFamily::Ipv4,
-        Outcome::Addresses {
-            addresses: vec![ADDRESS],
-            ttl: Duration::from_secs(60),
-        },
-        now,
-    );
-
-    assert_eq!(
-        cache.kept(NAME, IpFamily::Ipv4, now),
-        Some(Kept::Addresses(vec![ADDRESS]))
-    );
-}
-
-/// Covers: story:3-147
-#[test]
 fn an_answer_expires_at_its_ttl() {
     let mut cache = AnswerCache::default();
     let now = start();

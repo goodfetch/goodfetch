@@ -12,8 +12,8 @@ use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::outcomes::{
-    CrawlRequestOutcome, CrawlRequestOutcomes, FailedRequests, OUTCOMES_PAGE, OutcomesAfter,
-    RUN_FAILED_REQUESTS, RUN_OUTCOMES, RunFailedRequestsParams, RunOutcomesParams,
+    CrawlRequestOutcome, CrawlRequestOutcomes, FailedRequests, OUTCOMES_PAGE, OutcomeKind,
+    OutcomesAfter, RUN_FAILED_REQUESTS, RUN_OUTCOMES, RunFailedRequestsParams, RunOutcomesParams,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
@@ -44,7 +44,7 @@ impl Filter {
             kinds: params
                 .kinds
                 .as_ref()
-                .map(|kinds| names(kinds.iter().map(|kind| kind.as_str()).collect())),
+                .map(|kinds| names(kinds.iter().map(OutcomeKind::as_str).collect())),
             labels: params
                 .labels
                 .as_ref()

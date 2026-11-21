@@ -16,9 +16,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
-use goodfetch_protocol::governor::{
-    BLOCKING_THREADS_SHAPE, BlockingThreadCap, WORKER_THREADS_SHAPE, WorkerThreads,
-};
+use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };
@@ -468,6 +466,7 @@ impl Resolved {
                     key: rule.to.name.to_owned(),
                     value: to.value.clone(),
                     layer: to.layer,
+                    origin: to.origin,
                 })
             })
     }
@@ -537,19 +536,9 @@ impl SettingValue<'_> for BatchThreshold {
     }
 }
 
-impl SettingValue<'_> for WorkerThreads {
+impl SettingValue<'_> for ThreadCount {
     fn reads(kind: &ValueKind) -> bool {
-        matches!(kind, ValueKind::Shape(shape) if **shape == WORKER_THREADS_SHAPE)
-    }
-
-    fn read(value: &Value) -> Option<Self> {
-        Self::read(value).ok()
-    }
-}
-
-impl SettingValue<'_> for BlockingThreadCap {
-    fn reads(kind: &ValueKind) -> bool {
-        matches!(kind, ValueKind::Shape(shape) if **shape == BLOCKING_THREADS_SHAPE)
+        matches!(kind, ValueKind::Shape(shape) if **shape == THREAD_COUNT_SHAPE)
     }
 
     fn read(value: &Value) -> Option<Self> {
@@ -645,7 +634,10 @@ fn user_settable(key: &str) -> bool {
     keys::find(key).is_some_and(|found| {
         !matches!(
             found.setting.authority,
-            Authority::OperatorPolicy | Authority::OperatorPolicyAlone | Authority::Fixed
+            Authority::OperatorPolicy
+                | Authority::OperatorPolicyAlone
+                | Authority::ProjectFileAlone
+                | Authority::Fixed
         )
     })
 }
@@ -1040,6 +1032,7 @@ fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
         key: key.to_owned(),
         value: value.clone(),
         layer,
+        origin: None,
     }
 }
 
@@ -1053,7 +1046,8 @@ fn above(value: &Value, bound: u64) -> bool {
 /// the project configuration a Client sent,
 /// unless something holds the key: a lock, an Operator policy's cap the
 /// value is past (a clear to no bound is past every cap), a Recipe's
-/// bounds or the key's authority.
+/// bounds or the key's authority. A lock keeps its value over a
+/// `registered` one with no refusal.
 fn take(
     state: &mut State,
     key: Key,
@@ -1072,6 +1066,10 @@ fn take(
     let current = limit(name, &state.effective.value, state.effective.layer);
     authority(key, layer, value, given.for_model, &current, &refused)?;
     if let Some(locked) = &state.locked {
+        // The program never wrote a registered handler's value (ADR 0104).
+        if given.origin == Some(RunOrigin::Registered) {
+            return Ok(());
+        }
         let fix = match locked.layer {
             SettingsLayer::Default => format!("`{name}` is an honesty guarantee no layer changes"),
             SettingsLayer::Recipe => format!("the Recipe does not expose `{name}`"),
@@ -1108,20 +1106,22 @@ fn take(
 /// `setting_not_applicable` for `setting`, set in `layer`, unless `layer`
 /// is one its authority takes it from: a machine's setting from user
 /// configuration or an Operator policy, an Operator's alone from an
-/// Operator policy.
+/// Operator policy, and the project file's alone from the project file.
 fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError> {
-    let (layers, where_set): (&[SettingsLayer], &str) =
-        if matches!(setting.authority, Authority::OperatorPolicyAlone) {
-            (&[SettingsLayer::OperatorPolicy], "an Operator policy")
-        } else {
-            (
-                &[
-                    SettingsLayer::OperatorPolicy,
-                    SettingsLayer::UserConfiguration,
-                ],
-                "user configuration or an Operator policy",
-            )
-        };
+    let (layers, where_set): (&[SettingsLayer], &str) = match setting.authority {
+        Authority::OperatorPolicyAlone => (&[SettingsLayer::OperatorPolicy], "an Operator policy"),
+        Authority::ProjectFileAlone => (
+            &[SettingsLayer::ProjectConfiguration],
+            "the project file, which `connect()` and the CLI read before they connect",
+        ),
+        _ => (
+            &[
+                SettingsLayer::OperatorPolicy,
+                SettingsLayer::UserConfiguration,
+            ],
+            "user configuration or an Operator policy",
+        ),
+    };
     if layers.contains(&layer) {
         return Ok(());
     }
@@ -1159,7 +1159,9 @@ fn authority(
             current.clone(),
             format!("`{name}` is an honesty guarantee no layer changes"),
         )),
-        Authority::Machine | Authority::OperatorPolicyAlone => only_in(key.setting, layer),
+        Authority::Machine | Authority::OperatorPolicyAlone | Authority::ProjectFileAlone => {
+            only_in(key.setting, layer)
+        }
         Authority::OperatorPolicy if layer != SettingsLayer::OperatorPolicy => Err(refused(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),

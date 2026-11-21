@@ -85,7 +85,12 @@ fn start_declaring(
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))
         .collect();
-    let mut params = json!({ "run_id": run_id, "seeds": seeds, "settings": settings });
+    let mut params = json!({
+        "run_id": run_id,
+        "seeds": seeds,
+        "labels": { "page": {} },
+        "settings": settings,
+    });
     if !datasets.is_empty() {
         params["datasets"] = datasets
             .iter()

@@ -36,6 +36,20 @@ pub use deployment::{
     TOKEN_VARIABLE, URL_VARIABLE,
 };
 
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
+)]
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The layers settings resolve through, lowest first (ADRs 0028 and 0083).
@@ -97,11 +111,23 @@ pub enum RunOrigin {
     Flag,
     /// An Integration's form.
     Form,
+    /// A program's only SDK handler of a kind that one setting chooses,
+    /// registered on its connection: the lowest of the run layer's origins,
+    /// which every other replaces and configuration does not. A lock wins
+    /// over it with no refusal, since the program never wrote the key (ADR
+    /// 0104's amendment of ADR 0083).
+    Registered,
 }
 
 impl RunOrigin {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 4] = [Self::Argument, Self::Settings, Self::Flag, Self::Form];
+    pub const ALL: [Self; 5] = [
+        Self::Argument,
+        Self::Settings,
+        Self::Flag,
+        Self::Form,
+        Self::Registered,
+    ];
 
     /// Its name as the wire and messages write it.
     pub fn as_str(self) -> &'static str {
@@ -109,8 +135,9 @@ impl RunOrigin {
     }
 }
 
-/// A setting that decided an outcome: its key, its value and the layer that
-/// set it (ADRs 0028 and 0079).
+/// A setting that decided an outcome: its key, its value, the layer that
+/// set it and, for the run layer, where the value came from (ADRs 0028,
+/// 0079 and 0083).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SettingLimit {
     /// The setting's key.
@@ -122,6 +149,12 @@ pub struct SettingLimit {
     /// The layer that set it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub layer: SettingsLayer,
+    /// For the run layer, where the value came from, such as `argument`
+    /// for a call's own `timeout` (ADR 0083); absent when unknown or for
+    /// another layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
 }
 
 /// A setting that weakened a safeguard for a Run (ADR 0028): its key, its
@@ -212,6 +245,16 @@ pub struct SettingInvalidDetails {
     /// What is wrong with it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reason: String,
+    /// The value refused, as the setting it would have set: a call's own
+    /// `timeout` of 0 names its timeout setting at the run layer, origin
+    /// `argument` (ADR 0080); absent where no value was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<SettingLimit>,
+    /// What to give instead, such as the null form that sets no timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
 }
 
 /// A value set where it cannot take effect (ADR 0083).
@@ -440,12 +483,20 @@ pub struct ConfigExplainParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub origin: Option<RunOrigin>,
+    /// The Run ID of a live Run to explain, with the settings it opened
+    /// with; none explains the Connection's own, the run values given set
+    /// over them (ADR 0083). One that is no Run ID fails with
+    /// `run_id_invalid`, and one given with `settings`, `origin`,
+    /// `project` or `missing_project` with `invalid_params`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<String>,
 }
 
 /// `config.explain`.
 pub const CONFIG_EXPLAIN: Operation = Operation {
     name: "config.explain",
-    description: "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+    description: "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -563,6 +614,26 @@ fn thirty_seconds() -> Value {
     json!(30_000)
 }
 
+fn ten_seconds() -> Value {
+    json!(10_000)
+}
+
+fn one_minute() -> Value {
+    json!(60_000)
+}
+
+fn two_minutes() -> Value {
+    json!(120_000)
+}
+
+fn ten_minutes() -> Value {
+    json!(600_000)
+}
+
+fn a_day() -> Value {
+    json!(86_400_000)
+}
+
 /// `network.resolve` (ADR 0059).
 pub const NETWORK_RESOLVE: Setting = Setting {
     name: "network.resolve",
@@ -574,6 +645,7 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -591,6 +663,7 @@ pub const CONSENT_HANDLING: Setting = Setting {
     weakens: Some(handling_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -614,6 +687,7 @@ pub const CONSENT_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -631,6 +705,7 @@ pub const CONSENT_ON_WALL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -649,6 +724,7 @@ pub const WALL_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: Some("wall_reading"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -663,6 +739,7 @@ pub const WALL_REFETCH_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -677,6 +754,7 @@ pub const WALL_DENIED_DOMAINS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -691,6 +769,7 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -708,6 +787,7 @@ pub const CLEAN_UP_UPDATE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -722,6 +802,7 @@ pub const CLEAN_UP_VERSION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -740,6 +821,7 @@ pub const CLEAN_UP_CHANNEL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -761,6 +843,7 @@ pub const CLEAN_UP_LISTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -775,6 +858,7 @@ pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -813,6 +897,7 @@ pub const FILTER_LISTS_ADS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -827,6 +912,7 @@ pub const FILTER_LISTS_TRACKERS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -841,6 +927,7 @@ pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -855,6 +942,7 @@ pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -869,6 +957,7 @@ pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -883,6 +972,7 @@ pub const FILTER_LISTS_HOST_CACHE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -901,6 +991,7 @@ pub const SESSION_SOURCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -915,6 +1006,7 @@ pub const SESSION_PAGE_CHECK: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -929,6 +1021,7 @@ pub const SECRETS_BY_REFERENCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -943,6 +1036,7 @@ pub const WEBHOOK_SIGNING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -957,6 +1051,23 @@ pub const TIMEOUT_RUN: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.connect` (ADRs 0080 and 0083), which `connect()` and the CLI
+/// read from the project file before they connect.
+pub const TIMEOUT_CONNECT: Setting = Setting {
+    name: "timeout.connect",
+    description: "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::ProjectFileAlone,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -971,6 +1082,7 @@ pub const TIMEOUT_CLOSE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -985,6 +1097,7 @@ pub const TIMEOUT_ACTION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -999,6 +1112,22 @@ pub const TIMEOUT_NAVIGATION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.launch` (ADR 0080's note of issue 2813), a browser's bring-up.
+pub const TIMEOUT_LAUNCH: Setting = Setting {
+    name: "timeout.launch",
+    description: "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1013,6 +1142,7 @@ pub const TIMEOUT_WAIT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1027,6 +1157,102 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.hook` (ADRs 0080, 0083 and 0104).
+pub const TIMEOUT_HOOK: Setting = Setting {
+    name: "timeout.hook",
+    description: "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
+    kind: ValueKind::Duration,
+    default: ten_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_SINK_WRITE: Setting = Setting {
+    name: "timeout.sink_write",
+    description: "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("sinks"),
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.agent` (ADRs 0080 and 0100), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AGENT: Setting = Setting {
+    name: "timeout.agent",
+    description: "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("agent"),
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.ai` (ADRs 0080 and 0091), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AI: Setting = Setting {
+    name: "timeout.ai",
+    description: "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+    kind: ValueKind::Duration,
+    default: two_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("ai_verbs"),
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.model` (ADRs 0080 and 0101), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_MODEL: Setting = Setting {
+    name: "timeout.model",
+    description: "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+    kind: ValueKind::Duration,
+    default: one_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("model_calls"),
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.human_pause` (ADRs 0080 and 0092), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_HUMAN_PAUSE: Setting = Setting {
+    name: "timeout.human_pause",
+    description: "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+    kind: ValueKind::Duration,
+    default: a_day,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("human_pause"),
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1041,6 +1267,7 @@ pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1084,11 +1311,19 @@ pub const ENTRIES: Entries = Entries {
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_CONNECT,
         TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
+        TIMEOUT_LAUNCH,
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
+        TIMEOUT_HOOK,
+        TIMEOUT_SINK_WRITE,
+        TIMEOUT_AGENT,
+        TIMEOUT_AI,
+        TIMEOUT_MODEL,
+        TIMEOUT_HUMAN_PAUSE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],
     hook_stages: &[],

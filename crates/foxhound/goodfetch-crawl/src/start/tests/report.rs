@@ -22,7 +22,7 @@ fn a_drained_crawls_report_counts_how_its_requests_ended_and_its_records() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "counted", "seeds": seeds(4) }),
+                    json!({ "run_id": "counted", "seeds": seeds(4), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -73,7 +73,7 @@ fn a_crawl_no_seed_of_which_reached_a_handler_did_nothing() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "refused", "seeds": [{ "url": "ftp://shop.test/", "label": "page" }] }),
+                    json!({ "run_id": "refused", "seeds": [{ "url": "ftp://shop.test/", "label": "page" }], "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -115,7 +115,7 @@ fn a_resume_that_found_nothing_left_did_nothing() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "drained", "seeds": seeds(1), "settings": { "crawl": { "keep_alive": true } } }),
+                    json!({ "run_id": "drained", "seeds": seeds(1), "settings": { "crawl": { "keep_alive": true } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

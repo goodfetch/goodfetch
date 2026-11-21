@@ -70,6 +70,7 @@ fn write(
                     .cloned()
                     .unwrap_or_else(|| json!([])),
                 layer,
+                origin: None,
             },
             fix: "the Operator policy is managed: change it where it is managed".to_owned(),
         }));

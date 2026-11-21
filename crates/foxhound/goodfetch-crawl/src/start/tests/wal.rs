@@ -50,6 +50,7 @@ fn a_crawl_read_all_along_ends_with_its_wal_under_the_bound() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "read",
                         "seeds": seeds(PAGES),
                         "settings": { "run_state": { "batch": { "pages": BATCH_PAGES } } },

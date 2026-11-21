@@ -1,0 +1,9 @@
+[project]
+name = "goodfetch-collie"
+version = "0.0.0"
+# One Product version: the platform wheel takes the client package of its own
+# version (ADR 0090).
+dependencies = ["goodfetch-collie-client==0.0.0"]
+
+[tool.uv.sources]
+goodfetch-collie-client = { workspace = true }

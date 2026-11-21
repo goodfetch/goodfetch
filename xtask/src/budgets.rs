@@ -1,9 +1,10 @@
 //! `xtask budgets`: ADR 0061's budget check (TESTING.md, Time budgets). It
 //! reads each job's last 20 runs in its own tier from the results store
-//! (ADR 0064), takes their median (p50) and compares it with TESTING.md's
-//! table; a breached suite or job opens or updates its one `needs-triage`
-//! issue, with the 20 durations. It never fails a run: a breach and a tier
-//! with no budget row are reported, and the exit code stays 0.
+//! (ADR 0064), takes their median (p50) and compares it with the Time
+//! budgets table; a breached suite or job opens or updates its one
+//! `needs-triage` issue, with the 20 durations. It never fails a run: a
+//! breach and a tier with no budget row are reported, and the exit code
+//! stays 0.
 //!
 //! The tiers, while the repository is private: the pull-request tier's
 //! runs, on the owner's machine and labelled with it (ADR 0135), for the
@@ -49,8 +50,9 @@ pub(crate) struct Arguments {
 /// The runs a budget's median is taken over (ADR 0061).
 const RUNS: usize = 20;
 
-/// The file holding the table, from the workspace's folder.
-const TESTING: &str = "TESTING.md";
+/// The file holding the table, from the workspace's folder: TESTING.md's
+/// "Suites, commands and time budgets" section.
+const TESTING: &str = "docs/testing/suites-commands-and-time-budgets.md";
 
 /// Which of its workflow's jobs a tier holds, by name.
 enum Jobs {
@@ -85,8 +87,8 @@ impl Whole {
     }
 }
 
-/// One suite's runs in its own tier, and the row of TESTING.md's table that
-/// holds its budgets.
+/// One suite's runs in its own tier, and the row of the Time budgets table
+/// that holds its budgets.
 struct Tier {
     suite: &'static str,
     /// The table's "Where".

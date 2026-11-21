@@ -102,8 +102,8 @@ pub use self::writer::{Writer, test_writer};
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
-    Found, RunRow, canonical_inputs, input_differences, masked_tags, read_found, read_report, text,
-    write_end,
+    Compared, FixedSettings, Found, RunRow, canonical_inputs, input_differences, masked_tags,
+    read_found, read_report, text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -533,6 +533,24 @@ pub enum StartError {
     /// the Clean-up rules it cannot have (ADR 0047).
     #[error("the start was refused: {0}")]
     Refused(Box<CallError>),
+    /// A start under the Run's ID changes a key fixed for the Run's life
+    /// (ADRs 0102 and 0120).
+    #[error("{0}")]
+    FixedSetting(FixedSettingChanged),
+}
+
+/// A key fixed for a Run's life (`Setting::fixed_for_run`) that a start
+/// under its Run ID or a resume gives another value than the Run began
+/// with (ADRs 0102 and 0120): only a new Run takes it.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the Run `{run_id}` began with another `{key}`, which is fixed for its life")]
+pub struct FixedSettingChanged {
+    /// The Run.
+    pub run_id: RunId,
+    /// The key.
+    pub key: &'static str,
+    /// The layer that set the other value.
+    pub layer: SettingsLayer,
 }
 
 /// A filesystem a Run needs at the `critical` storage level (ADR 0122).
@@ -964,6 +982,10 @@ pub enum RunError {
     /// this failure (ADR 0102).
     #[error("the Run's owner answered `{}`", .0.data.code)]
     Forwarded(Box<ErrorObject>),
+    /// The resume's settings change a key fixed for the Run's life (ADRs
+    /// 0102 and 0120).
+    #[error("{0}")]
+    FixedSetting(#[from] FixedSettingChanged),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -4223,6 +4245,8 @@ struct Live {
     needs: Product,
     tags: Tags,
     inputs: String,
+    /// The settings fixed for its life, as its run file keeps them.
+    fixed_settings: String,
     ended_by: EndedBy,
     started_at: SystemTime,
     policy_version: Option<String>,
@@ -5256,6 +5280,11 @@ impl Registry {
                     differences,
                 });
             }
+            // A start declares the whole Run again: every key fixed for
+            // its life keeps the value it began with (ADRs 0102 and 0120).
+            FixedSettings::of(start.settings.as_ref(), &self.setup.masks)
+                .unchanged(&run_id, &found.fixed_settings, Compared::Every)
+                .map_err(StartError::FixedSetting)?;
             if let Err(refused) = lifecycle::apply(found.lifecycle, RunEvent::Start) {
                 let folder = self.folder(&run_id);
                 return Err(match RunError::refused(&run_id, &folder, refused) {
@@ -5398,6 +5427,7 @@ impl Registry {
                 caller: CALLER.to_owned(),
                 inputs: live.inputs.clone(),
                 lifecycle: live.lifecycle,
+                fixed_settings: live.fixed_settings.clone(),
             }));
         }
         let folder = self.folder(run_id);
@@ -5510,6 +5540,31 @@ impl Registry {
             .map(drop)
     }
 
+    /// The Run `run_id`'s own row as `start` begins it at `started_at`.
+    fn run_row(
+        &self,
+        run_id: &RunId,
+        start: &Start,
+        inputs: String,
+        started_at: SystemTime,
+    ) -> RunRow {
+        RunRow {
+            run_id: run_id.clone(),
+            kind: start.kind,
+            needs: start.needs,
+            epoch: 1,
+            inputs,
+            started_at,
+            policy_version: start.policy_version.clone(),
+            weakened: start.weakened.clone(),
+            binding: start.binding.as_ref().map(|binding| {
+                serde_json::to_string(binding).expect("invariant: a binding encodes")
+            }),
+            clean_up_digest: start.clean_up_digest.clone(),
+            fixed_settings: FixedSettings::of(start.settings.as_ref(), &self.setup.masks).kept(),
+        }
+    }
+
     async fn begin(
         &mut self,
         run_id: RunId,
@@ -5540,20 +5595,8 @@ impl Registry {
         .await
         .map_err(|error| unavailable(error.to_string()))?;
         let started_at = self.now();
-        let row = RunRow {
-            run_id: run_id.clone(),
-            kind: start.kind,
-            needs: start.needs,
-            epoch: 1,
-            inputs: inputs.clone(),
-            started_at,
-            policy_version: start.policy_version.clone(),
-            weakened: start.weakened.clone(),
-            binding: start.binding.as_ref().map(|binding| {
-                serde_json::to_string(binding).expect("invariant: a binding encodes")
-            }),
-            clean_up_digest: start.clean_up_digest.clone(),
-        };
+        let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
+        let fixed_settings = row.fixed_settings.clone();
         let tags = start.tags.clone();
         let initialize = start.initialize;
         state
@@ -5582,6 +5625,7 @@ impl Registry {
             needs: start.needs,
             tags: start.tags,
             inputs,
+            fixed_settings,
             ended_by: start.ended_by,
             started_at,
             policy_version: start.policy_version,
@@ -6251,6 +6295,26 @@ impl Registry {
         Ok(held)
     }
 
+    /// The answer to a resume of the Run `run_id` when it is live in this
+    /// engine, which does not resume it: refused when the resume's `fixed`
+    /// settings change a key fixed for the Run's life.
+    fn resumed_live(
+        &self,
+        run_id: &RunId,
+        fixed: &FixedSettings,
+    ) -> Option<Result<Resumed, RunError>> {
+        let live = self.live.get(run_id)?;
+        Some(
+            fixed
+                .unchanged(run_id, &live.fixed_settings, Compared::Given)
+                .map(|()| Resumed::Live {
+                    run_id: run_id.clone(),
+                    folder: self.folder(run_id),
+                })
+                .map_err(RunError::FixedSetting),
+        )
+    }
+
     /// Resumes an interrupted Run, as [`Runs::resume`] says.
     async fn resume(
         &mut self,
@@ -6267,10 +6331,10 @@ impl Registry {
             settings,
             retry_failed,
         } = resume;
-        // A Run this engine writes is not resumed.
-        if self.live.contains_key(&run_id) {
-            let folder = self.folder(&run_id);
-            return Ok(Resumed::Live { run_id, folder });
+        // Fixed keys the resume gives keep their values, in any state (ADR 0102).
+        let fixed = FixedSettings::of(settings.as_ref(), &self.setup.masks);
+        if let Some(live) = self.resumed_live(&run_id, &fixed) {
+            return live;
         }
         // A run file a crash left at `off` is discarded, never read: the Run
         // is then not found, and starts again (ADR 0138).
@@ -6280,6 +6344,7 @@ impl Registry {
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
+        fixed.unchanged(&run_id, &held.fixed_settings, Compared::Given)?;
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
@@ -6317,6 +6382,7 @@ impl Registry {
             needs: recorded.needs,
             tags: recorded.tags,
             inputs: recorded.inputs,
+            fixed_settings: held.fixed_settings.clone(),
             ended_by: self.driving(recorded.kind).ended_by,
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
@@ -6468,6 +6534,7 @@ impl Registry {
                 StartError::Discarding { run_id, folder } => {
                     RunError::Discarding { run_id, folder }
                 }
+                StartError::FixedSetting(changed) => RunError::FixedSetting(changed),
                 StartError::Conflict { .. }
                 | StartError::Live { .. }
                 | StartError::LimitReached(_)

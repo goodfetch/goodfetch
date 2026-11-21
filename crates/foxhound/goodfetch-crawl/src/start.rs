@@ -389,7 +389,7 @@ async fn schema_unchanged(
     {
         Ok((began, began_with, pending, changed)) => {
             invariants.payloads().resumes(&pending, run_id.as_str())?;
-            invariants.fragments().unchanged(&began, run_id.as_str())?;
+            invariants.fragments().unchanged(&began, run_id)?;
             datasets.resumes(&began_with, run_id.as_str())?;
             changed
         }

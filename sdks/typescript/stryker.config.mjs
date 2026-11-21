@@ -26,8 +26,9 @@ const config = {
   // folder would cost more than the mutants, as for cargo-mutants'
   // `--in-place`. Each mutated file is restored when the run ends. StrykerJS
   // reads nothing outside the SDK, and writes only the files it mutates:
-  // Vitest checks no types, so no file needs `// @ts-nocheck`, which
-  // StrykerJS would otherwise write into every script of the checkout.
+  // Vitest checks no types, so `disableTypeChecks` stays off: StrykerJS
+  // would otherwise write a type-check opt-out into every script of the
+  // checkout.
   inPlace: true,
   ignorePatterns: ["/*", "!/sdks", "/sdks/*", "!/sdks/typescript"],
   disableTypeChecks: false,

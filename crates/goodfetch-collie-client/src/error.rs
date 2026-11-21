@@ -372,13 +372,13 @@ impl Error {
 
     /// The program closed the Connection while the call was in flight, so
     /// the close cancelled it: `call_cancelled`, stopped by the program,
-    /// its Connection closed under it (ADRs 0078 and 0113). A call made
-    /// once the Connection is closed fails with [`Error::closed`] instead.
+    /// its Connection closed under it (ADRs 0078 and 0113), saying what
+    /// failed with no fix (ADR 0079's note of 2026-11-19). A call made once
+    /// the Connection is closed fails with [`Error::closed`] instead.
     pub(crate) fn cancelled_by_close() -> Self {
-        Self::of_runtime(
+        Self::of(
             &CALL_CANCELLED,
-            "the program closed the Connection while the call was in flight",
-            "Wait for the call before closing its Connection, or connect again to make it anew: a closed Connection never reopens.",
+            "the call's Connection was closed".to_owned(),
         )
         .with_details(&CallCancelledDetails {
             by: CancelledBy::Program,

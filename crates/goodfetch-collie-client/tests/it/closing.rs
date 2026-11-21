@@ -406,6 +406,67 @@ fn a_runs_close_whose_abort_the_connections_close_cancels_succeeds() {
     assert_eq!(heard, ["run.abort", "the end of the input"]);
 }
 
+/// A start whose `connection.set_log_level` is in flight when the program
+/// closes the Connection fails as the close cancelled it, and warns of no
+/// refused level: the engine refused nothing.
+/// Covers: story:11-19, story:11-26
+#[test]
+fn a_start_whose_log_level_the_connections_close_cancels_warns_of_no_refusal() {
+    let (network, mut lines, mut writer) = scripted();
+    let runtime = goodfetch_test_support::runtime();
+    let (told, told_heard) = tokio::sync::oneshot::channel::<()>();
+    let ((started, heard), log) = logged(|| {
+        runtime.block_on(async {
+            let peer = async {
+                let hello = lines.next_line().await.unwrap().unwrap();
+                writer.write_all(&reply(&hello, &said())).await.unwrap();
+                // The level goes unanswered: the Connection's close comes first.
+                let mut heard = Vec::new();
+                let mut told = Some(told);
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    heard.push(request["method"].as_str().unwrap().to_owned());
+                    if let Some(told) = told.take() {
+                        told.send(()).unwrap();
+                    }
+                }
+                heard.push("the end of the input".to_owned());
+                writer.shutdown().await.unwrap();
+                heard
+            };
+            let client = async {
+                let (connection, _) = ClientConnection::open(
+                    ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                    &network,
+                    &Endpoint::InMemory,
+                    // A level other than the `trace` that `logged` records,
+                    // so the start tells the engine the new one.
+                    HelloParams {
+                        log_level: Some(LogLevel::Warn),
+                        ..hello()
+                    },
+                )
+                .await
+                .unwrap();
+                let closing = async {
+                    told_heard.await.unwrap();
+                    connection.close().await
+                };
+                let (started, closed) = tokio::join!(connection.start(), closing);
+                closed.unwrap();
+                started.map(|_run| ())
+            };
+            tokio::join!(client, peer)
+        })
+    });
+
+    let cancelled = started.unwrap_err();
+    assert_eq!(cancelled.code(), ErrorCode::CALL_CANCELLED, "{cancelled:?}");
+    assert_eq!(heard, ["connection.set_log_level", "the end of the input"]);
+    let log = String::from_utf8(log).unwrap();
+    assert!(!log.contains("did not take the log level"), "{log}");
+}
+
 /// A page's close and a Connection's close the engine never answers each
 /// fail with `deadline_exceeded` once `timeout.close` has run out, and no
 /// later; the Connection is closed all the same, and closing it again

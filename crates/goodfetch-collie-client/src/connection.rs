@@ -276,7 +276,8 @@ impl ClientConnection {
     ///
     /// # Errors
     ///
-    /// `closed` when the Connection is closed.
+    /// `closed` when the Connection is closed, and `call_cancelled` when the
+    /// program closes it while the level is in flight.
     pub(crate) async fn follow_log_level(&self, level: LogLevel) -> Result<(), Error> {
         let told = std::mem::replace(&mut *self.log_level(), level);
         if told == level {
@@ -288,7 +289,7 @@ impl ClientConnection {
             .await
         {
             Ok(LogLevelSet {}) => Ok(()),
-            Err(error) if error.code() == ErrorCode::CLOSED => Err(error),
+            Err(error) if error.is_ended_by_close() => Err(error),
             Err(error) => {
                 let mut current = self.log_level();
                 if *current == level {

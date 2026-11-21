@@ -468,16 +468,21 @@ impl Interest {
     }
 }
 
-/// `error` again, for another reader: the engine's answer as it sent it, or
-/// `closed`.
+/// `error` again, for another reader: the engine's answer as it sent it,
+/// or the close's own failure, `closed` or the close's cancellation.
 fn copied(error: &Error) -> Error {
-    if !error.is_answer() && error.code() == ErrorCode::CLOSED {
+    if error.is_answer() || !error.is_ended_by_close() {
+        Error::answered(error.to_object())
+    } else if error.code() == ErrorCode::CLOSED {
         Error::closed()
     } else {
-        Error::answered(error.to_object())
+        Error::cancelled_by_close()
     }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(test)]
+mod tests;

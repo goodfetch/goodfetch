@@ -483,10 +483,12 @@ pub trait PermitRule: Send + Sync + 'static {
     }
 
     /// The most requests under a key it admits at once, whatever the
-    /// key's state: [`PermitRule::admit`] answers [`Verdict::Busy`] for
-    /// any state once `in_flight` reaches it, so a run whose own requests
-    /// in flight reach it knows the answer without a take (#1899). `None`
-    /// by default: no such bound.
+    /// key's state: [`PermitRule::admit`] grants nothing for any state once
+    /// `in_flight` reaches it, so a run whose own requests in flight reach
+    /// it knows without a take that a take would grant nothing (#1899).
+    /// What such a take would answer instead, a back-off or a refusal
+    /// before [`Verdict::Busy`], the run learns at its next take, once one
+    /// of those requests ends. `None` by default: no such bound.
     fn concurrency(&self) -> Option<u64> {
         None
     }

@@ -320,7 +320,7 @@ struct Shared {
 
 impl Shared {
     /// Whether the Permits its own requests in flight hold under `key`
-    /// reach its rule's concurrency, so a take could only answer busy.
+    /// reach its rule's concurrency, so a take could grant nothing.
     fn full_here(&self, key: &str) -> bool {
         self.rule.concurrency().is_some_and(|cap| {
             let held = self
@@ -563,8 +563,10 @@ impl Admission {
             };
             let key = self.gate.next_key(now)?;
             if shared.full_here(&key) {
-                // Its own requests in flight fill the key: any take would
-                // answer busy, so the key waits for their ending's wake.
+                // Its own requests in flight fill the key: a take would
+                // grant nothing, so the key waits for their ending's wake,
+                // or the reclaim check, and the next take answers what a
+                // back-off or a refusal asks.
                 shared.waiting.insert(key.clone());
                 self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 continue;

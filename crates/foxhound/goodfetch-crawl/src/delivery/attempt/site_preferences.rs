@@ -92,6 +92,7 @@ impl On<'_> {
                 .read(
                     key,
                     reading.location().as_str(),
+                    reading.shared_copy(),
                     preferences.crawl_delay_asked(reading),
                 )
                 .await

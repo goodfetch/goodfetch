@@ -61,7 +61,7 @@
 )]
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
@@ -1462,16 +1462,39 @@ const REMEMBERED_ASKS: u64 = 10_000;
 
 /// The Crawl-delays a Run recorded in the Politeness it shares: each read
 /// of a robots.txt records what it asks ([`crawl_delay_read`]) only when
-/// the Run has not recorded that ask already, so a Run's attempts on one
-/// host cost the file one transaction, not one each (#1899). A newer copy
-/// another Run fetched, which asks another delay, is recorded once this
-/// Run reads it. Clones share what they remember.
+/// the Run has not recorded that copy of it already, so a Run's attempts on
+/// one host cost the file one transaction a copy, not one each (#1899). A
+/// newer copy, fetched by this Run or another, is recorded once this Run
+/// reads it, whatever it asks. Clones share what they remember.
 #[derive(Clone)]
 pub struct CrawlDelays {
     politeness: Politeness,
-    /// The delay this Run last recorded for each key and robots.txt
-    /// location, at most [`REMEMBERED_ASKS`].
-    recorded: moka::sync::Cache<(String, String), Option<Duration>>,
+    /// The copy this Run last recorded for each key and robots.txt
+    /// location, at most [`REMEMBERED_ASKS`]: held weakly, so it keeps no
+    /// copy the Run let go, and none of its addresses is another copy's.
+    recorded: moka::sync::Cache<Asked, Weak<goodfetch_engine::robots_txt::Fetched>>,
+}
+
+/// A key and the location of the robots.txt it read, as [`CrawlDelays`]
+/// remembers them.
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct Asked {
+    key: Box<str>,
+    location: Box<str>,
+}
+
+/// An [`Asked`] borrowed for a lookup, so a read of a recorded copy
+/// allocates nothing. Its derived hash is the key's, field for field.
+#[derive(Hash)]
+struct AskedLookup<'a> {
+    key: &'a str,
+    location: &'a str,
+}
+
+impl moka::Equivalent<Asked> for AskedLookup<'_> {
+    fn equivalent(&self, asked: &Asked) -> bool {
+        self.key == &*asked.key && self.location == &*asked.location
+    }
 }
 
 impl CrawlDelays {
@@ -1485,7 +1508,8 @@ impl CrawlDelays {
 
     /// Records that the robots.txt at `location` asks the requests of `key`
     /// for the Crawl-delay `delay`, or for none, as [`crawl_delay_read`]
-    /// does, unless this Run recorded that ask already.
+    /// does, unless this Run recorded the ask of `copy`, the copy `delay`
+    /// was read from, already.
     ///
     /// # Errors
     ///
@@ -1499,14 +1523,25 @@ impl CrawlDelays {
         &self,
         key: &str,
         location: &str,
+        copy: &Arc<goodfetch_engine::robots_txt::Fetched>,
         delay: Option<Duration>,
     ) -> Result<(), PolitenessError> {
-        let asked = (key.to_owned(), location.to_owned());
-        if self.recorded.get(&asked) == Some(delay) {
+        let asked = AskedLookup { key, location };
+        if self
+            .recorded
+            .get(&asked)
+            .is_some_and(|recorded| std::ptr::eq(recorded.as_ptr(), Arc::as_ptr(copy)))
+        {
             return Ok(());
         }
         crawl_delay_read(&self.politeness, key, location, delay).await?;
-        self.recorded.insert(asked, delay);
+        self.recorded.insert(
+            Asked {
+                key: key.into(),
+                location: location.into(),
+            },
+            Arc::downgrade(copy),
+        );
         Ok(())
     }
 }

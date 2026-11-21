@@ -186,6 +186,13 @@ impl Reading {
         &self.copy
     }
 
+    /// The copy that applies, as the Run's copies share it: another read
+    /// of the same copy answers the same allocation, a copy fetched again
+    /// another ([`goodfetch_frontier::CrawlDelays`] records each once).
+    pub fn shared_copy(&self) -> &Arc<Fetched> {
+        &self.copy
+    }
+
     /// When the response of the fetch this request made arrived; `None`
     /// when it read a copy another request had fetched. A delay counts
     /// from that arrival, the earliest moment the request is known to have

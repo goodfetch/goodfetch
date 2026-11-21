@@ -128,12 +128,14 @@ describe("closing a Collie Connection's values", () => {
 
       await collie.close();
 
-      await clientCase.check("the finish in flight fails as cancelled by its Client", async () =>
-        expect(await finished).toMatchObject({
-          code: "call_cancelled",
-          group: "unavailable",
-          details: { by: "client" },
-        }),
+      await clientCase.check(
+        "the finish in flight fails as cancelled by the program, its Connection closed",
+        async () =>
+          expect(await finished).toMatchObject({
+            code: "call_cancelled",
+            group: "unavailable",
+            details: { by: "program", closed: "connection" },
+          }),
       );
       await clientCase.check(
         "the close aborted the Run, cancelled the finish, then waited for its engine to end: the one failure, the step left for after the close, reached the logger before close() returned",

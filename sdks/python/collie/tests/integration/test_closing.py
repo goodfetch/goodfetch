@@ -137,13 +137,15 @@ async def test_aborts_its_run_cancels_a_call_in_flight_and_waits_for_its_engine(
         await collie.close()
         warned_at_close = engine_warnings(caplog)
 
-    with client_case.check("the finish in flight fails as cancelled by its Client"):
+    with client_case.check(
+        "the finish in flight fails as cancelled by the program, its Connection closed"
+    ):
         [cancelled] = finished
         assert isinstance(cancelled, CallCancelledError)
         assert (cancelled.code, cancelled.group, cancelled.details) == (
             "call_cancelled",
             "unavailable",
-            {"by": "client"},
+            {"by": "program", "closed": "connection"},
         )
     with client_case.check(
         "the close aborted the Run, cancelled the finish, then waited for its"

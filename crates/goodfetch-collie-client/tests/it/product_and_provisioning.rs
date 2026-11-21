@@ -1,10 +1,11 @@
 //! What a Collie engine lacks and a browser build it cannot fetch (ADRs
 //! 0087, 0090, 0095, 0098 and 0115), through the client crate: the
 //! corpus's script of the `product-and-provisioning-errors` client
-//! conformance case, which the TypeScript SDK plays too, with the Scripted
-//! engine as the Daemon. It fails on a message it does not expect and on a
-//! step left unused, so its clean exit says the crate sent exactly what the
-//! script holds. This is Rust's `daemon` mode play.
+//! conformance case for a Daemon installed from crates.io, with the
+//! Scripted engine as the Daemon. It fails on a message it does not expect
+//! and on a step left unused, so its clean exit says the crate sent exactly
+//! what the script holds. This is Rust's `daemon` mode play; the SDK crate's
+//! `sdk::product_and_provisioning` is its `linked` one.
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
@@ -19,8 +20,8 @@ use serde_json::{Value, json};
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
 use crate::start::{code_group_retryable, failure};
 
-/// Foxhound's install command on the engine's channel, npm.
-const INSTALL: &str = "npm install @goodfetch/foxhound";
+/// Foxhound's install command on the Daemon's channel, crates.io.
+const INSTALL: &str = "cargo install goodfetch-foxhound --locked --features executable";
 
 /// The Browser cache the engine reads.
 const CACHE: &str = "/srv/goodfetch/browsers";
@@ -213,7 +214,10 @@ fn assert_download_failed(error: &Error, failure: &Value) {
 #[test]
 fn foxhounds_operation_and_setting_and_each_missing_build_fail_with_their_code_and_fix() {
     let env = TestEnv::new();
-    let (process, endpoint) = scripted_daemon(&env, "run/product-and-provisioning-errors.json");
+    let (process, endpoint) = scripted_daemon(
+        &env,
+        "sdk-rust/run/product-and-provisioning-errors-from-cargo.json",
+    );
     let refused = goodfetch_test_support::real_time_runtime().block_on(refused_calls(endpoint));
 
     assert_not_in_product(&refused.operation, &refused.setting);

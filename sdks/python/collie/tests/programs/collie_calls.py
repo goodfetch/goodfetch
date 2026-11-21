@@ -1,9 +1,10 @@
 """What the integration tests share to call an Attached engine and read its answers.
 
 A Connection opened one of the three ways, a page's locator whatever the
-way, the Goodfetch error a call raises, and the lines the engine wrote on
-its stderr. TypeScript's `failure` and `recordingLogger` of
-`@goodfetch/test-support` are their twins.
+way, the Goodfetch error a call raises, the lines the engine wrote on
+its stderr, and a process's exit code waited for off the event loop.
+TypeScript's `failure` and `recordingLogger` of `@goodfetch/test-support`
+are their twins.
 """
 
 from __future__ import annotations
@@ -11,12 +12,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import anyio.to_thread
 import pytest
 from goodfetch_collie import AsyncCollie, Collie, GoodfetchError
 from goodfetch_collie_client.handle import NotGiven, not_given
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping
     from datetime import timedelta
 
     from goodfetch_collie import EngineChoice, Limits
@@ -73,3 +75,8 @@ async def failure(call: Awaitable[object]) -> GoodfetchError:
     with pytest.raises(GoodfetchError) as raised:
         await call
     return raised.value
+
+
+async def exit_code(wait: Callable[[], int]) -> int:
+    """The exit code `wait`, a process's blocking wait, returns, off the event loop."""
+    return await anyio.to_thread.run_sync(wait)

@@ -315,6 +315,9 @@ struct Shared {
     permits: BTreeMap<String, Permit>,
     /// The keys held until a wake.
     waiting: BTreeSet<String>,
+    /// The keys whose waiter turn its holder took since its last grant of
+    /// each: a refused take made it a waiter (ADR 0053's turns).
+    turns: BTreeSet<String>,
     wakes: Option<broadcast::Receiver<Wake>>,
 }
 
@@ -449,6 +452,7 @@ impl Admission {
                 clock,
                 permits: BTreeMap::new(),
                 waiting: BTreeSet::new(),
+                turns: BTreeSet::new(),
                 wakes,
             });
         }
@@ -562,11 +566,13 @@ impl Admission {
                 return self.admit_from_gate(now);
             };
             let key = self.gate.next_key(now)?;
-            if shared.full_here(&key) {
-                // Its own requests in flight fill the key: a take would
-                // grant nothing, so the key waits for their ending's wake,
-                // or the reclaim check, and the next take answers what a
-                // back-off or a refusal asks.
+            if shared.full_here(&key) && shared.turns.contains(&key) {
+                // Its own requests in flight fill the key and it already
+                // waits in turn for it: a take would grant nothing, so the
+                // key waits for their ending's wake, or the reclaim check,
+                // and the next take answers what a back-off or a refusal
+                // asks. Its first refused take still makes it a waiter, so
+                // another engine that waits after it never goes first.
                 shared.waiting.insert(key.clone());
                 self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 continue;
@@ -575,6 +581,7 @@ impl Admission {
             let taken = shared.take(&key, wall).await;
             match taken {
                 Ok(Taken::Granted(permit)) => {
+                    shared.turns.remove(&key);
                     let Some(admitted) = self.admit_from_gate(now) else {
                         self.give_back(permit, Ending::Done).await;
                         return None;
@@ -594,6 +601,7 @@ impl Admission {
                     return Some(admitted);
                 }
                 Ok(Taken::Wait(None)) => {
+                    shared.turns.insert(key.clone());
                     shared.waiting.insert(key.clone());
                     self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 }
@@ -705,6 +713,7 @@ impl Admission {
         let Some(shared) = &mut self.shared else {
             return;
         };
+        shared.turns.clear();
         if let Err(error) = shared.stop_waiting().await {
             tracing::warn!(%error, run_id = %shared.holder.run_id, "a stopped Run's waiters were not withdrawn");
         }

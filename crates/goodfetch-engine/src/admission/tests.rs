@@ -653,15 +653,16 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
     );
 }
 
-/// A Run whose own requests in flight fill its key's concurrency holds the
-/// key until one of them ends without asking the Politeness file, which
-/// could only answer that the key is busy: with `politeness.delegation:
-/// false`, one request at a time costs its take and its give back, and
-/// no busy take between them (ADR 0140's E6, #1899).
+/// A Run whose own requests in flight fill its key's concurrency asks the
+/// Politeness file once for its next request, which makes it the key's
+/// waiter in turn (ADR 0053), and holds the key without asking again until
+/// one of them ends, whatever wakes it meanwhile: with
+/// `politeness.delegation: false`, one request at a time costs its take,
+/// one busy take and its give back (ADR 0140's E6, #1899).
 ///
 /// Covers: story:3-63, setting:politeness.domain.concurrency
 #[test]
-fn a_run_whose_own_requests_fill_its_keys_concurrency_takes_nothing_in_the_file_meanwhile() {
+fn a_run_whose_own_requests_fill_its_keys_concurrency_asks_the_file_once_meanwhile() {
     let work = CountedWork::default();
     let (admitted, holds) = on_the_runtime(async |owner| {
         let holds = Arc::new(Mutex::new(Vec::new()));
@@ -701,6 +702,8 @@ fn a_run_whose_own_requests_fill_its_keys_concurrency_takes_nothing_in_the_file_
         let now = Instant::now();
         let first = admission.admit(now).await.unwrap();
         let while_in_flight = admission.admit(now).await.map(|admitted| admitted.id);
+        admission.wake(Some("shop.test"));
+        let woken_in_flight = admission.admit(now).await.map(|admitted| admitted.id);
         admission
             .ended(&first.id, "shop.test", now, Ended::Done)
             .await;
@@ -711,20 +714,23 @@ fn a_run_whose_own_requests_fill_its_keys_concurrency_takes_nothing_in_the_file_
             .iter()
             .map(|(_, held)| *held)
             .collect();
-        ([Some(first.id), while_in_flight, next], holds)
+        (
+            [Some(first.id), while_in_flight, woken_in_flight, next],
+            holds,
+        )
     });
 
     assert_eq!(
         (admitted, holds),
         (
-            [Some("1".to_owned()), None, Some("2".to_owned())],
-            vec![Held::Concurrency]
+            [Some("1".to_owned()), None, None, Some("2".to_owned())],
+            vec![Held::Concurrency, Held::Concurrency]
         )
     );
     assert_eq!(
         work.read(Row::PolitenessTransactions),
-        3,
-        "a take, its give back and the next take"
+        4,
+        "a take, one busy take, its give back and the next take"
     );
 }
 

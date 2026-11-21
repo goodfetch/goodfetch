@@ -5,11 +5,14 @@
 //! own folder, so rustup takes its own toolchain pin, as one step of its own,
 //! so a red one names the crate; one with a lockfile of its own is linted
 //! with it, `--locked`, one without reads a copy of the root lockfile,
-//! offline, and none is written into the source tree. On Linux without the
-//! development files of GTK 3 and libdbus, the Kennel's graphical crate is
-//! left out and listed as skipped, and CI fails instead (ADR 0061). The
-//! script runs on a fixture workspace through a stand-in `cargo` that records
-//! each call. Repository tooling, so the module declares no Feature.
+//! offline, and none is written into the source tree. On a host other than
+//! macOS, the Kennel is also linted for macOS, so its macOS-only code is. On
+//! Linux without the development files of GTK 3 and libdbus, the Kennel's
+//! graphical crate is left out of the host's lint, and without the macOS
+//! target the macOS lint is: each is listed as skipped, and CI fails instead
+//! (ADR 0061). The script runs on a fixture workspace through stand-ins for
+//! `cargo`, which records each call, `pkg-config` and `rustup`. Repository
+//! tooling, so the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -64,7 +67,17 @@ fi
         "#!/bin/sh\n[ ! -f \"{}\" ]\n",
         folder.join("no-gtk").display()
     );
-    for (name, script) in [("cargo", cargo), ("pkg-config", pkg_config)] {
+    // `rustup target list --installed`: the host's target, and the macOS one
+    // unless `no-cross` exists.
+    let rustup = format!(
+        "#!/bin/sh\necho x86_64-unknown-linux-gnu\n[ -f \"{}\" ] || echo aarch64-apple-darwin\n",
+        folder.join("no-cross").display()
+    );
+    for (name, script) in [
+        ("cargo", cargo),
+        ("pkg-config", pkg_config),
+        ("rustup", rustup),
+    ] {
         workspace.write(&format!("stand-in/{name}"), script.as_bytes());
         std::fs::set_permissions(folder.join(name), std::fs::Permissions::from_mode(0o755))
             .unwrap();
@@ -121,12 +134,25 @@ fn root(workspace: &Workspace) -> PathBuf {
     workspace.path().canonicalize().unwrap()
 }
 
-/// The arguments of the one call made in `folder`.
+/// The Clippy arguments that lint for macOS from another host.
+const CROSS: &str = "--target aarch64-apple-darwin ";
+
+/// The arguments of the one call made in `folder` for this host.
 fn call_in<'run>(run: &'run Run, folder: &str) -> &'run str {
+    one_call(run, folder, false)
+}
+
+/// The arguments of the one call made in `folder` for macOS.
+#[cfg(not(target_os = "macos"))]
+fn cross_call_in<'run>(run: &'run Run, folder: &str) -> &'run str {
+    one_call(run, folder, true)
+}
+
+fn one_call<'run>(run: &'run Run, folder: &str, cross: bool) -> &'run str {
     let calls: Vec<&str> = run
         .calls
         .iter()
-        .filter(|(called, _)| called == folder)
+        .filter(|(called, arguments)| called == folder && arguments.contains(CROSS) == cross)
         .map(|(_, arguments)| arguments.as_str())
         .collect();
     assert_eq!(calls.len(), 1, "{:?}\n{}", run.calls, run.stdout);
@@ -152,11 +178,12 @@ fn each_first_party_excluded_crate_is_linted_from_its_own_folder_and_no_vendor_f
     let run = clippy_excluded(&workspace, &[]);
 
     assert_eq!(run.code, Some(0), "{}\n{}", run.stdout, run.stderr);
-    let folders: Vec<&str> = run
+    let mut folders: Vec<&str> = run
         .calls
         .iter()
         .map(|(folder, _)| folder.as_str())
         .collect();
+    folders.dedup();
     assert_eq!(folders, ["libs/lockless", "kennel"], "{}", run.stdout);
     let target = root(&workspace).join("target");
     assert_eq!(
@@ -169,6 +196,74 @@ fn each_first_party_excluded_crate_is_linted_from_its_own_folder_and_no_vendor_f
         "{:?}",
         run.calls
     );
+}
+
+/// The Kennel's macOS-only code is linted from the Linux gate too, as its
+/// whole workspace for macOS; no other crate is.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn off_macos_the_kennel_is_also_linted_for_macos_and_no_other_crate_is() {
+    let workspace = excluding();
+
+    let run = clippy_excluded(&workspace, &[]);
+
+    assert_eq!(run.code, Some(0), "{}\n{}", run.stdout, run.stderr);
+    let target = root(&workspace).join("target");
+    assert_eq!(
+        cross_call_in(&run, "kennel"),
+        format!(
+            "clippy --locked {CROSS}--target-dir {} {LINT}",
+            target.display()
+        )
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|(folder, arguments)| folder != "kennel" && arguments.contains(CROSS)),
+        "{:?}",
+        run.calls
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn without_the_macos_target_its_lint_is_listed_as_skipped_and_the_host_lint_still_runs() {
+    let workspace = excluding();
+    workspace.write("stand-in/no-cross", b"");
+
+    let run = clippy_excluded(&workspace, &[]);
+
+    assert_eq!(run.code, Some(0), "{}\n{}", run.stdout, run.stderr);
+    call_in(&run, "kennel");
+    assert!(
+        !run.calls
+            .iter()
+            .any(|(_, arguments)| arguments.contains(CROSS)),
+        "{:?}",
+        run.calls
+    );
+    let skipped = workspace.read_text("target/skipped.txt");
+    assert!(
+        skipped.contains("the Rust target aarch64-apple-darwin is not installed"),
+        "{skipped}"
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn in_ci_without_the_macos_target_the_kennel_fails() {
+    let workspace = excluding();
+    workspace.write("stand-in/no-cross", b"");
+
+    let run = clippy_excluded(&workspace, &[("CI", "true")]);
+
+    assert_eq!(run.code, Some(1), "{}\n{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains("failed   clippy-kennel: "),
+        "{}",
+        run.stdout
+    );
+    assert!(workspace.read("target/skipped.txt").is_none());
 }
 
 #[test]
@@ -234,6 +329,11 @@ fn on_linux_without_gtk_the_kennel_is_linted_without_its_graphical_crate_which_i
     assert_eq!(run.code, Some(0), "{}\n{}", run.stdout, run.stderr);
     assert!(
         call_in(&run, "kennel").starts_with("clippy --locked --exclude goodfetch-kennel-app "),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        !cross_call_in(&run, "kennel").contains("--exclude"),
         "{:?}",
         run.calls
     );

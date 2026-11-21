@@ -17,45 +17,50 @@
 # offline, so it takes the versions the root locks and writes no lockfile
 # into the source tree.
 #
-# On Linux the Kennel's graphical crate, goodfetch-kennel-app, needs the
-# development files of GTK 3 and libdbus, found by pkg-config, as
-# `just kennel-check` does (kennel/scripts/check.sh): without them it is left
-# out and listed as skipped on a local host, and the step fails in CI (ADR
-# 0061).
+# The Kennel reads its prerequisites as `just kennel-check` does
+# (kennel/scripts/prerequisites.sh). On a host other than macOS it is also
+# linted for macOS (aarch64-apple-darwin), so its macOS-only code is, which
+# needs the Rust target and no macOS SDK. On Linux its graphical crate,
+# goodfetch-kennel-app, needs the development files of GTK 3 and libdbus,
+# found by pkg-config. Without the target or those files, that lint leaves
+# out what it cannot build and lists it as skipped on a local host, and the
+# step fails in CI (ADR 0061).
 set -euo pipefail
 
 root=$(pwd -P)
+# shellcheck source=kennel/scripts/prerequisites.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../kennel/scripts/prerequisites.sh"
 
 lint() {
-  local folder=$1 name lock narrowed=() missing=() library
-  name=$(basename "$folder")
+  local folder=$1 lock narrowed=() missing
   if [[ -f $folder/Cargo.lock ]]; then
     lock=(--locked)
   else
-    local copy=$root/target/clippy-excluded/$name/Cargo.lock
+    local copy=$root/target/clippy-excluded/$folder/Cargo.lock
     mkdir -p "$(dirname "$copy")"
     cp Cargo.lock "$copy"
     lock=(--offline --config "resolver.lockfile-path=\"$copy\"")
   fi
   if [[ $folder == kennel && "$(uname -s)" == Linux ]]; then
-    for library in gtk+-3.0 dbus-1; do
-      pkg-config --exists "$library" || missing+=("$library")
-    done
-    if [[ ${#missing[@]} -gt 0 ]]; then
-      local reason="the Kennel's graphical crate goodfetch-kennel-app, since pkg-config finds no ${missing[*]}: GTK 3 (gtk+-3.0) is what its Tray builds on, libdbus (dbus-1) what its desktop notices send through (Debian and Ubuntu: apt install libgtk-3-dev libdbus-1-dev)"
-      if [[ -n "${CI:-}" ]]; then
-        echo "error: Clippy cannot lint $reason, and CI runs every part" >&2
-        return 1
-      fi
-      mkdir -p "$root/target"
-      echo "ci/clippy-excluded.sh $folder: skipped, $reason" >>"$root/target/skipped.txt"
-      echo "skipped: Clippy on $reason" >&2
+    missing=$(kennel_linux_libraries_missing)
+    if [[ -n $missing ]]; then
+      kennel_skip "$root" "ci/clippy-excluded.sh $folder" \
+        "Clippy on the Kennel's graphical crate goodfetch-kennel-app for this host, since $missing"
       narrowed=(--exclude goodfetch-kennel-app)
     fi
   fi
   cd "$folder"
   cargo clippy "${lock[@]}" ${narrowed[@]+"${narrowed[@]}"} --target-dir "$root/target" \
     --workspace --all-targets --all-features -- -D warnings
+  if [[ $folder == kennel && "$(uname -s)" != Darwin ]]; then
+    missing=$(kennel_cross_missing)
+    if [[ -n $missing ]]; then
+      kennel_skip "$root" "ci/clippy-excluded.sh $folder" "Clippy on the Kennel for macOS, since $missing"
+    else
+      cargo clippy "${lock[@]}" --target "$kennel_cross" --target-dir "$root/target" \
+        --workspace --all-targets --all-features -- -D warnings
+    fi
+  fi
 }
 
 if [[ $# -gt 0 ]]; then

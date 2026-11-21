@@ -73,7 +73,8 @@ fn still_at_path(entry: &InstalledExecutable) -> bool {
     };
     let modified = metadata.modified().ok().and_then(whole_seconds);
     metadata.len() == entry.size
-        && modified.is_some_and(|modified| Some(modified) == whole_seconds(entry.modified_at))
+        && modified.is_some()
+        && modified == whole_seconds(entry.modified_at)
 }
 
 /// `at` in whole seconds since the Unix epoch.

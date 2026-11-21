@@ -637,6 +637,7 @@ fn user_settable(key: &str) -> bool {
             Authority::OperatorPolicy
                 | Authority::OperatorPolicyAlone
                 | Authority::ProjectFileAlone
+                | Authority::ConnectionAlone
                 | Authority::Fixed
         )
     })
@@ -1106,13 +1107,19 @@ fn take(
 /// `setting_not_applicable` for `setting`, set in `layer`, unless `layer`
 /// is one its authority takes it from: a machine's setting from user
 /// configuration or an Operator policy, an Operator's alone from an
-/// Operator policy, and the project file's alone from the project file.
+/// Operator policy, the project file's alone from the project file, and a
+/// Client's own bound from `connect()`'s `settings`, the run layer, which
+/// the scope check keeps to the Connection's own.
 fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError> {
     let (layers, where_set): (&[SettingsLayer], &str) = match setting.authority {
         Authority::OperatorPolicyAlone => (&[SettingsLayer::OperatorPolicy], "an Operator policy"),
         Authority::ProjectFileAlone => (
             &[SettingsLayer::ProjectConfiguration],
             "the project file, which `connect()` and the CLI read before they connect",
+        ),
+        Authority::ConnectionAlone => (
+            &[SettingsLayer::Run],
+            "`connect()`'s own `settings`, whose Client applies it to its transport",
         ),
         _ => (
             &[
@@ -1159,9 +1166,10 @@ fn authority(
             current.clone(),
             format!("`{name}` is an honesty guarantee no layer changes"),
         )),
-        Authority::Machine | Authority::OperatorPolicyAlone | Authority::ProjectFileAlone => {
-            only_in(key.setting, layer)
-        }
+        Authority::Machine
+        | Authority::OperatorPolicyAlone
+        | Authority::ProjectFileAlone
+        | Authority::ConnectionAlone => only_in(key.setting, layer),
         Authority::OperatorPolicy if layer != SettingsLayer::OperatorPolicy => Err(refused(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),

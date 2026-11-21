@@ -1,0 +1,1289 @@
+# The manifest of Collie's Rust SDK's hand-written public members, its
+# connection, engine choice and executable (ADR 0099; STYLE.md, Protocol and
+# SDKs), in the forms of `sdks/typescript/manifest.toml` and read as
+# `crates/goodfetch-collie-client/manifest.toml`'s header says: a module's
+# items sit on the module's path, such as `executable::output`.
+#
+# A re-exported item is listed once, by the manifest of the crate that
+# declares it: the `Error`, `Limits` or `Response` this crate re-exports
+# from `goodfetch-collie-client` is that crate's to list, and a contract type
+# it re-exports from `goodfetch-protocol`, such as `RunId`, no manifest's
+# (ADR 0038). `goodfetch-foxhound` re-exports this crate's `ConnectOptions`,
+# `EngineChoice`, `EngineFallback`, `EngineInfo`, `EngineKind` and
+# `RemoteDaemon`, which this manifest lists and its own does not. A struct's
+# public field is plain data (ADR 0099), which no line lists.
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "Collie"
+entry = "none"
+reason = "A connection to Collie, which is the Product: `collie.start()` starts a Run."
+words = ["collie"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "connect"
+entry = "none"
+reason = "Opens a connection to the engine `options` choose (`ConnectOptions::engine`): at `Auto`, the remote Daemon `GOODFETCH_URL` names, else the Daemon running in the Goodfetch home, else a linked engine of its own."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "scope"
+entry = "none"
+reason = "Opens a connection with `options`, lends it to `body`, and closes it whatever `body` returns."
+only = "TypeScript's scoped form is `await using` on `[Symbol.asyncDispose]`, the words `close`."
+words = ["scope"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "engine"
+entry = "none"
+reason = "The engine the connection reached, fixed when it opened: the linked engine or a Daemon (`crate::EngineChoice`)."
+words = ["engine"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "call"
+entry = "none"
+reason = "The raw call of `operation` (ADR 0099, G8), the way down to an operation the SDK does not generate, such as one a newer engine added: its params and its result are the wire's JSON, in snake case, and awaiting sends it."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "close"
+entry = "none"
+reason = "Closes the connection for every clone: first every Run it started that still runs, then the linked engine, which checkpoints and stops; returns once it has stopped, or once `timeout.close` has run out."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "ConnectOptions"
+entry = "none"
+reason = "What a connection opens with, in either Product's SDK."
+only = "TypeScript declares it in `@goodfetch/collie-client`, beside the Connection it opens; Rust declares it with the engine this crate links (ADR 0087)."
+words = ["connect", "options"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "engine"
+entry = "none"
+reason = "The engine the connection reaches, in place of `EngineChoice::Auto`, whatever `GOODFETCH_URL` says."
+words = ["engine"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "environment"
+entry = "none"
+reason = "The environment variables the connection and its linked engine read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the process's own."
+words = ["environment"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "limits"
+entry = "none"
+reason = "The connection's own `limits` (ADR 0080), in place of any given before: each only lowers what covers the connection's work."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "settings"
+entry = "none"
+reason = "The connection's own settings (ADR 0083), in place of any given before: they travel in `hello`, over configuration and the Operator policy, and every Run the connection starts inherits what its own settings leave out."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "timeout"
+entry = "none"
+reason = "Fails the connect if the engine has not answered `hello` within `timeout`, with `deadline_exceeded` naming `timeout.connect` at the run layer, given as an argument (ADR 0083); left out, the connect waits `timeout.connect`'s 30 s."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the engine to answer `hello` as long as it takes."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "max_listener_queue"
+entry = "none"
+reason = "How many unread events each stream of a Session's events holds (ADR 0081), in place of 1,024: a stream left unread past it loses only its own events, hands those it held, then ends with `listener_events_lost`, while the other streams go on."
+words = ["max", "listener", "queue"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "EngineChoice"
+entry = "none"
+reason = "The engine a connection reaches, which `ConnectOptions::engine` sets."
+only = "TypeScript declares it in `@goodfetch/collie-client`, beside the Connection it opens; Rust declares it with the engine this crate links (ADR 0087)."
+words = ["engine", "choice"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "EngineFallback"
+entry = "none"
+reason = "Why `auto` reached another engine than the Daemon it found (ADR 0098)."
+only = "TypeScript's `connect()` reaches no engine but the one its choice names; `auto`, which falls back, is the Rust and Python SDKs' (ADR 0098)."
+words = ["engine", "fallback"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "EngineInfo"
+entry = "none"
+reason = "The engine a connection reached, fixed when it opened (G6)."
+only = "TypeScript declares it in `@goodfetch/collie-client`, beside the Connection it opens; Rust declares it with the engine this crate links (ADR 0087)."
+words = ["engine", "info"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "EngineKind"
+entry = "none"
+reason = "How the engine a connection reached is reached."
+only = "TypeScript's `EngineInfo` names the kind as a string literal type, which no line lists."
+words = ["engine", "kind"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "EngineKind"
+member = "as_str"
+entry = "none"
+reason = "Its name, as the other SDKs' `engine().kind` gives it."
+words = ["as", "str"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "RemoteDaemon"
+entry = "none"
+reason = "A remote Daemon and the token its `hello` takes, which nothing the SDK shows holds: its `Debug` output shows neither, as the URL may hold a credential until the connection refuses it."
+only = "TypeScript declares it in `@goodfetch/collie-client`, beside the Connection it opens; Rust declares it with the engine this crate links (ADR 0087)."
+words = ["remote", "daemon"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "RemoteDaemon"
+member = "new"
+entry = "none"
+reason = "The remote Daemon at `url`, `ws://` with a loopback IP address or `localhost` and a port, such as `ws://127.0.0.1:7878`, which takes `token`."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking"
+member = "Collie"
+entry = "none"
+reason = "A connection to Collie whose calls block: `collie.start().send()` starts a Run."
+words = ["collie"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "connect"
+entry = "none"
+reason = "Opens a connection to the engine `options` choose, as `crate::Collie::connect` does, and blocks the calling thread until it is open."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "engine"
+entry = "none"
+reason = "The engine the connection reached, as `crate::Collie::engine` reports it."
+words = ["engine"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "call"
+entry = "none"
+reason = "The raw call of `operation`, as `crate::Collie::call`'s, which `send()` sends."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "close"
+entry = "none"
+reason = "Closes the connection for every clone, as `crate::Collie::close` does, and returns once its linked engine, if any, has stopped."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "composition"
+entry = "none"
+reason = "What Collie's engine is composed of: the engine's own operations, then the contribution of each Collie crate."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "composition_with"
+entry = "none"
+reason = "What Collie's engine is composed of, as `composition`, each page it hands a handler set by `handler_pages` (ADR 0087): the seam through which Foxhound's composition sets the pages of its crawl's handlers."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Machine"
+entry = "none"
+reason = "What every `daemon` command and every Client of the Daemon works with: the executable's machine, as `main` read it once, and the one Daemon client every command reaches its major's Daemon through."
+words = ["machine"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "OwnCall"
+entry = "none"
+reason = "The call of an `OwnCommand`, which runs in place of its generated command's."
+words = ["own", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::OwnCall"
+member = "run"
+entry = "none"
+reason = "`daemon run`, the foreground Daemon (ADR 0049); on Linux, under its reaper unless `reaped` says it runs under it already."
+words = ["run"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "OwnCommand"
+entry = "none"
+reason = "A command an executable writes by hand in place of some of its operation's params, beside the flags generated for the others, such as Foxhound's `crawl start <url>…`."
+words = ["own", "command"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "OwnCommands"
+entry = "none"
+reason = "The commands an executable writes by hand among its generated ones, and the commands of its generated groups, which clap builds only once it reaches a group, through a plain function: `members` of the executable's Product with these commands."
+words = ["own", "commands"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::OwnCommands"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's: none."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Start"
+entry = "none"
+reason = "What a Product's `main` passes to `main`."
+words = ["start"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "Call"
+entry = "none"
+reason = "A generated command's call, as the command line gave it."
+words = ["call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "product"
+entry = "none"
+reason = "The Product of the executable, which the call's `hello` needs."
+words = ["product"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "operation"
+entry = "none"
+reason = "The operation it calls."
+words = ["operation"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "params"
+entry = "none"
+reason = "The params its command line gave."
+words = ["params"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "json"
+entry = "none"
+reason = "Whether `--json` was given."
+words = ["json"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "reach"
+entry = "none"
+reason = "The engine its call runs on: as its command line and its value choose, its refusals warned of through `warn`."
+words = ["reach"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "run"
+entry = "none"
+reason = "Calls the operation on the engine its command line and its value choose (`engine_choice`): the Daemon `machine` reaches, or an Attached engine in this process, `engine` on `dependencies`; prints what it answered as `human` shows it, or under `--follow` what it sent, and answers the exit code."
+words = ["run"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "print"
+entry = "none"
+reason = "Prints `result`: as JSON under `--json`, which keeps its times in UTC; else an opener's new ID, or each field, a point in time in the local zone."
+words = ["print"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "fail"
+entry = "none"
+reason = "Prints the failure `error` and answers its exit code, its Error code's row of the table."
+words = ["fail"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Call"
+member = "failed"
+entry = "none"
+reason = "Prints `failure`, how its call failed, and answers its exit code (`failed`)."
+words = ["failed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "FOLLOW"
+entry = "none"
+reason = "The flag that runs a sequence, printing what it sends as it arrives."
+words = ["follow"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "Generated"
+entry = "none"
+reason = "The generated commands beside an executable's hand-written ones."
+words = ["generated"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Generated"
+member = "beside"
+entry = "none"
+reason = "The commands of `product`'s catalog in every namespace no command group of `hand_written` takes, `own` written by hand; a hand-written group takes the other commands of its namespace through `Joining`."
+words = ["beside"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Generated"
+member = "add_to"
+entry = "none"
+reason = "`command` with a command group per namespace, whose commands are built only when clap reaches the group."
+words = ["add", "to"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Generated"
+member = "call"
+entry = "none"
+reason = "The call a parse of the command line asks for, when its command is generated in a group of its own."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "Joined"
+entry = "none"
+reason = "The hand-written commands of a command group that takes a namespace of the catalog, which the namespace's generated commands join through `Joining`."
+words = ["joined"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "Joining"
+entry = "none"
+reason = "The generated commands of the namespace of the hand-written commands `Own` that `Own` lacks, in their group: `#[command(flatten)]` it before `Own` among the group's commands, so that they list first."
+words = ["joining"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands::Joining"
+member = "call"
+entry = "none"
+reason = "The call its command asks for."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "Offer"
+entry = "none"
+reason = "How the CLI offers an operation."
+words = ["offer"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "REQUIRE_VERIFIED"
+entry = "none"
+reason = "The flag of a command that answers a Run report that exits `21` when the Run's Verdict is not `verified` (ADR 0069)."
+words = ["require", "verified"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "members"
+entry = "none"
+reason = "The commands of the group `group`, one per operation of its namespace in `product`'s catalog, those of `own` written by hand, and the group's `--color`, which clap copies into them (see `ColourFlag`): what an executable's `OwnCommands::members` gives."
+words = ["members"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "namespaces_source"
+entry = "none"
+reason = "The source of `NAMESPACES`, from the catalog, as `xtask codegen` writes it."
+words = ["namespaces", "source"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "offer"
+entry = "none"
+reason = "How the CLI offers `operation`, if it does (ADR 0099): every round trip, query, read and opener is a command, a round trip that answers pages (`Offer::Pages`) one that follows them under `--follow`, and every sequence one with `--follow`, a sequence the catalog gives a bound, which reads what a Run committed, printing it once it ends without one (`Offer::Committed`), and one taking a stream reading it from stdin (`Offer::Input`), unless the catalog keeps it off the CLI, to the SDKs or to a person; a waiter or an event is none."
+words = ["offer"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "parameter_help"
+entry = "none"
+reason = "The help of `operation`'s param `name`, from its params' JSON Schema, as its generated flag would show it; empty when it has none."
+words = ["parameter", "help"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::catalog_commands"
+member = "resolved"
+entry = "none"
+reason = "`schema` with its references followed and an optional value's `null` alternative dropped."
+words = ["resolved"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "command"
+entry = "none"
+reason = "The command line of `product`'s executable, whose own commands are `own`, without its version: its commands, flags and help, from which the Feature inventory generates its `command:` Features (ADR 0072)."
+words = ["command"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Answer"
+entry = "none"
+reason = "How a call ended."
+words = ["answer"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::Answer"
+member = "into_result"
+entry = "none"
+reason = "Its result, or how the call failed."
+words = ["into", "result"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Choice"
+entry = "none"
+reason = "Which engine the command line asks for (ADR 0024)."
+words = ["choice"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "CommandCall"
+entry = "none"
+reason = "The one call a command makes, or, for a call that answers page by page, the calls of its pages, on one Connection."
+words = ["command", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::CommandCall"
+member = "of"
+entry = "none"
+reason = "The one call of `operation` with `params`, which nothing follows."
+words = ["of"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "EngineChoice"
+entry = "none"
+reason = "The engine a command runs on: what its command line chose, and the executable's machine, whose Daemon it reaches."
+words = ["engine", "choice"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::EngineChoice"
+member = "passing"
+entry = "none"
+reason = "The engine of a command whose value does not outlive it, as `choice` chooses: the Daemon when one runs or `--daemon` is given, else an Attached engine; refusals warned of through `warn`."
+words = ["passing"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "EngineFlags"
+entry = "none"
+reason = "A hand-written command's `--attached` and `--daemon` flags, as every generated command takes them (ADR 0098)."
+words = ["engine", "flags"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::EngineFlags"
+member = "choice"
+entry = "none"
+reason = "The engine they ask for."
+words = ["choice"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Failed"
+entry = "none"
+reason = "How a call that answered no result failed, as `Answer` says it."
+words = ["failed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Follower"
+entry = "none"
+reason = "Receives each notification a followed call sends, by its method and params, and answers how many credits printing it used; `None` once the command can print nothing more, as when stdout takes no more bytes: the call is then cancelled, and the command ends once the engine answered."
+words = ["follower"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Input"
+entry = "none"
+reason = "The stream of values a call takes from the Client (ADR 0024): the credits the engine grants the call with `$/credit` are spent on notifications `method`, each listing in `field` the values ready, never more than the credits left, `end` set with the last."
+words = ["input"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Interrupt"
+entry = "none"
+reason = "What stopped a command before its call was answered."
+words = ["interrupt"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::Interrupt"
+member = "exit_code"
+entry = "none"
+reason = "Its row of the exit-code table: `130` or `143`, the shell's `128` plus the signal's number."
+words = ["exit", "code"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Lifetime"
+entry = "none"
+reason = "What the command's call needs of its engine."
+words = ["lifetime"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Next"
+entry = "none"
+reason = "A call a command makes after another on the same Connection."
+words = ["next"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Pager"
+entry = "none"
+reason = "Receives each answer of a command's calls, and answers the call the command makes next on the same Connection, such as the next page of a call that answers page by page, or `None` when the answer is the last."
+words = ["pager"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "ReadValues"
+entry = "none"
+reason = "Values a reader that blocks, such as one of stdin, sends as it reads them, on a tracked blocking thread the call starts (STYLE.md), into a bounded channel: they end once the reader returns."
+words = ["read", "values"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice::ReadValues"
+member = "new"
+entry = "none"
+reason = "The values `reader` sends, read once the call starts."
+words = ["new"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Stopper"
+entry = "none"
+reason = "Answers, at the command's first interrupt, the call that stops what it started in place of `$/cancel`, such as a crawl's `run.stop`, which checkpoints its Run; `None` to cancel as any call is."
+words = ["stopper"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "Values"
+entry = "none"
+reason = "Where the values of a call that takes a stream come from."
+words = ["values"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "WIRE_TARGET"
+entry = "none"
+reason = "The `tracing` target of the records of the messages a command's Connection carries, from which a test counts them (ADR 0071's protocol counts)."
+words = ["wire", "target"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "call"
+entry = "none"
+reason = "Calls `call` on the engine `reach` chooses: the Daemon, or an Attached engine in this process, `engine` on `dependencies`; either opened by a Client that needs `needs`, on a runtime whose threads the machine's settings choose."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "connection_lost"
+entry = "none"
+reason = "The failure of a call whose Connection to the Daemon at `endpoint` dropped before `method` was answered: `connection_lost`, which exits its group's row, `8`."
+words = ["connection", "lost"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::engine_choice"
+member = "unreachable"
+entry = "none"
+reason = "The failure of a command that reached no Daemon, as `message` says, and what to do, `fix`: `daemon_unreachable`, which exits its group's row, `8`."
+words = ["unreachable"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "DAEMON_REFUSED"
+entry = "none"
+reason = "The exit code of a command a Daemon refused at `hello` by Product or by protocol version, while it could not hand over, under `--daemon` or any other Client that never falls back to an Attached engine: the `protocol_version_unsupported` row, `11`, for both, since the same `daemon restart` in the refusal's `fix` ends both (ticket #1183)."
+words = ["daemon", "refused"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "INTERRUPTED"
+entry = "none"
+reason = "A command interrupted by `SIGINT` (Ctrl-C), or `CTRL_BREAK_EVENT` on Windows, its call cancelled when it could be: the shell's `128 + 2`."
+words = ["interrupted"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "SUCCESS"
+entry = "none"
+reason = "A command that did what it was asked."
+words = ["success"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "TERMINATED"
+entry = "none"
+reason = "A command ended by `SIGTERM`, its call cancelled when it could be: the shell's `128 + 15`."
+words = ["terminated"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "group"
+entry = "none"
+reason = "The group of `error`: its numeric class's, or for a failure of the protocol itself, the one ADR 0079 gives it."
+words = ["group"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "internal"
+entry = "none"
+reason = "The failure of a command whose engine answered what no call answers, or ended its Connection unanswered, as `message` says: a bug in Goodfetch, `internal_error`, which exits `unanswered`'s row."
+words = ["internal"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "of_code"
+entry = "none"
+reason = "The exit code of a failure that names the Error code `code` without its group: the code's own row, else its declared group's; a code no entry declares, `internal`'s."
+words = ["of", "code"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "of_ending"
+entry = "none"
+reason = "The failure a Run report's ending `error` raises, as a call that ends the Run fails with it: its Error code's, or `internal_error`'s class for a code this executable does not know."
+words = ["of", "ending"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "of_error"
+entry = "none"
+reason = "The exit code of a command that failed with the Error code `code` of `group`: the code's own row of the table, or its group's."
+words = ["of", "error"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "of_report"
+entry = "none"
+reason = "The exit code of a command that answered `report`: the row of the error its ending raised when it carries one, as a call that ends a Run fails with it, the `internal` row for a Run that ended `failed` without one; else `20` when its Run ended `stopped`, which a resume by its Run ID goes on with; else, when `require_verified` (`--require-verified`), `21` for a Verdict other than `verified`; else success."
+words = ["of", "report"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "unanswered"
+entry = "none"
+reason = "The exit code of a command whose engine answered what no call answers, or nothing at all: a bug in Goodfetch, the `internal` group's row."
+words = ["unanswered"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::exit_codes"
+member = "unknown"
+entry = "none"
+reason = "The failure of an Error code `code` this executable does not know, as another engine named it, under the numeric class `class`: never retryable, since no definition says it is."
+words = ["unknown"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "main"
+entry = "none"
+reason = "Runs the executable `start` describes, and returns its exit code."
+words = ["main"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::operation"
+member = "failed"
+entry = "none"
+reason = "Prints `failure`, the failure of a command's call of `operation`, as every command's failure prints, as JSON under `json`, and answers its exit code."
+words = ["failed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::operation"
+member = "run_operation"
+entry = "none"
+reason = "Calls `operation` with `params` on the engine `reach` chooses, the Daemon or an Attached engine in this process, `engine` on `dependencies`, and answers its result, or the exit code of its failure, which it printed as `failed` does, as JSON under `json`."
+words = ["run", "operation"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "ColourChoice"
+entry = "none"
+reason = "When human output is coloured: `--color auto|always|never`."
+words = ["colour", "choice"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "ColourFlag"
+entry = "none"
+reason = "The `--color` flag each command group flattens in (ADR 0094)."
+words = ["colour", "flag"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::ColourFlag"
+member = "ID"
+entry = "none"
+reason = "The flag's id in a parse."
+words = ["id"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "Human"
+entry = "none"
+reason = "How human output shows here: the local zone, and whether stdout and stderr are coloured and progress shown."
+words = ["human"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "new"
+entry = "none"
+reason = "Human output under `choice`, the executable's `environment` and its streams: each stream coloured on its own terminal (or always under `--color always`), progress on stderr only when it is a terminal, and times in the zone `TZ` names, else the system's."
+words = ["new"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "field"
+entry = "none"
+reason = "Writes `name: value` on stdout, the name styled."
+words = ["field"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "can_ask"
+entry = "none"
+reason = "Whether a person can be asked: stdin is a terminal."
+words = ["can", "ask"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "ask"
+entry = "none"
+reason = "Asks a person `question` on stderr and reads their answer, a line of stdin, without its ends' white space; none when stdin is not a terminal, where no person answers: a person-only prompt is then refused (ADRs 0041 and 0069)."
+words = ["ask"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "warning"
+entry = "none"
+reason = "Writes `warning: text` on stderr, the label styled."
+words = ["warning"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "failure"
+entry = "none"
+reason = "Writes a failure on stderr: its message, then each `label: value` on a line of its own."
+words = ["failure"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "time"
+entry = "none"
+reason = "`rfc3339`, a point in time, in ISO 8601 in the local zone with its offset; `None` when it is no point in time."
+words = ["time"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output::Human"
+member = "progress"
+entry = "none"
+reason = "Shows `text` as progress on stderr while the `Progress` lives, when stderr is a terminal; nothing otherwise."
+words = ["progress"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "Progress"
+entry = "none"
+reason = "Progress shown on stderr, erased when it drops."
+words = ["progress"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "bytes"
+entry = "none"
+reason = "Writes `bytes` on stdout as they are, such as a file's that a command streams there."
+words = ["bytes"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "command_failed"
+entry = "none"
+reason = "What a command prints when it fails with `error`, having called `operation`, by its canonical name, or nothing yet (`None`)."
+words = ["command", "failed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "fail"
+entry = "none"
+reason = "Prints the failure `error` of a command that called `operation`, or nothing yet, as `failed` does, and answers its exit code: its Error code's row, else its group's (ADR 0069)."
+words = ["fail"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "fail_exiting"
+entry = "none"
+reason = "Prints the failure `error` as `fail` does, and answers `exit`, such as a Daemon's refusal of `hello`, which exits `11` whichever code refused it."
+words = ["fail", "exiting"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "failed"
+entry = "none"
+reason = "Prints a command's failure: under `--json` the `CommandFailed` on stdout, else as `human` shows it on stderr, its message, then `code`, `retryable` and its `fix` when it has one, each on a line of its own."
+words = ["failed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "failed_after"
+entry = "none"
+reason = "Prints a failure once the command's stdout holds its value, as `crawl start` does once it printed the Run ID: on stderr alone, so stdout under `--json` keeps its one value, as one line of JSON under `--json`, else as `failed` shows it (ADR 0069)."
+words = ["failed", "after"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "fields"
+entry = "none"
+reason = "Writes a call's result `value` as human output shows it: each field of an object as `name: value` on stdout, any other value on a line."
+words = ["fields"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "json"
+entry = "none"
+reason = "Writes `value` on stdout as one line of JSON."
+words = ["json"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "line"
+entry = "none"
+reason = "Writes `text` and a newline on stdout."
+words = ["line"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "note"
+entry = "none"
+reason = "Writes `text` and a newline on stderr: a warning, a hint or a failure, which never reaches stdout."
+words = ["note"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "raw"
+entry = "none"
+reason = "Writes `bytes` on stdout for a command's own output, as they are, such as part of the one JSON value it writes as its items arrive."
+words = ["raw"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::output"
+member = "text"
+entry = "none"
+reason = "A value as human output shows it: text as it is, anything else as JSON."
+words = ["text"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "printed_command_line"
+entry = "none"
+reason = "The command line of `product`'s executable, whose own commands are `own`, and the namespaces, as `command-line` prints them: `{\"command_line\": <tree>, \"namespaces\": <source>}`."
+words = ["printed", "command", "line"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked"
+member = "Composed"
+entry = "none"
+reason = "The engine a connection links: its Product and that Product's composition (ADR 0087)."
+words = ["composed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::Composed"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's engine, of `crate::composition`."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked"
+member = "ProductConnection"
+entry = "none"
+reason = "A connection to the engine `ConnectOptions::engine` chooses: a linked engine of its own, or a Daemon."
+words = ["product", "connection"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "connect"
+entry = "none"
+reason = "Opens a connection to the engine `options` chooses, whose `hello` needs `engine`'s Product: a linked `engine` of its own, or a Daemon (`EngineChoice`)."
+words = ["connect"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "connect_blocking"
+entry = "none"
+reason = "Opens a connection as `ProductConnection::connect` does, blocking the calling thread until it is open."
+words = ["connect", "blocking"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "connection"
+entry = "none"
+reason = "The client crate's connection, which each Product's connection drives."
+words = ["connection"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "engine"
+entry = "none"
+reason = "The engine the connection reached, fixed when it opened."
+words = ["engine"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "close"
+entry = "none"
+reason = "Closes the connection for every clone: first every Run it started that still runs, then the linked engine, which checkpoints and stops; returns once it has stopped, or once `timeout.close` has run out."
+words = ["close"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "linked::ProductConnection"
+member = "close_blocking"
+entry = "none"
+reason = "Closes the connection as `ProductConnection::close` does, blocking the calling thread until its linked engine, if any, has stopped."
+words = ["close", "blocking"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "(crate)"
+member = "pinned_artifacts"
+entry = "none"
+reason = "Every artifact this version pins."
+only = "The artifacts this crate's linked engine pins; TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["pinned", "artifacts"]
+form = "read"

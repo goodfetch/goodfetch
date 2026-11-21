@@ -6,12 +6,14 @@ pub const PAID_FETCHES: u32 = 1;
 /// The Product's connection.
 pub struct Foxhound {
     engine: u32,
+    /// The engine's process ID.
+    pub pid: u32,
 }
 
 impl Foxhound {
     /// Opens a connection.
     pub async fn connect() -> Self {
-        Self { engine: 0 }
+        Self { engine: 0, pid: 0 }
     }
 
     /// Closes it.

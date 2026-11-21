@@ -83,6 +83,26 @@ export interface FoxhoundSettings {
      */
     readonly version?: string | null;
   };
+  readonly connection?: {
+    /**
+     * The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.
+     *
+     * `connection.max_listener_queue`.
+     */
+    readonly maxListenerQueue?: number;
+    /**
+     * The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+     *
+     * `connection.max_pending_calls`.
+     */
+    readonly maxPendingCalls?: number;
+    /**
+     * The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+     *
+     * `connection.max_queued_write_bytes`.
+     */
+    readonly maxQueuedWriteBytes?: number;
+  };
   readonly consent?: {
     /**
      * The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.
@@ -2539,6 +2559,11 @@ const SPELLING: Spelling = {
     lists: "lists",
     update: "update",
     version: "version",
+  }],
+  connection: ["connection", {
+    maxListenerQueue: "max_listener_queue",
+    maxPendingCalls: "max_pending_calls",
+    maxQueuedWriteBytes: "max_queued_write_bytes",
   }],
   consent: ["consent", {
     domains: "domains",

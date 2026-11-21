@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted, then a Run started and two Sessions opened in it, the Connection's `maxListenerQueue` set to 2. The program listens to each Session's `page`: the Connection's one Subscription, `events.subscribe` with its credits, is sent first, then each `session.on`. The engine publishes sixteen pages of the first Session, all its credits, whose listener stalls on its first: its own queue takes them and gives their credits back, so the Client grants 8 twice while that listener still stalls, and only then does the engine publish one page of the second Session, which the second listener gets. Once released, the first listener gets the two pages its queue held, then it is removed, its `session.on` cancelled, and it ends with `listener_events_lost` naming the fourteen pages it lost. The program closes the second listener, which cancels its `session.on`, then the Subscription no other listener holds; the Run finishes and the Client closes.",
+  "description": "A Collie Client's hello accepted, then a Run started and two Sessions opened in it, the Connection's `connection.max_listener_queue` set to 2 in its hello's settings. The program listens to each Session's `page`: the Connection's one Subscription, `events.subscribe` with its credits, is sent first, then each `session.on`. The engine publishes sixteen pages of the first Session, all its credits, whose listener stalls on its first: its own queue takes them and gives their credits back, so the Client grants 8 twice while that listener still stalls, and only then does the engine publish one page of the second Session, which the second listener gets. Once released, the first listener gets the two pages its queue held, then it is removed, its `session.on` cancelled, and it ends with `listener_events_lost` naming the fourteen pages it lost. The program closes the second listener, which cancels its `session.on`, then the Subscription no other listener holds; the Run finishes and the Client closes.",
   "steps": [
     {
       "expect": {
@@ -10,7 +10,12 @@
           "form": "typescript",
           "needs": "collie",
           "product_version": "0.0.0",
-          "log_level": "off"
+          "log_level": "off",
+          "settings": {
+            "connection": {
+              "max_listener_queue": 2
+            }
+          }
         }
       }
     },

@@ -8308,6 +8308,39 @@
       ]
     },
     {
+      "id": "setting:connection.max_listener_queue",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:connection.max_pending_calls",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:connection.max_queued_write_bytes",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:consent.domains",
       "kind": "setting",
       "area": 5,

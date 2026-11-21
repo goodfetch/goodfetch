@@ -26,16 +26,16 @@ use self::preflight::{Probe, Under};
 use self::redo::{asks, merge, merge_counted, merge_growth, merge_sizes};
 use self::watch::{Retried, Watch, retried, watched};
 use super::auto::Judged;
-use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
+use super::matrix::{self, Cell, Config, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     AUTO_RUNS, AutoRun, CONCURRENCY, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
     CollieScenario, Comparison, CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES,
-    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
-    OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone,
-    RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, STRACE_QUIET_LOAD, SizesCell, StoppedPoint,
-    StoppedRun, Trial, size_not_run,
+    GrowthCell, INSTRUCTION_RUNS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
+    PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone, RuledRun, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC,
+    STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial, instruction_counted,
+    size_not_run,
 };
 
 mod collie;
@@ -435,7 +435,7 @@ fn size_points(options: &Options) -> Vec<Point> {
         .into_iter()
         .filter(|(cell, config)| {
             cell.scenario == Scenario::Raw
-                && cell.row == Row::Main
+                && cell.counted_criteria()
                 && SIZE_TOOLS.contains(&config.tool())
         })
         .collect();
@@ -967,18 +967,14 @@ fn auto(
     Ok(runs)
 }
 
-/// The cells of `measured` the Callgrind cell runs: ADR 0140's rows compare
-/// Foxhound's instructions with Spider's, each on its main rows, in
-/// scenario 1 and in the extraction scenario.
+/// The cells of `measured` the Callgrind cell runs: those ADR 0140's rows
+/// read, Foxhound's instructions over Spider's, in scenario 1 and in the
+/// extraction scenario (see [`instruction_counted`]).
 fn instruction_cells(measured: &[(&'static Cell, Config)]) -> Vec<(&'static Cell, Config)> {
     measured
         .iter()
         .copied()
-        .filter(|(cell, config)| {
-            INSTRUCTION_SCENARIOS.contains(&cell.scenario)
-                && cell.row == Row::Main
-                && INSTRUCTION_TOOLS.contains(&config.tool())
-        })
+        .filter(|(cell, _)| instruction_counted(cell))
         .collect()
 }
 

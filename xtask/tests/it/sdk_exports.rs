@@ -256,9 +256,11 @@ fn check_refuses_a_public_rust_item_no_line_lists(
 /// A crate's public item is only what a dependent crate reaches by name:
 /// not a `#[doc(hidden)]` method, not a member the generator writes, even on
 /// a hand-written type, not another crate's type it re-exports, which that
-/// crate's manifest lists, and nothing only a test build compiles.
+/// crate's manifest lists, not a struct's public field, which is plain data
+/// (ADR 0099), and nothing only a test build compiles.
 #[rstest]
 #[case::member_the_crate_lacks(UNUSED, "Foxhound", "abort", "[\"abort\"]", "closer")]
+#[case::field_of_a_struct(UNUSED, "Foxhound", "pid", "[\"pid\"]", "read")]
 #[case::hidden_member(UNUSED, "Foxhound", "hidden", "[\"hidden\"]", "read")]
 #[case::member_the_generator_writes(GENERATED, "Foxhound", "start", "[\"start\"]", "opener")]
 #[case::generated_type(GENERATED, "(crate)", "Handle", "[\"handle\"]", "type")]

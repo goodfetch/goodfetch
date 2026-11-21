@@ -416,3 +416,108 @@ fn a_setting_connect_refuses_says_how_to_fix_it(
         "{refused}"
     );
 }
+
+/// The TypeScript Client's own bounds, set in `connect()`'s `settings`,
+/// are explained with the value, the run layer and the `settings` origin
+/// of the Connection that set them, and the bound it left out with its
+/// default (issue 2518).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue, operation:config.explain
+#[test]
+fn config_explain_names_each_clients_own_bound() {
+    let env = TestEnv::new();
+
+    let explained = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client
+                .send(&[hello_setting(json!({
+                    "connection": { "max_pending_calls": 5, "max_listener_queue": 2 },
+                }))])
+                .await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "config.explain",
+                json!({ "keys": [
+                    "connection.max_pending_calls",
+                    "connection.max_queued_write_bytes",
+                    "connection.max_listener_queue",
+                ] }),
+            )
+            .await
+        },
+    );
+
+    let origins: Vec<&Value> = explained["result"]["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| &setting["origin"])
+        .collect();
+    assert_eq!(
+        (keyed(&explained), origins),
+        (
+            vec![
+                json!(["connection.max_listener_queue", 2, "run"]),
+                json!(["connection.max_pending_calls", 5, "run"]),
+                json!(["connection.max_queued_write_bytes", 67_108_864, "default"]),
+            ],
+            vec![&json!("settings"), &json!("settings"), &Value::Null],
+        ),
+        "{explained}"
+    );
+}
+
+/// A Client's own bound that cannot take effect where it is set refuses
+/// the `hello`: from a surface whose Client has no such bound, and a value
+/// that is no whole number from 1 (issue 2518).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, error:setting_not_applicable, error:setting_invalid
+#[rstest]
+#[case::a_python_client(
+    "sdk_python",
+    json!({ "connection": { "max_pending_calls": 5 } }),
+    "setting_not_applicable",
+    "connection.max_pending_calls"
+)]
+#[case::a_rust_program(
+    "rust",
+    json!({ "connection": { "max_queued_write_bytes": 5 } }),
+    "setting_not_applicable",
+    "connection.max_queued_write_bytes"
+)]
+#[case::zero_from_the_typescript_client(
+    "sdk_typescript",
+    json!({ "connection": { "max_pending_calls": 0 } }),
+    "setting_invalid",
+    "connection.max_pending_calls"
+)]
+fn a_clients_own_bound_that_cannot_take_effect_refuses_the_hello(
+    #[case] surface: &str,
+    #[case] settings: Value,
+    #[case] code: &str,
+    #[case] key: &str,
+) {
+    let env = TestEnv::new();
+    let mut hello = hello_setting(settings);
+    hello["params"]["surface"] = json!(surface);
+
+    let refused = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello]).await;
+            client.next().await.unwrap()
+        },
+    );
+
+    let details = &refused["error"]["data"];
+    assert_eq!(
+        (&details["code"], &details["key"]),
+        (&json!(code), &json!(key)),
+        "{refused}"
+    );
+}

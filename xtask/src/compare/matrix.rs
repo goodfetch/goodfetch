@@ -666,7 +666,8 @@ pub(crate) enum Row {
     Main,
     /// A variant of the tool's main row of the scenario, one setting
     /// apart, which shows how much the tool's figures move with it; no
-    /// target, bar or ratio reads it.
+    /// target or bar reads it, and a ratio only the second row of
+    /// Foxhound's cell at the catalog's defaults (#2175).
     Sensitivity,
 }
 
@@ -772,21 +773,23 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 130] = [
+pub(crate) const CELLS: [Cell; 132] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
         name: "foxhound",
         mapping: "the maximum-throughput combination (`docs/throughput.md`): code-free crawl on \
-                  the `http` tier, `run_state.durability: off`, \
+                  the `http` tier, `run_state.durability: batch`, its default, \
                   `site_preferences.respect_robots_txt: false`, `politeness.domain` delay 0 and \
-                  concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`, \
-                  `frontier.learning: false`, `provenance.log: false`, `dataset.records: false` \
-                  and `fetch.block_classification: false`",
+                  concurrency 16 (the default shared Politeness, with Delegations), \
+                  `crawl.handler.concurrency: 16`, `formats: {}`, `frontier.learning: false`, \
+                  `provenance.log: false`, `dataset.records: false` and \
+                  `fetch.block_classification: false`. This row keeps the counted criteria; \
+                  #2176's target is the cell at the catalog's defaults'",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -835,6 +838,18 @@ pub(crate) const CELLS: [Cell; 130] = [
         status: Status::Measured(Config::Scrapy),
     },
     defaults(Scenario::Raw),
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Foxhound,
+        name: AT_DEFAULTS_LEARNED,
+        mapping: "the cell at the catalog's defaults with the other way of `fetch.http_from`, \
+                  `learned`: a page whose Label is learned to need no browser is sent from the \
+                  engine's own HTTP client, where the default sends it from the browser; the \
+                  row Callgrind counts",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(AT_DEFAULTS_CONFIG),
+    },
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::CrawleeRs,
@@ -984,8 +999,9 @@ pub(crate) const CELLS: [Cell; 130] = [
         scenario: Scenario::Durable,
         tool: Tool::Foxhound,
         name: "foxhound full",
-        mapping: "scenario 1's settings with `run_state.durability: full`, its default: every \
-                  outcome synced, and `dataset.records` on, as its resume is judged by them; killed with SIGKILL once half the site is served, then \
+        mapping: "scenario 1's settings with `run_state.durability: full`: each attempt's claim \
+                  and outcome a synced batch of its own, and `dataset.records` on, as its resume \
+                  is judged by them; killed with SIGKILL once half the site is served, then \
                   `run.resume` in a new process on the same home",
         pending: &[],
         row: Row::Main,
@@ -1007,6 +1023,23 @@ pub(crate) const CELLS: [Cell; 130] = [
         status: Status::Measured(Config::Foxhound {
             durability: "periodic",
             commit_interval: Some(60_000),
+            auto: false,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Foxhound,
+        name: "foxhound batch",
+        mapping: "scenario 1's settings with `run_state.durability: batch`, its default, its \
+                  preset's keys at theirs: the Run's changes written in synced Run-state \
+                  batches of 1,000 attempts, 1 s or 8 MiB, whichever comes first, so a crash \
+                  loses at most the last batch; the cell set against Crawlee's default \
+                  `persistStorage` (story 49)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "batch",
+            commit_interval: None,
             auto: false,
         }),
     },
@@ -1120,7 +1153,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         name: "foxhound",
         mapping: "its defaults (ADR 0086): a code-free crawl with robots.txt obeyed \
                   (`site_preferences.respect_robots_txt: true`), `politeness.sharing: shared`, \
-                  `crawl.handler.concurrency: 16`, `run_state.durability: full`, `formats: {}`; \
+                  `crawl.handler.concurrency: 16`, `run_state.durability: batch`, `formats: {}`; \
                   with `politeness.domain.delay: 1s` and `politeness.domain.concurrency: 1` \
                   set, ADR 0086's values, which the catalog holds no default for until the \
                   fetch tiers take them (its #684 note); `fetch.tier: http`, as the other tools \
@@ -1130,7 +1163,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "full",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1148,7 +1181,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Sensitivity,
         status: Status::Measured(Config::Foxhound {
-            durability: "full",
+            durability: "batch",
             commit_interval: None,
             auto: true,
         }),
@@ -1262,7 +1295,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1279,7 +1312,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1413,7 +1446,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1535,7 +1568,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1634,7 +1667,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1731,7 +1764,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1827,7 +1860,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -1921,13 +1954,13 @@ pub(crate) const CELLS: [Cell; 130] = [
         mapping: "the catalog's defaults, setting nothing but each task's host resolved to the \
                   Proving ground (`network.resolve`, `egress.private_ranges`): `fetch.tier: auto` \
                   with a Browser cache laid out for it (`GOODFETCH_BROWSERS_PATH`), robots.txt \
-                  obeyed, `politeness.sharing: shared`, `run_state.durability: full`, and no \
+                  obeyed, `politeness.sharing: shared`, `run_state.durability: batch`, and no \
                   delay or cap per domain until #1499 puts ADR 0086's pace in the catalog; one \
                   crawl per task from its start page, `formats: {}` and `follow: scope`",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "full",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -2050,7 +2083,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -2152,7 +2185,7 @@ pub(crate) const CELLS: [Cell; 130] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
-            durability: "off",
+            durability: "batch",
             commit_interval: None,
             auto: false,
         }),
@@ -2324,9 +2357,10 @@ pub(crate) const CELLS: [Cell; 130] = [
                   `page.read` of the twenty fields, one `push` of them to the Dataset `pages` and \
                   one `enqueueLinks` of the page's links; `fetch.tier` not set, so the engine's \
                   own tier choice samples pages on `http` and in Chrome for Testing (#1602), and \
-                  scenario 1's other settings, `run_state.durability: off`, robots.txt not \
-                  obeyed, `politeness.domain` delay 0 and concurrency 16 (`sharing: run`), \
-                  `crawl.handler.concurrency: 16`, `dataset.records: true`",
+                  scenario 1's other settings, `run_state.durability: batch`, robots.txt not \
+                  obeyed, `politeness.domain` delay 0 and concurrency 16 (the default shared \
+                  Politeness, with Delegations), `crawl.handler.concurrency: 16`, \
+                  `dataset.records: true`",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::FoxhoundProgram),
@@ -2403,19 +2437,57 @@ pub(crate) const CELLS: [Cell; 130] = [
     },
 ];
 
+/// The name of Foxhound's cell at the catalog's defaults (#2175), the row
+/// with the default `fetch.http_from` in force.
+pub(crate) const AT_DEFAULTS: &str = "foxhound defaults";
+
+/// The name of that cell's second row, the other way of
+/// `fetch.http_from`: `learned`.
+pub(crate) const AT_DEFAULTS_LEARNED: &str = "foxhound defaults learned";
+
+/// A row of Foxhound's cell at the catalog's defaults (owner, 2026-11-10,
+/// G-04 Q11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AtDefaults {
+    /// The default `fetch.http_from` in force, `browser`: the row that
+    /// carries #2176's target.
+    InForce,
+    /// `fetch.http_from: learned`, whose pages are sent from the engine's
+    /// own HTTP client once learned: the row Callgrind counts, since it
+    /// follows the engine's process alone.
+    Learned,
+}
+
+/// Foxhound's run at the catalog's defaults: its Durability level `batch`,
+/// and `fetch.tier` at `auto`, so its samples are read from its Records.
+const AT_DEFAULTS_CONFIG: Config = Config::Foxhound {
+    durability: "batch",
+    commit_interval: None,
+    auto: true,
+};
+
+/// What every row of the cell at the catalog's defaults sets.
+const AT_DEFAULTS_MAPPING: &str = "Foxhound at the catalog's defaults, setting nothing but the \
+     crawl's site and the scenario's pace, `politeness.domain.delay: 0` and \
+     `politeness.domain.concurrency` at its requests in flight, which the Run reports as \
+     weakened: robots.txt respected, `fetch.tier: auto`, `fetch.http_from: browser`, Frontier \
+     learning, the Provenance log, Block classification and Records on, \
+     `run_state.durability: batch` and the shared Politeness with Delegations; the tier each \
+     page was sent from read from its Records' Provenance. This row carries #2176's target; the \
+     counted criteria stay with the maximum-throughput combination's row";
+
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
-/// scenario 1's concurrency sweep: pending until #2175 brings it.
+/// scenario 1's concurrency sweep, with the default `fetch.http_from` in
+/// force.
 const fn defaults(scenario: Scenario) -> Cell {
     Cell {
         scenario,
         tool: Tool::Foxhound,
-        name: "foxhound defaults",
-        mapping: "Foxhound at the catalog's defaults, setting nothing but the crawl's name and the \
-                  scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency` \
-                  at its requests in flight",
+        name: AT_DEFAULTS,
+        mapping: AT_DEFAULTS_MAPPING,
         pending: &[],
         row: Row::Main,
-        status: Status::Pending(DEFAULTS_PENDING),
+        status: Status::Measured(AT_DEFAULTS_CONFIG),
     }
 }
 
@@ -2426,9 +2498,6 @@ pub(crate) const HANDLED_RUST_PENDING: &str =
 /// Why the handled crawl's getters row gives no figure yet.
 pub(crate) const HANDLED_GETTERS_PENDING: &str = "#724 and #1296's TypeScript part, which bring \
      the TypeScript getters the row's handler reads each field with";
-
-/// Why the cell at the catalog's defaults gives no figure yet.
-const DEFAULTS_PENDING: &str = "#2175, which brings the cell at the catalog's defaults";
 
 /// Why Spider's `smart` row has no figures: what its crawl of the
 /// script-rendered site fetched (#2213).
@@ -2578,6 +2647,24 @@ impl Cell {
     /// `filter_lists.trackers` and `filter_lists.annoyances` off.
     pub(crate) fn filter_lists_off(&self) -> bool {
         self.scenario == Scenario::Extraction && self.name == FILTER_LISTS_OFF
+    }
+
+    /// Which row of Foxhound's cell at the catalog's defaults (#2175) the
+    /// cell is, in scenario 1 and its concurrency sweep; none for another.
+    pub(crate) fn at_defaults(&self) -> Option<AtDefaults> {
+        match self.name {
+            AT_DEFAULTS => Some(AtDefaults::InForce),
+            AT_DEFAULTS_LEARNED => Some(AtDefaults::Learned),
+            _ => None,
+        }
+    }
+
+    /// Whether the cell keeps its scenario's counted criteria: a main row
+    /// other than the cell at the catalog's defaults, which reads its own
+    /// target (#2176) and whose sizes and headline figures stay those of
+    /// the scenario's first cell (#2175).
+    pub(crate) fn counted_criteria(&self) -> bool {
+        self.row == Row::Main && self.at_defaults().is_none()
     }
 
     /// What the output check holds the cell's pages to, in the extraction

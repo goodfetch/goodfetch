@@ -1,0 +1,1924 @@
+# The manifest of the Collie client crate's hand-written public members, the
+# values every Product's connection hands out (ADR 0099; STYLE.md, Protocol
+# and SDKs): each names the catalog entry it serves, or `entry = "none"` with
+# its reason, and the canonical words and form it is spelled from, in the
+# forms of `sdks/typescript/manifest.toml`, whose header says what `xtask
+# sdk-manifests` refuses. A `blocking::` receiver is its async receiver's
+# twin. `xtask sdk-exports` matches it to what the crate exports, read from
+# its source: each item its public modules declare or re-export from its own
+# modules, on `(crate)` at the root or on the module's path, as `blocking` or
+# `settings`, and each `pub` member of such a type's inherent `impl`s.
+#
+# A re-exported item is listed once, by the manifest of the crate that
+# declares it. An item `goodfetch-protocol` declares, such as `RunId`,
+# `StartedAs` or `SettingsExplanation`, is a contract type the generators
+# emit each SDK's from (ADR 0038), so no manifest lists it. An item one SDK
+# crate re-exports from another, as `goodfetch-collie` and
+# `goodfetch-foxhound` re-export this crate's `Error`, `Limits` and
+# `Response`, is listed here, in its declaring crate's manifest, and in
+# neither of theirs.
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Answer"
+entry = "none"
+reason = "A result the engine answered: `T`, read from the JSON it came from, which `raw` keeps whole, the fields `T` does not name included."
+only = "TypeScript's call answers the value itself, JSON already parsed; Rust keeps the raw JSON beside its typed value."
+words = ["answer"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Answer"
+member = "raw"
+entry = "none"
+reason = "The JSON the result came from, whole: the fields `T` does not name too."
+words = ["raw"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Answer"
+member = "into_inner"
+entry = "none"
+reason = "Its typed view, without the JSON it came from."
+words = ["into", "inner"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Answer"
+member = "into_parts"
+entry = "none"
+reason = "Its typed view and the JSON it came from."
+words = ["into", "parts"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "BoxError"
+entry = "none"
+reason = "The error a program's own code returns, from a handler, a Hook, a login step or any other function the SDK calls (ADR 0109): std's `Box<dyn Error + Send + Sync>`, which `?` converts any such error into, a `&str`, a `String` and the SDK's own `Error` included."
+only = "TypeScript's own code throws any value, which no type names."
+words = ["box", "error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Call"
+entry = "none"
+reason = "A call that waits for its reply, `T`, with its params, `P`."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's takes its options as an argument."
+words = ["call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Call"
+member = "timeout"
+entry = "none"
+reason = "Fails the call if its reply has not come within `timeout`: with `deadline_exceeded`, or with the engine's `deadline_exceeded` for an operation that takes its own `timeout`."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Call"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the reply as long as the Connection lasts."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "ClientConnection"
+entry = "none"
+reason = "A Connection to one engine."
+only = "TypeScript's Connection is its Product's class, `Collie`, over a module no program imports."
+words = ["client", "connection"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "open"
+entry = "none"
+reason = "Opens a Connection to the engine at `endpoint` over `network`, on `runtime`, and says `hello`, waiting for its answer as long as it takes."
+words = ["open"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "open_within"
+entry = "none"
+reason = "Opens a Connection as `ClientConnection::open` does, waiting for `hello`'s answer within `timeout` (ADR 0083); past it, the Connection is closed."
+words = ["open", "within"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "call"
+entry = "none"
+reason = "The call of `method` with `params`, whose reply reads as `T`."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "raw_call"
+entry = "none"
+reason = "The raw call of `operation` (ADR 0099), its params and its result the wire's JSON, which awaiting sends: the Products' `call`."
+words = ["raw", "call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "query"
+entry = "none"
+reason = "The query of `method` with `params`, whose answer reads as `T`."
+words = ["query"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "ensure_opener"
+entry = "none"
+reason = "Fails unless the calling process opened the Connection, as each use of it does: a Product crate's connection checks it before it waits on tasks of its own."
+words = ["ensure", "opener"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "save_file"
+entry = "none"
+reason = "The save of a file to the program's `path` through the call of `method` with `params`, whose reply reads as `T`, which awaiting it sends; `call` names the call the program made, which a failure's fix names."
+words = ["save", "file"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "handler_requests"
+entry = "none"
+reason = "The engine's requests of `method`, such as the Crawl requests a crawl's handlers answer (ADR 0093), from now until the Connection ends or the stream is dropped."
+words = ["handler", "requests"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "close"
+entry = "none"
+reason = "Closes the Connection: first every Run it started that is still open, as `crate::Run::close` does, each closed at once even when `timeout.close` runs out before its abort, then every call in flight fails with `closed`, as does every later one; the engine reads the end of its input, and an Attached engine exits."
+words = ["close"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "ConnectTimeout"
+entry = "none"
+reason = "How long opening a Connection waits for the engine to answer `hello` (ADR 0080): `timeout.connect` when left as it is, no deadline, or a duration of the connection's own, given as an argument."
+only = "TypeScript's `connect()` takes its timeout as a number in `ConnectOptions`."
+words = ["connect", "timeout"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectTimeout"
+member = "check"
+entry = "none"
+reason = "Refuses a deadline that would end the opening at once, before anything starts."
+words = ["check"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectTimeout"
+member = "rest"
+entry = "none"
+reason = "What is left of it once `elapsed` of an opening has passed, which a later step of the same opening waits within, such as a second engine's `hello` (ADR 0098)."
+words = ["rest"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectTimeout"
+member = "exceeded"
+entry = "none"
+reason = "The `deadline_exceeded` an opening fails with once it has passed: its `limit` names `timeout.connect` and the layer that set it, and its `waited_for` `hello`."
+words = ["exceeded"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectTimeout"
+member = "exceeded_awaiting"
+entry = "none"
+reason = "`ConnectTimeout::exceeded` for a step of an opening that passed it waiting for `awaited` rather than for the engine's answer, such as the Daemon an idle one hands over to (ADR 0098): its message names what it waited for, and its `fix` is `fix`."
+words = ["exceeded", "awaiting"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Connection"
+entry = "none"
+reason = "A Client's open link to one engine, through which a program reaches its Runs: the members both Products' connections share."
+words = ["connection"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "call"
+entry = "none"
+reason = "The call of `method` with `params`, whose reply reads as `T`."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "close"
+entry = "none"
+reason = "Closes the Connection: first every Run it started that is still open, as `crate::Run::close` does, each closed at once even when `timeout.close` runs out before its abort, then every call in flight fails with `closed`, as does every later one; the engine reads the end of its input, and an Attached engine exits."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "ConnectionRuntime"
+entry = "none"
+reason = "The runtime a Connection's tasks run on."
+only = "TypeScript runs on the host's event loop, which no type names."
+words = ["connection", "runtime"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectionRuntime"
+member = "owned"
+entry = "none"
+reason = "A runtime the Connection owns, which `goodfetch-runtime` builds."
+words = ["owned"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectionRuntime"
+member = "driven"
+entry = "none"
+reason = "The runtime behind `handle`, which the program drives and which outlives the Connection: an executable's own, or the test helper's paused current-thread runtime, whose `block_on` drives the Connection's tasks with the test's."
+words = ["driven"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Error"
+entry = "none"
+reason = "Why a Connection or one of its calls failed: an Error code, its group, whether a retry may succeed, the message, the fields every error carries and the code's details (ADR 0079)."
+only = "TypeScript's error classes are generated, one per Error code (ADR 0099)."
+words = ["error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "code"
+entry = "none"
+reason = "The Error code, as the engine sent it; one this SDK does not know stays a value."
+words = ["code"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "group"
+entry = "none"
+reason = "The code's group, named for its remedy."
+words = ["group"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "retryable"
+entry = "none"
+reason = "Whether the same call may succeed when made again."
+words = ["retryable"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "message"
+entry = "none"
+reason = "What went wrong, for people, as every SDK shows it; never match on it."
+words = ["message"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "details"
+entry = "none"
+reason = "The code's details as `D`, its details type, or none when `D` holds another code's details or the engine's do not fit it."
+words = ["details"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "fix"
+entry = "none"
+reason = "What to do about it, when the engine or the SDK knows."
+words = ["fix"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "with_fix"
+entry = "none"
+reason = "The same failure whose `fix` is `fix`, as an SDK that knows more of the remedy than the engine words it, such as the refusal of a Daemon that cannot hand over (ADR 0098)."
+words = ["with", "fix"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "operation"
+entry = "none"
+reason = "The operation the call made, by its canonical catalog name, such as `locator.click`."
+words = ["operation"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "call_id"
+entry = "none"
+reason = "The call's ID, which finds it in the Run trace."
+words = ["call", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "run_id"
+entry = "none"
+reason = "The Run the call belonged to, inside a Run."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "target"
+entry = "none"
+reason = "What the call acted on, as the engine rendered it in Rust."
+words = ["target"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "url"
+entry = "none"
+reason = "The page's URL, where one applies."
+words = ["url"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "observed"
+entry = "none"
+reason = "What was there instead of what the call needed."
+words = ["observed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "limit"
+entry = "none"
+reason = "The setting that decided the outcome, with its value, the layer that set it and where the value came from (ADRs 0079, 0083)."
+words = ["limit"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "call_log"
+entry = "none"
+reason = "The engine's steps for the call, as Playwright's call log; empty when it sent none."
+words = ["call", "log"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "of_program"
+entry = "none"
+reason = "The program's own error `error` as the SDK reads it (ADR 0109): a box that holds the SDK's own `Error` keeps it, code and retryable flag included; anything else, an error that wraps a Goodfetch error in its `source()` chain included, is the program's own, failing with `own`, the code the place that called the program gives it, such as a handler's `handler_failed`."
+words = ["of", "program"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "engine_failed"
+entry = "none"
+reason = "The linked engine, which runs in the program's own process, could not start or failed (ADR 0087): `engine_exited`, with `source` as its cause and details that hold no exit code, signal or stderr."
+words = ["engine", "failed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "daemon_unreachable"
+entry = "none"
+reason = "No Daemon could be reached where a Product crate's connection looked for one: `daemon_unreachable`, with `fix` saying what to do."
+words = ["daemon", "unreachable"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "setting_invalid"
+entry = "none"
+reason = "A value a Product crate's connection reads before it reaches an engine, such as a remote Daemon's URL, is refused: `setting_invalid`, with `details`."
+words = ["setting", "invalid"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "setting_unknown"
+entry = "none"
+reason = "A name a Product crate's connection reads before it reaches an engine, such as a `GOODFETCH_` variable off the closed list of deployment variables, is unknown: `setting_unknown`, with `details` and `fix` saying what to do."
+words = ["setting", "unknown"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "closed"
+entry = "none"
+reason = "The Connection, or the value the call was made on, is closed, so the call was never answered: `closed`."
+words = ["closed"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "timed_out"
+entry = "none"
+reason = "The call's timeout ran out before its reply came: `deadline_exceeded`."
+words = ["timed", "out"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "EventStream"
+entry = "none"
+reason = "The events one call streams, read in order."
+only = "TypeScript's streamed events reach a `Listener` or a `Sequence`."
+words = ["event", "stream"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "EventStream"
+member = "next"
+entry = "none"
+reason = "The next event, or `None` once the stream has ended."
+words = ["next"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Exchange"
+entry = "none"
+reason = "A request a page sent and the response it got, which `page.wait_for_response` and `page.wait_for_request_finished` answer: its response reads its body as any `Response` does, and one that `wait_for_request_finished` answered reads it whole once the page has moved on."
+only = "TypeScript's are generated from the catalog's types (ADR 0099)."
+words = ["exchange"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Exchange"
+member = "request"
+entry = "none"
+reason = "The request, as the browser sent it."
+words = ["request"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Exchange"
+member = "response"
+entry = "none"
+reason = "The response it got."
+words = ["response"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "FieldValues"
+entry = "none"
+reason = "The values of a page's fields, read into `T`, and each value the page did not give, with why."
+words = ["field", "values"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "HandlerCall"
+entry = "none"
+reason = "One request the engine sent the program, answered once with `HandlerCall::answer` or `HandlerCall::fail`."
+only = "TypeScript's handler is a function the SDK calls, which answers by returning."
+words = ["handler", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "method"
+entry = "none"
+reason = "The request's method."
+words = ["method"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "params"
+entry = "none"
+reason = "The request's params, `null` when it had none."
+words = ["params"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "answer"
+entry = "none"
+reason = "Answers the request with `result`."
+words = ["answer"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "fail"
+entry = "none"
+reason = "Answers the request with the program's own error `error`, as ADR 0109 reads it: a Goodfetch `Error` keeps its code, and any other error fails with `own`, the code of the place that called the program, such as a handler's `handler_failed` (see `Error::of_program`)."
+words = ["fail"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "HandlerRequests"
+entry = "none"
+reason = "The engine's requests of one method, in the order it sent them, from `crate::ClientConnection::handler_requests`."
+only = "TypeScript's handler is a function the SDK calls, which answers by returning."
+words = ["handler", "requests"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerRequests"
+member = "next"
+entry = "none"
+reason = "The engine's next request, or `None` once the Connection has ended and the requests it handed out before are taken; those can no longer be answered."
+words = ["next"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Limits"
+entry = "none"
+reason = "The Limits a program sets on its connection or on a Run at its start (ADR 0080): a count or a price per Usage kind."
+words = ["limits"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Limits"
+member = "new"
+entry = "none"
+reason = "No Limit."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Limits"
+member = "count"
+entry = "none"
+reason = "Caps `kind` at `amount` of it, in place of a count given before."
+words = ["count"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Limits"
+member = "price"
+entry = "none"
+reason = "Caps what `kind` may cost at `price`, in place of a price given before in the same currency."
+words = ["price"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "ListenerQueue"
+entry = "none"
+reason = "How many events each stream of the Connection's Subscription holds unread, such as a Session's pages (ADR 0081): past it, the stream loses each further event of its own, and once it handed those it held it ends with `listener_events_lost`, while the Subscription and the other streams go on."
+only = "TypeScript's events reach each listener as they come, with no queue a program sizes."
+words = ["listener", "queue"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ListenerQueue"
+member = "DEFAULT"
+entry = "none"
+reason = "The bound when the program sets none."
+words = ["default"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ListenerQueue"
+member = "new"
+entry = "none"
+reason = "A queue of `bound` events, the bound a Product crate's `max_listener_queue` gives."
+words = ["new"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ListenerQueue"
+member = "get"
+entry = "none"
+reason = "How many events it holds."
+words = ["get"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Money"
+entry = "none"
+reason = "A price: an amount exact to a millionth of its currency."
+words = ["money"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Money"
+member = "new"
+entry = "none"
+reason = "`amount`, digits with at most one decimal point such as `\"0.50\"`, of `currency`, an ISO 4217 code such as `\"USD\"`."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Money"
+member = "millionths"
+entry = "none"
+reason = "The amount in millionths of its currency, as the wire carries it."
+words = ["millionths"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Money"
+member = "currency"
+entry = "none"
+reason = "The currency's ISO 4217 code."
+words = ["currency"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "MoneyError"
+entry = "none"
+reason = "Why `Money::new` refused an amount."
+only = "TypeScript's `Money` is an amount as a string, which the engine checks."
+words = ["money", "error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Query"
+entry = "none"
+reason = "A question the engine answers at once, `T`, with its params, `P`, without waiting on a page, a network or anything else, so it takes no timeout."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's takes its options as an argument."
+words = ["query"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Query"
+member = "typed"
+entry = "none"
+reason = "The read whose values are read into `T`, a type whose fields are named as the declared fields are, such as a struct deriving `serde::Deserialize`."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Query"
+member = "keys"
+entry = "none"
+reason = "Explains only `keys`, each a key, such as `timeout.wait`, or a prefix of keys, such as `timeout`, in place of any given before; left out, every key is explained."
+words = ["keys"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "RawCall"
+entry = "none"
+reason = "A raw call of an operation, its params and its result the wire's JSON (ADR 0099), marked raw in its `_meta`."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's raw call takes `RawCallOptions`."
+words = ["raw", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RawCall"
+member = "params"
+entry = "none"
+reason = "Sends `params`, a JSON object in the wire's snake case, such as `json!({\"blocked\": true})`; none sends `{}`."
+words = ["params"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RawCall"
+member = "timeout"
+entry = "none"
+reason = "Sends `timeout` as the operation's own `timeout` parameter (ADR 0080), in milliseconds, rounded up: the engine fails the call with `deadline_exceeded` past it."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RawCall"
+member = "no_timeout"
+entry = "none"
+reason = "Sends the operation's own `timeout` as `null`: it waits as long as it takes."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Reply"
+entry = "none"
+reason = "A call's reply, as `.await` gives it."
+only = "Rust names the future a builder's `.await` gives; TypeScript's call returns a `Promise`."
+words = ["reply"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Response"
+entry = "none"
+reason = "The response a page's request got: a navigation's document, or what `page.request` answered."
+only = "TypeScript's are generated from the catalog's types (ADR 0099)."
+words = ["response"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "status_text"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, from 200 to 299."
+words = ["ok"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `document.characterSet` names it, such as `Shift_JIS` (ADR 0119); none for another response, and for a navigation that answered at `commit`, before its document was decoded."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "request_id"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "from_service_worker"
+entry = "none"
+reason = "Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding (ADR 0119): a navigation's document with the one the browser decoded it with, `Self::encoding`; any other response with its BOM, then its `Content-Type` charset, then for HTML a `<meta>` as Chrome's prescan reads it (its first 1,024 bytes always, then on while only tags allowed in the head appear) or an XML declaration at its very start, for an XML type that declaration, and UTF-8 last."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Response"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON into `T`, a `serde_json::Value` for any JSON: decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "started_as"
+entry = "run.start"
+words = ["started", "as"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "close"
+entry = "run.abort"
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "SaveFile"
+entry = "none"
+reason = "The save of a file to the program's path, whose reply reads as `T`."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's takes its options as an argument."
+words = ["save", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SaveFile"
+member = "timeout"
+entry = "none"
+reason = "Fails the save with `deadline_exceeded` if its reply has not come within `timeout`, the file it was writing removed."
+words = ["timeout"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SaveFile"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the reply as long as the Connection lasts."
+words = ["no", "timeout"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Schema"
+entry = "none"
+reason = "How the values of one schema cross the wire: the JSON Schema the engine receives, a sent value encoded as it parses back, and an answer decoded to `T`."
+words = ["schema"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schema"
+member = "derived"
+entry = "none"
+reason = "The schema `schemars` derives for `T`, on the side `T` deserializes from (JSON Schema 2020-12): a field with a default is not required, as `Deserialize` reads it."
+words = ["derived"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schema"
+member = "json"
+entry = "none"
+reason = "A JSON Schema written by hand, the way down (G8), which depends on no `schemars` version: the engine checks values against it, and the program's values are `Value`s, which it narrows."
+words = ["json"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schema"
+member = "wire_schema"
+entry = "none"
+reason = "The JSON Schema the engine receives: the side the schema parses from."
+words = ["wire", "schema"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schema"
+member = "encode"
+entry = "none"
+reason = "`value` as JSON, in the form the schema parses back."
+words = ["encode"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schema"
+member = "decode"
+entry = "none"
+reason = "`answer`, a value received, read by `T`'s own `Deserialize`."
+words = ["decode"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "SchemaError"
+entry = "none"
+reason = "Why a `Schema` refused a value or a document."
+only = "TypeScript's schema is the program's Standard Schema, whose own errors it raises."
+words = ["schema", "error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Start"
+entry = "none"
+reason = "The start of a Run (`run.start`), which awaiting sends."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's start takes `StartOptions`."
+words = ["start"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "run_id"
+entry = "none"
+reason = "Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or returns it as it ended (ADR 0102), which `Run::started_as` says; the engine names it when none is given."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, in place of any tags given before (ADR 0036)."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own `limits`, in place of any given before: each only lowers what covers the Run, and a start that names the Run again lowers its Limits and never raises them (ADRs 0080 and 0102)."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, in place of any given before: what they leave out the connection's settings give, and the Run's Sessions and pages inherit them (ADR 0083)."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "TraceContextSource"
+entry = "none"
+reason = "Reads the host program's current Trace context, which each request the Connection sends carries (ADR 0132)."
+only = "TypeScript reads the Trace context from OpenTelemetry's API itself (ADR 0132), with no hook a Product sets."
+words = ["trace", "context", "source"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "TraceContextSource"
+member = "current"
+entry = "none"
+reason = "The calling process."
+words = ["current"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "UsageKind"
+entry = "none"
+reason = "A Usage kind a Limit caps, by its catalog name."
+only = "TypeScript's Usage kind is a generated string literal type (ADR 0099)."
+words = ["usage", "kind"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "MODEL_TOKENS"
+entry = "none"
+reason = "Model tokens, input and output together."
+words = ["model", "tokens"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "MODEL_CALLS"
+entry = "none"
+reason = "Model calls."
+words = ["model", "calls"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "BROWSER_TIME"
+entry = "none"
+reason = "Browser time, counted in milliseconds."
+words = ["browser", "time"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "PROXY_BYTES"
+entry = "none"
+reason = "Bytes through a proxy."
+words = ["proxy", "bytes"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "PAID_SOLVES"
+entry = "none"
+reason = "Paid challenge solves."
+words = ["paid", "solves"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "REQUESTS"
+entry = "none"
+reason = "Requests."
+words = ["requests"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "PAGE_CRASHES"
+entry = "none"
+reason = "Page crashes."
+words = ["page", "crashes"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "named"
+entry = "none"
+reason = "The Usage kind the catalog names `name`, for a Product crate's own."
+words = ["named"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "UsageKind"
+member = "name"
+entry = "none"
+reason = "The kind's catalog name, as the wire carries it."
+words = ["name"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Call"
+entry = "none"
+reason = "A call that waits for its reply, `T`, with its params, `P`."
+words = ["call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Call"
+member = "timeout"
+entry = "none"
+reason = "Fails the call if its reply has not come within `timeout`, as `crate::Call::timeout` does."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Call"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the reply as long as the Connection lasts."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Call"
+member = "send"
+entry = "none"
+reason = "Sends the call and blocks the calling thread until its reply."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "ClientConnection"
+entry = "none"
+reason = "A Connection to one engine, whose calls block."
+words = ["client", "connection"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "call"
+entry = "none"
+reason = "The call of `method` with `params`, whose reply reads as `T`."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "raw_call"
+entry = "none"
+reason = "The raw call of `operation`, as `crate::ClientConnection::raw_call`'s, which `send()` sends."
+words = ["raw", "call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "save_file"
+entry = "none"
+reason = "The save of a file to the program's `path`, as `crate::ClientConnection::save_file`'s, which `send()` sends."
+words = ["save", "file"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "close"
+entry = "none"
+reason = "Closes the Connection as `crate::ClientConnection::close` does, and returns once it is closed."
+words = ["close"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Connection"
+entry = "none"
+reason = "The blocking twin of `crate::Connection`: a helper a library serving both Products writes takes `&impl blocking::Connection`, so it accepts either Product's blocking connection."
+words = ["connection"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "call"
+entry = "none"
+reason = "The call of `method` with `params`, whose reply reads as `T`."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "close"
+entry = "none"
+reason = "Closes the Connection as `crate::ClientConnection::close` does, and returns once it is closed."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "EventIter"
+entry = "none"
+reason = "The events a handle's `events` reads, as an iterator that blocks the calling thread until the next one: the blocking face of `crate::EventStream`, whose call is sent already."
+words = ["event", "iter"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Exchange"
+entry = "none"
+reason = "A request a page sent and the response it got, as `crate::Exchange`, its response's body read by blocking the calling thread."
+words = ["exchange"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Exchange"
+member = "request"
+entry = "none"
+reason = "The request, as the browser sent it."
+words = ["request"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Exchange"
+member = "response"
+entry = "none"
+reason = "The response it got."
+words = ["response"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Query"
+entry = "none"
+reason = "A question the engine answers at once, `T`, with its params, `P`."
+words = ["query"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Query"
+member = "send"
+entry = "none"
+reason = "Sends the query and blocks the calling thread until its answer."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Query"
+member = "keys"
+entry = "none"
+reason = "Explains only `keys`, as `crate::Query::keys` does."
+words = ["keys"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Query"
+member = "typed"
+entry = "none"
+reason = "The read whose values are read into `T`, as `crate::Query::typed` reads them."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "RawCall"
+entry = "none"
+reason = "A raw call of an operation, as `crate::RawCall`, its params and its result the wire's JSON."
+words = ["raw", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::RawCall"
+member = "params"
+entry = "none"
+reason = "Sends `params`, as `crate::RawCall::params` does."
+words = ["params"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::RawCall"
+member = "timeout"
+entry = "none"
+reason = "Sends `timeout` as the operation's own, as `crate::RawCall::timeout` does."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::RawCall"
+member = "no_timeout"
+entry = "none"
+reason = "Sends the operation's own `timeout` as `null`, as `crate::RawCall::no_timeout` does."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::RawCall"
+member = "send"
+entry = "none"
+reason = "Sends the call and blocks the calling thread until its reply."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Response"
+entry = "none"
+reason = "The response a page's request got, as `crate::Response`, its body read by blocking the calling thread."
+words = ["response"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "status_text"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, as `crate::Response::ok` says: a login page answered with a 200 is `ok`."
+words = ["ok"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `crate::Response::encoding`."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "request_id"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "from_service_worker"
+entry = "none"
+reason = "Whether a site's service worker supplied it (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding, as `crate::Response::text` decodes it: a legacy charset is honoured, a BOM left out, unlike Playwright's `text()`, which decodes every body as UTF-8."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Response"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON into `T`, as `crate::Response::json` parses it: UTF-8 whatever its charset, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "started_as"
+entry = "run.start"
+words = ["started", "as"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "close"
+entry = "run.abort"
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "SaveFile"
+entry = "none"
+reason = "The save of a file to the program's path, whose reply reads as `T`."
+words = ["save", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::SaveFile"
+member = "timeout"
+entry = "none"
+reason = "Fails the save with `deadline_exceeded` if its reply has not come within `timeout`, the file it was writing removed."
+words = ["timeout"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::SaveFile"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the reply as long as the Connection lasts."
+words = ["no", "timeout"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::SaveFile"
+member = "send"
+entry = "none"
+reason = "Sends the save and blocks the calling thread until the file is saved."
+words = ["send"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Start"
+entry = "none"
+reason = "The start of a Run (`run.start`)."
+words = ["start"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "run_id"
+entry = "none"
+reason = "Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or returns it as it ended (ADR 0102), as `crate::Start::run_id` says."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own Limits, as `crate::Start::limits` does."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, as `crate::Start::tags` does."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, as `crate::Start::settings` does."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "send"
+entry = "none"
+reason = "Starts the Run and blocks the calling thread until it is started."
+words = ["send"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "file_saving"
+member = "FileSaving"
+entry = "none"
+reason = "A file on its way to the program's path: its bytes go into the hidden temporary file beside the path, which `FileSaving::finish` syncs and renames over it."
+words = ["file", "saving"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "file_saving::FileSaving"
+member = "create"
+entry = "none"
+reason = "Starts the file for `path`, resolved against the working directory when it is relative: its missing folders made, then its hidden temporary file created beside it."
+words = ["create"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "file_saving::FileSaving"
+member = "write"
+entry = "none"
+reason = "Writes `bytes` after those written before."
+words = ["write"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "file_saving::FileSaving"
+member = "finish"
+entry = "none"
+reason = "Syncs the file, then renames it over the path, and syncs its folder."
+words = ["finish"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "logging"
+member = "CLIENT"
+entry = "none"
+reason = "The target of what the crate itself logs: a refused log level, a handle dropped unclosed, a notification no call awaits."
+words = ["client"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "logging"
+member = "ENGINE"
+entry = "none"
+reason = "The target the engine's `$/log` events are re-emitted under, each followed by the engine's own target past `goodfetch`, such as `goodfetch::engine::rpc::dispatch` for `goodfetch::rpc::dispatch`; the level the program's subscriber records for it is the one the engine is told."
+words = ["engine"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "logging"
+member = "RUN"
+entry = "none"
+reason = "The target of what the crate logs of a Run's start: one that resumed its Run, or found it ended (ADR 0102)."
+words = ["run"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "logging"
+member = "engine_log_level"
+entry = "none"
+reason = "The highest level the program's subscriber records for `ENGINE` on the calling thread, which the engine is told to send its logs at: `off` when it records none of them, or when there is no subscriber."
+words = ["engine", "log", "level"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings"
+member = "IntoSettingValue"
+entry = "none"
+reason = "What `Settings::set` takes for a key whose values are `T`: a value of that type, converted to the wire's."
+words = ["into", "setting", "value"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings"
+member = "Setting"
+entry = "none"
+reason = "A key of the catalog's settings whose values are `T`: one of the constants of this module's submodules, `timeout::NAVIGATION` for `timeout.navigation`."
+words = ["setting"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings::Setting"
+member = "name"
+entry = "none"
+reason = "Its key, as the catalog and the wire name it: `timeout.navigation`."
+words = ["name"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings"
+member = "SettingValue"
+entry = "none"
+reason = "A type a `Setting`'s values take: `bool`, `u64`, `String`, a `Duration`, a choice's own enum, the protocol's type of a shape it defines once, a `Vec` or a `BTreeMap` of them, and an `Option` of any for a setting that can be cleared: each type whose JSON the protocol's `SettingJson` gives, which owns the wire formats."
+words = ["setting", "value"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings"
+member = "Settings"
+entry = "none"
+reason = "The settings a program gives one scope it opens (ADR 0083), by key: what it leaves out inherits from the scope around it."
+words = ["settings"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings::Settings"
+member = "new"
+entry = "none"
+reason = "No settings: every key inherits."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings::Settings"
+member = "set"
+entry = "none"
+reason = "Sets `setting` to `value`, in place of any value given it before; `None` clears a setting that can be cleared."
+words = ["set"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "settings::Settings"
+member = "within"
+entry = "none"
+reason = "The settings as `scope`'s `settings` member carries them, nested by the keys' segments: a Run's start's, or a connection's `hello`'s."
+words = ["within"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
+member = "AttachedEngine"
+entry = "none"
+reason = "A Product's executable, started as an Attached engine."
+words = ["attached", "engine"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
+member = "Dial"
+entry = "none"
+reason = "What opens a Connection on an in-memory network: area 3's dialer, which the engine's `transport` module hands out with the engine's end."
+words = ["dial"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport::Dial"
+member = "dial"
+entry = "none"
+reason = "Opens a link to the network's engine, as a Connection's opening does."
+words = ["dial"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
+member = "Endpoint"
+entry = "none"
+reason = "Where an engine takes its Connection."
+words = ["endpoint"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
+member = "Link"
+entry = "none"
+reason = "One Connection's bytes, both ways."
+words = ["link"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport::Link"
+member = "new"
+entry = "none"
+reason = "The Connection that reads from `reader` and writes to `writer`."
+words = ["new"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport::Link"
+member = "ending_with"
+entry = "none"
+reason = "The same Connection to an engine that ending ends it, as an Attached or a linked engine does, and `exit` tells how once it has: when the engine ends the Connection before the Client closes it, each call still unanswered, and every later one, fails with `engine_exited` and what `exit` yields (ADR 0078)."
+words = ["ending", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
+member = "Network"
+entry = "none"
+reason = "The network a Connection reaches its engine over."
+words = ["network"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport::Network"
+member = "in_memory"
+entry = "none"
+reason = "The in-memory network `dial` opens Connections on."
+words = ["in", "memory"]
+form = "runtime"

@@ -368,7 +368,7 @@ export class ConnectionLostError extends UnavailableError<"connection_lost"> {
 }
 
 /**
- * The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.
+ * The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.
  */
 export class ConnectionOverloadedError extends RefusedError<"connection_overloaded"> {
   constructor(message: string, fields: ErrorFields = {}) {

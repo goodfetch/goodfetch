@@ -76,7 +76,7 @@ pub fn of(setting: &Setting) -> &'static [SettingScope] {
     let label = label_sets(name);
     if !set_by_code(setting.authority) {
         &[]
-    } else if name == TIMEOUT_RUN.name {
+    } else if name == TIMEOUT_RUN.name || matches!(setting.authority, Authority::ConnectionAlone) {
         &[Connection]
     } else if name == CONTENT_EXTRACTOR.name {
         &[Connection, Run, Label, Session, Page]
@@ -124,6 +124,7 @@ fn set_by_code(authority: Authority) -> bool {
         | Authority::Fixed => false,
         Authority::Every
         | Authority::Narrowed
+        | Authority::ConnectionAlone
         | Authority::ConfigurationExcept(_)
         | Authority::NotByRecipe
         | Authority::NotByRecipeOrModel

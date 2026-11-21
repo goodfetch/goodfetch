@@ -35,7 +35,7 @@ interface Open {
 
 /** One Connection's Subscription, shared by the listeners that read it. */
 export class SharedSubscription {
-  /** How many events each listener's own queue holds, the one it has included: `maxListenerQueue`. */
+  /** How many events each listener's own queue holds, the one it has included: `connection.maxListenerQueue`. */
   readonly listenerQueue: number;
   readonly #open: (options: ChannelOpenOptions) => Stream;
   readonly #logger: Logger | undefined;

@@ -98,7 +98,9 @@ use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
-use crate::settings::{Opening as SettingsOpening, SettingsError, check_scope, get_or_default};
+use crate::settings::{
+    Opening as SettingsOpening, SettingsError, check_client_bounds, check_scope, get_or_default,
+};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
@@ -1076,7 +1078,8 @@ impl Session<'_> {
     }
 
     /// Checks `own`, the Connection's own settings as its `hello` gives
-    /// them, from `surface`: each key at the connection scope, then every
+    /// them, from `surface`: each key at the connection scope, each of the
+    /// Client's own bounds against what `surface`'s Client applies, then every
     /// layer resolved over them as beneath a Run it starts, so a locked or
     /// capped key is refused at the `hello` rather than at each start (ADR
     /// 0083).
@@ -1092,6 +1095,7 @@ impl Session<'_> {
         let identity = &self.dispatch.identity;
         let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
         check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
+        check_client_bounds(own, surface, identity.product).map_err(refused)?;
         self.connection
             .engine
             .settings()

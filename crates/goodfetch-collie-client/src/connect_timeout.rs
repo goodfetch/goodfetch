@@ -66,6 +66,34 @@ impl ConnectTimeout {
         ))
     }
 
+    /// What is left of it once `elapsed` of an opening has passed, which a
+    /// later step of the same opening waits within, such as a second
+    /// engine's `hello` (ADR 0098).
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` when nothing is left, its `limit` naming
+    /// `timeout.connect` and the layer that set it, as
+    /// [`ConnectTimeout::exceeded`] gives it.
+    pub fn rest(self, elapsed: Duration) -> Result<Self, Error> {
+        let Some((after, limit)) = self.deadline() else {
+            return Ok(self);
+        };
+        match after.checked_sub(elapsed) {
+            Some(rest) if !rest.is_zero() => Ok(Self::After(rest)),
+            _ => Err(exceeded(after, limit)),
+        }
+    }
+
+    /// The `deadline_exceeded` an opening fails with once it has passed:
+    /// its `limit` names `timeout.connect` and the layer that set it, and
+    /// its `waited_for` `hello`. `None` for [`ConnectTimeout::Off`], which
+    /// never passes.
+    #[must_use]
+    pub fn exceeded(self) -> Option<Error> {
+        self.deadline().map(|(after, limit)| exceeded(after, limit))
+    }
+
     /// The deadline of `hello`'s answer and the setting that set it; none
     /// for [`ConnectTimeout::Off`].
     pub(crate) fn deadline(self) -> Option<(Duration, SettingLimit)> {

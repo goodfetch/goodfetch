@@ -169,6 +169,9 @@ pub(crate) struct Held {
     pub(crate) run_epoch: u64,
     /// Its data key, wrapped, once it has one.
     pub(crate) key: Option<StoredKey>,
+    /// The settings fixed for its life, as its start kept them: a JSON
+    /// object of each key's masked value (ADRs 0102 and 0120).
+    pub(crate) fixed_settings: String,
 }
 
 /// Opens the Checkpoint at `path` to read it, on the real filesystem.
@@ -197,14 +200,15 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         .and_then(|mut statement| statement.query_row([RUN_STATE.name], |row| row.get(0)))
         .map_err(|error| damaged(error.to_string()))?;
     sqlite_store::check_format(&RUN_STATE, &found)?;
-    let (run_id, needs, lifecycle, binding, run_epoch): (
+    let (run_id, needs, lifecycle, binding, run_epoch, fixed_settings): (
         String,
         String,
         String,
         Option<String>,
         i64,
+        String,
     ) = connection
-        .prepare_cached("SELECT run_id, needs, lifecycle, binding, epoch FROM run")
+        .prepare_cached("SELECT run_id, needs, lifecycle, binding, epoch, fixed_settings FROM run")
         .and_then(|mut statement| {
             statement.query_row([], |row| {
                 Ok((
@@ -213,6 +217,7 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             })
         })
@@ -230,6 +235,7 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
             .map_err(|error| damaged(format!("`binding`: {error}")))?,
         run_epoch: u64::try_from(run_epoch).unwrap_or_default(),
         key: run_key::stored(connection).map_err(|error| damaged(error.to_string()))?,
+        fixed_settings,
     })
 }
 

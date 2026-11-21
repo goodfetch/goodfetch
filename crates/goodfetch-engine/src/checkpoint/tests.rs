@@ -162,6 +162,7 @@ fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
             }),
             run_epoch: 2,
             key: None,
+            fixed_settings: "{}".to_owned(),
         }
     );
 }

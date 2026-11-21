@@ -16,14 +16,15 @@ use std::collections::BTreeMap;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::runs::FixedSettingChanged;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{HttpFrom, LabelSettings};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FETCH_HTTP_FROM;
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
-    SESSION_SOURCE, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SettingLimit, SettingLockedDetails,
-    SettingNotApplicableDetails, SettingsLayer,
+    SESSION_SOURCE, SETTING_LOCKED, SettingLimit, SettingLockedDetails, SettingsLayer,
 };
 use goodfetch_session_pool::{LabelPools, PoolKey};
 use rusqlite::{Connection, params};
@@ -231,22 +232,16 @@ impl Fragments {
     /// sets `self` while the Run began with `began`: the setting is fixed
     /// for the Run's life, since the keys of the requests it admitted would
     /// no longer match new ones (ADRs 0102 and 0120).
-    pub(crate) fn unchanged(&self, began: &Self, run_id: &str) -> Result<(), CallError> {
+    pub(crate) fn unchanged(&self, began: &Self, run_id: &RunId) -> Result<(), CallError> {
         if self == began {
             return Ok(());
         }
-        let key = CRAWL_KEEP_URL_FRAGMENT.name;
-        Err(CallError::new(
-            &SETTING_NOT_APPLICABLE,
-            format!(
-                "The Run `{run_id}` began with another `{key}`, which is fixed for a Run's life since the keys of the requests it admitted would no longer match: start it with the value it began with, or start a new Run."
-            ),
-            &SettingNotApplicableDetails {
-                key: key.to_owned(),
-                layer: SettingsLayer::Run,
-                fix: format!("the `{key}` the Run began with"),
-            },
-        ))
+        Err(FixedSettingChanged {
+            run_id: run_id.clone(),
+            key: CRAWL_KEEP_URL_FRAGMENT.name,
+            layer: SettingsLayer::Run,
+        }
+        .into())
     }
 }
 

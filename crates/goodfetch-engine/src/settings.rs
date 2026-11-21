@@ -42,6 +42,7 @@ pub use files::{
     set, user_configuration,
 };
 pub use hosts::HostEntry;
+pub(crate) use keys::fixed_keys;
 pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,

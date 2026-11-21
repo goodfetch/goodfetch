@@ -1486,6 +1486,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/browser"
 receiver = "Channel"
+member = "capCallsInFlight"
+entry = "none"
+reason = "The client runtime for a browser (ADR 0068): sends at most the engine's cap on calls in flight, which `hello` names, and queues the rest (ADR 0038)."
+words = ["cap", "calls", "in", "flight"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
 member = "close"
 entry = "none"
 reason = "The client runtime for a browser (ADR 0068): ends the Client's side of the transport."

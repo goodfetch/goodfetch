@@ -12,7 +12,7 @@
 //! (`settings`, ADR 0083), and Foxhound's those of a crawl and a Label.
 //! Foxhound's layer imports what Collie's client package defines.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use anyhow::Result;
@@ -130,6 +130,17 @@ mod points_in_time;
 mod settings;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
+
+/// The layer's settings module, and the plain-data fields that declare each
+/// deprecated setting there, `Class.field`, by key: the release notes' list
+/// names them (ADR 0099).
+pub(super) fn deprecated_fields(layer: &Layer) -> (String, BTreeMap<String, Vec<String>>) {
+    let fields = match layer.product {
+        Product::Collie => settings::collie_deprecated_fields(&layer.settings),
+        Product::Foxhound => settings::foxhound_deprecated_fields(&layer.settings),
+    };
+    (format!("{}.settings", own_package(layer.product)), fields)
+}
 
 pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     // Collie's client package holds the handles (ADR 0117), as in
@@ -532,6 +543,12 @@ fn operations(layer: &Layer) -> String {
                 operation.deprecated.as_ref(),
                 &mut warned,
             ));
+            // A run layer taken as raw JSON is checked for deprecated keys
+            // as a typed member's settings are (ADR 0099).
+            if layer.takes_raw_settings(operation) {
+                warned.insert(settings::WARN_DEPRECATED_SETTINGS);
+                body.push_str(&settings::raw_settings_check());
+            }
             let _ = writeln!(
                 body,
                 "        return result_of({result}, {}self._caller.call({:?}, params))",
@@ -545,6 +562,13 @@ fn operations(layer: &Layer) -> String {
     if !imports.is_empty() {
         text.push('\n');
         text.push_str(&imports);
+    }
+    if warned.contains(settings::WARN_DEPRECATED_SETTINGS) {
+        let _ = writeln!(
+            text,
+            "from .settings import {}",
+            settings::DEPRECATED_SETTINGS
+        );
     }
     text.push_str(&body);
     text.push_str(&registries(

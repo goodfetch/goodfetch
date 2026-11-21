@@ -1,14 +1,15 @@
 //! The Usage ledger (ADRs 0041, 0045, 0060 and 0098): one per-user SQLite
 //! file in Goodfetch home, outside the per-major folders, which every engine
 //! of the user opens, whatever its major or Product. It holds the Limits
-//! across runs as generic rows, the Slices runs take against them and the
-//! Usage charged. A run takes a Slice in one transaction, sized by
-//! [`slice_size`]; it charges what it uses against its Slices and takes
-//! another when they run out; it gives back what is left of them when it
-//! ends. An engine that opens the ledger reclaims each Slice whose run's
-//! writer lock is free or held at a later run epoch, charging the Usage the
-//! run journaled under the Slice's epoch, or the whole Slice, marked for
-//! review, when the run's state cannot be read.
+//! across runs as generic rows, the Slices runs take against them, the
+//! Usage charged and the Limits a program gave each Run when it began. A
+//! run takes a Slice in one transaction, sized by [`slice_size`]; it
+//! charges what it uses against its Slices and takes another when they run
+//! out; it gives back what is left of them when it ends. An engine that
+//! opens the ledger reclaims each Slice whose run's writer lock is free or
+//! held at a later run epoch, charging the Usage the run journaled under
+//! the Slice's epoch, or the whole Slice, marked for review, when the run's
+//! state cannot be read.
 //!
 //! The file opens through a VFS named by a value, none in production, the
 //! crash VFS in tests, and is of the Usage ledger's family: its major never
@@ -32,13 +33,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
+use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, Row};
@@ -46,6 +47,7 @@ use rusqlite::{Connection, Row};
 use self::changes::Changes;
 pub use self::charging::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
 pub use self::period::{PeriodBounds, bounds};
+pub use self::run_limits::Given;
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 pub use self::temporary::{temporary_filesystem, temporary_in};
@@ -94,6 +96,12 @@ const SCHEMA: &[&str] = &[
         charged INTEGER,
         state TEXT NOT NULL,
         taken_at TEXT NOT NULL
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS run_limits (
+        run_id TEXT NOT NULL,
+        usage_kind TEXT NOT NULL,
+        currency TEXT,
+        amount INTEGER NOT NULL
     ) STRICT",
     "CREATE INDEX IF NOT EXISTS slices_by_limit ON slices (limit_id, period_start, state)",
     "CREATE INDEX IF NOT EXISTS slices_by_state ON slices (state)",
@@ -288,8 +296,8 @@ impl StoredLimit {
 }
 
 /// A point in time of the protocol's, from a timestamp.
-pub fn point_in_time(at: Timestamp) -> PointInTime {
-    PointInTime::from_rfc3339(at.to_string())
+pub fn point_in_time(at: Timestamp) -> SystemTime {
+    SystemTime::from(at)
 }
 
 /// The Usage ledger of one user: its file and the VFS it opens through.
@@ -1065,6 +1073,7 @@ fn amount(value: u64) -> i64 {
 mod changes;
 mod charging;
 mod period;
+mod run_limits;
 mod sizing;
 mod standing;
 mod temporary;

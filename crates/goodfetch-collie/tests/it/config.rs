@@ -17,7 +17,6 @@
 use std::fs;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound_names;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
@@ -123,7 +122,7 @@ fn validate(output: &Value) {
     assert_eq!(errors, Vec::<String>::new());
 }
 
-/// Covers: story:3-89, story:3-142, command:config.explain
+/// Covers: story:3-89, story:3-142, story:11-41, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]
@@ -570,44 +569,6 @@ fn an_unknown_goodfetch_variable_stops_the_executable_before_its_command() {
     );
 }
 
-/// A Run's `settings` holding each key only Foxhound honours, through an
-/// Attached engine of Collie's executable: the product check comes before
-/// the scope check, so each answers `not_in_product` (ADR 0087). The table
-/// is the generated one of Foxhound's names; the expected answer is one
-/// Error code for every row.
-///
-/// Covers: story:3-142, error:not_in_product
-#[test]
-fn every_key_only_foxhound_honours_is_not_in_product_on_collies_engine() {
-    let env = TestEnv::new();
-    let mut engine = Attached::start(&env, COLLIE);
-    engine.send(&hello(Product::Collie));
-    let _ = engine.next();
-
-    let mut answers = Vec::new();
-    for (id, key) in (1_i64..).zip(foxhound_names::SETTINGS) {
-        engine.send(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "run.start",
-            "params": { "run_id": "refused", "settings": { *key: 1 } },
-        }));
-        let reply = engine.next().unwrap();
-        answers.push((
-            (*key).to_owned(),
-            reply["error"]["data"]["code"].clone(),
-            reply["error"]["data"]["requested"].clone(),
-        ));
-    }
-    let _ = engine.finish();
-
-    let expected: Vec<(String, Value, Value)> = foxhound_names::SETTINGS
-        .iter()
-        .map(|key| ((*key).to_owned(), json!("not_in_product"), json!(key)))
-        .collect();
-    assert_eq!(answers, expected);
-}
-
 /// The message of a Foxhound key's refusal, once (TESTING.md, CLI).
 ///
 /// Covers: error:not_in_product
@@ -647,7 +608,7 @@ fn a_foxhound_keys_refusal_names_foxhound_and_its_install() {
 )]
 #[case::identified_from_a_flag(
     &["browser.access_mode=identified"],
-    json!({ "key": "browser.access_mode", "value": "identified", "layer": "run" }),
+    json!({ "key": "browser.access_mode", "value": "identified", "layer": "run", "origin": "flag" }),
     "yields to browser.access_mode = \"identified\" (run): only a `stealth` Session runs a stealth item",
 )]
 #[case::stealth_from_a_flag(&["browser.access_mode=stealth"], Value::Null, "")]

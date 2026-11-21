@@ -62,6 +62,17 @@ impl fmt::Display for Ipv6Prefix {
     }
 }
 
+/// The JSON [`LocalAddresses::parse`] reads it back from.
+impl Serialize for LocalAddresses {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Addresses(addresses) => addresses.serialize(serializer),
+            Self::Interface(name) => serializer.serialize_str(name),
+            Self::Prefix(prefix) => serializer.collect_str(prefix),
+        }
+    }
+}
+
 impl LocalAddresses {
     /// Reads `egress.local_addresses`' value: a list of IP addresses, an
     /// IPv6 prefix such as `2001:db8:1::/48`, or an interface's name.
@@ -170,6 +181,7 @@ pub const EGRESS_LOCAL_ADDRESSES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -218,6 +230,7 @@ pub const EGRESS_ROTATION_BLOCK_IPV4: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -232,6 +245,7 @@ pub const EGRESS_ROTATION_BLOCK_IPV6: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

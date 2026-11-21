@@ -79,18 +79,18 @@ fn refused(details: &Value) -> Option<(String, Value)> {
 
 /// The cap counts the Payload's JSON as written compactly, any Label's;
 /// a typed Label's Payload fits its schema, a missing one read as `null`;
-/// a Label declared without a schema, or not declared, takes any Payload.
+/// a Label declared without a schema takes any Payload.
 ///
 /// Covers: story:6-223
 #[rstest]
 /// Covers: setting:crawl.payload.max_size
-#[case::exactly_the_cap("free", Some(json!("x".repeat(30))), None)]
+#[case::exactly_the_cap("untyped", Some(json!("x".repeat(30))), None)]
 /// Covers: setting:crawl.payload.max_size, error:payload_invalid
-#[case::one_byte_more("free", Some(json!("x".repeat(31))), too_long())]
+#[case::one_byte_more("untyped", Some(json!("x".repeat(31))), too_long())]
 /// Covers: setting:crawl.payload.max_size
-#[case::an_object_at_the_cap("free", Some(json!({ "a": "x".repeat(24) })), None)]
+#[case::an_object_at_the_cap("untyped", Some(json!({ "a": "x".repeat(24) })), None)]
 /// Covers: setting:crawl.payload.max_size, error:payload_invalid
-#[case::an_object_one_byte_more("free", Some(json!({ "a": "x".repeat(25) })), too_long())]
+#[case::an_object_one_byte_more("untyped", Some(json!({ "a": "x".repeat(25) })), too_long())]
 /// Covers: setting:crawl.payload.max_size, error:payload_invalid
 #[case::too_long_for_a_typed_label_too("book", Some(json!({ "isbn": "x".repeat(30) })), too_long())]
 #[case::fitting_its_schema("book", Some(json!({ "isbn": "1" })), None)]
@@ -101,7 +101,6 @@ fn refused(details: &Value) -> Option<(String, Value)> {
 /// Covers: error:payload_invalid
 #[case::missing_altogether("book", None, not_fitting(&[""]))]
 #[case::a_label_without_a_schema("untyped", Some(json!([1, "two"])), None)]
-#[case::an_undeclared_label("free", Some(json!(3)), None)]
 fn a_payload_is_checked_against_the_cap_and_its_labels_schema(
     #[case] label: &str,
     #[case] payload: Option<Value>,
@@ -110,6 +109,78 @@ fn a_payload_is_checked_against_the_cap_and_its_labels_schema(
     let rules = rules(32, &[("book", Some(isbn())), ("untyped", None)]);
 
     assert_eq!(checked(&rules, label, payload.as_ref()), expected);
+}
+
+/// A Label the crawl does not declare is refused with `label_unknown`
+/// before its Payload is read, with or without one and even past the cap,
+/// naming the Label and those the crawl declares.
+///
+/// Covers: error:label_unknown
+#[rstest]
+#[case::with_a_payload(Some(json!(3)))]
+#[case::without_one(None)]
+#[case::past_the_cap(Some(json!("x".repeat(64))))]
+fn a_label_the_crawl_does_not_declare_is_refused_naming_those_it_declares(
+    #[case] payload: Option<Value>,
+) {
+    let rules = rules(32, &[("book", Some(isbn())), ("untyped", None)]);
+    let work = CountedWork::default();
+    let payload = payload.map(|payload| Payload::of(payload, &work));
+
+    let refused = rules.check("free", payload.as_ref(), &work).unwrap_err();
+
+    assert_eq!(
+        (
+            refused.code(),
+            refused.details().cloned().map(Value::Object)
+        ),
+        (
+            "label_unknown",
+            Some(json!({ "label": "free", "declared": ["book", "untyped"] }))
+        )
+    );
+}
+
+/// The Labels the pending requests of `pending` name.
+fn pending(pending: &[&str]) -> Vec<String> {
+    pending.iter().map(|label| (*label).to_owned()).collect()
+}
+
+/// A resume whose pending requests name a Label the crawl no longer
+/// declares is refused with `label_unknown`, naming the first such Label
+/// and those the crawl declares.
+///
+/// Covers: error:label_unknown
+#[test]
+fn a_resume_with_pending_requests_of_a_label_no_longer_declared_is_refused() {
+    let resumed = rules(64, &[("book", None), ("review", None)]);
+
+    let refused = resumed
+        .resumes(&pending(&["author", "book", "shelf"]), "run-1")
+        .unwrap_err();
+
+    assert_eq!(
+        (
+            refused.code(),
+            refused.details().cloned().map(Value::Object)
+        ),
+        (
+            "label_unknown",
+            Some(json!({ "label": "author", "declared": ["book", "review"] }))
+        )
+    );
+}
+
+/// A resume whose pending requests all name declared Labels goes on, a
+/// new Label among those declared.
+#[rstest]
+#[case::a_declared_label(&["book"])]
+#[case::nothing_pending(&[])]
+fn a_resume_with_pending_requests_of_declared_labels_goes_on(#[case] labels: &[&str]) {
+    let resumed = rules(64, &[("book", None), ("review", None)]);
+    let resumes = resumed.resumes(&pending(labels), "run-1");
+
+    assert_eq!(resumes.map_err(|refused| refused.code().to_owned()), Ok(()));
 }
 
 /// A run file in memory with the payload tables, `recorded`'s Labels
@@ -196,5 +267,30 @@ fn a_resume_checks_pending_payloads_only_against_a_schema_whose_hash_changed() {
             None,
             None,
         ]
+    );
+}
+
+/// A resume records its Labels again, in place of those the Run began
+/// with, so a new Label is declared from then on and one no longer
+/// declared is not, while the cap stays the one recorded.
+///
+/// Covers: story:6-223
+#[test]
+fn a_resume_records_its_labels_in_place_of_those_the_run_began_with() {
+    let file = run_file(&rules(64, &[("book", Some(isbn())), ("old", None)]), &[]);
+
+    rules(
+        32,
+        &[("book", None), ("new", Some(json!({ "type": "string" })))],
+    )
+    .record_labels_again(&file)
+    .unwrap();
+
+    assert_eq!(
+        PayloadRules::read(&file).unwrap(),
+        rules(
+            64,
+            &[("book", None), ("new", Some(json!({ "type": "string" })))]
+        )
     );
 }

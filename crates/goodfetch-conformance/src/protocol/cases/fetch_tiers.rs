@@ -154,6 +154,7 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
         &json!({
             "run_id": run_id,
             "seeds": [{ "url": url, "label": "page" }],
+            "labels": { "page": {} },
             "settings": settings,
         }),
     )?;

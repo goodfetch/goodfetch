@@ -75,7 +75,9 @@ use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
     BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
 };
-use goodfetch_protocol::settings::{TIMEOUT_ACTION, TIMEOUT_CLOSE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::settings::{
+    TIMEOUT_ACTION, TIMEOUT_CLOSE, TIMEOUT_LAUNCH, TIMEOUT_NAVIGATION,
+};
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -123,6 +125,9 @@ pub(crate) enum Visibility {
 /// (ADRs 0059 and 0080): a command the browser leaves unanswered past its
 /// call's raises `deadline_exceeded` naming its setting.
 pub(crate) struct Deadlines {
+    /// `timeout.launch`: the bound of each command of bringing the browser
+    /// up, its identity read included, and of that read's page load.
+    launch: Deadline,
     /// `timeout.navigation`: a navigation's, and the bound of each command
     /// of opening a page, reading its document or its history, and of the
     /// engine's own closing commands.
@@ -139,6 +144,7 @@ impl Deadlines {
     fn of(run: &Run) -> Arc<Self> {
         let settings = run.settings().map(RunSettings::resolved);
         Arc::new(Self {
+            launch: Deadline::of_resolved(settings, &TIMEOUT_LAUNCH),
             navigation: Deadline::of_resolved(settings, &TIMEOUT_NAVIGATION),
             action: Deadline::of_resolved(settings, &TIMEOUT_ACTION),
             close: Deadline::of_resolved(settings, &TIMEOUT_CLOSE),
@@ -148,11 +154,10 @@ impl Deadlines {
     /// The deadline the commands of `call` wait under.
     fn of_call(&self, call: &Call) -> &Deadline {
         match call {
-            Call::Launch { .. }
-            | Call::OpenPage { .. }
-            | Call::Document
-            | Call::Navigation { .. }
-            | Call::History => &self.navigation,
+            Call::Launch { .. } => &self.launch,
+            Call::OpenPage { .. } | Call::Document | Call::Navigation { .. } | Call::History => {
+                &self.navigation
+            }
             Call::Action { .. } => &self.action,
         }
     }
@@ -286,6 +291,7 @@ impl Browser {
             lease: None,
             counting: None,
             deadlines: Arc::new(Deadlines {
+                launch: Deadline::declared(&TIMEOUT_LAUNCH),
                 navigation: Deadline::declared(&TIMEOUT_NAVIGATION),
                 action: Deadline::declared(&TIMEOUT_ACTION),
                 close: Deadline::declared(&TIMEOUT_CLOSE),
@@ -1381,7 +1387,8 @@ impl PageDriver {
     ///
     /// # Errors
     ///
-    /// `invalid_params` for a `timeout` of 0.
+    /// `setting_invalid` for a `timeout` of 0, naming `timeout.navigation`
+    /// at the run layer from the call's argument.
     #[expect(
         clippy::option_option,
         reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"

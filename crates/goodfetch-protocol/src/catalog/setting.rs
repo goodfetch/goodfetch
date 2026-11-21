@@ -305,6 +305,11 @@ pub enum Authority {
     /// layers, as `browser_cache.max_unused_age` (ADR 0098); anywhere else
     /// it is `setting_not_applicable`.
     Machine,
+    /// Only project configuration, the project file, as `timeout.connect`,
+    /// which `connect()` and the CLI read before they connect and apply
+    /// themselves (ADR 0083); anywhere else it is `setting_not_applicable`,
+    /// since only the engine reads the other layers, once reached.
+    ProjectFileAlone,
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
@@ -352,6 +357,7 @@ impl Authority {
             Self::OperatorPolicy => "operator_policy",
             Self::OperatorPolicyAlone => "operator_policy_alone",
             Self::Machine => "machine",
+            Self::ProjectFileAlone => "project_file_alone",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::NotByModel => "not_by_model",
@@ -373,6 +379,38 @@ pub enum HostList {
     /// It blocks them: a value narrows by covering every host the value
     /// below lists, as `egress.blocked_domains`.
     Blocks,
+}
+
+/// A scope a program's code opens with its own `settings` (ADR 0083): the
+/// connection, a Run, a crawl's Label, a Session or a page. A setting
+/// applies within the scopes that may set it, and everything opened beneath
+/// them inherits it: a Label's, its requests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SettingScope {
+    /// `connect()`, whose settings are its Runs' defaults.
+    Connection,
+    /// Starting a Run.
+    Run,
+    /// Declaring a crawl's Label, whose own settings its requests take over
+    /// their Run's (ADR 0093).
+    Label,
+    /// Opening a Session.
+    Session,
+    /// Opening a page.
+    Page,
+}
+
+impl SettingScope {
+    /// Its name in the catalog.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connection => "connection",
+            Self::Run => "run",
+            Self::Label => "label",
+            Self::Session => "session",
+            Self::Page => "page",
+        }
+    }
 }
 
 #[cfg(test)]

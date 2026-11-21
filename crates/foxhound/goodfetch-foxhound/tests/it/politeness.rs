@@ -28,7 +28,7 @@ fn start(engine: &mut Attached, run_id: &str, urls: &[String], settings: &Value)
         .collect();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds, "settings": settings },
+        "params": { "run_id": run_id, "seeds": seeds, "settings": settings, "labels": { "page": {} } },
     }));
     let mut held = Vec::new();
     loop {

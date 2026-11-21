@@ -496,9 +496,15 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
 /// when nothing was sent, and leaves the Effect uncertain after a send.
 /// Covers: error:effect_output_invalid, setting:effect.output.max_size
 #[rstest]
-#[case::nothing_sent(false)]
-#[case::after_a_send(true)]
-fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool) {
+#[case::nothing_sent(
+    false,
+    json!([null, null, "effect_output_invalid", ["export", 25, 16], "perform", null])
+)]
+#[case::after_a_send(
+    true,
+    json!(["uncertain", "effect_output_invalid", null, [null, null, null], null, "effect_uncertain"])
+)]
+fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool, #[case] expected: Value) {
     let settings = json!({ "settings": { "effect": { "output": { "max_size": 16 } } } });
     let (closed, again) = started(&TestEnv::new(), "large", settings, |mut calls| async move {
         let opened = calls.open("large", "export").await;
@@ -516,25 +522,15 @@ fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool) {
         (closed, again)
     });
 
-    let shown = if sent {
-        json!([
-            closed["result"]["judged"],
-            closed["result"]["cause"],
-            code(&again)
-        ])
-    } else {
-        let data = &closed["error"]["data"];
-        json!([
-            data["code"],
-            [&data["key"], &data["size"], &data["limit"]],
-            again["result"]["answer"]
-        ])
-    };
-    let expected = if sent {
-        json!(["uncertain", "effect_output_invalid", "effect_uncertain"])
-    } else {
-        json!(["effect_output_invalid", ["export", 25, 16], "perform"])
-    };
+    let data = &closed["error"]["data"];
+    let shown = json!([
+        closed["result"]["judged"],
+        closed["result"]["cause"],
+        data["code"],
+        [&data["key"], &data["size"], &data["limit"]],
+        again["result"]["answer"],
+        code(&again)
+    ]);
     assert_eq!(shown, expected, "{closed} {again}");
 }
 

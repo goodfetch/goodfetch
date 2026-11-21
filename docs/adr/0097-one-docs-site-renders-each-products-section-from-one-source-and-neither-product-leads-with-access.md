@@ -164,6 +164,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - It is word-bounded and case-insensitive, over prose. It skips code, since third-party APIs fix some names.
   - It reads:
     - the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), the READMEs, `CHANGELOG.md` and the skills;
+      > Amended on 2026-11-18 (issue 2522): `docs/testing/`, which holds `TESTING.md`'s sections and publishes nothing, is not read either.
     - the descriptions in the catalog and the settings schema, and the Error codes' messages;
     - the Console's message catalog;
       > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.

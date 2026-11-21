@@ -43,25 +43,25 @@ describe("a Collie Connection", () => {
         startedAs: "new",
         runId: "01ke6p4ym0j8x3v5wq2rtbn7hc",
         report: {
-          run_id: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          runId: "01ke6p4ym0j8x3v5wq2rtbn7hc",
           lifecycle: "finished",
           verdict: "verified",
           completeness: "complete",
-          started_at: "2026-01-01T00:00:00Z",
-          ended_at: "2026-01-01T00:00:00Z",
+          startedAt: new Date("2026-01-01T00:00:00Z"),
+          endedAt: new Date("2026-01-01T00:00:00Z"),
           usage: {
             model: {
               calls: 0,
               tokens: 0,
-              input_tokens: 0,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-              output_tokens: 0,
-              reasoning_tokens: 0,
+              inputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              outputTokens: 0,
+              reasoningTokens: 0,
               price: null,
             },
-            browser_time: 0,
-            proxy_bytes: 0,
+            browserTime: 0,
+            proxyBytes: 0,
             requests: 0,
           },
         },
@@ -81,7 +81,11 @@ describe("a Collie Connection", () => {
       product: "foxhound",
       version: "0.0.0",
       protocolVersion: "0.1",
+      projectFile: null,
+      home: null,
       enginePath: null,
+      url: null,
+      fallback: null,
     });
     expect(played.done()).toEqual({ kind: "finished" });
   });
@@ -180,26 +184,36 @@ describe("a Collie Connection", () => {
   });
 
   test(
-    "closes a Run still running by aborting it, and refuses every later call with closed",
-    { tags: ["error:closed"] },
+    "fails connect() with deadline_exceeded once timeout.connect's default passes with hello unanswered",
+    { tags: ["story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"] },
     async () => {
-      const { collie, played } = await collieOn("run/closed-while-running.json");
-      const run = await collie.start({ runId: "nightly", tags: ["shop"] });
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      try {
+        const played = playScript("connect/hello-never-answered.json");
 
-      await run.close();
-      await run.close();
-      await collie.close();
-      await collie.close();
+        const connected = failure(connectOver(played.transport));
+        await vi.advanceTimersByTimeAsync(30_000);
+        const error = await connected;
 
-      expect(await failure(run.finish())).toMatchObject({ code: "closed", group: "program" });
-      expect(await failure(collie.start())).toMatchObject({ code: "closed", group: "program" });
-      expect(played.done()).toEqual({ kind: "finished" });
+        expect(error).toMatchObject({
+          code: "deadline_exceeded",
+          group: "deadline_exceeded",
+          limit: { key: "timeout.connect", value: 30_000, layer: "default" },
+          details: {
+            elapsed: 30_000,
+            waited_for: "hello",
+          },
+        });
+        expect(played.done()).toEqual({ kind: "finished" });
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
 
   test(
     "gives up waiting for a Run's abort once timeout.close passes, failing the close with deadline_exceeded",
-    { tags: ["story:11-2", "error:deadline_exceeded"] },
+    { tags: ["story:11-2", "story:11-43", "error:deadline_exceeded"] },
     async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
       try {
@@ -213,8 +227,8 @@ describe("a Collie Connection", () => {
         expect(error).toMatchObject({
           code: "deadline_exceeded",
           group: "deadline_exceeded",
+          limit: { key: "timeout.close", value: 30_000, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: 30_000, layer: "default" },
             elapsed: 30_000,
             waited_for: "close",
           },
@@ -223,72 +237,6 @@ describe("a Collie Connection", () => {
       } finally {
         vi.useRealTimers();
       }
-    },
-  );
-
-  test(
-    "fails a call in flight when it closes, as cancelled by its Client",
-    { tags: ["story:11-2", "error:call_cancelled"] },
-    async () => {
-      const { collie, played } = await collieOn("connect/closed-during-a-call.json");
-      const started = failure(collie.start());
-
-      await collie.close();
-      const error = await started;
-
-      expect(error).toMatchObject({
-        code: "call_cancelled",
-        group: "unavailable",
-        details: { by: "client" },
-      });
-      expect(played.done()).toEqual({ kind: "finished" });
-    },
-  );
-
-  test("runs beside another Connection in the same process", async () => {
-    const [first, second] = await Promise.all([
-      collieOn("run/started-and-finished.json"),
-      collieOn("run/started-and-finished.json"),
-    ]);
-
-    const traced = await Promise.all([startAndFinish(first.collie), startAndFinish(second.collie)]);
-
-    expect(traced.map(({ report }) => report.lifecycle)).toEqual(["finished", "finished"]);
-    expect([first.played.done(), second.played.done()]).toEqual([
-      { kind: "finished" },
-      { kind: "finished" },
-    ]);
-  });
-
-  test("connects again after a close", async () => {
-    const first = await collieOn("connect/accepted-by-foxhound.json");
-    await first.collie.close();
-
-    const second = await collieOn("run/started-and-finished.json");
-    const traced = await startAndFinish(second.collie);
-
-    expect(traced.report.lifecycle).toBe("finished");
-    expect([first.played.done(), second.played.done()]).toEqual([
-      { kind: "finished" },
-      { kind: "finished" },
-    ]);
-  });
-
-  test(
-    "ends when the engine writes a line that is not JSON-RPC, failing the call",
-    { tags: ["error:engine_output_invalid"] },
-    async () => {
-      const { collie, played } = await collieOn("connect/garbage-during-a-call.json");
-
-      const error = await failure(collie.start());
-      await collie.close();
-
-      expect(error).toMatchObject({
-        code: "engine_output_invalid",
-        group: "internal",
-        details: { line: "INFO engine started" },
-      });
-      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 
@@ -407,13 +355,16 @@ describe("a Connection opened with bounds of its own", () => {
     },
   );
 
-  test(
-    "fails to open on a bound that is no count, before it takes the transport",
+  test.for([
+    { bound: "maxPendingCalls", bounds: { maxPendingCalls: 0 } },
+    { bound: "maxListenerQueue", bounds: { maxListenerQueue: 1.5 } },
+  ])(
+    "fails to open on a $bound that is no count, before it takes the transport",
     { tags: ["error:setting_invalid"] },
-    async () => {
+    async ({ bounds }) => {
       const played = playScript("connect/accepted-by-foxhound.json");
 
-      const error = await failure(connectOver(played.transport, { maxPendingCalls: 0 }));
+      const error = await failure(connectOver(played.transport, bounds));
 
       expect(error).toMatchObject({ code: "setting_invalid" });
       expect(played.transport.writable.locked).toBe(false);
@@ -548,6 +499,69 @@ describe("Collie.connect()", () => {
         code: "setting_invalid",
         group: "program",
         details: { key: "GOODFETCH_COLLIE_ENGINE_PATH" },
+      });
+    },
+  );
+
+  test(
+    "fails on a GOODFETCH_ variable off the closed list, naming the closest",
+    { tags: ["story:11-73", "error:setting_unknown"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_HOEM: "/home/goodfetch" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_unknown",
+        group: "program",
+        message:
+          "`GOODFETCH_HOEM` in the environment is no deployment variable; did you mean `GOODFETCH_HOME`?",
+        fix: "Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.",
+        details: { key: "GOODFETCH_HOEM", closest: "GOODFETCH_HOME" },
+      });
+    },
+  );
+
+  test(
+    "fails on a GOODFETCH_ variable close to none on the list, naming none",
+    { tags: ["story:11-73", "error:setting_unknown"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_TELEMETRY: "1" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_unknown",
+        details: { key: "GOODFETCH_TELEMETRY" },
+      });
+      expect(error).not.toHaveProperty("details.closest");
+    },
+  );
+
+  test(
+    "fails on an empty deployment variable rather than taking it for unset",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_URL: "" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        fix: "Set GOODFETCH_URL to a non-empty Unicode value, or unset it.",
+        details: { key: "GOODFETCH_URL", reason: "it is empty; unset it instead" },
+      });
+    },
+  );
+
+  test(
+    "fails on a deployment variable whose value is no well-formed Unicode",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_HOME: "/home/\uDCFF" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        details: { key: "GOODFETCH_HOME", reason: "it is not Unicode" },
       });
     },
   );

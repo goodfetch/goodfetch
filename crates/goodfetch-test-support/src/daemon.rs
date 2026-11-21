@@ -11,15 +11,11 @@
 //! a Daemon the test did not stop stops it the same way, so it ends its
 //! Runs and its children before it exits, and kills it only when that
 //! fails or outlasts the deadline; either way it is reaped.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "test support reads the Daemon's runtime file, runs `daemon stop` and waits for the Daemon outside any async worker (ADR 0062)"
-)]
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, first_line_within};
@@ -31,9 +27,6 @@ pub const DAEMON_DEADLINE: Duration = Duration::from_secs(30);
 
 /// How long the Daemon has to end once `daemon stop` answered.
 const STOP_DEADLINE: Duration = Duration::from_secs(10);
-
-/// How often a stopping Daemon is looked at until it ends.
-const STOP_POLL: Duration = Duration::from_millis(10);
 
 /// A started Daemon, as a test and `goodfetch-test-env`'s description see
 /// it: what a Client needs to reach it.
@@ -174,21 +167,13 @@ impl Daemon {
                 stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
             });
         }
-        let started = Instant::now();
-        loop {
-            if self
-                .process
-                .child()
-                .try_wait()
-                .map_err(DaemonError::Stop)?
-                .is_some()
-            {
-                return Ok(());
-            }
-            if started.elapsed() >= STOP_DEADLINE {
-                return Err(DaemonError::StillRunning(STOP_DEADLINE));
-            }
-            std::thread::sleep(STOP_POLL);
+        match self
+            .process
+            .wait_within(STOP_DEADLINE)
+            .map_err(DaemonError::Stop)?
+        {
+            Some(_) => Ok(()),
+            None => Err(DaemonError::StillRunning(STOP_DEADLINE)),
         }
     }
 }

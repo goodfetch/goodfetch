@@ -345,9 +345,17 @@ const FROM_FIRST_PAGE: [Row; 7] = [
 
 /// The field whose Value transform has the crawl build a locale's forms:
 /// the `h1`'s number, under `de-DE`, which only the pages holding one have.
+/// It is the code-free crawl's field with a locator ladder (issue 2886):
+/// its first two rungs find nothing on any page, so its last supplies the
+/// number, each rung one more lookup on the page's one tree, compiled as
+/// the Run starts, adding no parse or selector compilation to a page.
 fn number_field() -> Map<String, Value> {
     let field = json!({
-        "locator": { "kind": "css", "selector": "h1" },
+        "locator": { "kind": "css", "selector": "h2" },
+        "fallbacks": [
+            { "kind": "css", "selector": "header h1" },
+            { "kind": "css", "selector": "h1" },
+        ],
         "match": { "pattern": "[0-9]+", "group": 0 },
         "transform": { "kind": "number", "locale": "de-DE" },
     });
@@ -1216,6 +1224,56 @@ fn added_pages(cell: &Cell) -> usize {
     pages_of(cell, PAGES.len()) - pages_of(cell, SHORTER)
 }
 
+/// Asserts that a code-free crawl extracted each of its `pages` once, its
+/// field's last rung supplying Page 3's number, and that it built that
+/// field's forms and compiled its rungs as it started, before its first
+/// page: the compilations' unless `planted` plants one a page.
+fn extracted_once(
+    crawled: &scenarios::Crawled,
+    pages: usize,
+    started: &OnceLock<Vec<u64>>,
+    work: &CountedWork,
+    planted: Option<&str>,
+) {
+    assert_eq!(
+        crawled.records.len(),
+        pages,
+        "the crawl extracts each page once"
+    );
+    assert!(
+        crawled
+            .records
+            .iter()
+            .any(|record| record["title"] == "Page 3" && record["number"] == 3),
+        "the field's last rung supplied no number to its Value transform: {:?}",
+        crawled.records
+    );
+    let forms = FROM_FIRST_PAGE
+        .iter()
+        .position(|row| *row == Row::PageLocaleFormBuilds);
+    let built = forms.and_then(|at| started.get().map(|started| started[at]));
+    assert_eq!(
+        built,
+        Some(1),
+        "the crawl builds its field's forms once, as it starts"
+    );
+    // The register holds `F1.selector_compilations` to its worst cell's
+    // figure, a handler's own `h1` (Exception X1): a code-free cell is held
+    // to 0 here, so a rung compiled on a page fails even where one
+    // compilation stays under that figure.
+    if planted != Some(Row::PageSelectorCompilations.name()) {
+        let compilations = FROM_FIRST_PAGE
+            .iter()
+            .position(|row| *row == Row::PageSelectorCompilations)
+            .and_then(|at| started.get().map(|started| started[at]));
+        assert_eq!(
+            compilations,
+            Some(work.read(Row::PageSelectorCompilations)),
+            "a code-free crawl compiles its field's rungs as it starts, none on a page"
+        );
+    }
+}
+
 /// Asserts that the handler of `cell`'s crawl handled each of its `pages`
 /// once, and navigated beside each once in [`BESIDE_CELL`] alone.
 fn handled_once(cell: &Cell, crawled: &scenarios::Crawled, pages: usize) {
@@ -1277,28 +1335,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         } else if cell.handler {
             handled_once(cell, &crawled, pages);
         } else {
-            assert_eq!(
-                crawled.records.len(),
-                pages,
-                "the crawl extracts each page once"
-            );
-            assert!(
-                crawled
-                    .records
-                    .iter()
-                    .any(|record| record["title"] == "Page 3" && record["number"] == 3),
-                "the field's Value transform read no number: {:?}",
-                crawled.records
-            );
-            let forms = FROM_FIRST_PAGE
-                .iter()
-                .position(|row| *row == Row::PageLocaleFormBuilds);
-            let built = forms.and_then(|at| started.get().map(|started| started[at]));
-            assert_eq!(
-                built,
-                Some(1),
-                "the crawl builds its field's forms once, as it starts"
-            );
+            extracted_once(&crawled, pages, &started, &work, planted);
         }
         Counted {
             name: cell.name,

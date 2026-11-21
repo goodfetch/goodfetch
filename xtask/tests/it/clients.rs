@@ -109,6 +109,24 @@ fn check_notes_each_listed_surface_whose_tests_it_does_not_read_yet() {
         ),
     ],
 )]
+#[case::surface_listing_modes_of_its_own(
+    CASES,
+    "modes = [\"attached\"]",
+    "modes = { cli = [\"daemon\"] }",
+    vec![
+        finding("missing", "attached-engine-stops cli daemon"),
+        finding(
+            "unlisted",
+            "goodfetch-collie::it client_conformance::attached_engine_stops::attached",
+        ),
+    ],
+)]
+#[case::modes_of_a_surface_the_case_does_not_list(
+    CASES,
+    "modes = [\"attached\"]",
+    "modes = { cli = [\"attached\"], sdk-rust = [\"daemon\"] }",
+    vec![finding("modes-unlisted-surface", "attached-engine-stops sdk-rust")],
+)]
 #[case::test_behind_a_cfg_its_case_does_not_declare(
     ATTACHED_ENGINE_STOPS,
     "#[test]\nfn attached() {}\n",
@@ -183,6 +201,26 @@ fn a_test_behind_the_cfg_its_case_declares_implements_it() {
         ATTACHED_ENGINE_STOPS,
         "#[test]\nfn attached() {}\n",
         "#[cfg(unix)]\n#[test]\nfn attached() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["clients", "check"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn each_surface_runs_in_the_modes_a_table_gives_it_and_one_left_out_in_every_mode_it_has() {
+    let workspace = Workspace::from_fixture("clients");
+    workspace.edit(
+        CASES,
+        "script = \"hello/refused.json\"",
+        "script = \"hello/refused.json\"\nmodes = { sdk-rust = [\"daemon\"] }",
+    );
+    workspace.edit(
+        CASES,
+        "modes = [\"attached\"]",
+        "modes = { cli = [\"attached\"] }",
     );
 
     let outcome = workspace.xtask(&["clients", "check"]);

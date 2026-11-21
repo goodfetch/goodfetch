@@ -42,11 +42,10 @@ pub(super) enum Kind {
     Event,
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct Deprecation {
-    pub(super) since: String,
-    pub(super) note: String,
-}
+/// An entry's deprecation as the catalog file holds it: the protocol
+/// crate's own type, so its one text (ADR 0099) is rendered by the
+/// function the CLI renders it with.
+pub(super) type Deprecation = goodfetch_protocol::catalog::Deprecation<String>;
 
 /// A reference to a type of the bundle, `{"$ref": "#/$defs/<name>"}`.
 #[derive(Debug, Deserialize)]
@@ -117,6 +116,14 @@ pub(super) struct ErrorGroup {
     /// `exit_codes`; `None` when it lists none, as the codegen fixture's.
     #[serde(skip)]
     pub(super) exit_code: Option<u8>,
+}
+
+/// A failure of the protocol itself: the JSON-RPC code JSON-RPC 2.0
+/// predefines that it takes, and the group an SDK raises it in (ADR 0079).
+#[derive(Debug, Deserialize)]
+struct ProtocolFailure {
+    json_rpc_code: i64,
+    group: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,6 +222,9 @@ struct Projection {
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
+    /// Absent from the codegen fixture's.
+    #[serde(default)]
+    protocol_failures: Vec<ProtocolFailure>,
     /// ADR 0069's exit-code table; absent from the codegen fixture's.
     #[serde(default)]
     exit_codes: Vec<ExitCodeRow>,
@@ -225,8 +235,48 @@ struct Projection {
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
+    /// Absent from a catalog that defines no setting.
+    #[serde(default)]
+    settings: Vec<Setting>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
+}
+
+/// A setting of the projection's settings section: the SDK layers read its
+/// default, and type each scope's `settings` option with those a program's
+/// code sets (ADR 0083).
+#[derive(Clone, Deserialize)]
+pub(super) struct Setting {
+    /// Its key, a dotted `snake_case` path.
+    pub(super) name: String,
+    /// What it shapes.
+    #[serde(default)]
+    pub(super) description: String,
+    /// The JSON Schema of its values.
+    #[serde(default)]
+    pub(super) value: Value,
+    /// Its value when no layer sets it, `null` for a setting with none.
+    #[serde(default)]
+    pub(super) default: Value,
+    /// Whether `null` clears it.
+    #[serde(default)]
+    pub(super) clearable: bool,
+    /// The scopes whose own `settings` set it, outermost first: none for a
+    /// setting only configuration or an Operator policy sets.
+    #[serde(default)]
+    pub(super) scopes: Vec<String>,
+    /// Its deprecation, if any, which each SDK warns of once per process
+    /// when a program sets it (ADR 0099).
+    #[serde(default)]
+    pub(super) deprecated: Option<Deprecation>,
+}
+
+/// Each setting's default, by name.
+fn setting_defaults(settings: &[Setting]) -> BTreeMap<String, Value> {
+    settings
+        .iter()
+        .map(|setting| (setting.name.clone(), setting.default.clone()))
+        .collect()
 }
 
 /// A row of ADR 0069's exit-code table: an outcome's, a group's or an Error
@@ -235,6 +285,25 @@ struct Projection {
 struct ExitCodeRow {
     name: String,
     code: u8,
+}
+
+/// The group of each JSON-RPC code `failures` take: one group per code,
+/// since an SDK reads no more than the code when a reply carries no Error
+/// code.
+fn protocol_failure_groups(failures: &[ProtocolFailure]) -> Result<BTreeMap<i64, String>> {
+    let mut groups = BTreeMap::new();
+    for failure in failures {
+        let group = groups
+            .entry(failure.json_rpc_code)
+            .or_insert_with(|| failure.group.clone());
+        anyhow::ensure!(
+            *group == failure.group,
+            "the protocol failures of code {} fall in two groups, `{group}` and `{}`",
+            failure.json_rpc_code,
+            failure.group
+        );
+    }
+    Ok(groups)
 }
 
 /// One SDK package's layer.
@@ -249,6 +318,9 @@ pub(super) struct Layer {
     pub(super) events: Vec<Event>,
     /// The seven groups, generated once, in Collie's client package.
     pub(super) error_groups: Vec<ErrorGroup>,
+    /// The group of each JSON-RPC code a protocol failure takes, generated
+    /// once, in Collie's client package, beside the groups.
+    pub(super) protocol_failure_groups: BTreeMap<i64, String>,
     pub(super) error_codes: Vec<ErrorCode>,
     pub(super) plugin_kinds: Vec<PluginKind>,
     /// The types both Products share that this layer adds values to.
@@ -257,6 +329,15 @@ pub(super) struct Layer {
     pub(super) definitions: Map<String, Value>,
     /// The types this layer's entries take from Collie's client package.
     pub(super) collie_types: BTreeSet<String>,
+    /// The definitions of `collie_types`, which say where they hold points
+    /// in time.
+    pub(super) collie_definitions: Map<String, Value>,
+    /// Each setting's default, by name, which the Python handles document
+    /// a call's own `timeout` with (ADR 0080).
+    pub(super) setting_defaults: BTreeMap<String, Value>,
+    /// The settings this layer's Product honours, which its scopes'
+    /// `settings` options are typed with.
+    pub(super) settings: Vec<Setting>,
 }
 
 impl Layer {
@@ -308,11 +389,15 @@ impl Layer {
                         .collect(),
                     events: collie.events,
                     error_groups: collie.error_groups,
+                    protocol_failure_groups: protocol_failure_groups(&collie.protocol_failures)?,
                     error_codes: collie.error_codes,
                     plugin_kinds: collie.plugin_kinds,
                     shared_types,
                     definitions,
                     collie_types: BTreeSet::new(),
+                    collie_definitions: Map::new(),
+                    setting_defaults: setting_defaults(&collie.settings),
+                    settings: collie.settings,
                 })
             }
             Product::Foxhound => Self::foxhound(&collie, foxhound, product_version),
@@ -370,15 +455,24 @@ impl Layer {
             operations,
             events,
             error_groups: Vec::new(),
+            protocol_failure_groups: BTreeMap::new(),
             error_codes,
             plugin_kinds,
             shared_types,
+            collie_definitions: all
+                .definitions
+                .iter()
+                .filter(|(name, _)| collie_types.contains(*name))
+                .map(|(name, schema)| (name.clone(), schema.clone()))
+                .collect(),
             definitions: all
                 .definitions
                 .into_iter()
                 .filter(|(name, _)| own_types.contains(name))
                 .collect(),
             collie_types,
+            setting_defaults: setting_defaults(&all.settings),
+            settings: all.settings,
         })
     }
 
@@ -415,7 +509,7 @@ impl Layer {
     }
 }
 
-/// `definitions` without `_meta`, the Trace context the bundle adds to
+/// `definitions` without `_meta`, the Trace context and raw mark the bundle adds to
 /// every request's params: an envelope field each SDK's runtime fills in,
 /// to which no generator gives a member (ADRs 0099 and 0132).
 fn without_meta(definitions: &mut Map<String, Value>) {
@@ -630,7 +724,7 @@ mod tests {
             "type": "object",
             "properties": {
                 "size": { "type": "integer" },
-                "_meta": { "$ref": "#/$defs/TraceContext" },
+                "_meta": { "$ref": "#/$defs/RequestMeta" },
             },
         });
         let mut collie = projection(&[operation("widget.spin", "collie", "all_surfaces")]);
@@ -640,7 +734,7 @@ mod tests {
         let mut foxhound = projection(&[crawl]);
         foxhound["$defs"]["CrawlSpinParams"] = params;
         for projection in [&mut collie, &mut foxhound] {
-            projection["$defs"]["TraceContext"] = json!({ "type": "object" });
+            projection["$defs"]["RequestMeta"] = json!({ "type": "object" });
         }
         let bundle = json!({ "$defs": {} });
 

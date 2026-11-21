@@ -81,7 +81,7 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
             "ok",
             ("cut", "running"),
             vec!["acknowledged".to_owned()],
-            &json!("existing"),
+            &json!("resumed"),
         ),
         "{again}"
     );

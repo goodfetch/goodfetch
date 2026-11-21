@@ -16,8 +16,8 @@
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "410eab7eb22b73af0db80c1b3c51b3eb65c473bfa6be8e886282e9259ffc83a0",
-    "output": "5f0a152cc6f78a3da7b4708cf2a5077bacdfd4a0f99130d81ec6895bdfce6bc4",
+    "input": "dbfe3bec29b9a9119df789bb894467dc51d16af6472f1fb0a418708e767e9888",
+    "output": "0a1a24c14ecaa76527c0ff6009a7b78fa62814273dfaf34a31e5301fc526b0b5",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

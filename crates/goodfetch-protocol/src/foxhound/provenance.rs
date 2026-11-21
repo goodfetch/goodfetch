@@ -12,12 +12,14 @@
 //! zone (ADR 0123). The Run trace keeps the rest of each page's Provenance,
 //! which the request's ID reaches.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::foxhound::fetch::FetchTier;
 use crate::page::read::{TransformProvenance, UnreadField};
-use crate::run::PointInTime;
 
 /// How one committed Record was obtained.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -174,14 +176,16 @@ pub enum ResponseOrigin {
     /// The Response cache (ADR 0046).
     ResponseCache {
         /// When the cached response was fetched.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        fetched_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        fetched_at: SystemTime,
     },
     /// A Response recording (ADR 0105).
     ResponseRecording {
         /// When the recorded response was received.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        recorded_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        recorded_at: SystemTime,
     },
 }
 

@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
 
@@ -516,7 +516,7 @@ fn an_entry_counts_as_installed_while_at_its_path_or_seen_within_the_age() {
     let env = TestEnv::new();
     let entry = |still_at_path, seen_days_ago, build: &str| InstalledExecutable {
         still_at_path,
-        last_seen: days_before(&env, seen_days_ago),
+        last_seen: SystemTime::from(days_before(&env, seen_days_ago)),
         pins: vec![browser(build)],
     };
     let installed = [
@@ -585,7 +585,7 @@ fn the_clean_up_deletes_only_what_nothing_pins_uses_or_holds() {
     let kept = kept_artifacts(
         &[InstalledExecutable {
             still_at_path: false,
-            last_seen: days_before(&env, 2),
+            last_seen: SystemTime::from(days_before(&env, 2)),
             pins: vec![pinned_by_counting_entry.clone()],
         }],
         std::slice::from_ref(&declared_by_plugin),
@@ -696,34 +696,18 @@ fn the_clean_up_reports_the_bytes_each_entry_it_deletes_takes(#[case] dry_run: b
     let env = TestEnv::new();
     let cache = cache_in(&env);
     let old = browser("unpinned-and-unused");
-    let folder = lay_out(&cache, &old, days_before(&env, 31));
-    let bytes = folder_bytes(&folder);
+    lay_out(&cache, &old, days_before(&env, 31));
 
     let report = goodfetch_test_support::runtime()
         .block_on(cache.clean_up(&clean_up_at(&env, BTreeSet::new(), dry_run)))
         .unwrap();
 
+    // 12 bytes of build files (`#!chrome\n` and `é\n`), an empty lock and a
+    // 266-byte entry.json.
     assert_eq!(
         (report.deleted.clone(), report.bytes_of(&old)),
-        (vec![old.clone()], Some(bytes))
+        (vec![old.clone()], Some(278))
     );
-    assert!(bytes > 0);
-}
-
-/// The bytes of every file under `folder`.
-fn folder_bytes(folder: &Path) -> u64 {
-    fs::read_dir(folder)
-        .unwrap()
-        .map(|entry| {
-            let entry = entry.unwrap();
-            let kind = entry.file_type().unwrap();
-            if kind.is_dir() {
-                folder_bytes(&entry.path())
-            } else {
-                entry.metadata().unwrap().len()
-            }
-        })
-        .sum()
 }
 
 /// Covers: story:3-140

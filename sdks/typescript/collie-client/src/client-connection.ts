@@ -10,9 +10,16 @@ import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
 import {
+  runtimeMessage,
+  spelledOperation,
+  type ErrorLimit,
+  type OperationNames,
+} from "./goodfetch-error.ts";
+import {
   CallCancelledError,
   ClosedError,
   CollieOperations,
+  collieOperations,
   DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
@@ -24,13 +31,26 @@ import {
   type HelloParams,
   type HelloResult,
   type KeyValueStoreSetParams,
+  type LogLevel,
   type Product,
+  type RunLimit,
   type RunStartParams,
   type RunStarted,
+  type SettingsExplanation,
+  type UsageSetParams,
 } from "./generated/index.ts";
-import type { JsonValue } from "./key-value-store.ts";
+import type { JSONValue } from "./json.ts";
+import { limitList, type Limits } from "./limits.ts";
+import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
+import { collieWire, type CollieWireType } from "./generated/wire.ts";
+import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
+import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
+import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
+import { MAX_LISTENER_QUEUE } from "./listeners.ts";
+import type { SettingsOnWire } from "./settings.ts";
+import { SharedSubscription } from "./shared-subscription.ts";
 import {
   Channel,
   type ChannelBounds,
@@ -38,15 +58,26 @@ import {
   type Transport,
   type TransportEnd,
 } from "./rpc.ts";
+import { fromWire, toWire, type Wire } from "./wire.ts";
 
+/** How long opening waits for `hello`'s answer when `connect()`'s `timeout` is left out: `timeout.connect`'s default (ADR 0083). */
+const CONNECT_TIMEOUT = 30_000;
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
 /** How long an ended transport waits for its engine's exit status before reporting without it. */
 const EXIT_GRACE = 2_000;
+/** The notification that carries one of the engine's log events, `goodfetch-protocol`'s `log::LOG`. */
+const LOG = "$/log";
+/** What failed for a call on a closed Connection (ADR 0079's layout). */
+const CLOSED = "this Connection is closed";
+/** What failed for a call a Daemon's dropped Connection ended (ADR 0079's layout). */
+const DROPPED = "the engine ended the Connection before it answered";
+/** The fix of a call on a closed or dropped Connection. */
+const CONNECT_AGAIN = "Connect again: a closed Connection never reopens.";
 
-/** The engine a Connection reached, fixed when it opened (G6). */
+/** The engine a Connection reached, fixed when it opened (G6). It never holds a Daemon's token. */
 export interface EngineInfo {
-  /** How it is reached; an Attached engine is the one kind so far. */
+  /** How it is reached: an Attached engine the Connection started, the Daemon of this machine, or a remote Daemon. */
   readonly kind: "attached" | "daemon" | "remote";
   /** The engine's Product: `foxhound` serves a Collie Connection too (ADR 0095). A newer one is kept. */
   readonly product: Product | (string & {});
@@ -54,16 +85,61 @@ export interface EngineInfo {
   readonly version: string;
   /** The protocol version `major.minor` it speaks. */
   readonly protocolVersion: string;
+  /** The project file the engine read, or `null` when it read none. */
+  readonly projectFile: string | null;
+  /** The Goodfetch home the engine runs in, or `null` for a remote Daemon, or when none is known. */
+  readonly home: string | null;
   /** The executable started, or `null` when none was. */
   readonly enginePath: string | null;
+  /** Where a Daemon was reached: a remote one's URL, or this machine's socket path or loopback address; `null` for an Attached engine. */
+  readonly url: string | null;
+  /** Why `auto` ran another engine than the Daemon it found, and what to do; `null` when it ran the one it chose. */
+  readonly fallback: { readonly cause: string; readonly fix: string } | null;
+}
+
+/** How a Connection's engine was reached, which `engine()` reports. */
+export interface Reached {
+  readonly kind: EngineInfo["kind"];
+  readonly home: string | null;
+  readonly url: string | null;
+  /** Why `auto` ran this engine in place of the Daemon it found (ADR 0098); none when left out. */
+  readonly fallback?: EngineInfo["fallback"] | undefined;
+}
+
+/** What a Daemon's `hello` takes beyond an Attached engine's. */
+export interface DaemonHello {
+  /** The Daemon's token, which `hello` carries and nothing else holds. */
+  readonly token: string;
+  /** What fails the opening when the Daemon closes the Connection before it answers `hello`. */
+  readonly closedAtHello: () => Error;
 }
 
 /** What starting a Run takes (ADR 0102). */
 export interface StartOptions {
-  /** The Run's ID; the engine generates one when it is left out. An existing ID returns that Run. */
+  /**
+   * Names the Run for good: a start with an existing Run ID resumes the Run
+   * if it was interrupted, or returns it as it ended (`startedAs()` says
+   * which), and the engine generates one when it is left out. A Run another
+   * engine writes fails with `run_in_use`, one begun with other inputs with
+   * `run_conflict`, and an ID off its pattern with `run_id_invalid`.
+   */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
+  /**
+   * The Run's Limits (ADR 0080), which only lower: starting an existing
+   * Run again with the values it began with changes nothing, a lower one
+   * lowers its Limit, and a higher one fails with `limit_raise_refused`.
+   * An amount the SDK cannot turn exactly fails with `setting_invalid`
+   * before anything is sent.
+   */
+  readonly limits?: Limits | undefined;
+  /**
+   * The Run's own settings (ADR 0083), which its Sessions and pages
+   * inherit, nested by camelCase segment, such as
+   * `{ timeout: { navigation: 30_000 } }`.
+   */
+  readonly settings?: RunSettings | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -72,14 +148,47 @@ export interface ClientConnectionOptions {
   readonly transport: Transport;
   /** The Attached engine whose stdio `transport` is, when the Connection started one. */
   readonly engine?: AttachedEngine | undefined;
+  /** How the engine was reached; an Attached engine with no home known when left out. */
+  readonly reached?: Reached | undefined;
+  /** The Daemon's token and what its closing at `hello` fails with, when the engine is a Daemon. */
+  readonly daemon?: DaemonHello | undefined;
   /** The Product the Client needs, which `hello` names. */
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
   readonly errorClasses: ErrorClasses;
+  /**
+   * Each of the Client's Product's operations' names in TypeScript form,
+   * which heads the runtime's own errors of a call (ADR 0079).
+   */
+  readonly operationNames: OperationNames;
   /** What the Connection lets wait before it refuses a new call; the defaults when left out. */
   readonly bounds?: ChannelBounds | undefined;
+  /** How many events each listener of published events holds in its own queue, already checked: `MAX_LISTENER_QUEUE` when left out. */
+  readonly listenerQueue?: number | undefined;
   /** Cancels the opening: `open` rejects with its reason once the transport and its engine are ended. */
   readonly signal?: AbortSignal | undefined;
+  /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
+  readonly limits?: readonly RunLimit[] | undefined;
+  /** The Connection's own settings (ADR 0083), in the wire's form, which `hello` carries. */
+  readonly settings?: SettingsOnWire | undefined;
+  /**
+   * How long `hello` waits for its answer, already checked by `timeoutOf`:
+   * `timeout.connect`'s 30 s when left out, none for `null`.
+   */
+  readonly timeout?: number | null | undefined;
+  /**
+   * When `timeout` started counting, for a `hello` that follows a wait the
+   * same `timeout.connect` bounds, as for the pick a Daemon hands over to
+   * (ADR 0098); as `hello` is sent when left out.
+   */
+  readonly connectStartedAt?: number | undefined;
+  /**
+   * The host's logger, which gets a start that resumed a Run at info and
+   * one that found it ended at warning, and the engine's log events at the
+   * level it records (`logLevelOf`), read at `open` and again when a Run
+   * starts.
+   */
+  readonly logger?: Logger | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -97,78 +206,105 @@ export interface Stream {
 export class ClientConnection implements AsyncDisposable {
   readonly #channel: Channel;
   readonly #engine: AttachedEngine | undefined;
+  readonly #logger: Logger | undefined;
   readonly #operations: CollieOperations;
   readonly #runs = new Set<Run>();
   readonly #runHost: RunHost;
   readonly #served = new Map<string, Served>();
+  /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
+  #logLevel: LogLevel;
+  readonly #reached: Reached;
+  readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
-    const { errorClasses } = options;
+    this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
+    this.#logger = options.logger;
+    this.#logLevel = logLevelOf(options.logger);
+    const { errorClasses, operationNames } = options;
+    this.#operationNames = operationNames;
     this.#channel = new Channel(
       options.transport,
       {
         ended: (end) => this.#endedWith(end),
         failure: (error) => errorOfReply(error, errorClasses),
+        operationNames,
         serve: (method, params, signal) => this.#served.get(method)?.(params, signal),
+        notified: (method, params) => {
+          if (method === LOG) {
+            logEngineEvent(this.#logger, params);
+          }
+        },
       },
       options.bounds,
     );
-    this.#operations = new CollieOperations(this.caller<CollieOperationTypes>());
+    const calls = this.caller<CollieOperationTypes>(collieWire);
+    this.#operations = new CollieOperations(calls);
     this.#runHost = {
-      calls: this.caller<CollieOperationTypes>(),
+      calls,
+      raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
       reachable: () => !this.#ended,
+      stream: (method, params, opened) => this.stream(method, params, opened),
+      published: new SharedSubscription(
+        (opened) => this.stream("events.subscribe", {}, opened),
+        this.#logger,
+        options.listenerQueue ?? MAX_LISTENER_QUEUE,
+      ),
       forget: (run) => this.#runs.delete(run),
+      operationNames,
+      logger: this.#logger,
       keyValueStore: {
         get: async (runId, key) => {
-          const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });
+          const { value } = await this.#operations.keyValueStoreGet({ runId, key });
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
-          return value as JsonValue;
+          return value as JSONValue;
         },
         set: async (runId, key, value) => {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
           const stored = value as KeyValueStoreSetParams["value"];
-          await this.#operations.keyValueStoreSet({ run_id: runId, key, value: stored });
+          await this.#operations.keyValueStoreSet({ runId, key, value: stored });
         },
         getBytes: async (runId, key) => {
-          const { bytes } = await this.#operations.keyValueStoreGetBytes({ run_id: runId, key });
+          const { bytes } = await this.#operations.keyValueStoreGetBytes({ runId, key });
           return bytes
             ? {
                 content: new Uint8Array(Buffer.from(bytes.content, "base64")),
-                contentType: bytes.content_type,
+                contentType: bytes.contentType,
               }
             : null;
         },
         setBytes: async (runId, key, content, contentType) => {
           await this.#operations.keyValueStoreSetBytes({
-            run_id: runId,
+            runId,
             key,
             content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
               "base64",
             ),
-            content_type: contentType,
+            contentType,
           });
         },
         delete: async (runId, key) =>
-          (await this.#operations.keyValueStoreDelete({ run_id: runId, key })).existed,
+          (await this.#operations.keyValueStoreDelete({ runId, key })).existed,
       },
     };
     holdInRealm(this);
   }
 
   /**
-   * Opens a Connection over `transport` and finishes `hello` before it
-   * returns: a refused Product or protocol version fails here, as does an
-   * aborted `signal`, with its reason, and the transport and its engine
-   * are ended before it rejects.
+   * Opens a Connection over `transport`, finishes `hello` and sets its
+   * Limits before it returns: a refused Product, protocol version or Limit
+   * fails here, as does an aborted `signal`, with its reason, and a `hello`
+   * unanswered within `timeout`, with `deadline_exceeded`; the transport
+   * and its engine are ended before it rejects.
    */
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.signal);
+      await connection.#hello(options);
+      await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
       throw error;
@@ -184,11 +320,20 @@ export class ClientConnection implements AsyncDisposable {
     return this.#info;
   }
 
-  /** Starts a Run and returns once it is started (ADR 0102). */
+  /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint;
+   * `finish()` ends it. Starts a Run and returns once it is started
+   * (ADR 0102).
+   */
   async start(options: StartOptions = {}): Promise<Run> {
+    warnEntry(collieOperations, "run.start");
+    const limits = limitList(options.limits);
+    const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {
-      ...(options.runId === undefined ? {} : { run_id: options.runId }),
+      ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+      ...(limits.length === 0 ? {} : { limits }),
+      ...(settings === undefined ? {} : { settings }),
     };
     return this.startRun(
       "run.start",
@@ -208,24 +353,138 @@ export class ClientConnection implements AsyncDisposable {
     make: (host: RunHost, started: RunStarted) => Started,
   ): Promise<Started> {
     this.#openOrThrow(operation);
-    const run = make(this.#runHost, await start());
+    // The start goes out at once when the level did not change, so a close
+    // right after it still finds it in flight and cancels it.
+    const told = this.#followLogLevel();
+    if (told !== undefined) {
+      await told;
+      this.#openOrThrow(operation);
+    }
+    const started = await start();
+    this.#logStart(started);
+    const run = make(this.#runHost, started);
     this.#runs.add(run);
     return run;
   }
 
-  /** The Connection's calls, typed by a Product's operation table. */
-  caller<Types extends Record<keyof Types, OperationTypes>>(): Caller<Types> {
+  /**
+   * Tells the host's logger how a start with an existing Run ID reached its
+   * Run: resumed at info, ended at warning, since the Run then takes no new
+   * work (ADR 0102). A new Run is not logged.
+   */
+  #logStart({ runId, startedAs }: RunStarted): void {
+    const fields = { runId, startedAs };
+    switch (startedAs) {
+      case "new":
+        return;
+      case "resumed":
+        this.#logger?.info(
+          `The start resumed the Run \`${runId}\` from its committed state.`,
+          fields,
+        );
+        return;
+      case "ended":
+        this.#logger?.warn(
+          `The start found the Run \`${runId}\` ended: it is returned as it ended and takes no new work.`,
+          fields,
+        );
+        return;
+    }
+  }
+
+  /**
+   * Tells the engine the level the host's logger records now, with
+   * `connection.set_log_level`, when it changed since the engine was last
+   * told, and answers once the engine answered; nothing is sent and nothing
+   * is answered when it did not change, and nothing polls it.
+   */
+  #followLogLevel(): Promise<void> | undefined {
+    const level = logLevelOf(this.#logger);
+    if (level === this.#logLevel) {
+      return undefined;
+    }
+    return this.#tellLogLevel(level);
+  }
+
+  /**
+   * Tells the engine `level`. The engine's logs are telemetry, so a refusal
+   * fails no start: it goes to the host's logger at warning, and the level
+   * the engine kept stays the one told, so the next Run's start tells it
+   * again. A Connection that ended or is closing fails with its own error.
+   */
+  async #tellLogLevel(level: LogLevel): Promise<void> {
+    const before = this.#logLevel;
+    this.#logLevel = level;
+    try {
+      await this.#operations.connectionSetLogLevel({ logLevel: level });
+    } catch (error) {
+      // A start begun meanwhile may have told the engine a newer level.
+      if (this.#logLevel === level) {
+        this.#logLevel = before;
+      }
+      if (this.#ended || this.#closing !== undefined) {
+        throw error;
+      }
+      this.#logger?.warn(
+        `The engine refused the log level \`${level}\`; it keeps sending its logs at \`${before}\`.`,
+        { logLevel: level, error },
+      );
+    }
+  }
+
+  /**
+   * The Connection's calls, typed by a Product's operation table, which
+   * send each declared field in the engine's spelling and read each in
+   * camelCase, each point in time as a `Date`, by `wire` (ADRs 0092 and
+   * 0099).
+   */
+  caller<Types extends Record<keyof Types, OperationTypes>>(
+    wire: Wire<keyof Types & string>,
+  ): Caller<Types> {
     const channel = this.#channel;
     return {
-      call<Name extends keyof Types & string>(
+      async call<Name extends keyof Types & string>(
         operation: Name,
         params: Types[Name]["params"],
         options: CallOptions,
       ): Promise<Types[Name]["result"]> {
+        const sent = toWire(params, wire.params[operation], wire.types);
+        const result = await channel.call(operation, sent, options);
         // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-        return channel.call(operation, params, options);
+        return fromWire(result, wire.results[operation], wire.types);
       },
     };
+  }
+
+  /**
+   * What the Connection runs with (ADR 0083): each setting under `keys`,
+   * each a key or a prefix of keys such as `timeout`, every one when left
+   * out, with its effective value, the layer and origin that set it and
+   * the layer that locked it, as `goodfetch config explain` shows them.
+   * Fails with `closed` once the Connection is closed.
+   */
+  explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
+    this.#openOrThrow("config.explain");
+    return this.#operations.configExplain(keys === undefined ? {} : { keys: [...keys] });
+  }
+
+  /**
+   * The raw catalog call on the Connection (ADR 0099): sends `operation`,
+   * one that acts on no value or whose params name every value, with
+   * `params` as the wire's JSON, and answers its result as the engine sent
+   * it, both in snake_case. Fails with `closed` once the Connection is.
+   */
+  call(
+    operation: string,
+    params: RawParams = {},
+    options: RawCallOptions = {},
+  ): Promise<JSONValue> {
+    return rawCall(
+      (name, sent, callOptions) => this.#raw(name, sent, callOptions),
+      operation,
+      params,
+      options,
+    );
   }
 
   /**
@@ -258,22 +517,66 @@ export class ClientConnection implements AsyncDisposable {
     await this.close();
   }
 
+  /** Sends `operation` as the main path does, its params and result unconverted. */
+  #raw(operation: string, params: unknown, options: CallOptions): Promise<unknown> {
+    this.#openOrThrow(operation);
+    return this.#channel.call(operation, params, options);
+  }
+
   #openOrThrow(operation: string): void {
     if (this.#closing !== undefined) {
-      throw new ClosedError(`${operation}: this Connection is closed; connect again`, {
-        fix: "Connect again: a closed Connection never reopens.",
-      });
+      throw new ClosedError(
+        runtimeMessage(CLOSED, {
+          operation: spelledOperation(this.#operationNames, operation),
+          fix: CONNECT_AGAIN,
+        }),
+        { operation, fix: CONNECT_AGAIN },
+      );
     }
   }
 
-  async #hello(needs: Product, signal: AbortSignal | undefined): Promise<void> {
+  /**
+   * Sets each of `limits` on this Client connection's own scope, one
+   * `usage.set` each, in order (ADR 0080's note of issue 2830).
+   */
+  async #setLimits(limits: readonly RunLimit[], signal: AbortSignal | undefined): Promise<void> {
+    for (const limit of limits) {
+      const params: UsageSetParams = { scope: "connection", ...limit };
+      const sent = toWire(params, collieWire.params["usage.set"], collieWire.types);
+      await this.#channel.call("usage.set", sent, { signal });
+    }
+  }
+
+  async #hello(options: ClientConnectionOptions): Promise<void> {
+    const { needs, daemon, signal, timeout, connectStartedAt, settings } = options;
     const params: HelloParams = {
-      protocol_version: PROTOCOL_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
+      form: "typescript",
       needs,
-      product_version: PRODUCT_VERSION,
+      productVersion: PRODUCT_VERSION,
+      logLevel: this.#logLevel,
+      ...(daemon === undefined ? {} : { token: daemon.token }),
+      ...(settings === undefined ? {} : { settings }),
     };
-    const answer = await this.#channel.call("hello", params, { signal });
+    let answer: unknown;
+    try {
+      const sent = toWire(
+        params,
+        { type: "HelloParams" satisfies CollieWireType },
+        collieWire.types,
+      );
+      answer = await this.#answerWithin(
+        this.#channel.call("hello", sent, { signal }),
+        timeout,
+        connectStartedAt ?? Date.now(),
+      );
+    } catch (error) {
+      throw daemon !== undefined &&
+        (error instanceof EngineExitedError || error instanceof ClosedError)
+        ? daemon.closedAtHello()
+        : error;
+    }
     const spoken = protocolVersionOf(answer);
     if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
@@ -293,14 +596,56 @@ export class ClientConnection implements AsyncDisposable {
       );
     }
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
-    const result = answer as HelloResult;
+    const result = fromWire(
+      answer,
+      { type: "HelloResult" satisfies CollieWireType },
+      collieWire.types,
+    ) as HelloResult;
     this.#info = {
-      kind: "attached",
+      kind: this.#reached.kind,
       product: result.product,
-      version: result.product_version,
-      protocolVersion: result.protocol_version,
+      version: result.productVersion,
+      protocolVersion: result.protocolVersion,
+      projectFile: null,
+      home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
+      url: this.#reached.url,
+      fallback: this.#reached.fallback ?? null,
     };
+  }
+
+  /**
+   * `hello`'s answer, once `called` gives it within `timeout`, its
+   * `timeout.connect` (ADR 0083), counted from `startedAt`.
+   *
+   * @throws {DeadlineExceededError} past it, its `limit` naming
+   * `timeout.connect` at the run layer, given as an argument, or at its
+   * default, and `waited_for` `hello`.
+   */
+  async #answerWithin(
+    called: Promise<unknown>,
+    timeout: number | null | undefined,
+    startedAt: number,
+  ): Promise<unknown> {
+    const connect = connectLimit(timeout);
+    if (connect === null) {
+      return called;
+    }
+    const { value, limit } = connect;
+    const answered = await within(
+      called.then((answer) => ({ answer })),
+      Math.max(0, startedAt + value - Date.now()),
+    );
+    if (answered !== "late") {
+      return answered.answer;
+    }
+    throw phaseExceeded(
+      `timeout.connect (${value} ms) passed before the engine answered hello`,
+      "Raise connect()'s timeout, or find why the engine does not answer in the engine's stderr, which the logger got.",
+      limit,
+      startedAt,
+      "hello",
+    );
   }
 
   /**
@@ -317,19 +662,12 @@ export class ClientConnection implements AsyncDisposable {
       this.#engine?.kill();
       await this.#channel.close();
       await this.#engine?.exited;
-      throw new DeadlineExceededError(
+      throw phaseExceeded(
         `the Connection did not close within timeout.close (${CLOSE_TIMEOUT} ms), so its engine was stopped`,
-        {
-          code: "deadline_exceeded",
-          group: "deadline_exceeded",
-          retryable: true,
-          fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
-          details: {
-            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
-            elapsed: Date.now() - startedAt,
-            waited_for: "close",
-          },
-        },
+        "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+        { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
+        startedAt,
+        "close",
       );
     }
     if (closed.failure !== undefined) {
@@ -377,9 +715,18 @@ export class ClientConnection implements AsyncDisposable {
         { details: { line: end.line } },
       );
     }
+    // Each call it fails gets a copy headed by its operation (`inCall`).
     if (this.#closing !== undefined) {
-      return new ClosedError("this Connection is closed; connect again", {
-        fix: "Connect again: a closed Connection never reopens.",
+      return new ClosedError(runtimeMessage(CLOSED, { fix: CONNECT_AGAIN }), {
+        fix: CONNECT_AGAIN,
+      });
+    }
+    // A Daemon, this machine's or a remote one, outlives the Connection it
+    // drops: the Connection is closed, not its engine ended (as in Rust).
+    if (this.#reached.kind !== "attached") {
+      return new ClosedError(runtimeMessage(DROPPED, { fix: CONNECT_AGAIN }), {
+        fix: CONNECT_AGAIN,
+        cause: end.kind === "ended" ? undefined : end.cause,
       });
     }
     const exit = await this.#exitOfEngine();
@@ -415,6 +762,51 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The `timeout.connect` limit of a `connect()` whose `timeout` is
+ * `timeout`, already checked by `timeoutOf`: at the run layer, given as an
+ * argument, or its 30 s default when left out; `null` for none.
+ */
+export function connectLimit(
+  timeout: number | null | undefined,
+): { readonly value: number; readonly limit: ErrorLimit } | null {
+  if (timeout === null) {
+    return null;
+  }
+  const value = timeout ?? CONNECT_TIMEOUT;
+  return {
+    value,
+    limit:
+      timeout === undefined
+        ? { key: "timeout.connect", value, layer: "default" }
+        : { key: "timeout.connect", value, layer: "run", origin: "argument" },
+  };
+}
+
+/**
+ * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
+ * `waitedFor` started at `startedAt` (ADR 0080).
+ */
+export function phaseExceeded(
+  message: string,
+  fix: string,
+  limit: ErrorLimit,
+  startedAt: number,
+  waitedFor: "hello" | "close",
+): DeadlineExceededError {
+  return new DeadlineExceededError(message, {
+    code: "deadline_exceeded",
+    group: "deadline_exceeded",
+    retryable: true,
+    fix,
+    limit,
+    details: {
+      elapsed: Date.now() - startedAt,
+      waited_for: waitedFor,
+    },
+  });
 }
 
 /** The error a call in flight fails with when its Connection closes: cancelled by its Client. */

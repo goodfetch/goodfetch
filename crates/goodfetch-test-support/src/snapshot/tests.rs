@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::{SnapshotValues, redact, snapshot_settings};
+use super::{SnapshotValues, apply, redact, rules_joined_with, snapshot_settings};
 use crate::env::TestEnv;
 
 /// The shared cases every language's `redact` passes.
@@ -203,5 +203,40 @@ fn a_named_path_redacts_in_each_form_an_output_prints_it() {
     assert_eq!(
         redacted,
         r#"Run `[COLLIE] daemon restart`. Run `[COLLIE] daemon restart`. {"path":"[COLLIE]"}"#
+    );
+}
+
+/// On Windows a path under the test's folder, or under a path the test
+/// names, is joined with `\`, written `\\` inside a JSON string: it redacts
+/// with `/`, as every other host joins it, so one snapshot serves them all.
+/// A backslash outside such a path, or one that is no separator, stays.
+#[test]
+fn a_path_windows_joins_redacts_with_the_separator_other_hosts_join_it_with() {
+    let values = SnapshotValues {
+        folder: Some(r"C:\temp\t1".to_owned()),
+        ..SnapshotValues::default()
+    }
+    .with_path(r"C:\temp\home", "[home]");
+    let output = concat!(
+        r"at `C:\temp\t1\home\0.9\operator-policy.toml`; ",
+        r#"{"path":"C:\\temp\\t1\\home\\0.0\\configuration.toml"} "#,
+        r"C:\temp\home\2\operator-policy.toml C:\temp\t1 \ a\b ",
+        r#"{"note":"C:\\temp\\t1\\home\"quoted\""}"#,
+    );
+
+    let windows = apply(output, rules_joined_with(&values, '\\'));
+    let unix = apply(output, rules_joined_with(&values, '/'));
+
+    assert_eq!(
+        (windows.as_str(), unix.contains(r"[FOLDER]\home")),
+        (
+            concat!(
+                r"at `[FOLDER]/home/0.9/operator-policy.toml`; ",
+                r#"{"path":"[FOLDER]/home/0.0/configuration.toml"} "#,
+                r"[home]/2/operator-policy.toml [FOLDER] \ a\b ",
+                r#"{"note":"[FOLDER]/home\"quoted\""}"#,
+            ),
+            true
+        )
     );
 }

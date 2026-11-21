@@ -24,7 +24,8 @@
 //! model covers the open batch of `batch` (ADR 0142). 16 cases in the
 //! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
 
-use std::time::Duration;
+use goodfetch_protocol::point_in_time;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
@@ -35,7 +36,6 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -359,6 +359,7 @@ impl StateMachineTest for Subject {
                     goodfetch_frontier::BOUNDS_TABLES,
                     goodfetch_frontier::RULES_TABLES,
                     goodfetch_frontier::payload::TABLES,
+                    crate::invariants::fixture::PAGE_DECLARED,
                     goodfetch_frontier::sitemap::TABLES,
                     goodfetch_frontier::trap_links::TABLES,
                 ],
@@ -543,8 +544,8 @@ prop_state_machine! {
 }
 
 /// When the model's attempts end: their outcomes are not its subject.
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 /// A seed of a page at `url`.

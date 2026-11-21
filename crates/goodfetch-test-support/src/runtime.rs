@@ -28,6 +28,16 @@ pub fn runtime_with_one_blocking_thread() -> tokio::runtime::Runtime {
     started(paused_current_thread().max_blocking_threads(1))
 }
 
+/// A current-thread Tokio runtime on real time, as a program's own may be,
+/// for a test that drives an SDK the way a program does.
+///
+/// # Panics
+///
+/// If Tokio cannot build it.
+pub fn real_time_runtime() -> tokio::runtime::Runtime {
+    started(goodfetch_runtime::current_thread().enable_all())
+}
+
 /// A current-thread runtime's builder, its clock paused.
 fn paused_current_thread() -> tokio::runtime::Builder {
     let mut builder = goodfetch_runtime::current_thread();

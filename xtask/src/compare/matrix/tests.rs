@@ -474,17 +474,30 @@ fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
     );
 }
 
-/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
+/// `just compare` builds each Rust side other than Spider's and fastCRW's,
+/// locked, at the run's profile, into the folder the run reads its
+/// executable from (`run::side_executable`); fastCRW's, which also installs
+/// its server, has its own test.
 #[test]
-fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+fn just_compare_builds_each_other_rust_side_into_its_folder() {
     let recipes = include_str!("../../../../justfile");
+    let missing: Vec<&str> = [
+        super::CRAWLEE_RS_FOLDER,
+        super::PAGESIFT_FOLDER,
+        super::OPENSPIDER_FOLDER,
+        super::CRAWLBERG_FOLDER,
+        super::CHROMIUMOXIDE_FOLDER,
+    ]
+    .into_iter()
+    .filter(|folder| {
+        !recipes.contains(&format!(
+            "cargo build --quiet --locked --manifest-path xtask/compare-{folder}/Cargo.toml \
+             --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}\n"
+        ))
+    })
+    .collect();
 
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLEE_RS_FOLDER
-    )));
+    assert_eq!(missing, Vec::<&str>::new());
 }
 
 /// Every scenario but the auto cell's, which maps Foxhound, Spider and
@@ -522,19 +535,6 @@ fn pagesift_runs_every_scenario_on_its_side() {
     );
 }
 
-/// `just compare` builds pagesift's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_pagesifts_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::PAGESIFT_FOLDER
-    )));
-}
-
 /// OpenSpider runs on its side in every scenario but four, each its main
 /// row (#2216): its durable cell is not supported, since its crawl file
 /// holds nothing yet when the harness kills it halfway, nor is its polite
@@ -570,19 +570,6 @@ fn openspider_runs_every_scenario_on_its_side_but_durable_polite_raw_64_and_raw_
             ))
             .collect::<Vec<_>>()
     );
-}
-
-/// `just compare` builds OpenSpider's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_openspiders_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::OPENSPIDER_FOLDER
-    )));
 }
 
 /// fastCRW runs on its side, which starts its server, in every scenario
@@ -691,19 +678,6 @@ fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
         .map(|(scenario, status)| (scenario, "crawlberg", Row::Main, status))
         .to_vec()
     );
-}
-
-/// `just compare` builds crawlberg's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_crawlbergs_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLBERG_FOLDER
-    )));
 }
 
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,
@@ -854,7 +828,7 @@ fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
 /// page's twenty fields, pushes one Record and enqueues the page's links:
 /// Foxhound as a TypeScript program on its SDK, at the default tier choice,
 /// against Spider, Crawlee, Scrapy and crawlee-rs doing the same work, each
-/// with its mapping. Foxhound's Rust arm waits on #1469 and its getters arm
+/// with its mapping. Foxhound's Rust arm waits on #2804 and its getters arm
 /// on #724 and #1296; every page's Record is held to the Proving ground's
 /// answers, and the cell carries no bar.
 #[test]

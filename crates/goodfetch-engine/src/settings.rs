@@ -22,6 +22,7 @@ mod files;
 mod hosts;
 mod keys;
 mod resolve;
+mod scopes;
 #[cfg(test)]
 mod tests;
 mod values;
@@ -37,14 +38,15 @@ pub use environment::{check_environment, deployment_variable};
 pub use error::SettingsError;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, PROJECT_CONFIGURATION_FILE, SettingsFiles, configuration,
-    find_project, fuzz_settings_file, load_project, operator_policy, policy_version,
-    project_settings, rewrite, set, user_configuration,
+    find_project, fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite,
+    set, user_configuration,
 };
 pub use hosts::HostEntry;
 pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,
 };
+pub use scopes::{beneath_connection, check_scope};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;

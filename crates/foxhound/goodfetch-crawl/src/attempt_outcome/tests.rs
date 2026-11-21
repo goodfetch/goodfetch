@@ -8,8 +8,9 @@
     reason = "tests read the test Clock (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::Masks;
@@ -18,7 +19,6 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::json;
@@ -53,6 +53,7 @@ fn tables() -> Vec<RunStateTables> {
         goodfetch_frontier::SCOPE_TABLES,
         goodfetch_frontier::BOUNDS_TABLES,
         goodfetch_frontier::payload::TABLES,
+        crate::invariants::fixture::PAGE_DECLARED,
         goodfetch_frontier::sitemap::TABLES,
         goodfetch_frontier::trap_links::TABLES,
         goodfetch_frontier::RULES_TABLES,
@@ -72,8 +73,8 @@ fn seed(url: &str) -> Seed {
     })
 }
 
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {

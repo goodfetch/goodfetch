@@ -4,7 +4,7 @@
 //! call shown to the person.
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::{RunAbortParams, RunParams, RunWaitParams};
+use goodfetch_protocol::run::{RunAbortParams, RunParams, RunStopParams};
 use rstest::rstest;
 use serde_json::{Map, json};
 
@@ -241,7 +241,7 @@ fn stop_abort_and_retry_failed_ask_first_naming_the_run_and_the_consequence(
 }
 
 #[rstest]
-#[case::stop(Control::Stop, Call::Stop(RunWaitParams { run_id: run_id("crawl-7"), timeout: None }))]
+#[case::stop(Control::Stop, Call::Stop(RunStopParams { run_id: run_id("crawl-7"), timeout: None }))]
 #[case::abort(Control::Abort, Call::Abort(RunAbortParams { run_id: run_id("crawl-7"), forwarded: false }))]
 #[case::retry_failed(
     Control::RetryFailed,
@@ -274,7 +274,7 @@ fn with_the_stop_confirmation_off_stop_asks_nothing_and_abort_still_asks() {
 
     assert_eq!(
         stop,
-        [Effect::Call(Call::Stop(RunWaitParams {
+        [Effect::Call(Call::Stop(RunStopParams {
             run_id: run_id("a-run"),
             timeout: None
         }))]

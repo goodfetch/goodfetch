@@ -139,6 +139,7 @@ pub const LOW_FREE: Setting = Setting {
     weakens: Some(is_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -153,6 +154,7 @@ pub const CRITICAL_FREE: Setting = Setting {
     weakens: Some(is_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

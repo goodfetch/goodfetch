@@ -24,18 +24,13 @@ fn duplicate() -> CountedAs {
 /// What `tally` counts: the work items left, and the ended requests of
 /// each kind by what they count under.
 fn counted(tally: &Tally) -> (u64, Vec<(OutcomeKind, String, u64)>) {
-    let kinds = [
-        OutcomeKind::Succeeded,
-        OutcomeKind::Failed,
-        OutcomeKind::Skipped,
-        OutcomeKind::Blocked,
-    ];
-    let ended = kinds
+    let ended = OutcomeKind::ALL
         .into_iter()
         .flat_map(|kind| {
             tally
-                .ended(kind)
-                .map(move |(name, count)| (kind, name.to_owned(), count))
+                .ended(&kind)
+                .map(|(name, count)| (kind.clone(), name.to_owned(), count))
+                .collect::<Vec<_>>()
         })
         .collect();
     (tally.left(), ended)

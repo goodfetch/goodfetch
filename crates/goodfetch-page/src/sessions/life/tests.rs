@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, ClosedValue, StoppedBy,
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue,
 };
 use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
 use goodfetch_protocol::page::{BrowserExit, PageId, SessionId};
@@ -165,8 +165,9 @@ impl LeaseCheck for Ended {
             &CALL_CANCELLED,
             format!("the lease ended ({ended}): `{method}` withheld"),
             &CallCancelledDetails {
-                by: StoppedBy::Program,
+                by: CancelledBy::Program,
                 closed: None,
+                person: None,
             },
         )
     }
@@ -685,6 +686,7 @@ fn past_cap() -> Ending {
             key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
             value: json!(32 << 20),
             layer: SettingsLayer::Run,
+            origin: None,
         },
     }
 }

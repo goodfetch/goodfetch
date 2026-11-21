@@ -2421,7 +2421,7 @@ const fn defaults(scenario: Scenario) -> Cell {
 
 /// Why the handled crawl's Rust row gives no figure yet.
 pub(crate) const HANDLED_RUST_PENDING: &str =
-    "#1469, which brings the Rust SDK's crawl handler that the row's program is written on";
+    "#2804, which brings the Rust SDK's crawl handler that the row's program is written on";
 
 /// Why the handled crawl's getters row gives no figure yet.
 pub(crate) const HANDLED_GETTERS_PENDING: &str = "#724 and #1296's TypeScript part, which bring \

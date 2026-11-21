@@ -41,6 +41,7 @@ fn start(engine: &mut Attached, site: &Site, run_id: &str, hosts: &[&str]) {
             "run_id": run_id,
             "seeds": seeds,
             "settings": { "crawl": { "handler": { "concurrency": 3 } } },
+            "labels": { "page": {} },
         }),
         &mut |_| Some(json!({ "result": { "records": [] } })),
     );
@@ -292,6 +293,7 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
                 "fetch": { "tier": "http" },
                 "crawl": { "handler": { "concurrency": 2 } },
             })),
+            "labels": { "page": {} },
         },
     }));
     loop {

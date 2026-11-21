@@ -32,12 +32,6 @@ pub fn world(snippet: &str) -> Option<World> {
         .map(|(_, world)| *world)
 }
 
-/// The rules left out of the bundle, by name, for the dropped snippets they
-/// name.
-pub fn dropped_rules() -> &'static [&'static str] {
-    DROPPED_RULES
-}
-
 /// The runner's bundle, decompressed: the script the engine evaluates in
 /// the guard's isolated world of every frame at every new document.
 #[derive(Debug)]

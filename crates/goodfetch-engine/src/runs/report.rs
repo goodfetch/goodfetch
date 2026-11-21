@@ -8,12 +8,13 @@
 //! is the one answered.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    NothingDone, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
     UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
@@ -50,8 +51,8 @@ pub(super) struct EndFacts {
     pub(super) run_id: RunId,
     pub(super) lifecycle: Lifecycle,
     pub(super) stop_reason: Option<StopReason>,
-    pub(super) started_at: PointInTime,
-    pub(super) ended_at: PointInTime,
+    pub(super) started_at: SystemTime,
+    pub(super) ended_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     pub(super) settings: Option<Vec<ExplainedSetting>>,
@@ -112,8 +113,8 @@ impl EndFacts {
             verdict_reasons: Vec::new(),
             completeness,
             completeness_reasons,
-            started_at: self.started_at.clone(),
-            ended_at: self.ended_at.clone(),
+            started_at: self.started_at,
+            ended_at: self.ended_at,
             usage: RunUsage {
                 limits: self.limits.clone(),
                 ..RunUsage::default()
@@ -218,6 +219,8 @@ fn stopped_for(reason: &StopReason) -> String {
             goodfetch_protocol::run::Resource::Memory => "memory ran out".to_owned(),
             goodfetch_protocol::run::Resource::Storage => "storage ran out".to_owned(),
         },
+        StopReason::Unknown(member) => format!("stopped for `{}`", member.tag()),
+        _ => "stopped".to_owned(),
     }
 }
 

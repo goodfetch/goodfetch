@@ -29,8 +29,9 @@
 //! ```
 //!
 //! Its library also exposes Collie's composition of the engine, which
-//! Foxhound's starts from, and, under the `executable` feature, the
-//! executable's entry, which both Products' `main` call.
+//! Foxhound's starts from, the [`linked`] connection both Products' SDKs
+//! open, and, under the `executable` feature, the executable's entry,
+//! which both Products' `main` call.
 #![warn(missing_docs)]
 
 #[cfg_attr(
@@ -44,15 +45,31 @@ mod block_detection;
 pub mod blocking;
 mod collie;
 mod composition;
+mod engine_choice;
 #[cfg(feature = "executable")]
 pub mod executable;
-mod linked;
+pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
+mod trace_context;
 
-pub use collie::{Collie, ConnectOptions};
+pub use collie::Collie;
 pub use composition::{composition, composition_with};
-pub use goodfetch_collie_client::{Call, Error, Run, Start};
-pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
+pub use goodfetch_collie_client::{
+    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
+    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
+    SchemaError, Session, Start, UsageKind, events, schemars, settings,
+};
+pub use goodfetch_protocol::page::events::PageRequest;
+pub use goodfetch_protocol::page::read::{
+    FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
+    UnreadField, UnreadReason, ValueField,
+};
+pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+pub use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
+};
+pub use linked::ConnectOptions;
 pub use pins::pinned_artifacts;

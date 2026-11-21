@@ -25,6 +25,7 @@ mod tests;
 use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
@@ -427,7 +428,7 @@ impl BrowserCache {
             if let Some(mut entry) = entry
                 && store::writable(&self.root)
             {
-                entry.used_at = now;
+                entry.used_at = SystemTime::from(now);
                 // A launch still runs when its use cannot be recorded; the
                 // clean-up then counts the build unused since its last
                 // recorded use.
@@ -456,7 +457,7 @@ impl BrowserCache {
             folder = %folder.display(),
             "a build in the Browser cache does not have its pinned digest: removing it",
         );
-        store::delete(&self.root, &folder).map_err(CacheError::cache(&folder))?;
+        store::delete(&self.root, &folder, None).map_err(CacheError::cache(&folder))?;
         Ok(Present::Missing)
     }
 
@@ -520,8 +521,8 @@ impl BrowserCache {
             format_version: BROWSER_CACHE.version,
             artifact: id.clone(),
             digest: digest.to_string(),
-            installed_at: now,
-            used_at: now,
+            installed_at: SystemTime::from(now),
+            used_at: SystemTime::from(now),
         };
         let entry_folder = store::entry_folder(&self.root, &id);
         store::install(&self.root, partial, &id, &entry)
@@ -619,8 +620,8 @@ impl BrowserCache {
             format_version: BROWSER_CACHE.version,
             artifact: artifact.id.clone(),
             digest: artifact.digest.to_string(),
-            installed_at: now,
-            used_at: now,
+            installed_at: SystemTime::from(now),
+            used_at: SystemTime::from(now),
         };
         let folder = store::entry_folder(&self.root, &artifact.id);
         let (root, id) = (self.root.clone(), artifact.id.clone());
@@ -701,6 +702,7 @@ impl BrowserCache {
                     key: EGRESS_OFFLINE.name.to_owned(),
                     value: serde_json::Value::Bool(true),
                     layer,
+                    origin: None,
                 },
                 fix: format!(
                     "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",

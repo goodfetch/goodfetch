@@ -110,6 +110,7 @@
     "**/generated/**",
     "ci/proofs/**",
     "crates/goodfetch-clean-up-rules/stand-ins/**",
-    "crates/goodfetch-clean-up-rules/consent/autoconsent/**"
+    "crates/goodfetch-clean-up-rules/consent/autoconsent/**",
+    "xtask/tests/it/fixtures/codegen-forms/forms.types.ts"
   ]
 }

@@ -131,8 +131,8 @@ fn certs_list_shows_the_callers_pins_and_nothing_of_another_persons() {
 #[test]
 fn certs_list_refuses_a_store_of_a_newer_major() {
     let env = TestEnv::new();
-    let store = shared_store(&env);
-    Connection::open(store.path())
+    let _store = shared_store(&env);
+    Connection::open(Home::new(env.home().to_path_buf()).known_certificates())
         .unwrap()
         .execute("UPDATE format SET version = '1.0'", [])
         .unwrap();

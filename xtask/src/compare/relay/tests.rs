@@ -63,33 +63,6 @@ fn each_whole_data_message_counts_once_whatever_its_frames_and_chunks() {
     }
 }
 
-/// A browser's endpoint that accepts one WebSocket and keeps what it
-/// received.
-fn browser() -> (u16, std::thread::JoinHandle<Vec<u8>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let thread = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        loop {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            if line == "\r\n" {
-                break;
-            }
-        }
-        reader
-            .get_mut()
-            .write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
-            .unwrap();
-        let mut received = Vec::new();
-        reader.read_to_end(&mut received).unwrap();
-        received
-    });
-    (port, thread)
-}
-
 fn get(address: &str, path: &str) -> String {
     let mut stream = TcpStream::connect(address).unwrap();
     write!(stream, "GET {path} HTTP/1.1\r\nHost: {address}\r\n\r\n").unwrap();
@@ -98,44 +71,40 @@ fn get(address: &str, path: &str) -> String {
     answer
 }
 
+/// A tool's commands reach the browser unchanged, and the marks count those
+/// sent between them alone; each reply the tool reads shows its command
+/// was counted, since the relay counts a command before passing it on.
 #[test]
 fn the_relay_passes_a_tools_websocket_through_and_marks_its_commands() {
-    let (port, received) = browser();
+    let (port, received) = answering_browser();
     let relay = Relay::start(port).unwrap();
     let address = relay.address().to_string();
-    let mut tool = TcpStream::connect(&address).unwrap();
+    let mut tool = BufReader::new(TcpStream::connect(&address).unwrap());
     write!(
-        tool,
+        tool.get_mut(),
         "GET /devtools/browser/abc HTTP/1.1\r\nHost: {address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
     )
     .unwrap();
-    let mut head = [0; 12];
-    tool.read_exact(&mut head).unwrap();
-    assert_eq!(&head, b"HTTP/1.1 101");
-    tool.write_all(&command(1)).unwrap();
-    // The commands reach the relay's count before the mark asks for it.
-    let wait_for = |count: u64| {
-        for _ in 0..500 {
-            if relay.commands() == count {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        panic!("the relay counted {}, not {count}", relay.commands());
-    };
-    wait_for(1);
-    assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
-    tool.write_all(&command(2)).unwrap();
-    tool.write_all(&command(3)).unwrap();
-    wait_for(3);
-    assert!(get(&address, "/end").starts_with("HTTP/1.1 204"));
-    tool.write_all(&command(4)).unwrap();
-    wait_for(4);
-    drop(tool);
-    let mut expected = command(1);
-    for id in 2..=4 {
-        expected.extend(command(id));
+    let mut line = String::new();
+    tool.read_line(&mut line).unwrap();
+    assert!(line.starts_with("HTTP/1.1 101"), "{line}");
+    while line != "\r\n" {
+        line.clear();
+        tool.read_line(&mut line).unwrap();
     }
+    let send = |tool: &mut BufReader<TcpStream>, id: u32| {
+        tool.get_mut().write_all(&command(id)).unwrap();
+        let mut reply = vec![0; answer(format!(r#"{{"id":{id},"result":{{}}}}"#).as_bytes()).len()];
+        tool.read_exact(&mut reply).unwrap();
+    };
+    send(&mut tool, 1);
+    assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
+    send(&mut tool, 2);
+    send(&mut tool, 3);
+    assert!(get(&address, "/end").starts_with("HTTP/1.1 204"));
+    send(&mut tool, 4);
+    drop(tool);
+    let expected: Vec<u8> = (1..=4).flat_map(command).collect();
     assert_eq!(received.join().unwrap(), expected);
     let (start, end) = relay.marks();
     let (start, end) = (start.unwrap(), end.unwrap());
@@ -145,7 +114,7 @@ fn the_relay_passes_a_tools_websocket_through_and_marks_its_commands() {
 
 #[test]
 fn a_mark_asked_twice_is_refused_and_keeps_the_first() {
-    let (port, _received) = browser();
+    let (port, _received) = answering_browser();
     let relay = Relay::start(port).unwrap();
     let address = relay.address().to_string();
     assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
@@ -269,17 +238,23 @@ fn each_mark_records_the_engines_counts_as_they_stand_then() {
 }
 
 /// A browser's endpoint that accepts one WebSocket, answers its handshake
-/// as Chrome does, then answers each command it receives once whole.
-fn answering_browser() -> u16 {
+/// as Chrome does, then answers each command it receives once whole, and
+/// keeps the commands it received.
+fn answering_browser() -> (u16, std::thread::JoinHandle<Vec<u8>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
+    let thread = std::thread::spawn(move || {
+        let mut received = Vec::new();
+        let Ok((stream, _)) = listener.accept() else {
+            return received;
+        };
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         loop {
             line.clear();
-            reader.read_line(&mut line).unwrap();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                return received;
+            }
             if line == "\r\n" {
                 break;
             }
@@ -296,18 +271,20 @@ fn answering_browser() -> u16 {
             if reader.read_exact(&mut command).is_err() {
                 break;
             }
+            received.extend_from_slice(&command);
             let reply = answer(format!(r#"{{"id":{id},"result":{{}}}}"#).as_bytes());
             if reader.get_mut().write_all(&reply).is_err() {
                 break;
             }
         }
+        received
     });
-    port
+    (port, thread)
 }
 
 #[test]
 fn the_relay_counts_one_round_per_command_awaited_after_the_browsers_handshake() {
-    let relay = Relay::start(answering_browser()).unwrap();
+    let relay = Relay::start(answering_browser().0).unwrap();
     let address = relay.address().to_string();
     let mut tool = BufReader::new(TcpStream::connect(&address).unwrap());
     write!(

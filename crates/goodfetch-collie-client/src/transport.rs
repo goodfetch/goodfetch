@@ -5,9 +5,11 @@
 //! talks to over its stdio; a Daemon is the Unix socket or loopback TCP
 //! address its endpoint names (ADR 0024), never a named pipe. This is the
 //! one module on the client side that opens a socket or starts a process
-//! (spec #606).
+//! (spec #606). An Attached engine's stderr is never the program's: each
+//! line it writes is logged at warning and its last 64 KiB kept, which
+//! `engine_exited` carries with how it ended (ADR 0078).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
 use std::fmt;
 use std::future::Future;
@@ -18,14 +20,23 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
-use goodfetch_protocol::connection::DaemonEndpoint;
+use goodfetch_protocol::connection::{DaemonEndpoint, EngineExitedDetails};
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, BufReader};
 use tokio::process::{Child, ChildStderr};
+use tokio::sync::oneshot;
+
+/// The most of an Attached engine's stderr `engine_exited` carries (ADR
+/// 0078).
+const STDERR_TAIL_BYTES: usize = 64 * 1024;
+
+/// How a Connection's engine ended, once it has.
+pub(crate) type Exit = Pin<Box<dyn Future<Output = EngineExitedDetails> + Send>>;
 
 /// One Connection's bytes, both ways.
 pub struct Link {
     reader: Box<dyn AsyncRead + Send + Unpin>,
     writer: Box<dyn AsyncWrite + Send + Unpin>,
+    exit: Option<Exit>,
 }
 
 impl Link {
@@ -37,17 +48,44 @@ impl Link {
         Self {
             reader: Box::new(reader),
             writer: Box::new(writer),
+            exit: None,
         }
     }
 
-    /// Its two directions.
+    /// The same Connection to an engine that ending ends it, as an Attached
+    /// or a linked engine does, and `exit` tells how once it has: when the
+    /// engine ends the Connection before the Client closes it, each call
+    /// still unanswered, and every later one, fails with `engine_exited`
+    /// and what `exit` yields (ADR 0078).
+    ///
+    /// ```
+    /// use goodfetch_collie_client::transport::Link;
+    /// use goodfetch_protocol::connection::EngineExitedDetails;
+    ///
+    /// let (client_end, _engine_end) = tokio::io::duplex(1024);
+    /// let (reader, writer) = tokio::io::split(client_end);
+    /// let ended = std::future::ready(EngineExitedDetails::without_evidence());
+    /// let _link = Link::new(reader, writer).ending_with(ended);
+    /// ```
+    #[must_use]
+    pub fn ending_with(
+        mut self,
+        exit: impl Future<Output = EngineExitedDetails> + Send + 'static,
+    ) -> Self {
+        self.exit = Some(Box::pin(exit));
+        self
+    }
+
+    /// Its two directions, and how its engine ended when it is one that
+    /// ending ends the Connection.
     pub(crate) fn split(
         self,
     ) -> (
         Box<dyn AsyncRead + Send + Unpin>,
         Box<dyn AsyncWrite + Send + Unpin>,
+        Option<Exit>,
     ) {
-        (self.reader, self.writer)
+        (self.reader, self.writer, self.exit)
     }
 }
 
@@ -188,9 +226,20 @@ fn attached(engine: &AttachedEngine) -> io::Result<Opened> {
         return Err(io::Error::other("the Attached engine's stdio is not piped"));
     };
     let stderr = child.stderr.take();
+    let (exited, exit) = oneshot::channel();
+    // A watch that ends without telling, its runtime shut down, leaves no
+    // evidence.
+    let exit = async {
+        exit.await
+            .unwrap_or_else(|_| EngineExitedDetails::without_evidence())
+    };
     Ok(Opened {
-        link: Link::new(stdout, stdin),
-        process: Some(Process { child, stderr }),
+        link: Link::new(stdout, stdin).ending_with(exit),
+        process: Some(Process {
+            child,
+            stderr,
+            exited,
+        }),
     })
 }
 
@@ -232,25 +281,131 @@ async fn daemon(endpoint: &DaemonEndpoint) -> io::Result<Link> {
 pub(crate) struct Process {
     child: Child,
     stderr: Option<ChildStderr>,
+    exited: oneshot::Sender<EngineExitedDetails>,
 }
 
 impl Process {
-    /// Logs each line the engine writes to its stderr, then its exit, for
-    /// as long as it runs.
+    /// Logs each line the engine writes to its stderr at warning, never on
+    /// the program's own stderr, for as long as it runs, then tells its
+    /// Connection how it exited, with its stderr's last 64 KiB.
     pub(crate) async fn watch(mut self) {
-        if let Some(stderr) = self.stderr.take() {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                tracing::warn!(target: "goodfetch::client", %line, "the Attached engine wrote to its stderr");
-            }
-        }
-        match self.child.wait().await {
+        let tail = match self.stderr.take() {
+            Some(stderr) => read_stderr(stderr).await,
+            None => Tail::default(),
+        };
+        let (exit_code, signal) = match self.child.wait().await {
             Ok(status) => {
                 tracing::debug!(target: "goodfetch::client", %status, "the Attached engine exited");
+                (status.code(), signal_of(status))
             }
             Err(error) => {
                 tracing::warn!(target: "goodfetch::client", %error, "the Attached engine's exit could not be read");
+                (None, None)
             }
+        };
+        let _unheard = self.exited.send(EngineExitedDetails {
+            exit_code,
+            signal,
+            stderr_tail: tail.text(),
+        });
+    }
+}
+
+/// Reads `stderr` until the engine closes it, logging each line at
+/// warning, and a line longer than the tail in pieces as long, and keeps
+/// its last bytes.
+async fn read_stderr(stderr: ChildStderr) -> Tail {
+    let mut stderr = BufReader::new(stderr);
+    let mut tail = Tail::default();
+    let mut line = Vec::new();
+    loop {
+        let read = match stderr.fill_buf().await {
+            Ok(read) => read,
+            Err(error) => {
+                tracing::warn!(target: "goodfetch::client", %error, "the Attached engine's stderr could not be read");
+                break;
+            }
+        };
+        if read.is_empty() {
+            break;
+        }
+        let ends = read.iter().position(|byte| *byte == b'\n');
+        let taken = ends.map_or(read.len(), |at| at + 1);
+        line.extend_from_slice(&read[..taken]);
+        tail.push(&read[..taken]);
+        stderr.consume(taken);
+        if ends.is_some() || line.len() >= STDERR_TAIL_BYTES {
+            log_stderr(&line);
+            line.clear();
         }
     }
+    if !line.is_empty() {
+        log_stderr(&line);
+    }
+    tail
+}
+
+/// Logs the line `line` the Attached engine wrote to its stderr.
+fn log_stderr(line: &[u8]) {
+    let line = String::from_utf8_lossy(line.strip_suffix(b"\n").unwrap_or(line));
+    tracing::warn!(target: "goodfetch::client", %line, "the Attached engine wrote to its stderr");
+}
+
+/// The last bytes an Attached engine wrote to its stderr.
+#[derive(Default)]
+struct Tail(VecDeque<u8>);
+
+impl Tail {
+    fn push(&mut self, bytes: &[u8]) {
+        self.0.extend(bytes);
+        let over = self.0.len().saturating_sub(STDERR_TAIL_BYTES);
+        self.0.drain(..over);
+    }
+
+    /// Its text, from the first character that starts in it: a cut may
+    /// fall inside one, whose continuation bytes are `0b10xx_xxxx`.
+    fn text(mut self) -> String {
+        let bytes = self.0.make_contiguous();
+        let start = bytes
+            .iter()
+            .position(|byte| byte & 0xC0 != 0x80)
+            .unwrap_or(bytes.len());
+        String::from_utf8_lossy(&bytes[start..]).into_owned()
+    }
+}
+
+/// The name of the signal that ended the process, such as `SIGKILL`, or
+/// its number past the ones named here.
+#[cfg(unix)]
+fn signal_of(status: std::process::ExitStatus) -> Option<String> {
+    use std::os::unix::process::ExitStatusExt as _;
+    let signal = status.signal()?;
+    let name = match signal {
+        libc::SIGHUP => "SIGHUP",
+        libc::SIGINT => "SIGINT",
+        libc::SIGQUIT => "SIGQUIT",
+        libc::SIGILL => "SIGILL",
+        libc::SIGTRAP => "SIGTRAP",
+        libc::SIGABRT => "SIGABRT",
+        libc::SIGBUS => "SIGBUS",
+        libc::SIGFPE => "SIGFPE",
+        libc::SIGKILL => "SIGKILL",
+        libc::SIGUSR1 => "SIGUSR1",
+        libc::SIGSEGV => "SIGSEGV",
+        libc::SIGUSR2 => "SIGUSR2",
+        libc::SIGPIPE => "SIGPIPE",
+        libc::SIGALRM => "SIGALRM",
+        libc::SIGTERM => "SIGTERM",
+        libc::SIGXCPU => "SIGXCPU",
+        libc::SIGXFSZ => "SIGXFSZ",
+        libc::SIGSYS => "SIGSYS",
+        other => return Some(format!("signal {other}")),
+    };
+    Some(name.to_owned())
+}
+
+/// No signal ends a process on this OS.
+#[cfg(not(unix))]
+fn signal_of(_status: std::process::ExitStatus) -> Option<String> {
+    None
 }

@@ -11,10 +11,11 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::run::{
-    HumanPause, Lifecycle, PointInTime, ProgressMessage, RUN_PROGRESS, RunId, RunProgress,
-    RunStorage, RunWriter, StopReason,
+    HumanPause, Lifecycle, ProgressMessage, RUN_PROGRESS, RunId, RunProgress, RunStorage,
+    RunWriter, StopReason,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
@@ -106,7 +107,7 @@ pub(super) struct Progressing {
     pub(super) lifecycle: Lifecycle,
     pub(super) writer: RunWriter,
     pub(super) epoch: u64,
-    pub(super) checkpoint_at: Option<PointInTime>,
+    pub(super) checkpoint_at: Option<SystemTime>,
     pauses: BTreeMap<u64, HumanPause>,
     next_pause: u64,
     pub(super) message: Option<ProgressMessage>,
@@ -147,13 +148,13 @@ impl Progressing {
 
     /// The value of `run_id` it gives, read at `at`, before its parts fill
     /// theirs: its typed parts encoded as they stand.
-    pub(super) fn value(&self, run_id: &RunId, at: PointInTime) -> RunProgress {
+    pub(super) fn value(&self, run_id: &RunId, at: SystemTime) -> RunProgress {
         self.unencoded(run_id, at).encoded()
     }
 
     /// The same with its typed parts not encoded yet, for a reader whose
     /// parts fill theirs first.
-    pub(super) fn unencoded(&self, run_id: &RunId, at: PointInTime) -> Unencoded {
+    pub(super) fn unencoded(&self, run_id: &RunId, at: SystemTime) -> Unencoded {
         let value = RunProgress {
             run_id: run_id.clone(),
             position: self.position,
@@ -161,7 +162,7 @@ impl Progressing {
             lifecycle: self.lifecycle,
             writer: self.writer,
             epoch: self.epoch,
-            checkpoint_at: self.checkpoint_at.clone(),
+            checkpoint_at: self.checkpoint_at,
             pauses: self.pauses.values().cloned().collect(),
             message: self.message.clone(),
             storage: self.storage.clone(),
@@ -350,7 +351,7 @@ pub(super) async fn publish(
 pub(super) fn committed(
     connection: &Connection,
     writer: RunWriter,
-    at: PointInTime,
+    at: SystemTime,
 ) -> rusqlite::Result<Option<RunProgress>> {
     let found = connection
         .prepare_cached("SELECT run_id, epoch, lifecycle, stop_reason, progress_message FROM run")?

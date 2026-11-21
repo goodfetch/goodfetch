@@ -58,9 +58,10 @@ export type CompletenessReasonCode = "failed" | "stopped" | (string & {});
  * - `daemon`: Every run a Daemon runs.
  * - `install`: Every run of the user on the machine, whichever engine runs it.
  * - `person`: Every run a person starts.
+ * - `run`: The Run whose program gave the Limit at its start; it has no period.
  * - `token`: Every run a Connection holding a named token starts.
  */
-export type LimitScope = "connection" | "daemon" | "install" | "person" | "token" | (string & {});
+export type LimitScope = "connection" | "daemon" | "install" | "person" | "run" | "token" | (string & {});
 
 /**
  * A `needs_you_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

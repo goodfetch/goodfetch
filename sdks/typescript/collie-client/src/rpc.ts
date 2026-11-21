@@ -8,6 +8,7 @@
 // (ADR 0081: no SDK keeps a queue of calls): past its bound on calls waiting
 // or on bytes waiting to be written, a new call is refused at once.
 import { replyOfError } from "./errors.ts";
+import { inCall, type OperationNames } from "./goodfetch-error.ts";
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import {
   CallCancelledError,
@@ -39,8 +40,17 @@ export type TransportEnd =
 
 /** What a channel's owner decides about its end and its replies. */
 export interface ChannelOwner {
-  /** The error every waiting and later call fails with once the transport ended. */
+  /**
+   * The error every waiting and later call fails with once the transport
+   * ended, which each such call gets a copy of headed by its operation.
+   */
   ended(end: TransportEnd): Promise<GoodfetchError>;
+  /**
+   * Each operation's name in TypeScript form, which heads the runtime's own
+   * errors of a call (ADR 0079); a call whose operation it lacks is headed
+   * by its catalog name.
+   */
+  readonly operationNames: OperationNames;
   /** The error a JSON-RPC `error` reply raises. */
   failure(error: unknown): GoodfetchError;
   /**
@@ -54,6 +64,11 @@ export interface ChannelOwner {
   readonly serve?:
     | ((method: string, params: unknown, signal: AbortSignal) => Promise<unknown> | undefined)
     | undefined;
+  /**
+   * Hears each notification that names no call, such as the engine's
+   * `$/log`; when left out, they are dropped.
+   */
+  readonly notified?: ((method: string, params: unknown) => void) | undefined;
 }
 
 /** What a Connection lets wait before it refuses a new call with `connection_overloaded`. */
@@ -85,22 +100,34 @@ export interface CheckedBounds {
  * more: such a bound would refuse every call, or none.
  */
 export function boundsOf(bounds: ChannelBounds): CheckedBounds {
-  const bound = (name: keyof ChannelBounds, fallback: number): number => {
-    const value = bounds[name] ?? fallback;
-    if (!Number.isSafeInteger(value) || value < 1) {
-      throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
-        fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
-      });
-    }
-    return value;
-  };
   return {
-    maxPendingCalls: bound("maxPendingCalls", MAX_PENDING_CALLS),
-    maxQueuedWriteBytes: bound("maxQueuedWriteBytes", MAX_QUEUED_WRITE_BYTES),
+    maxPendingCalls: wholeBound("maxPendingCalls", bounds.maxPendingCalls, MAX_PENDING_CALLS),
+    maxQueuedWriteBytes: wholeBound(
+      "maxQueuedWriteBytes",
+      bounds.maxQueuedWriteBytes,
+      MAX_QUEUED_WRITE_BYTES,
+    ),
   };
 }
 
+/**
+ * The Connection's bound `name`, `given` or `fallback` when left out.
+ *
+ * @throws {SettingInvalidError} when it is no whole number of 1 or more.
+ */
+export function wholeBound(name: string, given: number | undefined, fallback: number): number {
+  const value = given ?? fallback;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
+      fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
+    });
+  }
+  return value;
+}
+
 interface Waiting {
+  /** The call's operation, by its catalog name. */
+  readonly method: string;
   resolve(result: unknown): void;
   reject(error: unknown): void;
   /** Hears the notifications the engine sends for this call, such as a stream's `$/events`. */
@@ -171,7 +198,7 @@ export class Channel {
       return { id, result: Promise.reject(signal.reason) };
     }
     if (this.#failure !== undefined) {
-      return { id, result: Promise.reject(this.#failure) };
+      return { id, result: Promise.reject(this.#inCall(this.#failure, method)) };
     }
     // Encoded before the call waits, so params that cannot be encoded, such
     // as a BigInt, fail this call alone and leave no waiter behind.
@@ -186,7 +213,7 @@ export class Channel {
       return { id, result: Promise.reject(overloaded) };
     }
     const answer = new Promise<unknown>((resolve, reject) => {
-      this.#waiting.set(id, { resolve, reject, notified: options.notified });
+      this.#waiting.set(id, { method, resolve, reject, notified: options.notified });
     });
     const abort = (): void => {
       const waiting = this.#waiting.get(id);
@@ -209,11 +236,11 @@ export class Channel {
     }
   }
 
-  /** Fails every waiting call with `error`, sending each its `$/cancel`. */
+  /** Fails every waiting call with its copy of `error`, sending each its `$/cancel`. */
   cancelAll(error: GoodfetchError): void {
     for (const [id, waiting] of this.#waiting) {
       this.#send({ method: CANCEL, params: { id } });
-      waiting.reject(error);
+      waiting.reject(this.#inCall(error, waiting.method));
     }
     this.#waiting.clear();
   }
@@ -336,7 +363,7 @@ export class Channel {
     const failure = await this.#owner.ended(end);
     this.#failure = failure;
     for (const waiting of this.#waiting.values()) {
-      waiting.reject(failure);
+      waiting.reject(this.#inCall(failure, waiting.method));
     }
     this.#waiting.clear();
     // No answer reaches the engine any more: what serves its requests stops.
@@ -379,6 +406,11 @@ export class Channel {
     this.#send(answer);
   }
 
+  /** `error`, which the runtime raised, as the call `method` fails with it. */
+  #inCall(error: GoodfetchError, method: string): GoodfetchError {
+    return inCall(error, method, this.#owner.operationNames);
+  }
+
   /** Stops the served request the engine cancelled, and answers it `call_cancelled` (ADR 0038). */
   #cancelServed(id: MessageId): void {
     const serving = this.#serving.get(id);
@@ -418,6 +450,7 @@ export class Channel {
           typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
         const id = typeof named === "number" || typeof named === "string" ? named : undefined;
         if (id === undefined) {
+          this.#owner.notified?.(message.method, params);
           return;
         }
         // The engine's `$/cancel` names a request of its own, whose ids are

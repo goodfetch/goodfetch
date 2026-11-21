@@ -123,6 +123,8 @@ impl ClientCertificateFailure {
                 key: TLS_CLIENT_CERTIFICATES.name.to_owned(),
                 layer: *layer,
                 reason: self.to_string(),
+                limit: None,
+                fix: None,
             },
         ))
     }

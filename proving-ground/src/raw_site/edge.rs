@@ -441,9 +441,9 @@ mod tests {
 
     /// RFC 9110, section 5.6.7's example, `784111777`.
     #[rstest]
-    #[case(Form::ImfFixdate, "Sun, 06 Nov 1994 08:49:37 GMT")]
-    #[case(Form::Rfc850, "Sunday, 06-Nov-94 08:49:37 GMT")]
-    #[case(Form::Asctime, "Sun Nov  6 08:49:37 1994")]
+    #[case::imf_fixdate(Form::ImfFixdate, "Sun, 06 Nov 1994 08:49:37 GMT")]
+    #[case::rfc850(Form::Rfc850, "Sunday, 06-Nov-94 08:49:37 GMT")]
+    #[case::asctime(Form::Asctime, "Sun Nov  6 08:49:37 1994")]
     fn http_dates_read_as_rfc_9110_writes_them(#[case] form: Form, #[case] text: &str) {
         assert_eq!(http_date(784_111_777, form), text);
     }

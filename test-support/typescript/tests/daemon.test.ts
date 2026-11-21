@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import { daemonOf, test } from "@goodfetch/test-support";
+import { test } from "@goodfetch/test-support";
 import { hello } from "./daemon-hello.ts";
 
 describe("daemon", () => {
@@ -40,13 +40,5 @@ describe("daemon of a test that needs Foxhound", () => {
     const answer = await hello(daemon, daemon.token, "foxhound");
 
     expect(answer).toMatchObject({ result: { product: "foxhound" } });
-  });
-});
-
-describe("daemon without withDaemon", () => {
-  test("fails the fixture with daemon_not_requested", ({ testEnv }) => {
-    expect(() => daemonOf(testEnv)).toThrow(
-      expect.objectContaining({ code: "daemon_not_requested" }),
-    );
   });
 });

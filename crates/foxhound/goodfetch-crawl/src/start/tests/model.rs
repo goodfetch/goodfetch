@@ -567,6 +567,7 @@ impl StateMachineTest for Subject {
         let params = as_sent(
             "crawl.start",
             json!({
+                "labels": { "page": {} },
                 "run_id": "model",
                 "seeds": seeds,
                 "datasets": [{ "name": "pages" }, { "name": "links" }],

@@ -347,7 +347,7 @@ fn config_explain_marks_the_keys_user_configuration_may_hold_and_those_fixed_for
 
 /// The person's entries are refused to an SDK, which acts for a program.
 ///
-/// Covers: operation:config.policy_write
+/// Covers: operation:config.policy_write, error:person_required
 #[test]
 fn a_policy_write_from_an_sdk_is_refused() {
     let env = TestEnv::new();
@@ -369,10 +369,10 @@ fn a_policy_write_from_an_sdk_is_refused() {
 
     assert_eq!(
         (
-            written["result"].is_null(),
+            &written["error"]["data"]["code"],
             file(&env, OPERATOR_POLICY_FILE).exists()
         ),
-        (true, false)
+        (&json!("person_required"), false)
     );
 }
 

@@ -89,6 +89,7 @@ mod resolver;
 mod runtime;
 mod runtime_file;
 mod script;
+mod sdk_items;
 mod seeded;
 mod snapshot;
 mod special_purpose;
@@ -202,17 +203,18 @@ pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
-    proptest_config, proptest_config_for, runtime, runtime_with_one_blocking_thread,
-    with_the_blocking_pool_held,
+    proptest_config, proptest_config_for, real_time_runtime, runtime,
+    runtime_with_one_blocking_thread, with_the_blocking_pool_held,
 };
 pub use runtime_file::{
     DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{
-    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
-    engine_script,
+    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, StderrLines,
+    Step, engine_script,
 };
+pub use sdk_items::{public_methods, public_types_with_lifetimes, re_exports, sdk_sources};
 pub use snapshot::{SnapshotValues, redact, snapshot_settings};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
@@ -233,7 +235,9 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
-pub use trace::{CapturedLog, exercise_layer, logged, subscriber, subscriber_writing_to};
+pub use trace::{
+    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_writing_to,
+};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 #[cfg(all(
@@ -244,7 +248,8 @@ pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
 pub use variables::{
-    DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
-    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, Variables, current_test,
+    CALLGRIND_AT_ONCE_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
+    LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE,
+    SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables,
+    current_test,
 };

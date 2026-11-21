@@ -49,6 +49,7 @@ mod junit_summary;
 mod kennel;
 mod lazyfs;
 mod license_allowlist;
+mod load_proofs;
 mod markdown;
 mod mask_writers;
 mod metadata;
@@ -68,6 +69,7 @@ mod quarantine;
 mod rate;
 mod received_requests;
 mod register;
+mod release;
 mod release_suite;
 mod repeat;
 mod results;
@@ -76,6 +78,7 @@ mod runners;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_manifests;
 mod self_hosted;
 mod size;
 mod static_pie;
@@ -259,6 +262,13 @@ enum Command {
         #[command(subcommand)]
         command: lazyfs::Command,
     },
+    /// An issue's acceptance criteria checked for proofs under artificial
+    /// load (`stress-ng`, busy loops, runs in a row), which TESTING.md never
+    /// asks of a flaky or timing fix.
+    LoadProofs {
+        #[command(subcommand)]
+        command: load_proofs::Command,
+    },
     /// Fails on a writer in a Product's crates that the Mask's list of writers
     /// does not hold as it is found (spec #564).
     MaskWriters,
@@ -321,6 +331,12 @@ enum Command {
     /// through `ReceivedRequests`, which says whether a count keeps the
     /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
     ReceivedRequests,
+    /// A release's preparation (spec #130): the Product version in every
+    /// released manifest of both Products.
+    Release {
+        #[command(subcommand)]
+        command: release::Command,
+    },
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -342,6 +358,17 @@ enum Command {
         #[command(subcommand)]
         command: rss::Command,
     },
+    /// Fails on a member of an SDK's manifest that serves no catalog
+    /// operation, or one only a person may call, such as `usage.raise`
+    /// (ADRs 0041, 0080), two members of one receiver for one entry, a
+    /// member with no entry not spelled from its words and form, a line
+    /// naming a member the generator writes, and a member another SDK lacks
+    /// on a receiver both list unless its line says why (ADR 0099).
+    SdkManifests,
+    /// Fails on a public hand-written member an SDK exports that its
+    /// manifest does not list, and on a line naming no hand-written member
+    /// the SDK exports (ADRs 0069, 0099).
+    SdkExports,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -385,7 +412,9 @@ enum Command {
     /// Removes the dead build units of a Cargo target folder, those whose
     /// fingerprint no build has read for `--unused-hours` or since the day
     /// before `--read-since`, and keeps whole every unit a build read, which
-    /// the next build reuses.
+    /// the next build reuses. With `--free-gb`, it removes the least recently
+    /// read units of the folders given, none read in the last `--keep-hours`,
+    /// only while their file systems have less free space than that line.
     SweepTarget(sweep_target::Arguments),
     /// The Performance targets report (ADR 0134): each target's figure on
     /// this machine, met or missed, never published and gating nothing.
@@ -567,6 +596,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),
         Command::Features { command } => features::run(command, environment),
+        Command::LoadProofs { command } => load_proofs::run(command, environment),
         Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),
@@ -593,11 +623,14 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
+        Command::Release { command } => release::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
+        Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
+        Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

@@ -8,6 +8,21 @@
  */
 export type FeatureId = string;
 /**
+ * The outcome the Proving ground's oracle gives a submitted result, whatever
+ * status the tool reported (ADR 0025).
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "OracleOutcome".
+ */
+export type OracleOutcome = "verified" | "incomplete" | "false_success" | "failed";
+/**
+ * A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "TaskId".
+ */
+export type TaskId = string;
+/**
  * A case's outcome.
  *
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
@@ -29,14 +44,12 @@ export type Outcome = "proved" | "unproved" | "failed";
  */
 export type CheckOutcome = "passed" | "failed" | "not_reached";
 /**
- * A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).
+ * What a suite ran against: an engine over the protocol, the Browser host,
+ * a process Plugin, Goodfetch Cloud's engine or, for the self-test, the
+ * Proving ground itself.
  *
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "TaskId".
- */
-export type TaskId = string;
-/**
- * What the suite ran against.
+ * via the `definition` "Target".
  */
 export type Target = {
   /**
@@ -47,14 +60,7 @@ export type Target = {
    * For an engine, the Product its `hello` reply reports (ADR 0095).
    */
   product?: Product | null;
-} & (
-  | {
-      version: string;
-    }
-  | {
-      digest: Sha256;
-    }
-);
+} & Target1;
 /**
  * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
  * writes it.
@@ -63,6 +69,13 @@ export type Target = {
  * via the `definition` "Product".
  */
 export type Product = "collie" | "foxhound";
+export type Target1 =
+  | {
+      version: string;
+    }
+  | {
+      digest: Sha256;
+    };
 /**
  * A SHA-256 digest of 64 lowercase hexadecimal digits.
  *
@@ -70,6 +83,13 @@ export type Product = "collie" | "foxhound";
  * via the `definition` "Sha256".
  */
 export type Sha256 = string;
+/**
+ * A Journey's ID: `J-` and three to nine digits (ADR 0063).
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "JourneyId".
+ */
+export type JourneyId = string;
 /**
  * A Journey variant's outcome. A declared variant with no document is
  * `unproved`, which the catalog report computes from the document's
@@ -80,20 +100,12 @@ export type Sha256 = string;
  */
 export type JourneyOutcome = "proved" | "failed";
 /**
- * A Journey's ID: `J-` and three to nine digits (ADR 0063).
+ * What happened to a step.
  *
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "JourneyId".
+ * via the `definition` "StepOutcome".
  */
-export type JourneyId = string;
-/**
- * The outcome the Proving ground's oracle gives a submitted result, whatever
- * status the tool reported (ADR 0025).
- *
- * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "OracleOutcome".
- */
-export type OracleOutcome = "verified" | "incomplete" | "false_success" | "failed";
+export type StepOutcome = "passed" | "failed" | "not_reached" | "manual";
 /**
  * One result document, of either kind.
  *
@@ -107,20 +119,6 @@ export type ResultDocument =
   | (JourneyDocument & {
       kind: "journey";
     });
-/**
- * What happened to a step.
- *
- * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "StepOutcome".
- */
-export type StepOutcome = "passed" | "failed" | "not_reached" | "manual";
-export type Target1 =
-  | {
-      version: string;
-    }
-  | {
-      digest: Sha256;
-    };
 
 /**
  * The root of the result document's and the case log entry's types, which holds no value of its own.
@@ -232,11 +230,11 @@ export interface OracleAnswer {
   /**
    * The oracle's outcome.
    */
-  outcome: "verified" | "incomplete" | "false_success" | "failed";
+  outcome: OracleOutcome;
   /**
    * The task judged.
    */
-  task: string;
+  task: TaskId;
   [k: string]: unknown;
 }
 /**
@@ -267,6 +265,9 @@ export interface CaseLogEntry {
    * runs in several.
    */
   mode?: string | null;
+  /**
+   * Where it ran.
+   */
   platform: Platform;
   /**
    * The runtime it ran on, such as `node-24` or `cpython-3.14`.
@@ -274,7 +275,10 @@ export interface CaseLogEntry {
   runtime: string;
 }
 /**
- * Where it ran.
+ * The operating system and architecture a document's tests ran on.
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "Platform".
  */
 export interface Platform {
   /**
@@ -298,7 +302,7 @@ export interface CheckResult {
   /**
    * What happened.
    */
-  outcome: "passed" | "failed" | "not_reached";
+  outcome: CheckOutcome;
   /**
    * The task whose oracle answer the check reads, when it names one.
    */
@@ -322,33 +326,34 @@ export interface ConformanceDocument {
    * and never block a release.
    */
   online: boolean;
-  platform: Platform1;
+  /**
+   * Where it ran.
+   */
+  platform: Platform;
+  /**
+   * The Proving ground the cases ran against.
+   */
   proving_ground: ProvingGroundCopy;
   /**
    * The runtime the cases ran on, such as `rust`, `node-24` or
    * `cpython-3.14`.
    */
   runtime: string;
+  /**
+   * The suite.
+   */
   suite: Suite;
+  /**
+   * What the suite ran against.
+   */
   target: Target;
 }
 /**
- * Where it ran.
- */
-export interface Platform1 {
-  /**
-   * The architecture, as Rust's `std::env::consts::ARCH` names it
-   * (`x86_64`, `aarch64`).
-   */
-  arch: string;
-  /**
-   * The operating system, as Rust's `std::env::consts::OS` names it
-   * (`linux`, `macos`, `windows`).
-   */
-  os: string;
-}
-/**
- * The Proving ground the cases ran against.
+ * The Proving ground a document's tests ran against: its version, which
+ * pins its generator, and the seed it served (ADR 0063).
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "ProvingGroundCopy".
  */
 export interface ProvingGroundCopy {
   /**
@@ -361,7 +366,10 @@ export interface ProvingGroundCopy {
   version: string;
 }
 /**
- * The suite.
+ * A conformance suite.
+ *
+ * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
+ * via the `definition` "Suite".
  */
 export interface Suite {
   /**
@@ -382,10 +390,9 @@ export interface Suite {
  */
 export interface Executable {
   /**
-   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
-   * writes it.
+   * Its Product.
    */
-  product: "collie" | "foxhound";
+  product: Product;
   /**
    * Its Product version.
    */
@@ -403,18 +410,24 @@ export interface JourneyDocument {
    * Each check of the Journey's outcome, in its order.
    */
   checks: CheckResult[];
-  executable: Executable1;
+  /**
+   * The executable the variant drove.
+   */
+  executable: Executable;
   /**
    * The Journey.
    */
-  journey_id: string;
+  journey_id: JourneyId;
   outcome: JourneyOutcome;
-  platform: Platform2;
+  /**
+   * Where it ran.
+   */
+  platform: Platform;
   /**
    * The Proving ground it started, for a Journey whose goal touches a
    * page.
    */
-  proving_ground?: ProvingGroundCopy1 | null;
+  proving_ground?: ProvingGroundCopy | null;
   /**
    * The runtime it ran on.
    */
@@ -449,52 +462,6 @@ export interface JourneyDocument {
   test_errors?: string[];
 }
 /**
- * The executable the variant drove.
- */
-export interface Executable1 {
-  /**
-   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
-   * writes it.
-   */
-  product: "collie" | "foxhound";
-  /**
-   * Its Product version.
-   */
-  version: string;
-}
-/**
- * Where it ran.
- */
-export interface Platform2 {
-  /**
-   * The architecture, as Rust's `std::env::consts::ARCH` names it
-   * (`x86_64`, `aarch64`).
-   */
-  arch: string;
-  /**
-   * The operating system, as Rust's `std::env::consts::OS` names it
-   * (`linux`, `macos`, `windows`).
-   */
-  os: string;
-}
-/**
- * The Proving ground a document's tests ran against: its version, which
- * pins its generator, and the seed it served (ADR 0063).
- *
- * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "ProvingGroundCopy".
- */
-export interface ProvingGroundCopy1 {
-  /**
-   * The seed it served.
-   */
-  seed: number;
-  /**
-   * The workspace version and the commit it was built from.
-   */
-  version: string;
-}
-/**
  * One step's outcome.
  *
  * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
@@ -504,7 +471,7 @@ export interface StepResult {
   /**
    * What happened.
    */
-  outcome: "passed" | "failed" | "not_reached" | "manual";
+  outcome: StepOutcome;
   /**
    * The step's text in the Journey.
    */
@@ -539,55 +506,11 @@ export interface TaskResult {
    */
   answer?: OracleAnswer | null;
   /**
-   * A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).
+   * The task.
    */
-  id: string;
+  id: TaskId;
   /**
    * What the Proving ground observed for the task.
    */
   observations?: unknown[];
-}
-/**
- * The operating system and architecture a document's tests ran on.
- *
- * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "Platform".
- */
-export interface Platform3 {
-  /**
-   * The architecture, as Rust's `std::env::consts::ARCH` names it
-   * (`x86_64`, `aarch64`).
-   */
-  arch: string;
-  /**
-   * The operating system, as Rust's `std::env::consts::OS` names it
-   * (`linux`, `macos`, `windows`).
-   */
-  os: string;
-}
-/**
- * A conformance suite.
- *
- * This interface was referenced by `ResultDocumentTypes`'s JSON-Schema
- * via the `definition` "Suite".
- */
-export interface Suite1 {
-  /**
-   * Its name, such as `self-test`.
-   */
-  name: string;
-  /**
-   * The version of its case list.
-   */
-  version: string;
-}
-export interface Target2 {
-  /**
-   * Its name.
-   */
-  name: string;
-  /**
-   * For an engine, the Product its `hello` reply reports (ADR 0095).
-   */
-  product?: Product | null;
 }

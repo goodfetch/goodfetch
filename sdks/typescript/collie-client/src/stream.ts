@@ -56,7 +56,7 @@ function isStreamedEvent(value: unknown): value is StreamedEvent {
 }
 
 /** The events of a `$/events` batch's params; none when they are no batch. */
-function batchOf(params: unknown): readonly StreamedEvent[] {
+export function batchOf(params: unknown): readonly StreamedEvent[] {
   const events = isRecord(params) ? params["events"] : undefined;
   return Array.isArray(events) ? events.filter(isStreamedEvent) : [];
 }

@@ -4,6 +4,7 @@ Its fixtures reach the setup `goodfetch-test-env` prepares, as Rust tests get
 it from `TestEnv::new()`; nothing of that setup is rewritten in Python.
 """
 
+from goodfetch_test_support.answering import EngineAnswering
 from goodfetch_test_support.canaries import (
     Canary,
     CanaryHit,
@@ -27,6 +28,7 @@ from goodfetch_test_support.environment import (
     TestEnv,
     TestEnvError,
     scripted_engine_env,
+    scripted_engine_record,
 )
 from goodfetch_test_support.journey import (
     EngineVersionUnreported,
@@ -67,6 +69,12 @@ from goodfetch_test_support.proving_ground import (
 )
 from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError
+from goodfetch_test_support.scripted_daemon import (
+    ScriptedDaemon,
+    ScriptedDaemonFailed,
+    ScriptedDaemonMode,
+    start_scripted_daemon,
+)
 from goodfetch_test_support.snapshot import redact
 from goodfetch_test_support.tools import Tool, Tools, ToolsError
 from goodfetch_test_support.unicode_record import (
@@ -89,6 +97,7 @@ __all__ = [
     "DaemonNotRequested",
     "Encoding",
     "Ending",
+    "EngineAnswering",
     "EngineVersionUnreported",
     "Exited",
     "Finished",
@@ -114,6 +123,9 @@ __all__ = [
     "ProvingGroundUnseeded",
     "ProxyCredentials",
     "SchemaError",
+    "ScriptedDaemon",
+    "ScriptedDaemonFailed",
+    "ScriptedDaemonMode",
     "SecretKind",
     "SurfaceUnlisted",
     "TestEnv",
@@ -134,8 +146,10 @@ __all__ = [
     "proving_ground_routes",
     "redact",
     "scripted_engine_env",
+    "scripted_engine_record",
     "search_canaries",
     "start_journey_run",
+    "start_scripted_daemon",
     "three_ways",
     "time_zones",
     "unicode_record",

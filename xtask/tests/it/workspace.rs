@@ -436,6 +436,7 @@ impl Workspace {
     /// `just`, run in the workspace on the repository's justfile, with the
     /// programs in `shims` found first on the path: stand-ins for those the
     /// recipe under test calls.
+    #[cfg(unix)]
     pub(crate) fn just(&self, shims: &Path) -> Command {
         let path = std::env::join_paths(
             std::iter::once(shims.to_owned())
@@ -459,6 +460,24 @@ impl Workspace {
     /// (`.config/nextest.toml`, the `fixture-builds` group).
     pub(crate) fn xtask(&self, args: &[&str]) -> Outcome {
         self.xtask_with_env(args, &[])
+    }
+
+    /// Runs `cargo <args>` in the workspace, offline and into the target
+    /// folder its `xtask` runs build into.
+    pub(crate) fn cargo(&self, args: &[&str]) -> Outcome {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let output = self
+            .command(cargo)
+            .args(args)
+            .env("CARGO_TARGET_DIR", &self.target.folder)
+            .env("CARGO_NET_OFFLINE", "true")
+            .output()
+            .unwrap();
+        Outcome {
+            code: output.status.code().unwrap(),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
     }
 
     /// Runs `xtask <args>` as `xtask` does, with these variables added.

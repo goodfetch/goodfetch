@@ -67,11 +67,11 @@ fn a_responses_type_is_its_header_else_its_sniffed_body(
 
 /// Only HTML and XHTML are documents.
 #[rstest]
-#[case("text/html", true)]
-#[case("application/xhtml+xml", true)]
-#[case("application/pdf", false)]
-#[case("application/json", false)]
-#[case("text/xml", false)]
+#[case::html("text/html", true)]
+#[case::xhtml("application/xhtml+xml", true)]
+#[case::pdf("application/pdf", false)]
+#[case::json("application/json", false)]
+#[case::xml("text/xml", false)]
 fn only_html_and_xhtml_are_documents(#[case] essence: &str, #[case] document: bool) {
     assert_eq!(is_document(essence), document);
 }

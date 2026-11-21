@@ -24,6 +24,8 @@ export interface BrowserPage {
   withFrame?(frame: string, act: (frame: BrowserPage) => Promise<void>): Promise<void>;
   upload?(selector: string, path: string): Promise<void>;
   download?(selector: string): Promise<string>;
+  // A driver that runs the Goodfetch Guard itself on every action (Firefox over WebDriver BiDi) takes no lab guard on top.
+  ownGuard?: true;
 }
 // The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
 export const unicodeText = 'Ünïcødé — 漢字 😀';
@@ -35,12 +37,13 @@ export const actionReadinessScript = (timeoutMs: number, selector = '#target') =
 export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavigated = false): Promise<AdapterOutput> {
   const start = performance.now(); let operations = 0; const metrics: Record<string, number> = {};
   // Guarded drivers check every action target first; native drivers rely on their own guarantees.
-  const guarded = async (selector: string) => { if (task.actionPolicy === 'guarded') { await page.evaluate(guardScript(selector, task.timeoutMs)); operations++; } };
+  const labGuard = task.actionPolicy === 'guarded' && page.ownGuard !== true;
+  const guarded = async (selector: string) => { if (labGuard) { await page.evaluate(guardScript(selector, task.timeoutMs)); operations++; } };
   // Guarded gestures also arm a capture listener on the verified element: an event reaching anything else is cancelled
   // and the gesture retried, so a page that moves or swaps the target as the pointer arrives cannot redirect it.
   const gesture = (selector: string, types: readonly string[], perform: () => Promise<void>) => gestureOn(page, selector, types, perform);
   const gestureOn = async (target: BrowserPage, selector: string, types: readonly string[], perform: () => Promise<void>) => {
-    if (task.actionPolicy !== 'guarded') return perform();
+    if (!labGuard) return perform();
     const deadline = performance.now() + task.timeoutMs;
     for (;;) {
       await target.evaluate(guardScript(selector, Math.max(50, Math.round(deadline - performance.now())))); operations++;

@@ -131,6 +131,7 @@ fn run_login(settings: &Resolved) -> Option<SettingLimit> {
             key: SESSION_SOURCE.name.to_owned(),
             value: effective.value.clone(),
             layer: effective.layer,
+            origin: effective.origin,
         })
 }
 

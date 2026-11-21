@@ -140,6 +140,8 @@ fn scenario() -> Vec<Value> {
                 "labels": {
                     "home": { "payload": { "type": ["object", "null"] } },
                     "product": {},
+                    "guarded": {},
+                    "listed": {},
                 },
                 "datasets": [
                     {

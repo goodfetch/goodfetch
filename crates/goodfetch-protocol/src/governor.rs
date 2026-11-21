@@ -133,6 +133,7 @@ pub const HTTP_FLOOR: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -147,6 +148,7 @@ pub const HTTP_CEILING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -161,6 +163,7 @@ pub const BROWSER_PAGE_FLOOR: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -175,6 +178,7 @@ pub const BROWSER_PAGE_CEILING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -189,6 +193,7 @@ pub const MODEL_CALL_FLOOR: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -203,6 +208,7 @@ pub const MODEL_CALL_CEILING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -217,6 +223,7 @@ pub const MEMORY_ALLOWANCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -231,6 +238,7 @@ pub const PRESSURE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -245,6 +253,7 @@ pub const CRITICAL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -259,6 +268,7 @@ pub const HOST_MEMORY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -273,28 +283,27 @@ pub const HUGE_PAGES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
-/// `governor.worker_threads`' word for one worker a core.
+/// The word of `governor.worker_threads` and `governor.blocking_threads`
+/// for one thread a core.
 pub const PER_CORE: &str = "per_core";
 
 /// `governor.worker_threads`' default: 2 workers.
 pub const DEFAULT_WORKER_THREADS: usize = 2;
 
-/// `governor.blocking_threads`' default: 4 threads.
-pub const DEFAULT_BLOCKING_THREADS: usize = 4;
-
-/// How many workers the engine's runtime has (#2200).
+/// How many threads of one kind the engine's runtime has (#2200).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkerThreads {
+pub enum ThreadCount {
     /// This many.
     Count(NonZeroUsize),
-    /// `per_core`: one a core, as Tokio chooses.
+    /// `per_core`: one a core.
     PerCore,
 }
 
-impl WorkerThreads {
+impl ThreadCount {
     /// The count `value` gives.
     ///
     /// # Errors
@@ -310,21 +319,21 @@ impl WorkerThreads {
     }
 }
 
-/// A value of `governor.worker_threads`.
-pub const WORKER_THREADS_SHAPE: ValueShape = ValueShape {
-    name: "WorkerThreads",
-    check: |value| WorkerThreads::read(value).map(drop),
+/// A value of `governor.worker_threads` or `governor.blocking_threads`.
+pub const THREAD_COUNT_SHAPE: ValueShape = ValueShape {
+    name: "ThreadCount",
+    check: |value| ThreadCount::read(value).map(drop),
     schema: || {
         serde_json::json!({
             "oneOf": [
                 {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "This many worker threads.",
+                    "description": "This many threads.",
                 },
                 {
                     "const": PER_CORE,
-                    "description": "One worker thread a core.",
+                    "description": "One thread a core.",
                 },
             ],
         })
@@ -335,49 +344,6 @@ pub const WORKER_THREADS_SHAPE: ValueShape = ValueShape {
             serde_json::json!(PER_CORE),
         ]
     },
-};
-
-/// The most threads the engine's runtime starts for work that waits
-/// (#2200).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BlockingThreadCap(NonZeroUsize);
-
-impl BlockingThreadCap {
-    /// The cap `value` gives.
-    ///
-    /// # Errors
-    ///
-    /// When `value` is not a whole number of at least 1.
-    pub fn read(value: &Value) -> Result<Self, String> {
-        whole_from_one(value)
-            .map(Self)
-            .ok_or_else(|| format!("expected a whole number of at least 1, found `{value}`"))
-    }
-
-    /// The cap.
-    pub fn get(self) -> usize {
-        self.0.get()
-    }
-}
-
-impl From<BlockingThreadCap> for NonZeroUsize {
-    fn from(cap: BlockingThreadCap) -> Self {
-        cap.0
-    }
-}
-
-/// A value of `governor.blocking_threads`.
-pub const BLOCKING_THREADS_SHAPE: ValueShape = ValueShape {
-    name: "BlockingThreadCap",
-    check: |value| BlockingThreadCap::read(value).map(drop),
-    schema: || {
-        serde_json::json!({
-            "type": "integer",
-            "minimum": 1,
-            "description": "The most blocking threads.",
-        })
-    },
-    examples: || vec![serde_json::json!(DEFAULT_BLOCKING_THREADS)],
 };
 
 /// A whole number of at least 1 that `value` holds.
@@ -392,35 +358,37 @@ fn two() -> Value {
     serde_json::json!(DEFAULT_WORKER_THREADS)
 }
 
-fn four() -> Value {
-    serde_json::json!(DEFAULT_BLOCKING_THREADS)
+fn per_core() -> Value {
+    serde_json::json!(PER_CORE)
 }
 
 /// `governor.worker_threads` (#2200).
 pub const WORKER_THREADS: Setting = Setting {
     name: "governor.worker_threads",
     description: "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
-    kind: ValueKind::Shape(&WORKER_THREADS_SHAPE),
+    kind: ValueKind::Shape(&THREAD_COUNT_SHAPE),
     default: two,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
 /// `governor.blocking_threads` (#2200).
 pub const BLOCKING_THREADS: Setting = Setting {
     name: "governor.blocking_threads",
-    description: "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
-    kind: ValueKind::Shape(&BLOCKING_THREADS_SHAPE),
-    default: four,
+    description: "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+    kind: ValueKind::Shape(&THREAD_COUNT_SHAPE),
+    default: per_core,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -435,6 +403,7 @@ pub const SAMPLE_INTERVAL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -449,6 +418,7 @@ pub const LAST_RESORT_AFTER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -463,6 +433,7 @@ pub const RUN_SHARE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -477,6 +448,7 @@ pub const BROWSER_CONTEXTS_PER_PROCESS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -491,6 +463,7 @@ pub const BROWSER_RECYCLE_PAGES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -505,6 +478,7 @@ pub const BROWSER_RECYCLE_IDLE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -519,6 +493,7 @@ pub const BROWSER_MEMORY_CAP: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -533,6 +508,7 @@ pub const BROWSER_PAGE_MEMORY_CAP: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

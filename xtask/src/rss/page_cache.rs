@@ -79,6 +79,10 @@ pub(crate) fn drop_cached(path: &Path) -> Result<()> {
 
 /// Drops nothing: this OS has no `posix_fadvise`.
 #[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the Linux drop, which can fail"
+)]
 pub(crate) fn drop_cached(_path: &Path) -> Result<()> {
     Ok(())
 }

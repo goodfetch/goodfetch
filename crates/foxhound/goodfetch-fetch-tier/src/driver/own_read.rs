@@ -3,9 +3,10 @@
 //! untouched readers' pass over that text, on the fetch's own task.
 
 use bytes::Bytes;
+use goodfetch_encoding::{Kind, content_type};
 
 use super::OwnDocument;
-use crate::charset::{Kind, Stream, Streamed, content_type};
+use crate::charset::{Stream, Streamed};
 use crate::content_types::is_document;
 use crate::untouched::{Passed, UntouchedPass, UntouchedReaders};
 

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::Operation;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
     FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
@@ -35,9 +35,9 @@ use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
     RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
-    RunDetails, RunDiscarded, RunId, RunIdInvalidDetails, RunKind, RunParams, RunProgress,
-    RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams,
-    StartedAs, StopReason,
+    RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunParams,
+    RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams,
+    RunUsage, StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
@@ -49,6 +49,7 @@ use goodfetch_protocol::usage::{
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
@@ -64,7 +65,7 @@ use goodfetch_protocol::settings::{
     TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
@@ -73,7 +74,9 @@ use crate::runs::{
     StorageExhausted,
 };
 use crate::secrets::SecretError;
-use crate::settings::{Opening, Resolved, SettingsError};
+use crate::settings::{
+    self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
+};
 
 /// The `run.*` handlers.
 pub(crate) fn handlers() -> [Handler; 14] {
@@ -201,6 +204,7 @@ pub fn start_error(error: StartError) -> CallError {
                 path: Some(folder.display().to_string()),
             },
         ),
+        StartError::Live { run_id, folder } => running_here(run_id, &folder),
         StartError::Unavailable {
             run_id,
             folder,
@@ -349,6 +353,27 @@ pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError
     translated(error, context.identity(), context.behind_gateway())
 }
 
+/// The run layer of a Run that `context`'s Connection starts or resumes,
+/// from `own`, the settings its call gives: refused when one sets a key
+/// the Run scope does not take, such as `timeout.run`, which only the
+/// Connection sets; otherwise `own` over the Connection's own settings, key
+/// by key (ADR 0083).
+///
+/// # Errors
+///
+/// `setting_not_applicable` for a key outside the Run scope, and
+/// `setting_unknown`, `setting_invalid` or `not_in_product` as reading
+/// `own` refuses it.
+pub fn run_layer(
+    own: &Map<String, Value>,
+    context: &CallContext,
+) -> Result<Map<String, Value>, CallError> {
+    let engine = context.identity().product;
+    let refused = |error: SettingsError| settings_error(&error, context);
+    check_scope(own, SettingScope::Run, engine).map_err(refused)?;
+    beneath_connection(context.connection_settings(), own, engine).map_err(refused)
+}
+
 /// The failure a command of the executable itself answers with for a
 /// refused setting, outside any Connection: no gateway relays it, so a
 /// setting the engine's Product lacks names the install that carries it.
@@ -376,10 +401,54 @@ fn unbuilt(
     )
 }
 
-/// [`settings_error`]'s translation, for the engine `identity` names,
-/// behind Goodfetch Cloud's gateway or not.
-fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
+/// `error`'s message with the setting keys the Client set marked, which the
+/// Client reads in its own form (ADR 0099): the key refused at the Run's
+/// layer where the message first names it, and the closest one an unknown
+/// key gets. A key read from a file or the environment reads as written
+/// there, canonically, as does a key a `fix` names in a file to edit, and
+/// one the catalog lacks, as a Client may write one, as written.
+fn keys_marked(error: &SettingsError) -> String {
     let message = error.to_string();
+    let (layer, keys) = match error {
+        SettingsError::Unknown {
+            key,
+            layer,
+            closest,
+        } => (*layer, [Some(key.as_str()), closest.as_deref()]),
+        SettingsError::Invalid { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
+        SettingsError::NotApplicable { key, layer, .. }
+        | SettingsError::Locked { key, layer, .. }
+        | SettingsError::Unavailable { key, layer, .. } => {
+            (Some(*layer), [Some(key.as_str()), None])
+        }
+        SettingsError::NotInProduct { .. }
+        | SettingsError::Format { .. }
+        | SettingsError::OlderMajorPolicy { .. } => (None, [None, None]),
+    };
+    if layer != Some(SettingsLayer::Run) {
+        return message;
+    }
+    keys.into_iter()
+        .flatten()
+        .filter(|key| settings::setting(key).is_some())
+        .fold(message, |message, key| {
+            message.replacen(
+                &format!("`{key}`"),
+                &format!("`{}`", named::setting(key)),
+                1,
+            )
+        })
+}
+
+/// [`settings_error`]'s translation, for the engine `identity` names,
+/// behind Goodfetch Cloud's gateway or not: the setting its message names,
+/// and the closest one an unknown key gets, in its Client's form (ADR 0099).
+pub(crate) fn translated(
+    error: &SettingsError,
+    identity: &Identity,
+    behind_gateway: bool,
+) -> CallError {
+    let message = keys_marked(error);
     match error {
         SettingsError::Unknown {
             key,
@@ -401,6 +470,8 @@ fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) 
                 key: key.clone(),
                 layer: *layer,
                 reason: reason.clone(),
+                limit: None,
+                fix: None,
             },
         ),
         SettingsError::NotApplicable { key, layer, fix } => CallError::new(
@@ -770,6 +841,21 @@ async fn report(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .map_err(|error| run_error(error, &context))
 }
 
+/// `run_in_use`: this engine runs `run_id` already, so a start or resume
+/// under its ID does not take it over (ADR 0102).
+fn running_here(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!(
+            "This engine runs the Run `{run_id}` already; wait for its end, or stop it with `run.stop`, then start it again."
+        ),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
 /// `run_live`: this engine still runs `run_id`, so it is not discarded.
 fn live(run_id: RunId) -> CallError {
     CallError::new(
@@ -804,6 +890,10 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    let limits = crate::usage::run_limits(params.limits, &context)?;
+    if let Some(run_id) = &run_id {
+        crate::usage::check_run_limits(run_id, &limits, &context).await?;
+    }
     let (settings, _) = context
         .engine()
         .settings()
@@ -811,7 +901,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             run: Some(Product::Collie),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
@@ -837,22 +927,32 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(start_error)?;
-    Ok(match started {
+    let started = match started {
         Started::New(run) => RunStarted {
             run_id: run.id().clone(),
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
         },
-        Started::Existing(existing) => existing,
-    })
+        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
+        Started::Ended(ended) => ended,
+    };
+    let began = started.started_as == StartedAs::New;
+    crate::usage::give_run_limits(&started.run_id, limits, began, &context).await?;
+    Ok(started)
 }
 
-async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+async fn finish(params: RunFinishParams, context: CallContext) -> Result<RunReport, CallError> {
+    // A `timeout` of 0 is refused before the Run is let finish.
+    let deadline = params
+        .timeout
+        .flatten()
+        .map(|millis| Deadline::argument(&TIMEOUT_RUN, millis))
+        .transpose()?;
     let finishing = context.runs().finish(params.run_id);
-    let report = match params.timeout {
-        Some(millis) => {
-            Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
+    let report = match deadline {
+        Some(deadline) => {
+            deadline
                 .within(&context.engine().clock(), WaitedFor::RUN_END, finishing)
                 .await?
         }
@@ -863,24 +963,36 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
 
 /// `run.stop`: the Run stops at its next safe point as an abort by its
 /// program; the wait is bounded by `timeout.close`, or the call's own
-/// `timeout`, and only the wait ends past it (ADR 0102).
-async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+/// `timeout`, none when it is `null`, and only the wait ends past it
+/// (ADRs 0080 and 0102).
+async fn stop(params: RunStopParams, context: CallContext) -> Result<RunReport, CallError> {
+    // A `timeout` of 0 is refused before the stop is asked.
+    let given = match params.timeout {
+        Some(Some(millis)) => Some(Some(Deadline::argument(&TIMEOUT_CLOSE, millis)?)),
+        Some(None) => Some(None),
+        None => None,
+    };
     // The stop is asked before the call's first await, so a call its Client
     // cancels still stops the Run; only the wait ends with it (#1743).
     let stopping = context
         .runs()
         .stop_at_safe_point(params.run_id.clone(), StoppedBy::Program);
-    let deadline = match params.timeout {
-        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis, SettingsLayer::Run),
-        None => close_deadline(&context, &params.run_id).await,
+    let deadline = match given {
+        Some(given) => given,
+        None => Some(close_deadline(&context, &params.run_id).await),
     };
-    let report = deadline
-        .within(
-            &context.engine().clock(),
-            WaitedFor::RUN_SAFE_POINT,
-            stopping,
-        )
-        .await?;
+    let report = match deadline {
+        Some(deadline) => {
+            deadline
+                .within(
+                    &context.engine().clock(),
+                    WaitedFor::RUN_SAFE_POINT,
+                    stopping,
+                )
+                .await?
+        }
+        None => stopping.await,
+    };
     ending(report.map_err(|error| run_error(error, &context))?)
 }
 
@@ -977,25 +1089,49 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run: None,
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    resume_run(
+        &context,
+        params.run_id,
+        params.checkpoint.map(PathBuf::from),
+        settings,
+    )
+    .await
+}
+
+/// Resumes the Run `run_id` from its run file, or the Checkpoint at
+/// `checkpoint`, under `settings`, and starts its kind's driver, as
+/// `run.resume` does and a start under the ID of an interrupted Run does
+/// (ADR 0102): a Run this engine runs already raises `run_in_use`, and a
+/// finished one is answered as it ended.
+///
+/// # Errors
+///
+/// As [`run_error`] maps the resume's failure.
+pub async fn resume_run(
+    context: &CallContext,
+    run_id: RunId,
+    checkpoint: Option<PathBuf>,
+    settings: RunSettings,
+) -> Result<RunStarted, CallError> {
     let resumed = context
         .runs()
         .resume(Resume {
-            run_id: params.run_id,
-            checkpoint: params.checkpoint.map(PathBuf::from),
+            run_id,
+            checkpoint,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
         })
         .await
-        .map_err(|error| run_error(error, &context))?;
-    Ok(match resumed {
+        .map_err(|error| run_error(error, context))?;
+    match resumed {
         Resumed::New {
             run, kind, needs, ..
         } => {
@@ -1008,10 +1144,21 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             if let Some(driver) = context.driver(kind) {
                 run.spawn(driver(*run.clone(), context.clone(), settings));
             }
-            started
+            Ok(started)
         }
-        Resumed::Existing(existing) => existing,
-    })
+        Resumed::Live { run_id, folder } => Err(running_here(run_id, &folder)),
+        // A resume leaves only a finished Run unchanged.
+        Resumed::Unchanged {
+            run_id,
+            lifecycle,
+            needs,
+        } => Ok(RunStarted {
+            run_id,
+            started_as: StartedAs::Ended,
+            lifecycle,
+            needs,
+        }),
+    }
 }
 
 async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport, CallError> {
@@ -1026,3 +1173,6 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         .await
         .map_err(|error| run_error(error, &context))
 }
+
+#[cfg(test)]
+mod tests;

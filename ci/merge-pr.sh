@@ -32,9 +32,6 @@
 # keeps a failing gate's log and test results where no cleanup reaches them
 # (#2087); and, still holding the gate's lock, removes the build units no
 # gate read since the day before this one started (`xtask sweep-target`).
-# Once its lock is gone, a gate that held it and was not told to stop starts
-# the post-merge run, which checks what a quick merge skips in the worktree
-# this gate built in (#2619).
 #
 # The gate outlives its caller. The command starts itself again in a session
 # of its own, with its output in a log the common folder keeps for 30 days
@@ -111,36 +108,8 @@ fi
 # (xtask/src/sweep_target.rs). The sweep takes the start itself, so the gate's
 # own reads stay however long it ran. A head from before the command only
 # warns. The exit status comes last, as the caller ends on it.
-#
-# A gate that held its lock then starts the post-merge run (`just test-health
-# post-merge`, ci/test-health/scheduled.sh), merged or not: the quick gate
-# runs neither `just counts` nor the Pre-merge suite, and the run checks both
-# over what `main` gained, in this gate's worktree. After a merge `main`'s
-# tree is the one the gate just built there, since the head held the base's
-# tip, so the run builds only what its suites need beyond that; started by the
-# gate, it has the gate's environment, so Cargo takes the gate's build units
-# for its own, where a shell with other build settings would build each a
-# second time. A gate that did not merge starts it too: it may have stopped a
-# run, or found one that could not start, whose range no run covers yet; the
-# run does nothing while `main` has not moved. It starts once the lock is
-# gone, which it reads, at the lowest priority, in a session of its own with
-# its signals as a foreground command gets them (the exit's own are ignored
-# here, and a later gate stops the run with SIGTERM), and nothing waits for
-# it: the gate's log says it started and keeps what a start that failed
-# wrote, the run then writes its own log, and the next gate stops it. A gate
-# that was told to stop starts none: whoever stopped it wants the host quiet,
-# and the run the next gate starts covers the range.
 started=""
 locked=""
-stopping=""
-start_the_post_merge_run() {
-  echo "Starting the post-merge run (\`just test-health post-merge\`): it goes on after this gate, in a log of its own"
-  perl -MPOSIX -e '
-    $SIG{$_} = "DEFAULT" for qw(HUP INT QUIT TERM PIPE);
-    defined POSIX::setsid() or die "setsid: $!\n";
-    exec { $ARGV[0] } @ARGV or die "exec $ARGV[0]: $!\n";
-  ' nice -n 19 just test-health post-merge </dev/null >>"$run.log" 2>&1 &
-}
 on_exit() {
   local status=$?
   trap '' TERM HUP INT
@@ -148,10 +117,7 @@ on_exit() {
     (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --read-since "$started") ||
       echo "warning: the gate's target/ was not swept" >&2
   fi
-  if [[ -n $locked ]]; then
-    rm -rf "$lock"
-    [[ -n $stopping ]] || start_the_post_merge_run
-  fi
+  [[ -z $locked ]] || gate_worktree_unlock
   echo "$status" >"$run.status"
 }
 trap on_exit EXIT
@@ -163,7 +129,6 @@ steps=""
 stop() {
   trap '' TERM HUP INT
   started=""
-  stopping=1
   echo "The gate was told to stop: stopping its steps"
   if [[ -n $steps ]]; then kill -TERM -- "-$steps" 2>/dev/null || true; fi
   wait || true
@@ -246,20 +211,9 @@ fi
 # backstop that sees this gate lets it end first and says so in its lock, and
 # the gate then goes on (ci/gate-worktree.sh). Behind a backstop the wait can
 # last hours, so a gate that waited reads its pull request again: it judges
-# the head, the base and the merge cap as they are once it starts. A
-# post-merge run never holds a gate up: the gate stops it and waits for that
-# stop alone, and the run this gate starts as it ends covers its range. That
-# run builds in this gate's worktree, and its lock goes only once its suites'
-# processes have all ended, so the checkout below has the worktree to itself
-# (ci/test-health/scheduled.sh).
+# the head, the base and the merge cap as they are once it starts.
 waiting_for=""
 while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
-  if [[ $ahead == "the post-merge run, process "* ]]; then
-    kill -TERM "${ahead##* }" 2>/dev/null || true
-    while [[ $(run_in_the_backstops_worktree "$$") == "$ahead" ]]; do sleep 1; done
-    echo "Stopped the post-merge run, process ${ahead##* }; the next one covers its range"
-    continue
-  fi
   if [[ $ahead != "$waiting_for" ]]; then
     echo "Waiting for $ahead, to end before the gate starts"
     waiting_for=$ahead
@@ -277,8 +231,8 @@ compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # `red-steps` holds what each red step's runners had written when it ended
 # (ci/pre-merge.sh), since the gate goes on and later steps clear those files.
 # `steps` holds each red step's own log, which the gate's summary names
-# (ci/keep-going.sh): the post-merge run this gate starts as it ends may
-# check `main` out in the worktree, which removes them there.
+# (ci/keep-going.sh): the next gate's checkout of the worktree removes them
+# there.
 failures="$common/goodfetch-gate-failures"
 keep_failed_gate() {
   local kept entry

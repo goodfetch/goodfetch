@@ -7,12 +7,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ProtocolVersion, SharedType, SharedTypeValue};
+use crate::open_value::UnknownValue;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// Why a site refused a page (ADR 0035), on the wire as written.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum BlockCause {
     /// A page that checks the browser before it lets it through.
     Challenge,
@@ -29,11 +32,16 @@ pub enum BlockCause {
     PaymentRequired,
     /// A wall that asks for consent before it shows the page (ADR 0048).
     ConsentRequired,
+    /// A cause a newer engine gives that this reader does not know, kept as
+    /// received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 impl BlockCause {
     /// Its name on the wire.
-    pub const fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &str {
         match self {
             Self::Challenge => "challenge",
             Self::Captcha => "captcha",
@@ -42,11 +50,12 @@ impl BlockCause {
             Self::Decoy => "decoy",
             Self::PaymentRequired => "payment_required",
             Self::ConsentRequired => "consent_required",
+            Self::Unknown(cause) => cause.as_str(),
         }
     }
 
     /// What it means, the catalog's description of the value.
-    pub const fn description(self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
             Self::Challenge => "A page that checks the browser before it lets it through.",
             Self::Captcha => "A page that asks a person to prove they are human.",
@@ -59,11 +68,12 @@ impl BlockCause {
             Self::ConsentRequired => {
                 "A wall that asks for consent before it shows the page (ADR 0048)."
             }
+            Self::Unknown(_) => "A cause a newer engine gives that this reader does not know.",
         }
     }
 
     /// Its value of the shared type `block_cause`, for a module's entries.
-    pub const fn shared_type_value(self) -> SharedTypeValue {
+    pub const fn shared_type_value(&'static self) -> SharedTypeValue {
         SharedTypeValue {
             shared_type: SharedType::BlockCause,
             name: self.as_str(),

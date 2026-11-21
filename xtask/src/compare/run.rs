@@ -209,89 +209,16 @@ pub(crate) fn spider_executable(
         ))
 }
 
-/// crawlee-rs's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CRAWLEE_RS_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn crawlee_rs_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CRAWLEE_RS_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-crawlee-rs{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// pagesift's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn pagesift_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::PAGESIFT_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-pagesift{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// OpenSpider's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::OPENSPIDER_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn openspider_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::OPENSPIDER_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-openspider{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// fastCRW's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::FASTCRW_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`, and installs fastCRW's server into that folder (see
-/// [`trial::fastcrw_server`]).
-pub(crate) fn fastcrw_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::FASTCRW_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-fastcrw{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// crawlberg's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CRAWLBERG_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn crawlberg_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CRAWLBERG_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-crawlberg{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// chromiumoxide's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
-/// `profile_folder` (issue 2444).
-pub(crate) fn chromiumoxide_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CHROMIUMOXIDE_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-chromiumoxide{}",
-            std::env::consts::EXE_SUFFIX
-        ))
+/// The executable of a Rust side other than Spider's in `builds`, beside
+/// Spider's builds: `just compare` builds each into the target folder of its
+/// name ([`matrix::CRAWLEE_RS_FOLDER`] and the others), where Cargo puts it
+/// under `profile_folder` as `goodfetch-compare-<folder>`. fastCRW's folder
+/// also holds the server its side starts (see [`trial::fastcrw_server`]).
+pub(crate) fn side_executable(builds: &Path, folder: &str, profile_folder: &str) -> PathBuf {
+    builds.join(folder).join(profile_folder).join(format!(
+        "goodfetch-compare-{folder}{}",
+        std::env::consts::EXE_SUFFIX
+    ))
 }
 
 /// Where a trial crawls: the site's pages and the requests it has in
@@ -321,6 +248,13 @@ impl Crawl {
 /// starts, or Foxhound's executable, which Foxhound's program's SDK
 /// starts.
 fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf> {
+    let side = |folder| {
+        side_executable(
+            executables.spider_builds,
+            folder,
+            executables.profile_folder,
+        )
+    };
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound.to_owned(),
         Config::Spider { build, .. } => {
@@ -329,21 +263,11 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::FoxhoundProgram => executables.foxhound_program.to_owned(),
-        Config::CrawleeRs => {
-            crawlee_rs_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::Pagesift => {
-            pagesift_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::OpenSpider => {
-            openspider_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::FastCrw => {
-            fastcrw_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::Crawlberg => {
-            crawlberg_executable(executables.spider_builds, executables.profile_folder)
-        }
+        Config::CrawleeRs => side(matrix::CRAWLEE_RS_FOLDER),
+        Config::Pagesift => side(matrix::PAGESIFT_FOLDER),
+        Config::OpenSpider => side(matrix::OPENSPIDER_FOLDER),
+        Config::FastCrw => side(matrix::FASTCRW_FOLDER),
+        Config::Crawlberg => side(matrix::CRAWLBERG_FOLDER),
     };
     let program = trial::invocation(config, &executable).program;
     let beside = match config {

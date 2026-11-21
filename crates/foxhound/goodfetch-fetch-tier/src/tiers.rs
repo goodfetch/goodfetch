@@ -37,6 +37,8 @@ use bytes::Bytes;
 use bytestring::ByteString;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_encoding::Kind;
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
@@ -49,7 +51,8 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
+
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
@@ -61,7 +64,9 @@ use goodfetch_page::page_value::{
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_CONTENT_TYPES, CRAWL_HANDLE_STATUSES, CRAWL_START, CrawlRequest,
+};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
@@ -97,7 +102,7 @@ use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
 };
-use crate::charset::{Kind, Read, Text};
+use crate::charset::{Read, Text};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unsendable, unserved,
 };
@@ -369,7 +374,7 @@ struct Opened {
 
 /// What a served document's hand-off to the CPU pool read of its Block
 /// cause (issue 2189).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Classified {
     /// The hand-off did not classify it: Block classification reads it in a
     /// hand-off of its own when asked.
@@ -854,9 +859,11 @@ fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
-            "`fetch.light_browser` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{key}` sets in {}: switch `fetch.light_browser` off, or unset `{key}`.",
+            "`{light}` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{proxy}` sets in {}: switch `{light}` off, or unset `{proxy}`.",
             allowed.layer.as_str(),
-            proxied.layer.as_str()
+            proxied.layer.as_str(),
+            light = named::setting_in(FETCH_LIGHT_BROWSER.name, allowed.layer),
+            proxy = named::setting_in(key, proxied.layer),
         ),
         &CapabilityUnavailableDetails {
             key: FETCH_LIGHT_BROWSER.name.to_owned(),
@@ -995,6 +1002,8 @@ impl FetchTiers {
                         key: CRAWL_CONTENT_TYPES.name.to_owned(),
                         layer: Some(effective.layer),
                         reason: format!("{} {reason}", effective.value),
+                        limit: None,
+                        fix: None,
                     },
                 )
             })?;
@@ -1419,7 +1428,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 untouched: Arc::clone(&opened.untouched),
-                classified: opened.classified,
+                classified: opened.classified.clone(),
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
@@ -1920,9 +1929,11 @@ impl FetchTiers {
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
         // Its document's hand-off classified it, when it took one.
-        if let Classified::Read(classified) = page.classified {
+        if let Classified::Read(classified) = &page.classified {
             let received = run.clock().wall();
-            return classified.map(|block| (block, blocked(block, &response, received)));
+            return classified
+                .clone()
+                .map(|block| (block.clone(), blocked(block, &response, received)));
         }
         self.classified(&run, response, Arc::clone(&page.document))
             .await
@@ -1956,7 +1967,7 @@ impl FetchTiers {
                 block.map(|block| (block, response))
             })
             .await?;
-        Some((block, blocked(block, &response, received)))
+        Some((block.clone(), blocked(block, &response, received)))
     }
 
     /// The formats `request` names of the page `page_id`, served or a
@@ -2315,6 +2326,21 @@ impl HandlerPages for FetchTiers {
             .open
             .get(page_id)
             .map(|page| Arc::clone(&page.document))
+    }
+
+    /// A crawl handler's call encloses the calls on its pages (ADR 0080).
+    fn encloses_calls(&self) -> bool {
+        true
+    }
+
+    /// The handler call enclosing the served page's attempt, through its
+    /// lease (ADR 0080).
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
+        let hand_over = lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .map(|page| Arc::clone(&page.hand_over))?;
+        hand_over.lease.enclosing()
     }
 
     fn call(
@@ -2826,13 +2852,17 @@ fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &SETTING_INVALID,
         format!(
-            "`fetch.redirect.max` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `crawl.handle_statuses` to hand it to the handler unfollowed.",
-            effective.layer.as_str()
+            "`{}` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `{}` to hand it to the handler unfollowed.",
+            named::setting_in(FETCH_REDIRECT_MAX.name, effective.layer),
+            effective.layer.as_str(),
+            named::setting_in(CRAWL_HANDLE_STATUSES.name, effective.layer),
         ),
         &SettingInvalidDetails {
             key: FETCH_REDIRECT_MAX.name.to_owned(),
             layer: Some(effective.layer),
             reason: format!("expected a count from 1 to {REDIRECT_MAX_LIMIT}, found `{max}`"),
+            limit: None,
+            fix: None,
         },
     ))
 }
@@ -2935,7 +2965,7 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
             )
         })
         .and_then(|asked| match asked {
-            RetryAfter::Until(until) => jiff::Timestamp::try_from(until).ok(),
+            RetryAfter::Until(until) => Some(until),
             RetryAfter::NoWait | RetryAfter::Unparsable => None,
         });
     CallError::new(

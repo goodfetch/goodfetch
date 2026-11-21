@@ -1044,6 +1044,7 @@ fn changed_pytest_test_is_selected_when_the_base_conftest_imports_what_the_head_
 
 /// A test that fails on its second run alone: it counts its runs in the
 /// crate's `runs` file.
+#[cfg(unix)]
 const RED_ON_ITS_SECOND_RUN: &str = r#"
 #[cfg(test)]
 mod counted {

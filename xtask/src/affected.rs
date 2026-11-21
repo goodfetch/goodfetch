@@ -156,11 +156,9 @@ pub(crate) struct WorkspaceMembers {
 
 impl WorkspaceMembers {
     pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Self> {
-        Ok(Self::from_workspace(workspace::read(cargo, root)?))
-    }
-
-    pub(crate) fn from_workspace(workspace: Workspace) -> Self {
-        Self { workspace }
+        Ok(Self {
+            workspace: workspace::read(cargo, root)?,
+        })
     }
 
     /// Whether `member` owns a visual test, which the visual job runs.

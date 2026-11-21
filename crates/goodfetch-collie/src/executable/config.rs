@@ -147,6 +147,7 @@ fn params(request: &Explain, folder: &Path) -> Result<ConfigExplainParams, Setti
         missing_project,
         settings: request.settings.clone(),
         origin: Some(RunOrigin::Flag),
+        run_id: None,
     })
 }
 

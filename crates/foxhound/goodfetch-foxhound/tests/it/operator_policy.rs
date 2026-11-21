@@ -46,6 +46,7 @@ fn started_asking(
         run_id,
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": run_id,
             "seeds": [{ "url": site.url("capped.test", "/1"), "label": "page" }],
             "settings": { "crawl": { "max_requests": max_requests } },

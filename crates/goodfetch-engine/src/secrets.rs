@@ -559,17 +559,6 @@ impl Secrets {
         }
     }
 
-    /// The same driver with `implementation` answering `provider`'s
-    /// references in place of any it had, as a crate of built-in
-    /// providers or a Secret provider Plugin adds one.
-    #[must_use]
-    pub fn with(mut self, provider: Provider, implementation: Arc<dyn SecretProvider>) -> Self {
-        Arc::make_mut(&mut self.0)
-            .providers
-            .insert(provider, Implementation(implementation));
-        self
-    }
-
     /// The same driver with `factory` building, for each Run, the provider
     /// that answers `provider`'s references from the Run's settings
     /// ([`Secrets::for_run_under`]), in place of any it had: how a Product
@@ -625,13 +614,8 @@ impl Secrets {
 
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
-    /// handle drops, its values masked in its kept outputs too.
-    pub fn for_run(&self, timeout: Duration) -> RunSecrets {
-        self.for_run_with(timeout, Redaction::On)
-    }
-
-    /// The same, its values masked in its kept outputs unless `redaction`,
-    /// its `security.redaction`, is off.
+    /// handle drops, its values masked in its kept outputs unless
+    /// `redaction`, its `security.redaction`, is off.
     pub fn for_run_with(&self, timeout: Duration, redaction: Redaction) -> RunSecrets {
         self.for_run_reusing(timeout, redaction, BTreeSet::new())
     }

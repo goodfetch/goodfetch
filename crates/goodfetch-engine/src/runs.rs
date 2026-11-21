@@ -51,7 +51,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tracing::Instrument as _;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
@@ -68,8 +68,8 @@ use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
-    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
+    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, Presence,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
     RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
     RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
     RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
@@ -387,19 +387,33 @@ pub enum Resumed {
         /// (ADR 0016).
         listed: Vec<WeakenedSetting>,
     },
-    /// The Run is live in this engine, or finished: answered as it is.
-    Existing(RunStarted),
+    /// This engine runs the Run already: it is not resumed.
+    Live {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// The Run's table leaves it as it is: a finished Run a resume finds,
+    /// or a running one with no live writer a retry finds.
+    Unchanged {
+        /// The Run ID.
+        run_id: RunId,
+        /// Where it is.
+        lifecycle: Lifecycle,
+        /// The Product it needs.
+        needs: Product,
+    },
 }
 
 impl Resumed {
-    /// The Run `run_id`, answered as it is: at `lifecycle`, needing `needs`.
-    fn existing(run_id: RunId, lifecycle: Lifecycle, needs: Product) -> Self {
-        Self::Existing(RunStarted {
+    /// The Run `run_id` as `held` holds it, left as it is.
+    fn unchanged(run_id: RunId, held: &checkpoint::Held) -> Self {
+        Self::Unchanged {
             run_id,
-            started_as: StartedAs::Existing,
-            lifecycle,
-            needs,
-        })
+            lifecycle: held.lifecycle,
+            needs: held.needs,
+        }
     }
 }
 
@@ -411,8 +425,12 @@ impl Resumed {
 pub enum Started {
     /// It began a new Run, which its driver now drives.
     New(Run),
-    /// Its Run ID names a Run of the same inputs, returned as it is.
-    Existing(RunStarted),
+    /// Its Run ID names an interrupted Run of the same inputs, which the
+    /// caller resumes as `run.resume` does (ADR 0102).
+    Interrupted(RunId),
+    /// Its Run ID names a finished Run of the same inputs, returned as it
+    /// ended.
+    Ended(RunStarted),
 }
 
 /// Why a start failed.
@@ -430,6 +448,14 @@ pub enum StartError {
     /// Another engine holds the Run's writer lock.
     #[error("another engine holds the writer lock of `{run_id}`")]
     InUse {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// This engine runs the Run already (ADR 0102).
+    #[error("this engine runs `{run_id}` already")]
+    Live {
         /// The Run ID.
         run_id: RunId,
         /// The Run's folder.
@@ -1094,6 +1120,7 @@ impl End {
                 StopReason::EngineLost => RunEvent::EngineLost,
                 StopReason::EnginePanicked => RunEvent::EnginePanicked,
                 StopReason::Resources { .. } => RunEvent::ResourcesExhausted,
+                _ => unreachable!("invariant: this engine stops a Run only for a reason it knows"),
             },
         }
     }
@@ -1292,7 +1319,8 @@ pub struct Run {
 
 /// What every handle of a live Run shares.
 struct Shared {
-    /// The reason it was asked to stop at its next safe point, once asked.
+    /// The reason it was asked to stop at its next safe point, once asked,
+    /// or the reason it stopped at once.
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
@@ -1601,7 +1629,7 @@ impl Run {
         let at = self.point_in_time();
         let stop = run_index::RefetchStopped {
             domain,
-            first_stopped: at.clone(),
+            first_stopped: at,
             last_run: self.id.clone(),
             cause,
             project_file: self
@@ -1864,6 +1892,19 @@ impl Run {
                 *stop = Some(reason);
             }
             unset
+        });
+    }
+
+    /// Keeps `reason`, unless one was asked before, as what a call in
+    /// flight reads once the Run's tasks are cancelled (ADR 0113), such as
+    /// the Client whose abort stops it at once, waking nothing that waits
+    /// for a safe point: the Run ends now, not at one.
+    fn stopped_at_once(&self, reason: StopReason) {
+        self.shared.stop.send_if_modified(|stop| {
+            if stop.is_none() {
+                *stop = Some(reason);
+            }
+            false
         });
     }
 
@@ -2244,13 +2285,13 @@ impl Run {
     }
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
-    pub fn point_in_time(&self) -> PointInTime {
+    pub fn point_in_time(&self) -> SystemTime {
         self.clock.point_in_time()
     }
 
     /// The wall time `wait` from now, as a point in time of the Run's, such
     /// as when a domain is next admitted (ADR 0102).
-    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+    pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
         self.clock.point_in_time_after(wait)
     }
 
@@ -4177,7 +4218,7 @@ struct Live {
     tags: Tags,
     inputs: String,
     ended_by: EndedBy,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     report: watch::Sender<Option<Ended>>,
@@ -4514,7 +4555,7 @@ impl Registry {
             }
             Command::Checkpointed(run_id, checkpoint) => {
                 if let Some(live) = self.live.get_mut(&run_id) {
-                    let time = checkpoint.time.clone();
+                    let time = checkpoint.time;
                     live.progress
                         .change(|progressing| progressing.checkpoint_at = Some(time));
                     live.checkpoint = Some(*checkpoint);
@@ -5135,7 +5176,7 @@ impl Registry {
         )
     }
 
-    fn now(&self) -> PointInTime {
+    fn now(&self) -> SystemTime {
         self.setup.engine.clock().point_in_time()
     }
 
@@ -5180,7 +5221,8 @@ impl Registry {
         start.tags = masked_tags(&self.setup.masks, &start.tags);
         // A run file a crash left at `off` is discarded, never read: the Run
         // starts again (ADR 0138).
-        self.discard_unclean(&run_id, start.settings.as_ref())
+        let discarded = self
+            .discard_unclean(&run_id, start.settings.as_ref())
             .await?;
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
@@ -5218,15 +5260,30 @@ impl Registry {
                     },
                 });
             }
-            if found.lifecycle == Lifecycle::Finished {
-                self.found_ended.insert(run_id.clone());
+            // The start table (ADR 0102): a Run this engine runs is in use,
+            // a finished one is answered as it ended, and any other is
+            // interrupted, which its caller resumes.
+            if self.live.contains_key(&run_id) {
+                let folder = self.folder(&run_id);
+                return Err(StartError::Live { run_id, folder });
             }
-            return Ok(Started::Existing(RunStarted {
+            if found.lifecycle != Lifecycle::Finished {
+                self.may_resume_after_limit(&run_id, connection).await?;
+                return Ok(Started::Interrupted(run_id));
+            }
+            self.found_ended.insert(run_id.clone());
+            return Ok(Started::Ended(RunStarted {
                 run_id,
-                started_as: StartedAs::Existing,
+                started_as: StartedAs::Ended,
                 lifecycle: found.lifecycle,
                 needs: found.needs,
             }));
+        }
+        // A Run the Run index lists whose state is gone is never started
+        // afresh (ADR 0102); one discarded, on purpose or after a crash at
+        // `off`, starts again. A generated Run ID names no listed Run.
+        if !discarded && start.run_id.is_some() {
+            self.listed_present(&run_id).await?;
         }
         let essential = self.engine_folders().essential();
         if let Some((folder, filesystem)) = self.critical_among(essential).await {
@@ -5267,9 +5324,9 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         settings: Option<&RunSettings>,
-    ) -> Result<(), UncleanDiscard> {
+    ) -> Result<bool, UncleanDiscard> {
         if self.live.contains_key(run_id) {
-            return Ok(());
+            return Ok(false);
         }
         let folder = self.folder(run_id);
         let discarding = discard::Discarding {
@@ -5293,11 +5350,36 @@ impl Registry {
         })?;
         if discarded {
             tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
+            // Its Run index row is marked *erased*, as a discard marks it, so
+            // a later start under its Run ID begins it rather than finding a
+            // listed Run whose state is missing (ADR 0102).
+            if let Err(error) = self.setup.engine.run_index().erase(run_id.clone()).await {
+                tracing::warn!(%error, run_id = %run_id, "the discarded Run's Run index row was not marked erased");
+            }
             self.ended.forget(run_id);
             self.found_ended.remove(run_id);
             self.unrecorded.remove(run_id);
         }
-        Ok(())
+        Ok(discarded)
+    }
+
+    /// Refuses with `Unavailable` a start under the ID of a Run the Run
+    /// index lists, not erased, whose state was not found: a start never
+    /// begins afresh a Run whose state is lost (ADR 0102). An index that
+    /// cannot be read lists nothing, as a start's check of it says.
+    async fn listed_present(&self, run_id: &RunId) -> Result<(), StartError> {
+        match self.setup.engine.run_index().read(run_id.clone()).await {
+            Ok(Some(row)) if row.presence != Presence::Erased => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: "the Run index lists the Run, but its state is missing".to_owned(),
+            }),
+            Ok(_) => Ok(()),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %run_id, "the Run index cannot be read; the Run starts without it");
+                Ok(())
+            }
+        }
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -5366,7 +5448,7 @@ impl Registry {
         let now = self.limits.now();
         let mut charging =
             self.limits
-                .charging(run_id, folder, 1, self.limits.placement(connection));
+                .charging(run_id, folder, 1, self.limits.placement(run_id, connection));
         let may_start = self
             .owner
             .blocking(move || charging.may_start(now).map(|()| charging))
@@ -5381,6 +5463,35 @@ impl Registry {
                 error: error.to_string(),
             }),
         }
+    }
+
+    /// Refuses the start of the interrupted Run `run_id` that a Limit
+    /// stopped while a Limit that holds it still has nothing left: no
+    /// person raised it and its period has not started again (ADR 0102's
+    /// start table), as [`Registry::may_start`] refuses a new Run. A Run
+    /// stopped for another reason resumes whatever its Limits hold; its
+    /// next charge reads them.
+    async fn may_resume_after_limit(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+    ) -> Result<(), StartError> {
+        // A Run whose run file holds no report, killed while it ran, was
+        // stopped by no Limit; one whose file cannot be read fails the
+        // resume that follows with that cause.
+        let Ok(ended) = self.report_of(run_id).await else {
+            return Ok(());
+        };
+        let stopped_by_limit = matches!(
+            &*ended.borrow(),
+            Some(Ended::Report(report) | Ended::Unwritten(report))
+                if matches!(report.stop_reason, Some(StopReason::Limit(_)))
+        );
+        if !stopped_by_limit {
+            return Ok(());
+        }
+        let folder = self.folder(run_id);
+        self.may_start(run_id, &folder, connection).await.map(drop)
     }
 
     async fn begin(
@@ -5417,7 +5528,7 @@ impl Registry {
             needs: start.needs,
             epoch: 1,
             inputs: inputs.clone(),
-            started_at: started_at.clone(),
+            started_at,
             policy_version: start.policy_version.clone(),
             weakened: start.weakened.clone(),
             binding: start.binding.as_ref().map(|binding| {
@@ -5502,10 +5613,10 @@ impl Registry {
             needs: live.needs,
             tags: live.tags.clone(),
             lifecycle,
-            verdict: report.map(|report| report.verdict),
+            verdict: report.map(|report| report.verdict.clone()),
             completeness: report.map(|report| report.completeness),
-            started_at: live.started_at.clone(),
-            ended_at: report.map(|report| report.ended_at.clone()),
+            started_at: live.started_at,
+            ended_at: report.map(|report| report.ended_at),
             owner: match report {
                 Some(_) => None,
                 None => self.setup.reached_at.clone(),
@@ -5738,7 +5849,7 @@ impl Registry {
                     run_id,
                     folder,
                     epoch,
-                    self.limits.placement(connection),
+                    self.limits.placement(run_id, connection),
                 ))),
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
@@ -5861,7 +5972,7 @@ impl Registry {
             run,
             writer: Arc::clone(&live.writer),
             lock: Arc::clone(&live.lock),
-            started_at: live.started_at.clone(),
+            started_at: live.started_at,
             policy_version: live.policy_version.clone(),
             weakened: live.weakened.clone(),
             clock,
@@ -5926,7 +6037,7 @@ impl Registry {
         let mut report = answered.borrow().clone();
         if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
             report.nothing_done = Some(NothingDone::AlreadyEnded {
-                ended_at: report.ended_at.clone(),
+                ended_at: report.ended_at,
             });
         }
         Ok(watch::Sender::new(report).subscribe())
@@ -6136,9 +6247,10 @@ impl Registry {
             settings,
             retry_failed,
         } = resume;
-        // A Run this engine writes is answered as it is.
-        if let Some(live) = self.live.get(&run_id) {
-            return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
+        // A Run this engine writes is not resumed.
+        if self.live.contains_key(&run_id) {
+            let folder = self.folder(&run_id);
+            return Ok(Resumed::Live { run_id, folder });
         }
         // A run file a crash left at `off` is discarded, never read: the Run
         // is then not found, and starts again (ADR 0138).
@@ -6150,9 +6262,7 @@ impl Registry {
         self.may_resume(&run_id, &held, &folder).await?;
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => {
-                return Ok(Resumed::existing(run_id, held.lifecycle, held.needs));
-            }
+            Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
@@ -6339,6 +6449,7 @@ impl Registry {
                     RunError::Discarding { run_id, folder }
                 }
                 StartError::Conflict { .. }
+                | StartError::Live { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }
@@ -6757,9 +6868,9 @@ impl Recording {
         };
         let row = RunIndexRow {
             lifecycle: report.lifecycle,
-            verdict: Some(report.verdict),
+            verdict: Some(report.verdict.clone()),
             completeness: Some(report.completeness),
-            ended_at: Some(report.ended_at.clone()),
+            ended_at: Some(report.ended_at),
             owner: None,
             stop_reason: report.stop_reason.clone(),
             replayed: report.replayed(),
@@ -6772,7 +6883,7 @@ impl Recording {
             .publish_axes(RunAxes {
                 run_id: run_id.clone(),
                 lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
+                verdict: Some(report.verdict.clone()),
                 completeness: Some(report.completeness),
             })
             .await;
@@ -6819,7 +6930,7 @@ struct Closing {
     run: Run,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     clock: Clock,
@@ -6864,6 +6975,9 @@ impl Closing {
             parts,
             governor,
         } = self;
+        if let End::Stopped(reason) = &end {
+            run.stopped_at_once(reason.clone());
+        }
         run.owner.stop().await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),

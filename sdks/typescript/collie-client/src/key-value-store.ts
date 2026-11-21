@@ -5,18 +5,23 @@
 // caller's null fails in the engine with `value_invalid`, naming `delete`.
 // One method never answers two types (S2): `get` on bytes fails with
 // `value_invalid` naming `getBytes`, and `getBytes` on JSON naming `get`.
+// A value may be typed by a schema in the program's own types (ADR 0082):
+// `set` sends the schema's input, which its parse reads back, and `get`
+// answers the output its parse builds. Only JSON crosses: `set` refuses a
+// value that is not JSON before sending anything, naming its path.
 
-/** A JSON value. */
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+import { ValueInvalidError } from "./generated/errors.ts";
+import { nonJSON, type JSONValue } from "./json.ts";
+import {
+  parse,
+  type Schema,
+  type SchemaInput,
+  type SchemaIssue,
+  type SchemaOutput,
+} from "./schema.ts";
 
 /** What the store keeps: any JSON value but a top-level null. A nested null is kept. */
-export type StoredValue = Exclude<JsonValue, null>;
+export type StoredValue = Exclude<JSONValue, null>;
 
 /** Bytes the store keeps, with their content type. */
 export interface StoredBytes {
@@ -29,7 +34,7 @@ export interface StoredBytes {
 /** What a Run's store reaches its engine through. */
 export interface KeyValueStoreHost {
   /** The committed value of `key` in the Run's store, or `null` when it is absent. */
-  get(runId: string, key: string): Promise<JsonValue>;
+  get(runId: string, key: string): Promise<JSONValue>;
   /** Commits `value` for `key`. */
   set(runId: string, key: string, value: StoredValue): Promise<void>;
   /** The committed bytes of `key` in the Run's store, or `null` when it is absent. */
@@ -60,16 +65,59 @@ export class KeyValueStore {
   /**
    * The JSON value stored for `key`, as committed, or `null` when the key is
    * absent. A key holding bytes fails with `value_invalid`, naming `getBytes`.
+   * Given a schema, it answers the output the schema's own parse builds, and
+   * a stored value the schema rejects fails with `value_invalid`, naming the
+   * first issue's path.
    */
-  async get(key: string): Promise<JsonValue> {
+  async get(key: string): Promise<JSONValue>;
+  async get<S extends Schema>(key: string, schema: S): Promise<SchemaOutput<S> | null>;
+  async get(key: string, schema?: Schema): Promise<unknown> {
     this.#ensureOpen("key_value_store.get");
-    return this.#host.get(this.#runId, key);
+    const stored = await this.#host.get(this.#runId, key);
+    if (schema === undefined || stored === null) {
+      return stored;
+    }
+    const parsed = await parse(schema, stored);
+    if ("issues" in parsed) {
+      throw schemaRefusal(key, "stored", parsed.issues);
+    }
+    return parsed.value;
   }
 
-  /** Commits `value` for `key`, replacing the one it held: the last commit wins. */
-  async set(key: string, value: StoredValue): Promise<void> {
+  /**
+   * Commits `value` for `key`, replacing the one it held: the last commit
+   * wins. Given a schema, `value` has its input type, is parsed by it before
+   * anything is sent and is stored as given, the form the schema reads back.
+   * A value that is not JSON (`NaN`, a `Map`, a `bigint`) or that the schema
+   * rejects fails with `value_invalid`, naming its path, and nothing is sent.
+   */
+  async set(key: string, value: StoredValue): Promise<void>;
+  async set<S extends Schema>(
+    key: string,
+    value: Exclude<SchemaInput<S>, null>,
+    schema: S,
+  ): Promise<void>;
+  async set(key: string, value: unknown, schema?: Schema): Promise<void> {
     this.#ensureOpen("key_value_store.set");
-    await this.#host.set(this.#runId, key, value);
+    const refusal = nonJSON(value);
+    if (refusal) {
+      throw new ValueInvalidError(
+        `The Key-value store refused the value of ${JSON.stringify(key)}: ${refusal.found} at ${refusal.path || "its root"} is not JSON.`,
+        {
+          fix: "Encode it as JSON first: a string, a finite number, a boolean, null, an array or a plain object (a `Date` as an ISO string, a `Map` as an object, a `bigint` as a string).",
+          details: { key, refused: "value", reason: "value_not_json", path: refusal.path },
+        },
+      );
+    }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `nonJSON` found nothing that is not JSON.
+    const json = value as StoredValue;
+    if (schema !== undefined) {
+      const parsed = await parse(schema, json);
+      if ("issues" in parsed) {
+        throw schemaRefusal(key, "given", parsed.issues);
+      }
+    }
+    await this.#host.set(this.#runId, key, json);
   }
 
   /**
@@ -97,4 +145,23 @@ export class KeyValueStore {
     this.#ensureOpen("key_value_store.delete");
     return this.#host.delete(this.#runId, key);
   }
+}
+
+/** `value_invalid` for the value of `key` the schema rejected, `given` to `set` or `stored`. */
+function schemaRefusal(
+  key: string,
+  side: "given" | "stored",
+  issues: readonly SchemaIssue[],
+): ValueInvalidError {
+  const listed = issues.map((issue) => `${issue.path || "its root"}: ${issue.message}`).join("; ");
+  return new ValueInvalidError(
+    `The schema rejected the value ${side} for ${JSON.stringify(key)}: ${listed}.`,
+    {
+      fix:
+        side === "given"
+          ? "Give a value the schema accepts."
+          : "Read it with the schema it was stored under, or without one, and store it again in the new shape.",
+      details: { key, refused: "value", reason: "value_schema", path: issues[0]?.path ?? "" },
+    },
+  );
 }

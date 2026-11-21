@@ -1,4 +1,6 @@
-use super::{Sample, Sampler, figures};
+#[cfg(target_os = "linux")]
+use super::Sampler;
+use super::{Sample, figures};
 
 fn sample(at: f64, resident_bytes: u64, cpu_seconds: f64) -> Sample {
     Sample {

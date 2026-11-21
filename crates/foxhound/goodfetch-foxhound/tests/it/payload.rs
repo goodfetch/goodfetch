@@ -148,8 +148,8 @@ fn holding(handled: &mut Vec<Value>) -> impl FnMut(&Value) -> Option<Value> + '_
 /// A start under the ID of a Run, ADR 0102's resume, after the Label
 /// `book`'s Payload schema gained a required field its three pending
 /// Payloads lack is refused before any work, and one whose new schema
-/// they fit goes on with the Run: the run file kept each Label's schema
-/// hash. The first book's attempt is left unanswered meanwhile, so all
+/// they fit passes that check to find the Run live in this engine,
+/// `run_in_use`. The first book's attempt is left unanswered meanwhile, so all
 /// three are pending, one of them leased: the engine may send that
 /// attempt after `crawl.start` replies, so the later starts wait for its
 /// `crawl_request.handle` (ADR 0064).
@@ -207,7 +207,7 @@ fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pen
         (
             &started["result"]["started_as"],
             answer(&refused),
-            &compatible["result"]["started_as"],
+            &compatible["error"]["data"]["code"],
             handled,
         ),
         (
@@ -219,7 +219,7 @@ fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pen
                     "issues": [{ "path": "" }],
                 },
             }),
-            &json!("existing"),
+            &json!("run_in_use"),
             vec![json!("1")],
         )
     );
@@ -251,6 +251,7 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "capped",
             "settings": { "crawl": { "payload": { "max_size": 64 } } },
             "seeds": [{ "url": site.page("/"), "label": "page", "payload": of_size(64) }],
@@ -296,6 +297,7 @@ fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "large",
             "seeds": [
                 { "url": site.page("/a"), "label": "page", "payload": of_size(65_536) },

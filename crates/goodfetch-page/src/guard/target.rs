@@ -1,25 +1,19 @@
 //! The target renderer (ADR 0079): a locator as the code that builds it in
-//! the language of the Client's surface, so an error shows the caller the
+//! the Client's form (ADR 0099), so an error shows the caller the
 //! locator they wrote, and each match of an ambiguous one the locator that
 //! reaches it alone. TypeScript keeps Playwright's single quotes; Python,
-//! Rust and every surface with no language of its own (the CLI, MCP) take
-//! the catalog's form, with double quotes.
+//! Rust and every form with no language of its own (the CLI's, the
+//! tools', the catalog's) take double quotes.
 
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::Form;
 
 /// `page.locator(selector)`, followed by `.nth(index)` when `nth` is given,
-/// as code of `surface`'s language.
-pub(crate) fn render(surface: Surface, selector: &str, nth: Option<usize>) -> String {
-    let quoted = match surface {
-        Surface::SdkTypescript => single_quoted(selector),
-        Surface::Rust => format!("{selector:?}"),
-        Surface::SdkPython
-        | Surface::Cli
-        | Surface::Mcp
-        | Surface::Kennel
-        | Surface::Cloud
-        | Surface::BrowserHost
-        | Surface::Worker => {
+/// as code of `form`.
+pub(crate) fn render(form: Form, selector: &str, nth: Option<usize>) -> String {
+    let quoted = match form {
+        Form::Typescript => single_quoted(selector),
+        Form::Rust => format!("{selector:?}"),
+        Form::Python | Form::Cli | Form::Tool | Form::Catalog => {
             serde_json::to_string(selector).expect("invariant: a string encodes as JSON")
         }
     };
@@ -44,4 +38,24 @@ fn single_quoted(text: &str) -> String {
     }
     quoted.push('\'');
     quoted
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::connection::Form;
+    use rstest::rstest;
+
+    use super::render;
+
+    /// A locator renders as the code its caller's form writes, quotes and
+    /// escapes included, so an ambiguous target's matches read as that
+    /// caller's own code.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "page.locator('a[title=\"it\\'s\"]').nth(1)")]
+    #[case::python(Form::Python, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    #[case::rust(Form::Rust, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    #[case::cli(Form::Cli, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    fn a_target_renders_in_its_callers_form(#[case] form: Form, #[case] rendered: &str) {
+        assert_eq!(render(form, "a[title=\"it's\"]", Some(1)), rendered);
+    }
 }

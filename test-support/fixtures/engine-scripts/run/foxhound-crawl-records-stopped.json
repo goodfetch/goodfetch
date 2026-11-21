@@ -1,5 +1,5 @@
 {
-  "description": "A Foxhound Client starts the two-page-type crawl as `nightly`, which the engine answers as an existing Run that already finished, and reads its Dataset `products`: the engine streams both its Records, then answers `run.finish` with the Run's report, so the Client has received both; the program, which stops reading after the first, cancels the stream.",
+  "description": "A Foxhound Client starts the two-page-type crawl as `nightly`, which the engine answers as a Run that already finished, `ended`, and reads its Dataset `products`: the engine streams both its Records, then answers `run.finish` with the Run's report, so the Client has received both; the program, which stops reading after the first, cancels the stream.",
   "steps": [
     {
       "expect": {
@@ -7,8 +7,10 @@
         "params": {
           "protocol_version": "0.1",
           "surface": "sdk_typescript",
+          "form": "typescript",
           "needs": "foxhound",
-          "product_version": "0.0.0"
+          "product_version": "0.0.0",
+          "log_level": "off"
         }
       }
     },
@@ -52,7 +54,7 @@
           "run_id": "nightly",
           "lifecycle": "finished",
           "needs": "foxhound",
-          "started_as": "existing"
+          "started_as": "ended"
         }
       }
     },

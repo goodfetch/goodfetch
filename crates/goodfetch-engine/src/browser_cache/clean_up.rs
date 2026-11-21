@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::browser_cache::{ArtifactId, NotCleaned};
 
@@ -53,7 +53,7 @@ pub struct InstalledExecutable {
     /// recorded version.
     pub still_at_path: bool,
     /// When it was last seen.
-    pub last_seen: jiff::Timestamp,
+    pub last_seen: SystemTime,
     /// The artifacts its version pins.
     pub pins: Vec<ArtifactId>,
 }
@@ -78,9 +78,11 @@ pub fn kept_artifacts(
 }
 
 /// Whether `then` is less than `age` before `now`; a time after `now` is.
-fn within(then: jiff::Timestamp, now: jiff::Timestamp, age: Duration) -> bool {
-    let elapsed = now.duration_since(then);
-    elapsed.is_negative() || elapsed.unsigned_abs() < age
+fn within(then: SystemTime, now: jiff::Timestamp, age: Duration) -> bool {
+    match SystemTime::from(now).duration_since(then) {
+        Ok(elapsed) => elapsed < age,
+        Err(_) => true,
+    }
 }
 
 /// What one clean-up is asked to do.
@@ -144,9 +146,8 @@ pub(super) fn run(root: &Path, request: &CleanUp) -> io::Result<CleanUpReport> {
         };
         let size = store::bytes(&folder)?;
         if !request.dry_run {
-            store::delete(root, &folder)?;
+            store::delete(root, &folder, Some(lock))?;
         }
-        drop(lock);
         bytes.insert(id.clone(), size);
         deleted.push(id);
     }
@@ -169,7 +170,7 @@ pub(super) fn run_daily(
     let Some(age) = max_unused_age.automatic() else {
         return Ok(None);
     };
-    if store::last_clean_up(root).is_some_and(|last| within(last, now, DAY)) {
+    if store::last_clean_up(root).is_some_and(|last| within(SystemTime::from(last), now, DAY)) {
         return Ok(None);
     }
     let report = run(

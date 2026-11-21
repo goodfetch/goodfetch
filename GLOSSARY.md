@@ -60,6 +60,10 @@ _Avoid_: client (for the Connection), engine (for the Connection), session (a Se
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
 
+**Handle**:
+A value of the SDK API through which a program acts on one thing the engine runs or holds, such as a Run, a Session, a Page or a Locator: each of its methods sends an operation of that thing, the raw catalog call included. A Handle on a Locator stays that lazy Locator and is never bound to an element.
+_Avoid_: proxy, stub or wrapper (for a Handle), remote object, element handle and JS handle (Playwright's values bound to one element or one page value, which Collie does not have)
+
 **CLI**:
 The command-line interface of each Product's executable, through which a person or a script runs that Product's commands; Foxhound's keeps every command of Collie's.
 _Avoid_: shell, terminal, command-line tool
@@ -205,7 +209,7 @@ The moment a Run asked to stop can stop without losing or repeating work: it adm
 _Avoid_: checkpoint (for the moment), graceful stop, barrier
 
 **Subscription**:
-One Client's stream of an engine's events, each at a position that only goes up within its Engine instance, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped.
+One Client's stream of an engine's events, each at a position that only goes up within its Engine instance, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped. A value's `on` returns one in TypeScript and Python (ADR 0081): a page's listener's events come on the `on` call itself, under the same credits, and a Session's on the Connection's own Subscription, which its listeners share, each through its own bounded queue, sent before the first `on` and cancelled once the last leaves; its `close()` cancels that call.
 _Avoid_: listener (for the engine's side), feed, channel
 
 **Body handle**:
@@ -443,12 +447,20 @@ What Foxhound sets on a crawl handler's page to admit, at the Interception's ste
 _Avoid_: politeness hook, admission hook, gatekeeper
 
 **Lease check**:
-What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives (ADRs 0003 and 0087).
+What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives, and which call encloses its calls (ADRs 0003 and 0087).
 _Avoid_: lease guard, lease hook
+
+**Enclosing call**:
+The call whose timeout bounds the calls made inside it, such as a crawl handler's call for its page's calls: a call inside ends at that call's end if its own comes later, and its `deadline_exceeded` then names that call as `ended_by` (ADR 0080).
+_Avoid_: parent call, outer deadline
 
 **Response observer**:
 What Foxhound registers on a crawl handler's Session to receive the responses its pages observe whose URLs its URL patterns match, each body up to a byte cap, those a service worker answered included (ADR 0110).
 _Avoid_: response hook, response listener, sniffer
+
+**Encoding**:
+The character encoding a document's or a response body's bytes are decoded with, a WHATWG Encoding, found in ADR 0119's order: a BOM, a forced one, the `Content-Type` charset, the declaration in its own bytes as Chrome reads it, then UTF-8.
+_Avoid_: character set, code page
 
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
@@ -551,8 +563,8 @@ A call that sends input to a page or navigates it, such as a click, a key press 
 _Avoid_: interaction, command (for a gesture)
 
 **Locator**:
-What a page action looks for on a page, such as a CSS selector, resolved again at each use and never a handle on an element; an action needs it to match exactly one element.
-_Avoid_: element handle, query, selector (for the value)
+What a page action looks for on a page, such as a CSS selector, resolved again at each use and never bound to one element; an action needs it to match exactly one element. A program holds one through a Handle.
+_Avoid_: element handle (a value bound to one element, which Collie does not have), query, selector (for the value)
 
 **Guard**:
 The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
@@ -636,6 +648,10 @@ _Avoid_: action log, history
 The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
+**Answer**:
+An operation's whole result as an SDK hands it to a program: its typed view, which reads only the fields that SDK knows, and the JSON it came from, which keeps the others (ADR 0082). A member that answers one field of its result or opens a Handle on what it started answers that value alone.
+_Avoid_: response (an HTTP Response), reply (the JSON-RPC message), envelope
+
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval
@@ -682,7 +698,7 @@ _Avoid_: normalizer, converter, cast
 
 **Element reference**:
 A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.
-_Avoid_: handle, element ID, node ID
+_Avoid_: handle (a Handle is a value of the SDK API, such as a Page or a Locator), element ID, node ID
 
 **Human pause**:
 The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.

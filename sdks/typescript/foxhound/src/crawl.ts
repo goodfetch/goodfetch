@@ -16,14 +16,20 @@ import type {
   LabelDeclaration,
   RequestSeed,
 } from "./generated/index.ts";
+import { LabelDuplicateError, LabelUnhandledError, LabelUnknownError } from "./generated/errors.ts";
+import { settingsOnWire, type LabelSettings } from "./generated/settings.ts";
 
 /** A JSON object the wire carries, such as a Payload or a Record. */
 type WireObject = Readonly<Record<string, unknown>>;
 
 /** What `crawl.label` takes. */
 export interface LabelOptions {
-  /** The Label's own settings, nested by key, such as `fetch.tier` (ADR 0093). */
-  readonly settings?: LabelDeclaration["settings"] | undefined;
+  /**
+   * The Label's own settings over its Run's, nested by camelCase segment,
+   * such as `{ fetch: { tier: "http" } }` (ADR 0093): a key a Label does not
+   * take, a Run-wide one such as `politeness`, fails to compile.
+   */
+  readonly settings?: LabelSettings | undefined;
 }
 
 /**
@@ -102,7 +108,9 @@ export interface CrawlContext {
   /**
    * Adds a request to the crawl, under `label`, and answers what the
    * Frontier did with it: added, with its ID, or not added, with its
-   * reason. A relative URL resolves against the page's base URL.
+   * reason. A relative URL resolves against the page's base URL. A
+   * Label the crawl does not declare, such as another crawl's, fails with
+   * `label_unknown`, and nothing is sent.
    */
   enqueue<Q extends object | undefined>(
     url: string,
@@ -115,7 +123,8 @@ export interface CrawlContext {
    * `label`, each with `payload`, and answers what became of each matched
    * element in document order: added, with its ID, not added, with its
    * reason, or with no link. Each `href` resolves against the document's
-   * base URL (ADR 0093).
+   * base URL (ADR 0093). A Label the crawl does not declare fails with
+   * `label_unknown`, and nothing is sent.
    */
   enqueueLinks<Q extends object | undefined>(
     locator: Locator,
@@ -150,12 +159,14 @@ export type Handler = (context: CrawlContext) => unknown;
 /** What the engine leases a work item of one Label to. */
 interface Declared {
   readonly label: Label<object | undefined>;
-  readonly settings: LabelDeclaration["settings"] | undefined;
+  readonly settings: LabelSettings | undefined;
   handler: Handler | undefined;
 }
 
 let declarationOf: (crawl: Crawl) => Pick<CrawlStartParams, "labels" | "datasets">;
 let handlerIn: (crawl: Crawl, label: string) => Handler | undefined;
+let declaredIn: (crawl: Crawl, label: Label<object | undefined>) => string;
+let checkStartable: (crawl: Crawl, seeds: readonly RequestSeed[]) => void;
 
 /**
  * A crawl's declaration (ADR 0093): its Labels, the handler of each and
@@ -165,30 +176,47 @@ export class Crawl {
   static {
     declarationOf = (crawl) => crawl.#declaration();
     handlerIn = (crawl, label) => crawl.#labels.get(label)?.handler;
+    declaredIn = (crawl, label) => crawl.#declared(label).label.name;
+    checkStartable = (crawl, seeds) => crawl.#checkStartable(seeds);
   }
 
   readonly #labels = new Map<string, Declared>();
   readonly #datasets = new Map<string, DatasetDeclaration>();
 
-  /** Declares the Label `name`, whose requests carry Payloads of type `P`. */
+  /**
+   * Declares the Label `name`, whose requests carry Payloads of type `P`.
+   * A second Label of one name fails with `label_duplicate`.
+   */
   label<P extends object | undefined = undefined>(
     name: string,
     options: LabelOptions = {},
   ): Label<P> {
+    if (this.#labels.has(name)) {
+      throw new LabelDuplicateError(`the Crawl already declares the Label ${name}`, {
+        fix: "Declare each Label once, and use the Label the first `crawl.label` returned.",
+        details: { label: name },
+      });
+    }
     const label = new Label<P>(name);
     this.#labels.set(name, { label, settings: options.settings, handler: undefined });
     return label;
   }
 
-  /** Attaches `handler` to `label`: the engine leases each of its work items to it. */
+  /**
+   * Attaches `handler` to `label`: the engine leases each of its work items
+   * to it. A Label this crawl does not declare, such as another crawl's,
+   * fails with `label_unknown`, and a second handler for one Label with
+   * `label_duplicate`.
+   */
   handle(label: Label<object | undefined>, handler: Handler): void {
-    const declared = this.#labels.get(label.name) ?? {
-      label,
-      settings: undefined,
-      handler: undefined,
-    };
+    const declared = this.#declared(label);
+    if (declared.handler !== undefined) {
+      throw new LabelDuplicateError(`the Label ${label.name} already has a handler`, {
+        fix: "Attach one handler to each Label.",
+        details: { label: label.name },
+      });
+    }
     declared.handler = handler;
-    this.#labels.set(label.name, declared);
   }
 
   /** Declares the Dataset `name`, whose Records are of type `I`. */
@@ -200,10 +228,42 @@ export class Crawl {
     return new Dataset<I>(name);
   }
 
+  /** The declaration of `label`, which must be the very Label this crawl's `crawl.label` returned. */
+  #declared(label: Label<object | undefined>): Declared {
+    const declared = this.#labels.get(label.name);
+    if (declared?.label !== label) throw this.#unknown(label.name);
+    return declared;
+  }
+
+  /**
+   * Fails when a Label has no handler, or a seed names a Label this crawl
+   * does not declare: by name, since a seed carries its Label's name only.
+   */
+  #checkStartable(seeds: readonly RequestSeed[]): void {
+    for (const [name, { handler }] of this.#labels) {
+      if (handler === undefined) {
+        throw new LabelUnhandledError(`the Crawl attaches no handler to the Label ${name}`, {
+          fix: "Attach one with `crawl.handle(label, handler)`, or stop declaring the Label.",
+          details: { label: name },
+        });
+      }
+    }
+    const unknown = seeds.find(({ label }) => !this.#labels.has(label));
+    if (unknown !== undefined) throw this.#unknown(unknown.label);
+  }
+
+  #unknown(name: string): LabelUnknownError {
+    return new LabelUnknownError(`the Crawl does not declare the Label ${name}`, {
+      fix: "Use a Label this crawl's `crawl.label` returned, or declare it on this crawl.",
+      details: { label: name, declared: [...this.#labels.keys()] },
+    });
+  }
+
   #declaration(): Pick<CrawlStartParams, "labels" | "datasets"> {
     const labels: Record<string, LabelDeclaration> = {};
     for (const [name, { settings }] of this.#labels) {
-      labels[name] = settings === undefined ? {} : { settings };
+      const wire = settingsOnWire(settings);
+      labels[name] = wire === undefined ? {} : { settings: wire };
     }
     const datasets = [...this.#datasets.values()];
     return { labels, ...(datasets.length === 0 ? {} : { datasets }) };
@@ -213,6 +273,20 @@ export class Crawl {
 /** The Labels and Datasets `crawl.start` declares for `crawl`. */
 export function crawlDeclaration(crawl: Crawl): Pick<CrawlStartParams, "labels" | "datasets"> {
   return declarationOf(crawl);
+}
+
+/**
+ * Fails, before anything is sent, when `crawl` declares a Label without a
+ * handler (`label_unhandled`) or a seed names a Label it does not declare by name
+ * (`label_unknown`).
+ */
+export function checkCrawlStartable(crawl: Crawl, seeds: readonly RequestSeed[]): void {
+  checkStartable(crawl, seeds);
+}
+
+/** The name of `label`, which `crawl` must declare; another crawl's Label fails with `label_unknown`. */
+export function declaredLabel(crawl: Crawl, label: Label<object | undefined>): string {
+  return declaredIn(crawl, label);
 }
 
 /** The handler attached to the Label named `label` in `crawl`, if any. */

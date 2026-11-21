@@ -203,9 +203,7 @@ impl Snapshot {
 
     fn resync(&self) -> Resync {
         let mut needs_you: Vec<NeedsYouItem> = self.needs_you.values().cloned().collect();
-        needs_you.sort_by(|left, right| {
-            (left.since.as_str(), &left.id).cmp(&(right.since.as_str(), &right.id))
-        });
+        needs_you.sort_by(|left, right| (left.since, &left.id).cmp(&(right.since, &right.id)));
         Resync {
             runs: self.runs.values().cloned().collect(),
             needs_you,

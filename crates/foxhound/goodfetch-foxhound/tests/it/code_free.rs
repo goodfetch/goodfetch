@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 use crate::attached;
 use crate::attached_with;
 use crate::fetch_tiers::{settings, tiers};
+use crate::frontier::seed_labels;
 
 /// The Proving ground's seed.
 const SEED: u64 = 994;
@@ -92,6 +93,7 @@ fn crawl_read(
         &json!({
             "run_id": run_id,
             "seeds": seeds,
+            "labels": seed_labels(seeds),
             "datasets": [],
             "extraction": extraction,
             "settings": settings(proving_ground, &more),
@@ -324,12 +326,16 @@ fn a_code_free_start_that_declares_a_dataset_is_refused() {
     );
 }
 
+/// A CSS locator in its JSON form.
+fn css(selector: &str) -> Value {
+    json!({ "kind": "css", "selector": selector })
+}
+
 /// The fields of the value page, in German: a name, a SKU picked from its
 /// sentence by a `match`, a price, a release date and two date-times, one
 /// stating no offset and one stating its own, a relative link, and a
 /// discount the page does not show.
 fn value_fields() -> Value {
-    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
     json!({
         "name": { "locator": css("h1") },
         "sku": { "locator": css(".sku"), "match": { "pattern": "Artikelnummer: (\\S+)" } },
@@ -543,6 +549,152 @@ fn a_crawls_fields_take_a_list_and_rows_alike_on_every_tier(#[case] tier: &str) 
             &record["provenance"]["unread_fields"]
         ),
         (&Value::Array(names), &Value::Array(unread))
+    );
+}
+
+/// A field's locator ladder reads the first rung that finds an element
+/// (issue 1972), alike on the `http` tier and in the browser: the value
+/// page's name, whose `locator` and first `fallbacks` rung find nothing
+/// before its second finds it, and its manual, whose `locator` finds
+/// nothing before its one `fallbacks` rung does, read the values,
+/// Provenance and nulls of the crawl whose fields have one locator each.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_fields_later_rung_supplies_its_value_when_the_earlier_ones_find_nothing(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let page = proving_ground.url("extraction.test", "/values");
+    let origin = proving_ground.url("extraction.test", "");
+    let mut fields = value_fields();
+    fields["name"]["locator"] = json!({ "kind": "css", "selector": ".product-title" });
+    fields["name"]["fallbacks"] = json!([
+        { "kind": "xpath", "selector": "//header/h2" },
+        { "kind": "css", "selector": "h1" },
+    ]);
+    fields["manual"]["locator"] = json!({ "kind": "xpath", "selector": "//a[@rel='manual']" });
+    fields["manual"]["fallbacks"] = json!([{ "kind": "css", "selector": "a.manual" }]);
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladder", &[json!({ "url": page, "label": "page" })]),
+        &json!({ "formats": {}, "follow": "none", "fields": fields }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(
+        (
+            fields_of(&records),
+            records[0]["provenance"]["tier"]["tier"].clone()
+        ),
+        (value_record(&origin), json!(tier))
+    );
+}
+
+/// A list's and a row field's locator ladders read their first rung that
+/// finds an element (issue 1972), alike on the `http` tier and in the
+/// browser: the catalog listing's names, and each row's price, read past
+/// a first rung that finds nothing, and a row field none of whose rungs
+/// finds an element is null with the reason it has today.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_lists_and_a_row_fields_later_rung_supplies_their_values(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let listing = proving_ground.start_url("catalog/1").unwrap();
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladders", &[json!({ "url": listing, "label": "page" })]),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": {
+                "names": { "list": { "locator": css("li.product h3"), "fallbacks": [css("li.product a")] } },
+                "products": {
+                    "rows": css("li.product"),
+                    "fields": {
+                        "name": { "locator": css("a") },
+                        "price": {
+                            "locator": css(".cost"),
+                            "fallbacks": [{ "kind": "xpath", "selector": "./span[@class='price']" }],
+                        },
+                        "blurb": { "locator": css(".blurb"), "fallbacks": [css(".summary")] },
+                    },
+                },
+            },
+        }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    let [record] = records.as_slice() else {
+        panic!("one Record of the listing page, not {records:?}");
+    };
+    let value = &record["value"];
+    assert_eq!(
+        (
+            json!({ "names": value["names"], "products": value["products"] }),
+            &record["provenance"]["unread_fields"],
+        ),
+        (
+            json!({
+                "names": [
+                "Dusky Mirror",
+                "Amber Anchor",
+                "Hazel Hammock",
+                "Olive Kettle",
+                "Hazel Easel",
+                "Ember Basket",
+                "Frosted Pitcher",
+                "Olive Lamp",
+                "Cedar Inkwell",
+                "Hazel Desk",
+                ],
+                "products": [
+                { "name": "Dusky Mirror", "price": "$430.94", "blurb": null },
+                { "name": "Amber Anchor", "price": "$117.07", "blurb": null },
+                { "name": "Hazel Hammock", "price": "$513.11", "blurb": null },
+                { "name": "Olive Kettle", "price": "$574.09", "blurb": null },
+                { "name": "Hazel Easel", "price": "$904.76", "blurb": null },
+                { "name": "Ember Basket", "price": "$964.58", "blurb": null },
+                { "name": "Frosted Pitcher", "price": "$998.37", "blurb": null },
+                { "name": "Olive Lamp", "price": "$63.33", "blurb": null },
+                { "name": "Cedar Inkwell", "price": "$151.02", "blurb": null },
+                { "name": "Hazel Desk", "price": "$411.83", "blurb": null },
+                ],
+            }),
+            &json!([
+            { "field": "/products/0/blurb", "reason": "no_element" },
+            { "field": "/products/1/blurb", "reason": "no_element" },
+            { "field": "/products/2/blurb", "reason": "no_element" },
+            { "field": "/products/3/blurb", "reason": "no_element" },
+            { "field": "/products/4/blurb", "reason": "no_element" },
+            { "field": "/products/5/blurb", "reason": "no_element" },
+            { "field": "/products/6/blurb", "reason": "no_element" },
+            { "field": "/products/7/blurb", "reason": "no_element" },
+            { "field": "/products/8/blurb", "reason": "no_element" },
+            { "field": "/products/9/blurb", "reason": "no_element" },
+            ]),
+        )
     );
 }
 
@@ -1435,9 +1587,10 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
 
 /// `config explain` says why a Run whose Sessions hold a login sends its
 /// HTTP from the browser: its `fetch.http_from` away from `browser` yields
-/// to the Run's `session.source`, named with its value and its layer; a
-/// Run with no `session.source`, or that sends from the browser, yields to
-/// nothing (#2418).
+/// to the Run's `session.source`, named with its value, its layer and its
+/// run-layer origin, here the CLI's flag (ADR 0083); a Run with no
+/// `session.source`, or that sends from the browser, yields to nothing
+/// (#2418).
 ///
 /// Covers: setting:fetch.http_from, setting:session.source, command:config.explain
 #[expect(
@@ -1447,7 +1600,7 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
 #[rstest]
 #[case::learned_with_a_login(
     &["fetch.http_from=learned", SAVED_IDENTITY],
-    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run"}),
+    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run", "origin": "flag"}),
 )]
 #[case::browser_with_a_login(&["fetch.http_from=browser", SAVED_IDENTITY], Value::Null)]
 #[case::learned_without_a_login(&["fetch.http_from=learned"], Value::Null)]

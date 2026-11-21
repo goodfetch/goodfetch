@@ -30,7 +30,7 @@ fn a_crawl_stops_at_its_next_safe_point_once_a_limit_has_nothing_left() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "capped", "seeds": seeds(5) }),
+                    json!({ "run_id": "capped", "seeds": seeds(5), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

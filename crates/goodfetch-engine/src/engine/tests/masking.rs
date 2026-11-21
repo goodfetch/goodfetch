@@ -31,7 +31,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
 use crate::run_trace::RequestLog;
-use crate::runs::{EndedBy, Start, Started, run_trace};
+use crate::runs::{EndedBy, Start, StartError, Started, run_trace};
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
@@ -211,11 +211,12 @@ fn leaks(canaries: &Canaries, env: &TestEnv, received: &[Value]) -> Vec<String> 
     leaks
 }
 
+/// `output` from the test's folder, with `/` between its names on every OS.
 fn relative(env: &TestEnv, output: &str) -> String {
     output
         .strip_prefix(&env.folder().display().to_string())
         .unwrap_or(output)
-        .to_owned()
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 /// Covers: story:4-56, setting:run_state.key_reference
@@ -394,7 +395,9 @@ async fn start_tagged(params: Value, context: CallContext) -> Result<Value, Call
         .await;
     Ok(match started {
         Ok(Started::New(_)) => json!("new"),
-        Ok(Started::Existing(_)) => json!("existing"),
+        Ok(Started::Interrupted(_)) => json!("interrupted"),
+        Ok(Started::Ended(_)) => json!("ended"),
+        Err(StartError::Live { .. }) => json!("live"),
         Err(error) => json!(error.to_string()),
     })
 }
@@ -403,7 +406,7 @@ async fn start_tagged(params: Value, context: CallContext) -> Result<Value, Call
 /// before run state and the Run index keep them (spec #564): a value
 /// another Run resolved, its key-encryption key, is in no file once a Run
 /// tagged and seeded with it started, and the same start again still
-/// answers that Run rather than a conflict.
+/// finds that Run, live, rather than a conflict.
 /// Covers: story:4-56, setting:run_state.key_reference
 #[test]
 fn a_runs_tags_and_inputs_are_masked_in_what_the_engine_keeps() {
@@ -462,7 +465,7 @@ fn a_runs_tags_and_inputs_are_masked_in_what_the_engine_keeps() {
 
     assert_eq!(
         (leaks(&canaries, &env, &[]), &answers[1..]),
-        (Vec::<String>::new(), &[json!("new"), json!("existing")][..]),
+        (Vec::<String>::new(), &[json!("new"), json!("live")][..]),
         "{answers:?}"
     );
 }

@@ -15,18 +15,18 @@ mod call_streams;
 pub(crate) mod params;
 
 use std::any::Any;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{Operation, Setting, SharedTypeValue};
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Form, Surface};
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use tokio_util::sync::CancellationToken;
 
@@ -89,9 +89,16 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// The form its `hello` declared, or its surface's (ADR 0099); set
+    /// with the surface.
+    pub(crate) form: OnceLock<Form>,
     /// Whether its `hello` came from Goodfetch Cloud's gateway, which words
     /// `not_in_product` for it (ADR 0096); set with the surface.
     pub(crate) behind_gateway: OnceLock<bool>,
+    /// The Connection's own settings, which its `hello` gave and the
+    /// engine accepted: the run layer at the connection scope, beneath
+    /// each Run's own (ADR 0083); set with the surface.
+    pub(crate) settings: OnceLock<Map<String, Value>>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -218,6 +225,26 @@ impl CallContext {
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
 
+    /// The form the Connection's Client writes names in, which the engine
+    /// spells an operation's name in at the head of its errors (ADRs 0079
+    /// and 0099).
+    pub fn form(&self) -> Form {
+        self.connection
+            .form
+            .get()
+            .copied()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The Connection's own settings, nested by key, as its `hello` gave
+    /// them: empty when it gave none (ADR 0083).
+    pub fn connection_settings(&self) -> &Map<String, Value> {
+        self.connection
+            .settings
+            .get()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
     /// Whether the Connection's `hello` came from Goodfetch Cloud's gateway
     /// (or the Stub gateway), on whose runs `not_in_product` names the run's
     /// Product rather than an install (ADR 0096).
@@ -333,6 +360,38 @@ pub type Guard = Arc<
         + Sync,
 >;
 
+/// What ends a contribution's calls at the end of an enclosing call (ADR
+/// 0080), given the operation, the call's params as they arrived, its
+/// context and its answer: that answer, ended once the enclosing call's
+/// end passes first, such as a page call's in a crawl handler under
+/// `timeout.handler`, or as it was when no call encloses it. It runs when
+/// the request arrives, once the guards or the handler gave the answer,
+/// and only on a cancellable operation, whose answer may be dropped.
+#[derive(Clone)]
+pub struct Enclose(Arc<EncloseFn>);
+
+/// The function an [`Enclose`] holds.
+type EncloseFn = dyn for<'params> Fn(&'static Operation, Params<'params>, &CallContext, GuardAnswer) -> GuardAnswer
+    + Send
+    + Sync;
+
+impl Enclose {
+    /// The one that ends each answer as `enclose` does.
+    pub fn new(
+        enclose: impl for<'params> Fn(
+            &'static Operation,
+            Params<'params>,
+            &CallContext,
+            GuardAnswer,
+        ) -> GuardAnswer
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(enclose))
+    }
+}
+
 /// A call's params as its handler's type read them, when they read: what a
 /// [`Guard`] answers from in the handler's place, so that a call decodes
 /// its params once whoever answers it (ADR 0140's E1).
@@ -357,6 +416,18 @@ type Call = dyn for<'params> Fn(Params<'params>, CallContext, &[Guard]) -> Resul
     + Send
     + Sync;
 
+/// Each operation's one handler, found by its name on every message.
+///
+/// A hash finds a name in one probe however many operations the
+/// contributions add, where an ordered map compared it with a key on each
+/// level of its tree, and foldhash hashes a short name in a few
+/// multiplications where std's `SipHash` takes rounds (issue 2790). Its seed
+/// is fixed: a random one would change a lookup's work from one process to
+/// the next (randomness outside the Entropy handle, ADR 0059). Only the
+/// composition inserts, so a Client's method name lengthens no probe.
+/// Nothing iterates it.
+pub(crate) type Handlers = HashMap<&'static str, Handler, foldhash::fast::FixedState>;
+
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
 pub struct Handler {
@@ -364,6 +435,8 @@ pub struct Handler {
     call: Arc<Call>,
     /// The guards its calls ask before it, the last added first.
     guards: Arc<[Guard]>,
+    /// What ends its calls' answers at an enclosing call's end.
+    encloses: Arc<[Enclose]>,
     streams: bool,
     input: Option<(&'static str, usize)>,
 }
@@ -416,6 +489,7 @@ impl Handler {
             operation,
             call: Arc::new(call),
             guards: Arc::new([]),
+            encloses: Arc::new([]),
             streams: false,
             input: None,
         }
@@ -457,7 +531,8 @@ impl Handler {
     }
 
     /// Starts its call on `params`: the guards it asks, then the handler,
-    /// which reads `params` before this returns.
+    /// which reads `params` before this returns, its answer ended at an
+    /// enclosing call's end when its operation is cancellable.
     ///
     /// # Errors
     ///
@@ -468,7 +543,14 @@ impl Handler {
         params: Params<'_>,
         context: CallContext,
     ) -> Result<Answer, CallError> {
-        (self.call)(params, context, &self.guards)
+        if self.encloses.is_empty() || !self.operation.cancellable {
+            return (self.call)(params, context, &self.guards);
+        }
+        let enclosed = context.clone();
+        let answer = (self.call)(params, context, &self.guards)?;
+        Ok(self.encloses.iter().fold(answer, |answer, enclose| {
+            (enclose.0)(self.operation, params, &enclosed, answer)
+        }))
     }
 }
 
@@ -591,6 +673,16 @@ impl Contribution {
                 .chain([guard])
                 .map(Arc::clone)
                 .collect();
+        }
+        self
+    }
+
+    /// The same, each of its handlers' cancellable calls ended by
+    /// `enclose` at an enclosing call's end (ADR 0080).
+    #[must_use]
+    pub fn enclosed(mut self, enclose: &Enclose) -> Self {
+        for handler in &mut self.handlers {
+            handler.encloses = handler.encloses.iter().chain([enclose]).cloned().collect();
         }
         self
     }
@@ -824,24 +916,22 @@ impl Composition {
     }
 
     /// Each operation's one handler.
-    pub(crate) fn handlers(&self) -> Result<BTreeMap<&'static str, Handler>, CompositionError> {
-        let mut handlers: BTreeMap<&'static str, (&'static str, Handler)> = BTreeMap::new();
+    pub(crate) fn handlers(&self) -> Result<Handlers, CompositionError> {
+        let mut handlers = Handlers::default();
+        let mut owners: BTreeMap<&'static str, &'static str> = BTreeMap::new();
         for contribution in &self.contributions {
             for handler in &contribution.handlers {
                 let operation = handler.operation.name;
-                if let Some((first, _)) = handlers.get(operation) {
+                if let Some(first) = owners.insert(operation, contribution.name) {
                     return Err(CompositionError::DuplicateHandler {
                         operation,
                         first,
                         second: contribution.name,
                     });
                 }
-                handlers.insert(operation, (contribution.name, handler.clone()));
+                handlers.insert(operation, handler.clone());
             }
         }
-        Ok(handlers
-            .into_iter()
-            .map(|(operation, (_, handler))| (operation, handler))
-            .collect())
+        Ok(handlers)
     }
 }

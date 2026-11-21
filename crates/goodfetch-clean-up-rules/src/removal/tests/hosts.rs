@@ -274,18 +274,20 @@ fn a_regular_expression_exception_is_read_per_url() {
 /// The host the generic set is read for has no rule of its own in any
 /// embedded list: no exception, no procedural rule, and the hiding
 /// selectors of another reserved host.
-#[test]
-fn the_generic_probe_names_no_host_of_the_lists() {
-    for list in [List::Ads, List::Trackers, List::Annoyances] {
-        let engine = EMBEDDED.engine(list);
-        let probe = engine.url_cosmetic_resources(GENERIC_PROBE);
-        let other = engine.url_cosmetic_resources("https://another.example.invalid/");
+#[rstest]
+#[case::ads(List::Ads)]
+#[case::trackers(List::Trackers)]
+#[case::annoyances(List::Annoyances)]
+fn the_generic_probe_names_no_host_of_the_lists(#[case] list: List) {
+    let engine = EMBEDDED.engine(list);
 
-        assert!(probe.exceptions.is_empty(), "{list:?}");
-        assert!(probe.procedural_actions.is_empty(), "{list:?}");
-        assert!(!probe.generichide, "{list:?}");
-        assert_eq!(probe.hide_selectors, other.hide_selectors, "{list:?}");
-    }
+    let probe = engine.url_cosmetic_resources(GENERIC_PROBE);
+    let other = engine.url_cosmetic_resources("https://another.example.invalid/");
+
+    assert!(probe.exceptions.is_empty());
+    assert!(probe.procedural_actions.is_empty());
+    assert!(!probe.generichide);
+    assert_eq!(probe.hide_selectors, other.hide_selectors);
 }
 
 /// A host exception, or a `$generichide` exception of a host, a path, a

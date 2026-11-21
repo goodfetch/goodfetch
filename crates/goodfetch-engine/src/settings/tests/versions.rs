@@ -14,6 +14,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::{Compatibility, USER_CONFIGURATION};
 use goodfetch_protocol::refusals::RefusalCase;
 use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_test_support::{SnapshotValues, redact};
 use rstest::rstest;
 use serde_json::json;
 
@@ -173,10 +174,10 @@ fn a_new_major_refuses_an_older_majors_operator_policy_until_it_has_its_copy(#[c
                 matches!(error, SettingsError::OlderMajorPolicy { ref major, ref current, .. } if major == "2" && current == "3"),
                 "{error:?}"
             );
-            insta::assert_snapshot!(
-                format!("{}: {error}", error.code())
-                    .replace(&home.root().display().to_string(), "[home]")
-            );
+            insta::assert_snapshot!(redact(
+                &format!("{}: {error}", error.code()),
+                &SnapshotValues::default().with_path(&home.root().display().to_string(), "[home]"),
+            ));
         }
     }
 }

@@ -5,17 +5,27 @@
 //! value and the layer that set it, so its fix is to raise that setting.
 //! The fetch tiers and the page's driver (area 5) wait under it; time is the
 //! `Clock`'s.
+//!
+//! Timeouts nest (ADR 0080): a call made inside another inherits its end
+//! ([`Enclosing`]), so it may end sooner than its enclosing call but never
+//! later, and its `deadline_exceeded` then names that call as `ended_by`.
 
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
-use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, WaitedFor};
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use goodfetch_protocol::connection::{
+    DEADLINE_EXCEEDED, DeadlineExceededDetails, EnclosingCall, WaitedFor,
+};
+use goodfetch_protocol::settings::{
+    RunOrigin, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
+};
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::settings::Resolved;
+use tokio::time::Instant;
 
 /// A timeout's deadline, as its setting resolved.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,23 +45,82 @@ impl Deadline {
                 key: setting.name.to_owned(),
                 value: effective.value.clone(),
                 layer: effective.layer,
+                origin: effective.origin,
             },
             duration,
         })
     }
 
-    /// The deadline of `millis` the timeout `setting` takes from `layer`:
-    /// the run layer for a call's own `timeout`, the default when nothing
-    /// resolved it.
+    /// The deadline of `millis` the timeout `setting` takes from `layer`,
+    /// with no run-layer origin: the default when nothing resolved it. A
+    /// call's own `timeout` is [`Self::argument`], which refuses 0.
     pub fn given(setting: &Setting, millis: u64, layer: SettingsLayer) -> Self {
         Self {
             limit: SettingLimit {
                 key: setting.name.to_owned(),
                 value: millis.into(),
                 layer,
+                origin: None,
             },
             duration: Duration::from_millis(millis),
         }
+    }
+
+    /// The deadline of `millis` the run layer sets for the timeout
+    /// `setting` from `origin`, outside the settings a Run resolved: a
+    /// crawl Label's own value, which its requests wait under in place of
+    /// the Run's (ADR 0104).
+    pub fn set(setting: &Setting, millis: u64, origin: RunOrigin) -> Self {
+        Self {
+            limit: SettingLimit {
+                key: setting.name.to_owned(),
+                value: millis.into(),
+                layer: SettingsLayer::Run,
+                origin: Some(origin),
+            },
+            duration: Duration::from_millis(millis),
+        }
+    }
+
+    /// The deadline of a call's own `timeout` of `millis`, the timeout
+    /// `setting` for that call alone: that setting at the run layer, from
+    /// the call's argument (ADRs 0080 and 0083).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` for 0, which would end the call at once: its
+    /// `limit` names the value refused and its `fix` the null form that
+    /// sets no timeout.
+    pub fn argument(setting: &Setting, millis: u64) -> Result<Self, CallError> {
+        let limit = SettingLimit {
+            key: setting.name.to_owned(),
+            value: millis.into(),
+            layer: SettingsLayer::Run,
+            origin: Some(RunOrigin::Argument),
+        };
+        if millis == 0 {
+            let reason = "a timeout of 0 ms would end the call at once";
+            let fix = "give at least 1 ms, or `timeout: null` for no timeout";
+            return Err(CallError::new(
+                &SETTING_INVALID,
+                format!(
+                    "The call's `{}`, its `{}`: {reason}; {fix}.",
+                    named::parameter("timeout"),
+                    named::setting(setting.name),
+                ),
+                &SettingInvalidDetails {
+                    key: setting.name.to_owned(),
+                    layer: Some(SettingsLayer::Run),
+                    reason: reason.to_owned(),
+                    limit: Some(limit),
+                    fix: Some(fix.to_owned()),
+                },
+            ));
+        }
+        Ok(Self {
+            limit,
+            duration: Duration::from_millis(millis),
+        })
     }
 
     /// The deadline the timeout `setting` declares as its default, set by
@@ -86,8 +155,7 @@ impl Deadline {
     ///
     /// # Errors
     ///
-    /// `invalid_params` for a `timeout` of 0, which would end the call at
-    /// once.
+    /// `setting_invalid` for a `timeout` of 0, as [`Self::argument`] says.
     pub fn of_call(
         scope: &Self,
         setting: &Setting,
@@ -96,14 +164,7 @@ impl Deadline {
         match timeout {
             None => Ok(Some(scope.clone())),
             Some(None) => Ok(None),
-            Some(Some(0)) => Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!(
-                    "the call's timeout, its `{}`, is 0 ms, which would end it at once: give at least 1, or null for none",
-                    setting.name
-                ),
-            )),
-            Some(Some(millis)) => Ok(Some(Self::given(setting, millis, SettingsLayer::Run))),
+            Some(Some(millis)) => Self::argument(setting, millis).map(Some),
         }
     }
 
@@ -152,15 +213,126 @@ impl Deadline {
             &DEADLINE_EXCEEDED,
             format!(
                 "`{}` ({} ms) passed before the {waited_for} came; raise it, or wait for the right thing.",
-                self.limit.key, self.limit.value,
+                named::setting(&self.limit.key),
+                self.limit.value,
             ),
             &DeadlineExceededDetails {
                 limit: self.limit.clone(),
-                elapsed: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                elapsed: millis(elapsed),
                 waited_for,
+                ended_by: None,
+                observed: None,
             },
         )
     }
+}
+
+/// The end an enclosing call sets the calls made inside it (ADR 0080):
+/// the call, its timeout and when that timeout passes, read again as it
+/// nears, since a hold of the call's clock, a Human pause (ADR 0092) or a
+/// handler's wait for a navigation-gate permit (ADR 0093), moves it later.
+/// Its clones share it, so it is built once per enclosing call.
+#[derive(Clone)]
+pub struct Enclosing(Arc<EnclosingEnd>);
+
+/// What an [`Enclosing`]'s clones share.
+struct EnclosingEnd {
+    limit: SettingLimit,
+    call: EnclosingCall,
+    ends_at: Box<dyn Fn() -> Instant + Send + Sync>,
+}
+
+impl fmt::Debug for Enclosing {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Enclosing")
+            .field("limit", &self.0.limit)
+            .field("call", &self.0.call)
+            .field("ends_at", &(self.0.ends_at)())
+            .finish()
+    }
+}
+
+impl Enclosing {
+    /// The end of `call`, which waits under `deadline`, as `ends_at` reads
+    /// it: an end that only moves later.
+    pub fn new(
+        deadline: &Deadline,
+        call: EnclosingCall,
+        ends_at: impl Fn() -> Instant + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(EnclosingEnd {
+            limit: deadline.limit.clone(),
+            call,
+            ends_at: Box::new(ends_at),
+        }))
+    }
+
+    /// Waits for `work`, a call made inside the enclosing one, on `clock`
+    /// until the enclosing call's end, then ends it with
+    /// `deadline_exceeded`: its `limit` is the enclosing call's timeout,
+    /// its `ended_by` that call and its `observed` what `observe` saw then.
+    /// Work that ends first, on its own deadline too, keeps its result.
+    ///
+    /// # Errors
+    ///
+    /// What `work` fails with, else `deadline_exceeded` once the enclosing
+    /// call's end passed first.
+    ///
+    /// # Cancel safety
+    ///
+    /// As cancel-safe as `work`.
+    pub async fn bound<T>(
+        &self,
+        clock: &Clock,
+        work: impl Future<Output = Result<T, CallError>>,
+        observe: impl FnOnce() -> Option<String>,
+    ) -> Result<T, CallError> {
+        let started = clock.now();
+        tokio::select! {
+            biased;
+            answer = work => answer,
+            () = self.passed(clock) => Err(self.exceeded(clock.now() - started, observe())),
+        }
+    }
+
+    /// Returns once the enclosing call's end passed, sleeping again while
+    /// a hold moved it later.
+    async fn passed(&self, clock: &Clock) {
+        loop {
+            let end = (self.0.ends_at)();
+            if clock.now() >= end {
+                return;
+            }
+            clock.sleep_until(end).await;
+        }
+    }
+
+    /// The `deadline_exceeded` of a call made inside the enclosing one that
+    /// waited `elapsed` for its answer when the enclosing call's end came.
+    fn exceeded(&self, elapsed: Duration, observed: Option<String>) -> CallError {
+        CallError::new(
+            &DEADLINE_EXCEEDED,
+            format!(
+                "`{}` ({} ms) of the enclosing `{}` call passed before this call's answer came; raise it, or leave the call more of it.",
+                named::setting(&self.0.limit.key),
+                self.0.limit.value,
+                self.0.call.operation,
+            ),
+            &DeadlineExceededDetails {
+                limit: self.0.limit.clone(),
+                elapsed: millis(elapsed),
+                waited_for: WaitedFor::ANSWER,
+                ended_by: Some(self.0.call.clone()),
+                observed,
+            },
+        )
+    }
+}
+
+/// `elapsed` in whole milliseconds, as an error's details count it.
+fn millis(elapsed: Duration) -> u64 {
+    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

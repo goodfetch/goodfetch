@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context as _, Result};
 use serde_json::{Map, Value};
 
-use super::{External, Generator, json_text, projection};
+use super::{External, Generator, projection};
 
 /// `@goodfetch/test-support`'s generated folder.
 pub(super) const TYPESCRIPT_FOLDER: &str = "test-support/typescript/src/generated";
@@ -43,7 +43,7 @@ pub(super) fn add(
         output: format!("{PYTHON_FOLDER}/result_document.py"),
         generator: Generator::DatamodelCodegen,
         input_name: INPUT_NAME,
-        input: json_text(&input(bundle, true)?)?,
+        input: Generator::DatamodelCodegen.input_text(input(bundle, true)?)?,
         prefix: String::new(),
         header: format!("\"\"\"The result document's types (ADR 0063).\n\n{NOTICE}\n\"\"\""),
     });
@@ -51,7 +51,7 @@ pub(super) fn add(
         output: format!("{TYPESCRIPT_FOLDER}/result-document.ts"),
         generator: Generator::Json2ts,
         input_name: INPUT_NAME,
-        input: json_text(&input(bundle, false)?)?,
+        input: Generator::Json2ts.input_text(input(bundle, false)?)?,
         // The notice comes first, then the generator's output, which has no
         // banner of its own.
         prefix: format!("// {NOTICE}\n\n"),
@@ -102,13 +102,6 @@ fn input(bundle: &Value, python: bool) -> Result<Value> {
         if let Some(definitions) = input.get_mut("$defs") {
             drop_object_defaults(definitions);
         }
-    } else {
-        // `json-schema-to-typescript` reads a `$ref` as draft-07 does and
-        // drops its siblings, which would leave each kind of the tagged
-        // `ResultDocument` only its `kind`; an `allOf` keeps both.
-        if let Some(definitions) = input.get_mut("$defs") {
-            refs_beside_siblings_into_all_of(definitions);
-        }
     }
     Ok(input)
 }
@@ -123,31 +116,6 @@ fn drop_object_defaults(schema: &mut Value) {
             object.values_mut().for_each(drop_object_defaults);
         }
         Value::Array(items) => items.iter_mut().for_each(drop_object_defaults),
-        _ => {}
-    }
-}
-
-/// Moves every `$ref` that has sibling keywords other than `description`
-/// into an `allOf` beside them.
-fn refs_beside_siblings_into_all_of(schema: &mut Value) {
-    match schema {
-        Value::Object(object) => {
-            if object.len() > 1
-                && object
-                    .keys()
-                    .any(|key| key != "$ref" && key != "description")
-                && let Some(reference) = object.remove("$ref")
-            {
-                object.insert(
-                    "allOf".to_owned(),
-                    Value::Array(vec![serde_json::json!({ "$ref": reference })]),
-                );
-            }
-            object
-                .values_mut()
-                .for_each(refs_beside_siblings_into_all_of);
-        }
-        Value::Array(items) => items.iter_mut().for_each(refs_beside_siblings_into_all_of),
         _ => {}
     }
 }

@@ -23,7 +23,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
-use crate::frontier::{Inside, added, attributes, crawl_with, not_added};
+use crate::frontier::{Inside, added, attributes, crawl_declaring, crawl_with, not_added};
 
 /// The Proving ground's seed.
 const SEED: u64 = 840;
@@ -59,10 +59,11 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
     let mut engine = engine(&env, &proving_ground);
 
     let mut answers = Vec::new();
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "scoped",
         &seeds,
+        &json!({ "seed": {}, "page": {} }),
         settings,
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             let body = crate::site::html_of(inside, handle);
@@ -196,6 +197,7 @@ fn a_domain_policy_entry_that_is_no_host_fails_the_start() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "unread",
             "seeds": [{ "url": "https://shop.test/", "label": "page" }],
             "settings": { "egress": { "blocked_domains": ["shop.test/cart"] } },
@@ -232,6 +234,7 @@ fn a_scope_pattern_the_engine_cannot_match_fails_the_start() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "unmatched",
             "seeds": [{ "url": "https://shop.test/", "label": "page" }],
             "settings": { "crawl": { "scope": { "include": ["https://shop.test/{a,{b,c}}"] } } },

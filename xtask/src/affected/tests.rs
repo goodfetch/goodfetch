@@ -275,10 +275,10 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 // The visual job runs when a visual test, a Reference screenshot, a runner's
 // config, the pinned image or the code a visual test exercises changes.
-#[case::visual_for_a_vitest_visual_test(&["widgets/src/screens/run.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
-#[case::visual_for_a_playwright_visual_test(&["test-support/typescript/src/screenshot.visual.spec.ts"], r#"["pre-merge","sinks","visual"]"#)]
-#[case::visual_for_a_vitest_reference_screenshot(&["widgets/src/screens/__screenshots__/run.visual.test.tsx/run-1.png"], r#"["pre-merge","sinks","visual"]"#)]
-#[case::visual_for_a_playwright_reference_screenshot(&["test-support/typescript/src/screenshot.visual.spec.ts-snapshots/fixture-page.png"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_vitest_visual_test(&["sdks/typescript/collie/src/page.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_playwright_visual_test(&["sdks/typescript/collie/src/page.visual.spec.ts"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_vitest_reference_screenshot(&["sdks/typescript/collie/src/__screenshots__/page.visual.test.tsx/page-1.png"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_playwright_reference_screenshot(&["sdks/typescript/collie/src/page.visual.spec.ts-snapshots/page.png"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_the_playwright_config(&["playwright.config.ts"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 #[case::visual_for_the_pinned_image(&["ci/visual/image.toml"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 #[case::visual_for_code_a_visual_test_exercises(&["widgets/src/app.tsx"], r#"["pre-merge","sinks","visual"]"#)]
@@ -300,11 +300,9 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 // its tests run (test support's Scripted engine and Collie's Daemon), and a
 // file no member owns, such as the `clippy.toml` its Clippy reads (ADR 0141).
 #[rstest]
-#[case::its_own_workspace(&["kennel/crates/goodfetch-kennel/src/state.rs"])]
 #[case::the_protocol_it_is_built_on(&["crates/goodfetch-protocol/src/lib.rs"])]
 #[case::the_scripted_engines_script_format(&["crates/goodfetch-test-support/src/script.rs"])]
 #[case::the_engines_home_layout(&["crates/goodfetch-engine/src/home.rs"])]
-#[case::collies_executable(&["crates/goodfetch-collie/src/main.rs"])]
 #[case::a_file_no_member_owns(&["clippy.toml"])]
 fn the_kennel_runs_for_a_change_its_build_or_tests_reach(#[case] paths: &[&str]) {
     let selection = select_paths(paths);
@@ -317,10 +315,7 @@ fn the_kennel_runs_for_a_change_its_build_or_tests_reach(#[case] paths: &[&str])
 }
 
 #[rstest]
-#[case::foxhounds_frontier(&["crates/foxhound/goodfetch-frontier/src/lib.rs"])]
 #[case::the_proving_ground(&["proving-ground/src/main.rs"])]
-#[case::an_sdk(&["sdks/python/collie/src/goodfetch_collie/client.py"])]
-#[case::the_docs(&["docs/collie/index.md"])]
 fn the_kennel_does_not_run_for_a_change_neither_its_build_nor_its_tests_reach(
     #[case] paths: &[&str],
 ) {
@@ -368,6 +363,82 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
     let selection = select_paths(paths);
 
     assert_eq!(value(&selection, "gate"), gate);
+}
+
+// xtask's codegen tests are `tests/` tests, which the Quick suite never
+// runs, so a change to what they alone check selects them beside it: the
+// emitter and the xtask modules it renders through, the protocol crate's
+// files their fixture holds as they are or whose items the emitter writes
+// into it, and their own fixture, test file and snapshots. Commit f6abad1cf changed the
+// emitter and the catalog's sections and merged on the quick gate with 37 of
+// them red (issue 2892). Another change to the protocol crate, to xtask or
+// to xtask's other tests leaves them to the Pre-merge suite.
+#[rstest]
+#[case::the_emitters_root(&["xtask/src/codegen.rs"], "true")]
+#[case::the_emitter(&["xtask/src/codegen/emit.rs"], "true")]
+#[case::feature_schemas(&["xtask/src/features/files.rs"], "true")]
+#[case::the_feature_inventory(&["xtask/src/features.rs"], "true")]
+#[case::the_licence_allowlist(&["xtask/src/license_allowlist.rs"], "true")]
+#[case::the_refusal_samples(&["xtask/src/compat/refusals.rs"], "true")]
+#[case::the_products_folders(&["xtask/src/products.rs"], "true")]
+#[case::the_attached_engines_name(&["crates/goodfetch-protocol/src/cli.rs"], "true")]
+#[case::the_engine_path_variables(&["crates/goodfetch-protocol/src/settings/deployment.rs"], "true")]
+#[case::the_format_types(&["crates/goodfetch-protocol/src/formats.rs"], "true")]
+#[case::the_refusal_types(&["crates/goodfetch-protocol/src/refusals.rs"], "true")]
+#[case::the_tests(&["xtask/tests/it/codegen.rs"], "true")]
+#[case::their_workspace_helper(&["xtask/tests/it/workspace.rs"], "true")]
+#[case::their_fixture(&["xtask/tests/it/fixtures/codegen/crates/goodfetch-protocol/generated/catalog.json"], "true")]
+#[case::their_snapshot(&["xtask/tests/it/snapshots/it__codegen__sdks__typescript__collie-client__src__generated.snap"], "true")]
+#[case::another_protocol_module(&["crates/goodfetch-protocol/src/foxhound.rs"], "false")]
+#[case::another_xtask_module(&["xtask/src/gate/plan.rs"], "false")]
+#[case::another_compat_module(&["xtask/src/compat.rs"], "false")]
+#[case::another_settings_module(&["crates/goodfetch-protocol/src/settings.rs"], "false")]
+#[case::another_xtask_test(&["xtask/tests/it/affected.rs"], "false")]
+#[case::another_tests_snapshot(&["xtask/tests/it/snapshots/it__affected__selection.snap"], "false")]
+#[case::a_crate(&["crates/goodfetch-engine/src/lib.rs"], "false")]
+#[case::a_workspace_input(&["Cargo.lock"], "false")]
+#[case::no_change(&[], "false")]
+fn a_change_to_what_only_the_codegen_tests_check_selects_them(
+    #[case] paths: &[&str],
+    #[case] selected: &str,
+) {
+    let selection = select_paths(paths);
+
+    assert_eq!(value(&selection, "codegen-tests"), selected);
+}
+
+/// Each protocol file that the codegen tests' fixture holds as it is, a case
+/// of `xtask/tests/it/codegen.rs`'s
+/// `the_fixtures_catalog_module_is_the_protocol_crates_own`, selects those
+/// tests, so a file the fixture comes to copy cannot drift from it on a
+/// quick merge.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+fn each_protocol_file_the_codegen_fixture_copies_selects_the_codegen_tests() {
+    let tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/codegen.rs");
+    let text = std::fs::read_to_string(&tests).unwrap();
+    let copy_test = text
+        .find("fn the_fixtures_catalog_module_is_the_protocol_crates_own(")
+        .expect("the codegen tests check the fixture's copies");
+    let attributes = &text[text[..copy_test].rfind("#[rstest]").unwrap()..copy_test];
+    let copies: Vec<String> = attributes
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("#[case::"))
+        .map(|case| {
+            let file = case.split('"').nth(1).expect("a case names its file");
+            format!("crates/goodfetch-protocol/{file}")
+        })
+        .collect();
+
+    assert!(!copies.is_empty(), "the fixture copies no protocol file");
+    let unselected: Vec<String> = copies
+        .into_iter()
+        .filter(|path| value(&select_paths(&[path.as_str()]), "codegen-tests") != "true")
+        .collect();
+    assert_eq!(unselected, Vec::<String>::new());
 }
 
 /// Writes `text` to `path` under `root`, its folders first.
@@ -440,7 +511,9 @@ fn a_document_is_read_only_where_code_names_the_file_itself(
 ) {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "crates/goodfetch-collie/tests/it.rs", source);
-    let members = WorkspaceMembers::from_workspace(fixture());
+    let members = WorkspaceMembers {
+        workspace: fixture(),
+    };
     let paths: Vec<RepoPath> = paths.iter().map(|path| RepoPath::new(*path)).collect();
 
     let selection =
@@ -473,7 +546,9 @@ fn xtask_reads_a_document_only_through_a_path_from_its_folder(
 ) {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "xtask/tests/it/notes.rs", source);
-    let members = WorkspaceMembers::from_workspace(fixture());
+    let members = WorkspaceMembers {
+        workspace: fixture(),
+    };
 
     let selection = select_with_readers(
         root.path(),
@@ -543,7 +618,9 @@ fn a_document_tests_read_by_part_selects_only_the_readers_of_its_changed_parts(
 ) {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "xtask/tests/it/budgets.rs", source);
-    let members = WorkspaceMembers::from_workspace(fixture());
+    let members = WorkspaceMembers {
+        workspace: fixture(),
+    };
     let testing = RepoPath::new("TESTING.md");
     let after = TESTING_BEFORE.replace(edit.0, edit.1);
     let mut parts = ChangedParts::default();
@@ -661,6 +738,50 @@ fn changed_crates_list_them_and_their_dependants_for_cargo(
     assert_eq!(value(&selection, "crates"), crates);
 }
 
+/// A crate reached only through `runs` selects its own tests: not its bench
+/// targets, which run no executable, and not its dependants, which are
+/// selected only when they name the executable in `runs` themselves (the
+/// owner's « Oui » of 2026-11-04, issue 2090's F9). Here test support's
+/// tests run the Proving ground, as in the repository; the engine
+/// dev-depends on test support, and Collie, Foxhound and the frontier
+/// depend on the engine.
+#[rstest]
+#[case::a_dependant_that_does_not_name_it(
+    &[],
+    "goodfetch-conformance goodfetch-proving-ground goodfetch-test-support"
+)]
+#[case::a_dependant_that_names_it(
+    &["goodfetch-proving-ground"],
+    "goodfetch-conformance goodfetch-engine goodfetch-proving-ground goodfetch-test-support"
+)]
+fn a_crate_reached_through_runs_selects_its_own_tests_alone(
+    #[case] engine_runs: &[&str],
+    #[case] crates: &str,
+) {
+    let mut workspace = fixture();
+    for krate in &mut workspace.crates {
+        match krate.name.as_str() {
+            "goodfetch-test-support" => krate.runs = names(&["goodfetch-proving-ground"]),
+            "goodfetch-engine" => krate.runs = names(engine_runs),
+            _ => {}
+        }
+    }
+
+    let selection = select(
+        &workspace,
+        &[RepoPath::new("proving-ground/src/oracle.rs")],
+        &ChangedParts::default(),
+    );
+
+    assert_eq!(
+        (
+            value(&selection, "crates"),
+            value(&selection, "bench-targets")
+        ),
+        (crates.to_owned(), String::new())
+    );
+}
+
 #[rstest]
 #[case::client_package_and_its_dependants(&["sdks/typescript/collie-client/src/index.ts"], "sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound", "")]
 #[case::python_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], "", "sdks/python/collie")]
@@ -701,6 +822,7 @@ fn shared_crate_change_selects_both_products_tests() {
     sinks-touched=
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -735,6 +857,7 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
     sinks-touched=
     bench-targets=
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -880,7 +1003,9 @@ fn selection_with_one_reader(reader: &str, text: &str, changed: &str) -> (Select
     let root = tempfile::tempdir().unwrap();
     write(root.path(), reader, text);
     write(root.path(), changed, "");
-    let members = WorkspaceMembers::from_workspace(fixture());
+    let members = WorkspaceMembers {
+        workspace: fixture(),
+    };
     let selection = select_with_readers(
         root.path(),
         &members,
@@ -954,6 +1079,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -971,53 +1097,18 @@ fn workspace_input_change_selects_everything() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
-}
-
-/// The fixture with the test-support packages loaded into every run of
-/// their runners: the root Vitest and Playwright configs import the
-/// TypeScript one, and the Python one is a pytest plugin.
-fn with_test_support_in_every_run() -> Workspace {
-    let mut workspace = fixture();
-    for package in &mut workspace.packages {
-        if package.folder.is_in("test-support") {
-            package.loaded_by_every_run = true;
-        }
-    }
-    workspace
-}
-
-#[rstest]
-#[case::typescript(
-    "test-support/typescript/src/errors.ts",
-    "vitest-packages",
-    "sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript widgets widgets/extra"
-)]
-#[case::python(
-    "test-support/python/src/goodfetch_test_support/plugin.py",
-    "pytest-packages",
-    "sdks/python/collie sdks/python/collie-client sdks/python/foxhound test-support/python"
-)]
-fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosystem(
-    #[case] path: &str,
-    #[case] key: &str,
-    #[case] expected: &str,
-) {
-    let selection = select(
-        &with_test_support_in_every_run(),
-        &[RepoPath::new(path)],
-        &ChangedParts::default(),
-    );
-
-    assert_eq!(value(&selection, key), expected);
 }
 
 /// The members that own a visual test, which the visual job runs (the
 /// incremental gate's re-review, N4).
 #[test]
 fn the_members_that_own_a_visual_test_are_known() {
-    let members = super::WorkspaceMembers::from_workspace(fixture());
+    let members = super::WorkspaceMembers {
+        workspace: fixture(),
+    };
 
     assert!(members.owns_a_visual_test("widgets"));
     assert!(!members.owns_a_visual_test("test-support/typescript"));

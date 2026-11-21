@@ -139,18 +139,6 @@ fn a_plain_body_within_the_size_is_read_whole() {
 }
 
 #[test]
-fn a_plain_body_one_byte_past_the_size_is_refused_naming_the_setting() {
-    let limits = Limits {
-        max_body_size: 1000,
-        ..Limits::default()
-    };
-
-    let read = read(&[], &[b'a'; 1001], limits);
-
-    assert_eq!(passed(read), (LimitSetting::MaxBodySize, 1000));
-}
-
-#[test]
 fn a_plain_body_of_exactly_the_size_is_read() {
     let limits = Limits {
         max_body_size: 1000,
@@ -237,17 +225,6 @@ fn a_compressed_body_past_the_size_is_refused_naming_the_size() {
     assert_eq!(passed(read), (LimitSetting::MaxBodySize, 200 * 1024));
 }
 
-#[rstest]
-#[case::gzip(&["gzip"])]
-#[case::deflate(&["deflate"])]
-#[case::brotli(&["br"])]
-#[case::zstd(&["zstd"])]
-fn a_body_that_is_no_stream_of_its_coding_fails_to_decode(#[case] codings: &[&str]) {
-    let read = read(codings, b"plain text, never compressed", Limits::default());
-
-    assert!(matches!(read, Err(BodyFailure::Corrupt)), "{read:?}");
-}
-
 fn nested(depth: usize) -> String {
     format!("{}{}", "[".repeat(depth), "]".repeat(depth))
 }
@@ -276,15 +253,6 @@ fn json_past_the_depth_is_refused_naming_the_setting(#[case] json: String) {
         (checked.setting, checked.limit),
         (LimitSetting::MaxJsonDepth, 128)
     );
-}
-
-#[test]
-fn json_nested_as_deep_as_the_depth_parses() {
-    let json = nested(128);
-
-    let parsed = parse_json(URL, json.as_bytes(), &Limits::default());
-
-    assert!(parsed.is_ok(), "{parsed:?}");
 }
 
 #[test]

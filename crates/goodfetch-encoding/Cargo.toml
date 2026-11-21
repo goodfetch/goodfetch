@@ -1,0 +1,20 @@
+[package]
+name = "goodfetch-encoding"
+description = "The Encoding a document's own bytes declare, read as Chrome reads it (ADR 0119): a `Content-Type` value's essence and charset, Chrome's `<meta>` prescan and the XML declaration, which Foxhound's fetch tiers and Collie's client crate both read."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+encoding_rs.workspace = true
+html5ever.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+
+[lints]
+workspace = true

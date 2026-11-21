@@ -128,6 +128,8 @@ This settles the map's fog "Where test results are kept over time and shown".
 - **A `live-check` issue closes once its cause is written down and either fixed in Goodfetch or attributed to an external party with a linked upstream report** (the vendor's issue, status-page incident or changelog entry). So an explained vendor outage or testnet change never holds a milestone gate; a later failure reopens the issue.
 - **A measurement declares its trial count, threshold and statistic before it runs** (the lab's method), and every trial counts. A failed trial is never replaced by another. Live-model evaluations use pass^k with Wilson intervals; the values belong to [Testing AI features and agent skills](https://github.com/goodfetch/goodfetch/issues/281).
 
+> Note (owner's rule of 2026-11-18, given verbatim: « Tu ne fais plus ça », "you don't do that any more"; recorded on 2026-11-21 from `TESTING.md`, [#2530](https://github.com/goodfetch/goodfetch/issues/2530)): a flaky or timing fix is accepted on its cause named and removed, one normal run of the test and the gate, never on runs under artificial load or a count of runs in a row; `just load-proofs <issue>` refuses such a criterion.
+
 ## Considered Options
 
 - **Retries that report the test as flaky but fail anyway** (nextest's `flaky-result = "fail"` with retries on, Playwright's `failOnFlakyTests`) in the gating run: rejected. The verdict is the same, the run costs the extra attempts, and a "flaky" label in a green-looking report trains people to dismiss failures, the complaint Google and Gruber and Fraser record. The diagnostic run gives the same classification in a separate job. The locks stay on, at zero retries.

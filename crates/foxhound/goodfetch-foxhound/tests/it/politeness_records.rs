@@ -88,6 +88,7 @@ pub(crate) fn crawl(
             "seeds": seeds,
             "settings": settings,
             "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
         }),
         &mut |inside, handle| {
             let url = handle["crawl_request"]["url"].clone();
@@ -230,22 +231,15 @@ fn a_value_from_user_configuration_is_recorded_with_its_layer() {
     );
     assert!(engine.finished());
 
-    let layer = report["result"]["weakened"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|weakened| weakened["key"] == "politeness.domain.concurrency")
-        .map(|weakened| weakened["layer"].clone());
     assert_eq!(
         politeness_weakened(&env),
         vec![json!([
             "configured",
-            layer,
+            "user_configuration",
             { "setting": "politeness.domain.concurrency", "value": 3, "default": 1 },
         ])],
         "{report}"
     );
-    assert_ne!(layer, Some(json!("run")), "{report}");
 }
 
 /// Every Record of the Run `run_id`'s Dataset `pages`, as `run.records`

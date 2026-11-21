@@ -19,6 +19,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# The naming rule's property tests take the suite's case count and seed (ADR 0060).
+goodfetch-test-support.workspace = true
 jsonschema.workspace = true
 proptest.workspace = true
 regex.workspace = true

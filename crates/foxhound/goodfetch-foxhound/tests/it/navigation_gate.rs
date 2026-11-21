@@ -1629,7 +1629,7 @@ fn start_eight(engine: &mut Attached, proving_ground: &ProvingGround) {
     );
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "eight", "seeds": [eight_seed(proving_ground, 0)], "settings": settings },
+        "params": { "run_id": "eight", "seeds": [eight_seed(proving_ground, 0)], "settings": settings, "labels": { "page": {} } },
     }));
     warm_up(engine, proving_ground);
     engine.send(&json!({

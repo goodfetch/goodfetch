@@ -178,6 +178,7 @@ pub const TIMEOUT_DATASET_QUERY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -192,6 +193,7 @@ pub const DATASET_QUERY_MEMORY_LIMIT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -206,6 +208,7 @@ pub const DATASET_QUERY_MAX_ROWS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

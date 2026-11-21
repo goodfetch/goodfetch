@@ -247,9 +247,16 @@ pub(super) fn bytes(folder: &Path) -> io::Result<u64> {
     Ok(total)
 }
 
-/// Moves `folder` out of the cache into `.deleting/`, then deletes it. A
-/// deletion cut off after the rename is finished by [`finish_deletions`].
-pub(super) fn delete(root: &Path, folder: &Path) -> io::Result<()> {
+/// Moves `folder` out of the cache into `.deleting/`, lets `lock` go, then
+/// deletes it. A deletion cut off after the rename is finished by
+/// [`finish_deletions`].
+///
+/// Once moved, the entry is no longer in the cache, so its lock guards
+/// nothing more; and its lock file, open while locked, would keep the
+/// folder from being deleted where a deleted file stays in its folder
+/// until its last handle closes: Windows on a volume without POSIX delete
+/// semantics, such as FAT32 or exFAT, and Wine (os error 145).
+pub(super) fn delete(root: &Path, folder: &Path, lock: Option<Lock>) -> io::Result<()> {
     let deleting = root.join(DELETING);
     fs::create_dir_all(&deleting)?;
     let target = tempfile::Builder::new()
@@ -258,6 +265,7 @@ pub(super) fn delete(root: &Path, folder: &Path) -> io::Result<()> {
         .keep();
     fs::remove_dir(&target)?;
     fs::rename(folder, &target)?;
+    drop(lock);
     fs::remove_dir_all(target)
 }
 

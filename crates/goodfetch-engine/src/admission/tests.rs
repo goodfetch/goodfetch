@@ -727,3 +727,70 @@ fn a_run_whose_own_requests_fill_its_keys_concurrency_takes_nothing_in_the_file_
         "a take, its give back and the next take"
     );
 }
+
+/// A Run whose own request in flight fills its key's concurrency keeps the
+/// turn its next request began to wait for, ahead of another engine's Run
+/// that waits after it: the give back of its request wakes it, and its
+/// next request is admitted while the other's still waits (ADR 0053's
+/// turns, #1899).
+///
+/// Covers: story:3-81, setting:politeness.domain.concurrency
+#[test]
+fn a_run_whose_own_request_fills_its_key_keeps_its_turn_ahead_of_a_later_waiter() {
+    let admitted = on_the_runtime(async |owner| {
+        let folder = tempfile::tempdir().unwrap();
+        let one_at_a_time = SharedRule::new(Rule {
+            cap: 1,
+            delay: None,
+        });
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+        let mut admissions = Vec::new();
+        for (engine, waiting) in [("first", &["1", "2"][..]), ("second", &["3"][..])] {
+            let politeness = Politeness::open(
+                folder.path().join("politeness.sqlite"),
+                &PolitenessOptions::default(),
+                Vec::new(),
+                |_, _| false,
+                engine.to_owned(),
+                owner,
+            )
+            .await
+            .unwrap();
+            let holder = Holder {
+                run_id: engine.to_owned(),
+                epoch: 1,
+                run_folder: engine.into(),
+                delegates: false,
+            };
+            let gate = InOrder::new(waiting, one_at_a_time.clone(), &Arc::default());
+            admissions.push(Admission::new(Box::new(gate), &settings).sharing(
+                (politeness, None),
+                holder,
+                clock,
+                &settings,
+            ));
+        }
+        let [mut first, mut second] = <[Admission; 2]>::try_from(admissions).unwrap();
+        let now = Instant::now();
+        let one = first.admit(now).await.unwrap();
+        let first_waits = first.admit(now).await.map(|admitted| admitted.id);
+        let second_waits = second.admit(now).await.map(|admitted| admitted.id);
+        first.ended(&one.id, "shop.test", now, Ended::Done).await;
+        let first_next = first.admit(now).await.map(|admitted| admitted.id);
+        second.wake(Some("shop.test"));
+        let second_next = second.admit(now).await.map(|admitted| admitted.id);
+        [
+            Some(one.id),
+            first_waits,
+            second_waits,
+            first_next,
+            second_next,
+        ]
+    });
+
+    assert_eq!(
+        admitted,
+        [Some("1".to_owned()), None, None, Some("2".to_owned()), None]
+    );
+}

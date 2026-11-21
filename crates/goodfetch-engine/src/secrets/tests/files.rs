@@ -14,6 +14,7 @@ use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use secrecy::ExposeSecret as _;
 
 use super::{driver, resolved};
+use crate::mask::Redaction;
 use crate::secrets::SecretError;
 
 /// The folder of the encrypted local files in `env`'s home.
@@ -72,7 +73,7 @@ fn plant(env: &TestEnv, name: &str, value: &str, recipient: &x25519::Recipient, 
 /// The failure and fix of a resolution of `text` that gives no value.
 fn unavailable(env: &TestEnv, text: &str) -> (SecretFailure, String) {
     let secrets = goodfetch_test_support::runtime()
-        .block_on(async { driver(env, &[]).for_run(Duration::from_secs(30)) });
+        .block_on(async { driver(env, &[]).for_run_with(Duration::from_secs(30), Redaction::On) });
     match resolved(&secrets, text) {
         Err(SecretError::Unavailable { failure, fix, .. }) => (failure, fix),
         Err(other) => panic!("expected `secret_unavailable`, found {other:?}"),
@@ -102,7 +103,7 @@ fn a_value_in_an_encrypted_local_file_resolves_through_secretfile_and_is_in_no_f
         armored,
     );
     let secrets = goodfetch_test_support::runtime()
-        .block_on(async { driver(&env, &[]).for_run(Duration::from_secs(30)) });
+        .block_on(async { driver(&env, &[]).for_run_with(Duration::from_secs(30), Redaction::On) });
 
     let resolved = resolved(&secrets, "secretfile:shop-key").unwrap();
 
@@ -281,7 +282,7 @@ fn a_key_missing_at_a_runs_first_resolution_resolves_in_that_run_once_made() {
     let env = TestEnv::new();
     let (secrets, run) = goodfetch_test_support::runtime().block_on(async {
         let secrets = driver(&env, &[]);
-        let run = secrets.for_run(Duration::from_secs(30));
+        let run = secrets.for_run_with(Duration::from_secs(30), Redaction::On);
         (secrets, run)
     });
 
@@ -309,7 +310,7 @@ fn a_key_missing_at_a_runs_first_resolution_resolves_in_that_run_once_made() {
 /// The value `secretfile:run-state-key` resolves to in `env`'s home.
 fn resolved_key(env: &TestEnv) -> String {
     let secrets = goodfetch_test_support::runtime()
-        .block_on(async { driver(env, &[]).for_run(Duration::from_secs(30)) });
+        .block_on(async { driver(env, &[]).for_run_with(Duration::from_secs(30), Redaction::On) });
     resolved(&secrets, "secretfile:run-state-key")
         .unwrap()
         .expose_secret()

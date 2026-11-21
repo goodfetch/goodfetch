@@ -103,11 +103,11 @@ fn a_refused_transition_names_its_state_and_event() {
     let refused = apply(Finished, RunEvent::WriterFound).unwrap_err();
 
     assert_eq!(
-        (refused.state, refused.event, refused.to_string()),
+        (refused.state, refused.event, refused.refusal),
         (
             Finished,
             RunEvent::WriterFound,
-            "WriterFound is refused in the state Finished".to_owned()
+            Refusal::Program("run_in_use")
         )
     );
 }

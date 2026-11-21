@@ -601,23 +601,6 @@ impl RunCopies {
         drop(held);
         Ok(copy)
     }
-
-    /// How many origins' copies it holds in memory, those its readers are
-    /// reading included: at most [`CACHED`] beside those.
-    pub fn held(&self) -> usize {
-        let in_memory = lock(&self.memory);
-        let reading = in_memory
-            .in_flight
-            .keys()
-            .filter(|location| {
-                !in_memory
-                    .cached
-                    .iter()
-                    .any(|(cached, _)| cached == *location)
-            })
-            .count();
-        in_memory.cached.len() + reading
-    }
 }
 
 /// The answer `state` keeps for `location`, none when it keeps none or

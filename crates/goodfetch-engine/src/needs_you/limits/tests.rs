@@ -181,29 +181,33 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
 
 /// Covers: story:12-100, story:12-32
 #[rstest]
-#[case::while_its_limit_has_nothing_left(Then::Nothing, Duration::from_hours(1), true)]
-#[case::not_once_a_person_raised_it(Then::Raised, Duration::from_hours(1), false)]
+#[case::while_its_limit_has_nothing_left(
+    Then::Nothing,
+    Duration::from_hours(1),
+    &[("run_stopped_by_limit", Some("capped"))]
+)]
+#[case::not_once_a_person_raised_it(Then::Raised, Duration::from_hours(1), &[])]
 #[case::while_a_person_set_it_again_with_nothing_more_left(
     Then::RaisedToNothingMore,
     Duration::from_hours(1),
-    true
+    &[("run_stopped_by_limit", Some("capped"))]
 )]
-#[case::not_once_its_period_started_again(Then::Nothing, Duration::from_hours(15), false)]
+#[case::not_once_its_period_started_again(Then::Nothing, Duration::from_hours(15), &[])]
 #[case::not_when_only_another_limit_holds_nothing_left(
     Then::OnlyAnotherScope,
     Duration::from_hours(1),
-    false
+    &[]
 )]
 fn a_run_a_limit_stopped_is_listed_while_that_limit_still_holds_it(
     #[case] then: Then,
     #[case] after: Duration,
-    #[case] listed_then: bool,
+    #[case] expected: &[(&str, Option<&str>)],
 ) {
-    let expected = if listed_then {
-        vec![("run_stopped_by_limit".to_owned(), Some("capped".to_owned()))]
-    } else {
-        Vec::new()
-    };
+    let found = listed(then, after);
 
-    assert_eq!(listed(then, after), expected);
+    let found: Vec<(&str, Option<&str>)> = found
+        .iter()
+        .map(|(kind, run)| (kind.as_str(), run.as_deref()))
+        .collect();
+    assert_eq!(found, expected);
 }

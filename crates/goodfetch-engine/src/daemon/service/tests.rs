@@ -123,6 +123,28 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
     );
 }
 
+/// With no GUI session, the agent registers in `user/<uid>`, a `Background`
+/// session, where launchd loads only an agent limited to that session type:
+/// without the limit, `launchctl bootstrap` fails with `5: Input/output
+/// error` (#3142).
+///
+/// Covers: story:3-21
+#[test]
+fn an_agent_registered_in_the_user_domain_is_limited_to_its_background_session() {
+    let home = Home::new(PathBuf::from(HOME));
+    let version = version();
+    let environment = fixture_environment();
+    let mut request = request(ServiceManager::Launchd, &home, &version, &environment);
+    request.launchd_domain = Some("user/501");
+
+    let planned = plan(&request).unwrap();
+
+    let [file] = planned.files.as_slice() else {
+        panic!("one LaunchAgent plist: {:?}", planned.files);
+    };
+    insta::assert_snapshot!(text(&file.contents));
+}
+
 /// The token a Client's `hello` carries never reaches a service's
 /// definition, which other programs of the user can read.
 ///

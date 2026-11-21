@@ -102,10 +102,6 @@ class RuntimeFile:
 class DaemonReach:
     """A Daemon reached, before `hello`."""
 
-    kind: Literal["daemon", "remote"]
-    """This machine's Daemon, or a remote one."""
-    home: str | None
-    """The Daemon's home: `None` for a remote one, whose home is its own machine's."""
     url: str
     """Where it listens: a remote Daemon's URL, a socket path or a loopback address."""
     stream: SocketStream
@@ -120,6 +116,16 @@ class DaemonReach:
     By it the Daemon it hands over to is told from it (ADR 0098); `None`
     for a remote Daemon, which never hands over.
     """
+
+    @property
+    def kind(self) -> Literal["daemon", "remote"]:
+        """This machine's Daemon, or a remote one."""
+        return "remote" if self.runtime_file is None else "daemon"
+
+    @property
+    def home(self) -> str | None:
+        """The Daemon's home: `None` for a remote one, whose home is its machine's."""
+        return None if self.runtime_file is None else self.runtime_file.home
 
 
 Reach: TypeAlias = AttachedReach | DaemonReach
@@ -219,8 +225,6 @@ async def _reach_remote(remote: RemoteDaemon, source: str) -> DaemonReach:
         else f"Give engine the token the Daemon at {url} takes."
     )
     return DaemonReach(
-        kind="remote",
-        home=None,
         url=url,
         stream=stream,
         token=remote.token,
@@ -467,8 +471,6 @@ async def _running_daemon(
         f"Restart it with `daemon restart`, which writes a new runtime file in {home}."
     )
     return DaemonReach(
-        kind="daemon",
-        home=home,
         url=address,
         stream=stream,
         token=token,

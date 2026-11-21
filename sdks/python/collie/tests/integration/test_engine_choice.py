@@ -82,10 +82,18 @@ def write_runtime_file(home: Path, contents: str) -> None:
     file.chmod(0o600)
 
 
-def reached(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str, object]]:
-    """Each line `goodfetch.client` got: its level, its message and its `engine`."""
+def logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str, object]]:
+    """Each line `goodfetch.client` got: its level, its message and its fields."""
     return [
-        (record.levelno, record.getMessage(), record.__dict__.get("engine"))
+        (
+            record.levelno,
+            record.getMessage(),
+            {
+                field: record.__dict__[field]
+                for field in ("fallback", "engine")
+                if field in record.__dict__
+            },
+        )
         for record in caplog.records
         if record.name == CLIENT_LOGGER
     ]
@@ -151,8 +159,8 @@ async def test_reaches_an_attached_engine_when_no_daemon_runs_and_says_so(
             fallback=None,
         )
     with client_case.check("the choice is logged once at info, and nothing else"):
-        [(level, message, logged)] = reached(caplog)
-        assert (level, logged) == (logging.INFO, engine)
+        [(level, message, fields)] = logged(caplog)
+        assert (level, fields) == (logging.INFO, {"engine": engine})
         assert "Attached engine" in message
 
 
@@ -194,8 +202,8 @@ async def test_reaches_the_daemon_whose_runtime_file_is_in_the_home_and_says_so(
             fallback=None,
         )
     with client_case.check("the choice is logged once at info"):
-        [(level, message, logged)] = reached(caplog)
-        assert (level, logged) == (logging.INFO, engine)
+        [(level, message, fields)] = logged(caplog)
+        assert (level, fields) == (logging.INFO, {"engine": engine})
         assert "Daemon" in message
 
 
@@ -551,23 +559,6 @@ def restart_fix(path: str) -> str:
     )
 
 
-def logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str, object]]:
-    """Each line `goodfetch.client` got: its level, its message and its fields."""
-    return [
-        (
-            record.levelno,
-            record.getMessage(),
-            {
-                field: record.__dict__[field]
-                for field in ("fallback", "engine")
-                if field in record.__dict__
-            },
-        )
-        for record in caplog.records
-        if record.name == CLIENT_LOGGER
-    ]
-
-
 @pytest.mark.covers("story:11-9", "story:11-290")
 @pytest.mark.client_case(
     id="connect-falls-back-when-the-daemon-refuses", mode="attached"
@@ -638,6 +629,30 @@ async def test_falls_back_to_an_attached_engine_when_the_daemon_refuses_and_says
         assert daemon.address in why
         assert (info, reached_fields) == (logging.INFO, {"engine": engine})
         assert "Attached engine" in reached_text
+
+
+@pytest.mark.covers("story:11-293")
+@three_ways
+async def test_names_the_install_in_the_refusals_fix_when_no_executable_is_there(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """With no executable to restart the Daemon with, the fix installs one."""
+    missing = str(test_env.home / "no-collie-here")
+    env = {
+        **scripted_engine_env(test_env, product, ATTACHED),
+        "GOODFETCH_COLLIE_ENGINE_PATH": missing,
+    }
+    daemon = start_scripted_daemon(test_env, VERSION_REFUSED, "socket")
+
+    error = await failure(open_collie(way, env, engine="daemon"))
+
+    assert await exit_code(daemon.wait) == 0
+    assert isinstance(error, ProtocolVersionUnsupportedError)
+    assert error.fix == (
+        f"{VERSION_FIX} GOODFETCH_COLLIE_ENGINE_PATH names {missing}, which is no"
+        " executable file: point it at Collie's executable, goodfetch-collie, or"
+        " leave it unset to use the one goodfetch-collie installed."
+    )
 
 
 @pytest.mark.covers("story:11-9", "story:11-293", "error:protocol_version_unsupported")
@@ -772,3 +787,8 @@ async def test_fails_with_deadline_exceeded_when_no_pick_follows_a_handover_in_t
         error.limit.origin,
     ) == ("timeout.connect", 300, "run", "argument")
     assert error.details["waited_for"] == "hello"
+    # Past the refusal, not on the first hello, whose fix names the engine.
+    assert error.fix == (
+        "Raise connect()'s timeout, or find why the Daemon did not start in its"
+        f" log in {test_env.home}."
+    )

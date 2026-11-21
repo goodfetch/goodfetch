@@ -105,8 +105,8 @@ class AsyncCollie(AsyncConnection):
         `goodfetch.client`, and `daemon` raises the refusal, its `fix`
         naming this executable's `daemon restart` (ADR 0098). The engine
         reached is logged at info on `goodfetch.client`. `env` is the
-        environment map,
-        read here and never at import: the process's own when left out.
+        environment map, read here and never at import: the process's own
+        when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
         its work. `timeout` is how long `hello` waits for the engine's
         answer: `timeout.connect`'s 30 s when left out, none for `None`;
@@ -312,8 +312,8 @@ class Collie(Connection):
         `goodfetch.client`, and `daemon` raises the refusal, its `fix`
         naming this executable's `daemon restart` (ADR 0098). The engine
         reached is logged at info on `goodfetch.client`. `env` is the
-        environment map,
-        read here and never at import: the process's own when left out.
+        environment map, read here and never at import: the process's own
+        when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
         its work. `timeout` is how long `hello` waits for the engine's
         answer: `timeout.connect`'s 30 s when left out, none for `None`;

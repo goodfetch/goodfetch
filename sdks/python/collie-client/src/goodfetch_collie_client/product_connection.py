@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 
-from goodfetch_collie_client.attached_engine import AttachedEngine
+from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
     CLOSE_TIMEOUT,
     ClientConnection,
@@ -233,7 +233,7 @@ async def _open_refusable(
             if error.details.get("handover") is True:
                 daemon = await _pick_of(runtime_file, started_at, opening)
                 continue
-            fix = f"{error.fix or ''} {_refusal_fix(product, env)}".strip()
+            fix = f"{error.fix or ''} {await _refusal_fix(product, env)}".strip()
             if not auto:
                 error.fix = fix
                 raise
@@ -293,16 +293,20 @@ async def _pick_of(
     )
 
 
-def _refusal_fix(product: ProductPackage, env: Mapping[str, str]) -> str:
+async def _refusal_fix(product: ProductPackage, env: Mapping[str, str]) -> str:
     """What a refusal's `fix` adds for `product`'s Client (ADR 0098).
 
     As the engine words it: its executable's `daemon restart`, given by its
     path, and Foxhound at this version or newer for Collie, whose executable
     is no major's pick while a Foxhound of the major is installed. The SDK
     does not read which executables are installed, so it names Foxhound for
-    every Collie Client, as the sentence's own condition says.
+    every Collie Client, as the sentence's own condition says. With no
+    executable at its path, it is the fix that installs one.
     """
-    path = locate_engine(env, product).path
+    location = locate_engine(env, product)
+    path = location.path
+    if not await is_executable_file(path):
+        return location.not_found_fix
     shown = f'"{path}"' if any(character.isspace() for character in path) else path
     restart = f"Run `{shown} daemon restart` to restart the Daemon on its major's pick."
     if product.needs is Product.foxhound:

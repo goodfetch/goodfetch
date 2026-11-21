@@ -429,31 +429,32 @@ pub enum Offer {
 }
 
 /// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
-/// query, read and opener is a command, a round trip that answers pages
+/// query and opener is a command, a round trip that answers pages
 /// ([`Offer::Pages`]) one that follows them under `--follow`, and every
 /// sequence one with `--follow`, a sequence the catalog gives a bound, which
 /// reads what a Run committed, printing it once it ends without one
 /// ([`Offer::Committed`]), and one taking a stream reading it from stdin
 /// ([`Offer::Input`]), unless the catalog keeps it off the CLI, to the
-/// SDKs or to a person; a waiter or an event is none. An operation the catalog's
-/// [`SDK_ONLY`] list names is none whatever its marker, so an entry added
-/// without one never becomes a command.
+/// SDKs or to a person; a waiter, an event or a read is none, a read since
+/// an SDK's handle answers it from the answer that opened it without a
+/// message (issue 2798). An operation the catalog's [`SDK_ONLY`] list names
+/// is none whatever its marker, so an entry added without one never becomes
+/// a command.
 pub fn offer(operation: &Operation) -> Option<Offer> {
     if operation.reach != Reach::AllSurfaces || SDK_ONLY.contains(&operation.name) {
         return None;
     }
     match operation.kind {
         OperationKind::RoundTrip if answers_pages(operation) => Some(Offer::Pages),
-        OperationKind::RoundTrip
-        | OperationKind::Query
-        | OperationKind::Read
-        | OperationKind::Opener => Some(Offer::Command),
+        OperationKind::RoundTrip | OperationKind::Query | OperationKind::Opener => {
+            Some(Offer::Command)
+        }
         OperationKind::Sequence if operation.input.is_some() => Some(Offer::Input),
         // A sequence the catalog gives a bound reads what a Run committed,
         // so it ends once it sent the Records of a Run that ended.
         OperationKind::Sequence if operation.bound.is_some() => Some(Offer::Committed),
         OperationKind::Sequence => Some(Offer::Follow),
-        OperationKind::Waiter | OperationKind::Event => None,
+        OperationKind::Waiter | OperationKind::Event | OperationKind::Read => None,
     }
 }
 

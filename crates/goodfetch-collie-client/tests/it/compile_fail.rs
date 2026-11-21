@@ -3,6 +3,7 @@
 //! generates for the crate. They run one at a time, in nextest's
 //! `compile-fail` test group (TESTING.md, Isolation).
 
+mod ai_work;
 mod connection_type;
 mod duration;
 mod error;

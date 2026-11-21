@@ -283,14 +283,6 @@ form = "read"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Run"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
-form = "read"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "Run"
 member = "key_value_store"
 entry = "none"
 reason = "The Run's Key-value store (ADR 0103), opened with the Run, with no round trip."
@@ -338,14 +330,6 @@ member = "id"
 entry = "none"
 reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
 words = ["id"]
-form = "read"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "AsyncRun"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
 form = "read"
 
 [[member]]
@@ -720,6 +704,105 @@ member = "JSONSchema"
 entry = "none"
 reason = "A JSON Schema document written by hand, the way down (ADR 0082)."
 words = ["json", "schema"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AIWorkResult"
+entry = "none"
+reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+words = ["ai", "work", "result"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "ended"
+entry = "none"
+reason = "How the work ended, its answer inside (ADR 0117), read without a round trip."
+words = ["ended"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "verdict"
+entry = "none"
+reason = "Whether the program's checks prove the work (ADR 0079), read without a round trip."
+words = ["verdict"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "verdict_reasons"
+entry = "none"
+reason = "Why the Verdict is not `verified` (ADR 0102), read without a round trip."
+words = ["verdict", "reasons"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "reported"
+entry = "none"
+reason = "What the model claimed, a signal and never proof (ADR 0100), read without a round trip."
+words = ["reported"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "require_verified"
+entry = "none"
+reason = "Hands over the output only when the work finished and its Verdict is `verified`, and raises `not_verified` otherwise (ADR 0079), with no round trip."
+words = ["require", "verified"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Claim"
+entry = "none"
+reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
+words = ["claim"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Ended"
+entry = "none"
+reason = "How AI work ended (ADR 0117): `Finished` or `Stopped`."
+words = ["ended"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Finished"
+entry = "none"
+reason = "AI work that finished, with its complete output (ADR 0117), matched by class."
+words = ["finished"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Stopped"
+entry = "none"
+reason = "AI work that stopped before it finished, with its reason and what it had gathered (ADRs 0100 and 0117), matched by class."
+words = ["stopped"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Reported"
+entry = "none"
+reason = "The model's claim and its message (ADR 0100): a signal, never proof."
+words = ["reported"]
 form = "type"
 
 [[member]]

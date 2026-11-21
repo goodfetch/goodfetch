@@ -1,0 +1,7 @@
+error[E0609]: no field `output` on type `AiWorkResult<String>`
+ --> tests/ui/ai_work/output_before_ended.rs:7:12
+  |
+7 |     result.output
+  |            ^^^^^^ unknown field
+  |
+  = note: available fields are: `ended`, `verdict`, `verdict_reasons`, `reported`

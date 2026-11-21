@@ -276,7 +276,8 @@ impl ClientConnection {
     ///
     /// # Errors
     ///
-    /// `closed` when the Connection is closed.
+    /// `closed` when the Connection is closed, and `call_cancelled` when the
+    /// program closes it while the level is in flight.
     pub(crate) async fn follow_log_level(&self, level: LogLevel) -> Result<(), Error> {
         let told = std::mem::replace(&mut *self.log_level(), level);
         if told == level {
@@ -288,7 +289,7 @@ impl ClientConnection {
             .await
         {
             Ok(LogLevelSet {}) => Ok(()),
-            Err(error) if error.code() == ErrorCode::CLOSED => Err(error),
+            Err(error) if error.is_ended_by_close() => Err(error),
             Err(error) => {
                 let mut current = self.log_level();
                 if *current == level {
@@ -538,7 +539,8 @@ impl ClientConnection {
     /// Closes the Connection: first every Run it started that is still
     /// open, as [`crate::Run::close`] does, each closed at once even when
     /// `timeout.close` runs out before its abort, then every call in flight fails with
-    /// `closed`, as does every later one; the engine reads the end
+    /// `call_cancelled`, `by: program` and `closed: connection`, and every
+    /// later one with `closed`; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
     /// Connection's tasks have ended, or once `timeout.close` has run out.
     /// Closing again does nothing. A Connection to a Daemon only

@@ -50,6 +50,7 @@ use crate::run::RunId;
 use crate::settings::SettingLimit;
 
 pub mod access_mode;
+pub mod ai_work;
 pub mod cdp_url;
 pub mod dialog;
 pub mod events;
@@ -63,6 +64,7 @@ pub mod session_pages;
 pub mod signing_key;
 pub mod waits;
 
+use self::ai_work::NOT_VERIFIED;
 use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
 };
@@ -1877,6 +1879,7 @@ pub const ENTRIES: Entries = Entries {
         DIALOG_ALREADY_HANDLED,
         PAGE_FUNCTION_FAILED,
         PAGE_VALUE_INVALID,
+        NOT_VERIFIED,
     ],
     plugin_kinds: &[],
     metrics: &[],

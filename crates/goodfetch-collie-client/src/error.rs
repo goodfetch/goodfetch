@@ -13,8 +13,8 @@ use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails,
 };
 use goodfetch_protocol::connection::{
-    CLOSED, CONNECTION_FORKED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED,
-    EngineExitedDetails, Form, INTERNAL,
+    CALL_CANCELLED, CLOSED, CONNECTION_FORKED, CONNECTION_LOST, CallCancelledDetails, CancelledBy,
+    ClosedValue, DEADLINE_EXCEEDED, ENGINE_EXITED, EngineExitedDetails, Form, INTERNAL,
 };
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
@@ -22,6 +22,7 @@ use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, META, ProtocolFailure};
 use goodfetch_protocol::naming;
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
+use goodfetch_protocol::page::ai_work::{NOT_VERIFIED, NotVerifiedDetails};
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
 use goodfetch_protocol::settings::{
     SETTING_INVALID, SETTING_UNKNOWN, SettingInvalidDetails, SettingLimit, SettingUnknownDetails,
@@ -358,6 +359,20 @@ impl Error {
         }
     }
 
+    /// A program asked AI work for an output its checks did not prove:
+    /// `not_verified`, with `details` (ADR 0079).
+    pub(crate) fn not_verified(details: &NotVerifiedDetails) -> Self {
+        Self::of_runtime(
+            &NOT_VERIFIED,
+            &format!(
+                "the AI work's Verdict is `{}`, so its output is not verified",
+                details.verdict.as_str()
+            ),
+            "Read the result's `ended` and `verdict` to use an output its checks did not prove, or fix what the details' `reasons` name; the model's claim is never proof.",
+        )
+        .with_details(details)
+    }
+
     /// The Connection, or the value the call was made on, is closed, so
     /// the call was never answered: `closed`. A Product crate's linked
     /// Connection fails with it too.
@@ -368,6 +383,30 @@ impl Error {
             "the Connection, or the value the call was made on, is closed",
             "Connect again, or open the value again: a closed one never reopens.",
         )
+    }
+
+    /// The program closed the Connection while the call was in flight, so
+    /// the close cancelled it: `call_cancelled`, stopped by the program,
+    /// its Connection closed under it (ADRs 0078 and 0113), saying what
+    /// failed with no fix (ADR 0079's note of 2026-11-19). A call made once
+    /// the Connection is closed fails with [`Error::closed`] instead.
+    pub(crate) fn cancelled_by_close() -> Self {
+        Self::of(
+            &CALL_CANCELLED,
+            "the call's Connection was closed".to_owned(),
+        )
+        .with_details(&CallCancelledDetails {
+            by: CancelledBy::Program,
+            closed: Some(ClosedValue::Connection),
+            person: None,
+        })
+    }
+
+    /// Whether a close failed the call: `closed`, or the runtime's own
+    /// `call_cancelled`, which only [`Error::cancelled_by_close`] raises.
+    pub(crate) fn is_ended_by_close(&self) -> bool {
+        self.code() == ErrorCode::CLOSED
+            || (!self.is_answer() && self.code() == ErrorCode::CALL_CANCELLED)
     }
 
     /// The call was made in another process than the one that opened its

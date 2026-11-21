@@ -474,20 +474,23 @@ fn connection(layer: &Layer) -> String {
 
 fn operations(layer: &Layer) -> String {
     let product = layer.product.name();
-    let types: BTreeSet<String> = layer
-        .operations
-        .iter()
+    // A read sends nothing, so no client calls it by name: its handle
+    // answers it (issue 2798).
+    let sent = || {
+        layer
+            .operations
+            .iter()
+            .filter(|operation| operation.sends())
+    };
+    let types: BTreeSet<String> = sent()
         .flat_map(|operation| [operation.params.0.clone(), operation.result.0.clone()])
         .collect();
-    let deprecates = layer
-        .operations
-        .iter()
-        .any(|operation| operation.deprecated.is_some());
+    let deprecates = sent().any(|operation| operation.deprecated.is_some());
     let mut text = header(&format!(
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
     text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final\n\n");
-    let returns = !layer.operations.is_empty();
+    let returns = sent().next().is_some();
     if deprecates {
         text.push_str("from typing_extensions import deprecated\n\n");
     }
@@ -505,7 +508,7 @@ fn operations(layer: &Layer) -> String {
             "\n\nclass {prefix}{product}Operations:\n    \"\"\"{product}'s operations, each a{} {mode} method.\"\"\"\n\n    def __init__(self, caller: {caller}) -> None:\n        \"\"\"Takes the runtime that sends each call.\"\"\"\n        self._caller = caller\n",
             if asynchronous { "n" } else { "" }
         );
-        for operation in &layer.operations {
+        for operation in sent() {
             body.push('\n');
             if let Some(deprecated) = &operation.deprecated {
                 body.push_str(&deprecated_decorator(deprecated));
@@ -654,10 +657,50 @@ fn foxhound_error_imports(layer: &Layer) -> String {
     } else {
         String::new()
     };
+    let helper = if layer.reads_retry_after() {
+        ", retry_after_of"
+    } else {
+        ""
+    };
     format!(
-        ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import {base}ErrorClass, ErrorFields\n",
+        ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import {base}ErrorClass, ErrorFields{helper}\n",
         join(&names)
     )
+}
+
+/// The docstring of `retry_after` on the class of a code whose details
+/// name it as a point in time (ADRs 0092 and 0118).
+const RETRY_AFTER_DOC: &str = "When the site's `Retry-After` asks to be tried again: a point in time in UTC, not a duration; `None` when it asks for none. The details keep it as sent.";
+
+/// The class `class` of one Error code, which reads its `retry_after`
+/// when its details name one as a point in time.
+fn error_class(code: &ErrorCode, class: &str) -> String {
+    let (base, description) = if outside_exception(code) {
+        (
+            BASE_ERROR.to_owned(),
+            format!("{}\n\n{ATTEMPT_ENDED_BASE}", code.description),
+        )
+    } else {
+        (group_class(&code.group), code.description.clone())
+    };
+    let mut text = format!("\n\nclass {class}({base}):\n");
+    text.push_str(&docstring("    ", &description, Stability::Stable, None));
+    let (field, set) = if code.retry_after_is_point_in_time() {
+        (
+            format!("\n    retry_after: datetime | None\n    \"\"\"{RETRY_AFTER_DOC}\"\"\"\n"),
+            "        self.retry_after = retry_after_of(self.details)\n",
+        )
+    } else {
+        (String::new(), "")
+    };
+    let _ = write!(
+        text,
+        "{field}\n    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, **fields)\n{set}",
+        code.name,
+        code.group,
+        if code.retryable { "True" } else { "False" }
+    );
+    text
 }
 
 fn errors(layer: &Layer) -> String {
@@ -665,12 +708,18 @@ fn errors(layer: &Layer) -> String {
     let mut text = header(&format!(
         "The exception class of each of {product}'s Error codes (ADR 0079)."
     ));
-    text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final");
+    let retry_after = layer.reads_retry_after();
+    text.push_str("\nfrom collections.abc import Mapping\n");
+    if retry_after {
+        text.push_str("from datetime import datetime\n");
+    }
+    text.push_str("from typing import Final");
     match layer.product {
         Product::Collie => {
+            let helper = if retry_after { ", retry_after_of" } else { "" };
             let _ = write!(
                 text,
-                ", Literal, Unpack\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError\n\nErrorGroup = Literal["
+                ", Literal, Unpack\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError{helper}\n\nErrorGroup = Literal["
             );
             text.push_str(
                 &layer
@@ -708,23 +757,7 @@ fn errors(layer: &Layer) -> String {
             continue;
         }
         let class = format!("{}Error", pascal(&code.name));
-        let (base, description) = if outside_exception(code) {
-            (
-                BASE_ERROR.to_owned(),
-                format!("{}\n\n{ATTEMPT_ENDED_BASE}", code.description),
-            )
-        } else {
-            (group_class(&code.group), code.description.clone())
-        };
-        let _ = write!(text, "\n\nclass {class}({base}):\n");
-        text.push_str(&docstring("    ", &description, Stability::Stable, None));
-        let _ = write!(
-            text,
-            "\n    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, **fields)\n",
-            code.name,
-            code.group,
-            if code.retryable { "True" } else { "False" }
-        );
+        text.push_str(&error_class(code, &class));
         registry.push((code.name.clone(), class));
     }
     if layer.product == Product::Collie {

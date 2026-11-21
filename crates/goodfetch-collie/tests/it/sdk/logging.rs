@@ -11,7 +11,7 @@ use goodfetch_test_support::{CapturedLog, TestEnv, capturing, real_time_runtime}
 use tracing::Level;
 use tracing::subscriber::with_default;
 
-use super::options;
+use super::{linked_case, options};
 
 /// Installs, as the process's global subscriber, one that records the
 /// engine's own events, the SDK's and those under `goodfetch::engine` at
@@ -43,6 +43,7 @@ fn lines_with(log: &CapturedLog, text: &str) -> Vec<String> {
 /// Covers: story:11-25
 #[test]
 fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
+    let mut case = linked_case("engine-logs-reach-the-logger");
     let env = TestEnv::new();
     let log = global_log();
     let first = RunId::parse("first").unwrap();
@@ -61,13 +62,17 @@ fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
     });
 
     let answered = lines_with(&log, "goodfetch::rpc::dispatch: request answered");
-    assert!(
-        answered
-            .iter()
-            .any(|line| line.contains("method=\"run.start\"")),
-        "{answered:#?}"
-    );
-    assert_eq!(lines_with(&log, " goodfetch::engine"), Vec::<String>::new());
+    case.check("the engine's events reach the subscriber", || {
+        assert!(
+            answered
+                .iter()
+                .any(|line| line.contains("method=\"run.start\"")),
+            "{answered:#?}"
+        );
+    });
+    case.check("none is re-emitted under goodfetch::engine", || {
+        assert_eq!(lines_with(&log, " goodfetch::engine"), Vec::<String>::new());
+    });
 }
 
 /// The `log-level-follows-the-logger` client conformance case in `linked`
@@ -77,6 +82,7 @@ fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
 /// Covers: story:11-26
 #[test]
 fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
+    let mut case = linked_case("log-level-follows-the-logger");
     let env = TestEnv::new();
     let log = global_log();
     let runtime = real_time_runtime();
@@ -120,16 +126,18 @@ fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
             }
         })
         .collect();
-    assert_eq!(
-        methods,
-        [
-            "run.start",
-            "run.start",
-            "connection.set_log_level",
-            "run.start"
-        ],
-        "{answered:#?}"
-    );
+    case.check("only the start after the level changed tells it", || {
+        assert_eq!(
+            methods,
+            [
+                "run.start",
+                "run.start",
+                "connection.set_log_level",
+                "run.start"
+            ],
+            "{answered:#?}"
+        );
+    });
 }
 
 /// The SDK installs no subscriber: after a program with none connects,

@@ -375,8 +375,8 @@ rows! {
     /// that takes Delegations, every key a group of jobs asks for together.
     PolitenessDelegationTransactions => "E6.delegation_transactions", "politeness_permit", "delegation_transactions";
     /// `E6.other_transactions`: any other transaction on a Politeness file:
-    /// its open, the robots.txt copy, a site's ask written when learned, a
-    /// Delegation given back, waiters withdrawn.
+    /// its open, the robots.txt copy, a site's ask read or written when
+    /// learned, a Delegation given back, waiters withdrawn.
     PolitenessOtherTransactions => "E6.other_transactions", "politeness_permit", "other_transactions";
     /// `E6.opens`: a Politeness file opened. Its statement preparations are
     /// the benchmark's, read from Callgrind, as no wrapper sees them.

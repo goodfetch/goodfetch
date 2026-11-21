@@ -3,6 +3,7 @@
 // only the seven groups and the codes' classes come from the catalog.
 import type { ErrorGroup } from "./generated/errors.ts";
 import type { ModelUsage, SettingLimit } from "./generated/types.ts";
+import { pointInTime } from "./wire.ts";
 
 /**
  * What marks a Goodfetch error, shared by every copy of the package a bundle
@@ -122,6 +123,17 @@ Object.defineProperty(GoodfetchError.prototype, GOODFETCH_ERROR, { value: true }
  */
 export function isGoodfetchError(value: unknown): value is GoodfetchError {
   return typeof value === "object" && value !== null && GOODFETCH_ERROR in value;
+}
+
+/**
+ * The point in time a code's `details` name as `retry_after`, the time the
+ * site's `Retry-After` asks for, in UTC; `null` when they name none or a
+ * value that is no RFC 3339 text. The classes of the codes whose details
+ * declare it read their `retryAfter` with it (ADRs 0092 and 0118).
+ */
+export function retryAfterOf(details: Readonly<Record<string, unknown>> | undefined): Date | null {
+  const sent = details?.["retry_after"];
+  return typeof sent === "string" ? (pointInTime(sent) ?? null) : null;
 }
 
 /** The class of one Error code: its message, then what it carries. */

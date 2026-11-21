@@ -3,11 +3,13 @@
 `connect()`'s own reach the engine in `hello`, a Run's own sit over them in
 their three states, a key left out inheriting, `None` clearing and a value
 setting, and `explain_settings()` on the Connection and on the Run answers
-what each runs with; each setting the engine refuses says how to fix it, a
-configuration-only key passed in code naming the file that sets it. The
-cases play on the Scripted engine started as the executable, which checks
-every message the SDK sends, three ways: async on asyncio, async on Trio
-and through the sync `Collie`. TypeScript's `settings.test.ts` is its twin.
+what each runs with, naming each key's layer, origin, the Durability level
+whose preset gave it and the layer that locked it; each setting the engine
+refuses says how to fix it, a configuration-only key passed in code naming
+the file that sets it. The cases play on the Scripted engine started as the
+executable, which checks every message the SDK sends, three ways: async on
+asyncio, async on Trio and through the sync `Collie`. TypeScript's
+`settings.test.ts` is its twin.
 """
 
 from collections.abc import Sequence
@@ -102,6 +104,81 @@ async def test_a_runs_own_settings_inherit_clear_and_set_over_its_connections(
             ("timeout.navigation", 1_000, "run", "settings"),
             ("timeout.wait", 5_000, "run", "settings"),
         ]
+    with client_case.check(
+        "the engine read each message as the script expects, so it wrote no failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+SOURCED = ["run_state.batch.sync", "run_state.durability", "timeout.wait"]
+"""A Durability level, a key of its preset and a key set in code."""
+
+
+def sourced(settings: Sequence[ExplainedSetting] | None) -> list[tuple[object, ...]]:
+    """Each explained setting as its key, value, layer, origin, preset and lock."""
+    return [
+        (
+            each.key,
+            each.value,
+            each.layer,
+            each.origin,
+            None if each.preset is None else (each.preset.key, each.preset.value),
+            each.locked_by,
+        )
+        for each in settings or []
+    ]
+
+
+def under_the_lock(wait: int) -> list[tuple[object, ...]]:
+    """What both explanations answer under the lock on `run_state.durability`."""
+    policy = "operator_policy"
+    return [
+        (
+            "run_state.batch.sync",
+            "each",
+            policy,
+            None,
+            ("run_state.durability", "full"),
+            policy,
+        ),
+        ("run_state.durability", "full", policy, None, None, policy),
+        ("timeout.wait", wait, "run", "settings", None, None),
+    ]
+
+
+@pytest.mark.covers("story:11-74")
+@pytest.mark.client_case(id="settings-explained-with-their-source", mode="attached")
+@three_ways
+async def test_explain_settings_names_each_keys_layer_origin_preset_and_lock(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The preset a key came from, the lock on its level and a key's origin."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/settings-explained-with-their-source.json"
+    )
+    settings: Settings = {"timeout": {"wait": timedelta(seconds=3)}}
+    collie = await way.open(
+        lambda: AsyncCollie.connect(env=env, settings=settings),
+        lambda: Collie.connect(env=env, settings=settings),
+    )
+
+    connection = await collie.explain_settings(SOURCED)
+    run = await collie.start(settings={"timeout": {"wait": timedelta(seconds=5)}})
+    own = await run.explain_settings(SOURCED)
+    await run.finish()
+    await collie.close()
+
+    with client_case.check(
+        "the Connection names the preset a key came from, "
+        "the lock on its level and a key's origin"
+    ):
+        assert sourced(connection.settings) == under_the_lock(3_000)
+    with client_case.check("the Run explains the same sources over its own value"):
+        assert sourced(own.settings) == under_the_lock(5_000)
     with client_case.check(
         "the engine read each message as the script expects, so it wrote no failure"
     ):

@@ -93,6 +93,13 @@ impl Operation {
     fn offered(&self) -> bool {
         self.reach.as_deref() != Some("person_only")
     }
+
+    /// Whether calling it sends the engine a message: every kind but a
+    /// read, which its handle answers from the answer that opened it (issue
+    /// 2798), so no operations class has a method for it.
+    pub(super) fn sends(&self) -> bool {
+        self.kind != Kind::Read
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +143,16 @@ pub(super) struct ErrorCode {
     /// The code's own row of ADR 0069's exit-code table, when it has one.
     #[serde(default)]
     pub(super) exit_code: Option<u8>,
+}
+
+impl ErrorCode {
+    /// Whether the code's details name `retry_after` as a point in time,
+    /// which its class reads as its own field.
+    pub(super) fn retry_after_is_point_in_time(&self) -> bool {
+        goodfetch_protocol::error_details::RETRY_AFTER_POINT_IN_TIME
+            .iter()
+            .any(|code| code.as_str() == self.name)
+    }
 }
 
 /// A request the engine sends a program's handler, such as
@@ -341,6 +358,14 @@ pub(super) struct Layer {
 }
 
 impl Layer {
+    /// Whether any of the layer's Error codes reads `retry_after` as a point
+    /// in time, so its errors module needs the helper that reads it.
+    pub(super) fn reads_retry_after(&self) -> bool {
+        self.error_codes
+            .iter()
+            .any(ErrorCode::retry_after_is_point_in_time)
+    }
+
     /// The layer of `product`'s package: Collie's entries for Collie's client
     /// package, with the types of the bundle's `connection` section, which
     /// every engine speaks and the client package's runtime sends; Foxhound's

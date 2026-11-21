@@ -31,7 +31,7 @@ use goodfetch_fetch_tier::{
 };
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::egress::EgressRule;
-use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
+use goodfetch_protocol::foxhound::crawl::{RESPONSE_UNAVAILABLE, ResponseUnavailableDetails};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -504,9 +504,10 @@ fn a_redirects_retry_after_past_the_crawls_bound_fails_with_its_status() {
     ));
 
     assert_eq!(error.code(), "response_unavailable", "{error:?}");
-    let details = error.details().unwrap();
-    assert_eq!(details["status"], 302);
-    assert!(details["retry_after"].is_string(), "{details:?}");
+    let details: ResponseUnavailableDetails =
+        serde_json::from_value(Value::Object(error.details().unwrap().clone())).unwrap();
+    assert_eq!(details.status, Some(302));
+    assert!(details.retry_after.is_some(), "{details:?}");
     assert_eq!(requests_for(&proving_ground, HOST, "/target").len(), 0);
     assert!(gate.waits.lock().unwrap().is_empty());
 }

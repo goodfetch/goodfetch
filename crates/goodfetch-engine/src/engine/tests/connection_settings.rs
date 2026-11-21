@@ -483,7 +483,7 @@ fn config_explain_names_each_clients_own_bound() {
     "setting_not_applicable",
     "connection.max_queued_write_bytes"
 )]
-#[case::no_call_at_all(
+#[case::zero_from_the_typescript_client(
     "sdk_typescript",
     json!({ "connection": { "max_pending_calls": 0 } }),
     "setting_invalid",

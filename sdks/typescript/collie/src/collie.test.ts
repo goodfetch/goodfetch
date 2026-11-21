@@ -328,14 +328,20 @@ describe("a Connection whose settings set bounds of its own", () => {
       const collie = await connectOver(transport, {
         settings: { connection: { maxPendingCalls: 1 } },
       });
-      void collie.start();
+      let earlier = "waiting";
+      collie.start().then(
+        () => (earlier = "answered"),
+        () => (earlier = "refused"),
+      );
 
       const error = await failure(collie.start());
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(error).toMatchObject({
         code: "connection_overloaded",
         details: { bound: "pending_calls", value: 1 },
       });
+      expect(earlier).toBe("waiting");
     },
   );
 

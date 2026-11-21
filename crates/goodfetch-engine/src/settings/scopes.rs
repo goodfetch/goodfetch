@@ -3,12 +3,11 @@
 //! key another scope's code sets refused with `setting_not_applicable`
 //! naming those scopes, over the Connection's own settings key by key, so
 //! what a Run leaves out it inherits, its `null` clears and its value sets.
+//! The Connection's own `settings` also take a Client's transport bounds
+//! only from a Client that applies them (issue 2518).
 
-use goodfetch_protocol::catalog::{Product, SettingScope};
-use goodfetch_protocol::connection::{
-    CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
-    Surface, applies_client_bounds,
-};
+use goodfetch_protocol::catalog::{Authority, Product, SettingScope};
+use goodfetch_protocol::connection::{Surface, applies_client_bounds};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::{Map, Value};
@@ -51,14 +50,6 @@ pub fn check_scope(
     Ok(())
 }
 
-/// The bounds a Client applies to its own transport, which `connect()`'s
-/// own `settings` alone set (issue 2518).
-const CLIENT_BOUNDS: [&str; 3] = [
-    CONNECTION_MAX_PENDING_CALLS.name,
-    CONNECTION_MAX_QUEUED_WRITE_BYTES.name,
-    CONNECTION_MAX_LISTENER_QUEUE.name,
-];
-
 /// Refuses `own`, a `hello`'s settings from `surface` as `engine` reads
 /// them, when one sets a bound the Client of `surface` does not apply to
 /// its transport, where the value could not take effect (issue 2518).
@@ -76,12 +67,15 @@ pub fn check_client_bounds(
         return Ok(());
     }
     let own = Values::read(SettingsLayer::Run, own, engine)?;
-    match own.keys().find(|key| CLIENT_BOUNDS.contains(key)) {
+    let applied_by_the_client = own.keys().find(|key| {
+        setting(key).is_some_and(|known| matches!(known.authority, Authority::ConnectionAlone))
+    });
+    match applied_by_the_client {
         Some(key) => Err(SettingsError::NotApplicable {
             key: key.to_owned(),
             layer: SettingsLayer::Run,
             fix: format!(
-                "remove `{key}`: only the TypeScript Client bounds its own transport, and this Client has no such bound yet"
+                "remove `{key}`: only the TypeScript Client reads its transport's bounds from `settings`; this Client takes them, where it has them, as options of its own `connect`"
             ),
         }),
         None => Ok(()),

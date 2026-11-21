@@ -85,7 +85,7 @@ export interface Settings {
   };
   readonly connection?: {
     /**
-     * The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. An event past it removes the listener, which ends with `listener_events_lost` naming how many it lost. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.
+     * The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.
      *
      * `connection.max_listener_queue`.
      */
@@ -97,7 +97,7 @@ export interface Settings {
      */
     readonly maxPendingCalls?: number;
     /**
-     * The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. A call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+     * The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
      *
      * `connection.max_queued_write_bytes`.
      */

@@ -50,7 +50,7 @@ pub const CONNECTION_MAX_PENDING_CALLS: Setting = Setting {
 /// `connection.max_queued_write_bytes` (issue 2518).
 pub const CONNECTION_MAX_QUEUED_WRITE_BYTES: Setting = Setting {
     name: "connection.max_queued_write_bytes",
-    description: "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. A call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+    description: "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
     kind: ValueKind::CountFromOne,
     default: sixty_four_mebibytes,
     clearable: false,
@@ -65,7 +65,7 @@ pub const CONNECTION_MAX_QUEUED_WRITE_BYTES: Setting = Setting {
 /// `connection.max_listener_queue` (issues 2986 and 2518).
 pub const CONNECTION_MAX_LISTENER_QUEUE: Setting = Setting {
     name: "connection.max_listener_queue",
-    description: "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. An event past it removes the listener, which ends with `listener_events_lost` naming how many it lost. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+    description: "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
     kind: ValueKind::CountFromOne,
     default: one_thousand_and_twenty_four,
     clearable: false,

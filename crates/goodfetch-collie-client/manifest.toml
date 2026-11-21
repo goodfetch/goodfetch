@@ -1938,6 +1938,15 @@ form = "type"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "transport"
+member = "ExposedDaemon"
+entry = "none"
+reason = "An Exposed Daemon's address, which a remote engine choice reaches over WebSocket."
+words = ["exposed", "daemon"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "transport"
 member = "Link"
 entry = "none"
 reason = "One Connection's bytes, both ways."

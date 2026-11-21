@@ -4,7 +4,8 @@ With `engine` left at `auto`, the remote Daemon `GOODFETCH_URL` names, else
 the Daemon whose runtime file is in the Goodfetch home, else an Attached
 engine; `attached`, `daemon` and `RemoteDaemon(url, token)` choose one,
 beating `GOODFETCH_URL`. Each plays a Scripted engine's script (ADR 0069),
-as an Attached engine, as a Daemon on a Unix socket, or on loopback TCP. A
+as an Attached engine, as a Daemon on a Unix socket or on loopback TCP, or
+as a remote Daemon's WebSocket. A
 Scripted Daemon exits 0 only once every step played, so its exit says the
 Client sent exactly what the script holds, the Daemon's token in `hello`
 included. A Daemon that refuses `hello` by Product or protocol version is
@@ -16,6 +17,7 @@ TypeScript's `engine-choice.test.ts` is its twin.
 
 import json
 import logging
+import socket
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -44,6 +46,7 @@ from goodfetch_collie import (
     RemoteDaemon,
     SettingInvalidError,
 )
+from goodfetch_collie_client.generated.connection import WEBSOCKET_SUBPROTOCOL
 from goodfetch_test_support import (
     Canary,
     CanaryHit,
@@ -74,6 +77,17 @@ DAEMON = "sdk-python/connect/reached-daemon.json"
 
 REMOTE = "sdk-python/connect/reached-remote-with-a-canary-token.json"
 """The script a remote Daemon plays: its `hello` carries the canary token."""
+
+
+def start_remote_daemon(
+    test_env: TestEnv, script: str, subprotocol: str = WEBSOCKET_SUBPROTOCOL
+) -> ScriptedDaemon:
+    """A Scripted Daemon serving an Exposed Daemon's WebSocket (ADR 0049).
+
+    It answers `subprotocol` when the handshake offers it: the SDK's own, or
+    another major's to play a Daemon of another protocol major.
+    """
+    return start_scripted_daemon(test_env, script, "websocket", subprotocol=subprotocol)
 
 
 def write_runtime_file(home: Path, contents: str) -> None:
@@ -257,9 +271,12 @@ async def test_reaches_the_remote_daemon_of_goodfetch_url_and_shows_its_token_no
     product: ToolProduct,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """`GOODFETCH_URL` on loopback TCP, with `GOODFETCH_TOKEN`'s canary token."""
+    """`GOODFETCH_URL` over a WebSocket of subprotocol `goodfetch.v<major>`.
+
+    With `GOODFETCH_TOKEN`'s canary token.
+    """
     caplog.set_level(logging.DEBUG, logger=CLIENT_LOGGER)
-    daemon = start_scripted_daemon(test_env, REMOTE, "tcp")
+    daemon = start_remote_daemon(test_env, REMOTE)
     url = f"ws://{daemon.address}"
     env = {
         **scripted_engine_env(test_env, product, ATTACHED),
@@ -297,7 +314,7 @@ async def test_takes_a_remote_daemon_written_in_code_over_goodfetch_url(
     way: Way, test_env: TestEnv, product: ToolProduct
 ) -> None:
     """`RemoteDaemon(url, token)` beats `GOODFETCH_URL`, which is never reached."""
-    daemon = start_scripted_daemon(test_env, REMOTE, "tcp")
+    daemon = start_remote_daemon(test_env, REMOTE)
     env = {
         **scripted_engine_env(test_env, product, ATTACHED),
         # Nothing listens here: reading it would fail the connect.
@@ -359,13 +376,61 @@ async def test_fails_with_daemon_unreachable_when_nothing_answers_at_the_url(
     assert search_canaries_in([shown(error), logs(caplog)]) == []
 
 
+@pytest.mark.covers("story:11-5", "error:deadline_exceeded")
+@three_ways
+async def test_fails_with_deadline_exceeded_when_the_handshake_outlasts_the_connect(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """A port that takes the connection and never answers the handshake."""
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    # The OS takes the connection into the backlog; nothing ever answers it.
+    with socket.create_server(("127.0.0.1", 0)) as silent:
+        port = silent.getsockname()[1]
+        error = await failure(
+            open_collie(
+                way,
+                env,
+                engine=RemoteDaemon(f"ws://127.0.0.1:{port}", CANARY.value),
+                connect_timeout=timedelta(milliseconds=300),
+            )
+        )
+
+    assert isinstance(error, DeadlineExceededError)
+    assert error.limit is not None
+    assert (error.limit.key, error.limit.value) == ("timeout.connect", 300)
+    assert error.details["waited_for"] == "hello"
+    assert f"ws://127.0.0.1:{port}" in (error.fix or "")
+
+
+@pytest.mark.covers("story:11-5", "error:daemon_unreachable")
+@three_ways
+async def test_fails_with_daemon_unreachable_when_no_offered_subprotocol_is_answered(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """A Daemon of another protocol major is never sent `hello`."""
+    # A Daemon of another protocol major answers its own subprotocol only.
+    daemon = start_remote_daemon(test_env, REMOTE, "goodfetch.v9999")
+    url = f"ws://{daemon.address}"
+    env = scripted_engine_env(test_env, product, ATTACHED)
+
+    error = await failure(open_collie(way, env, engine=RemoteDaemon(url, CANARY.value)))
+    # The script expected `hello`: the Scripted engine fails its play.
+    code = await exit_code(daemon.wait)
+
+    assert code != 0
+    assert isinstance(error, DaemonUnreachableError)
+    assert error.group == "unavailable"
+    assert url in (error.fix or "")
+    assert WEBSOCKET_SUBPROTOCOL in str(error)
+
+
 @pytest.mark.covers("story:11-5", "error:daemon_unreachable")
 @three_ways
 async def test_fails_with_daemon_unreachable_naming_goodfetch_token_on_close_at_hello(
     way: Way, test_env: TestEnv, product: ToolProduct
 ) -> None:
     """A Daemon that closes the Connection before it answers `hello`."""
-    daemon = start_scripted_daemon(test_env, REMOTE, "tcp")
+    daemon = start_remote_daemon(test_env, REMOTE)
     env = {
         **scripted_engine_env(test_env, product, ATTACHED),
         "GOODFETCH_URL": f"ws://{daemon.address}",
@@ -706,7 +771,7 @@ async def test_fails_with_a_remote_daemons_refusal_which_it_never_falls_back_fro
 ) -> None:
     """Through `RemoteDaemon(url, token)` or `GOODFETCH_URL`, the refusal is raised."""
     caplog.set_level(logging.DEBUG, logger=CLIENT_LOGGER)
-    daemon = start_scripted_daemon(test_env, VERSION_REFUSED, "tcp")
+    daemon = start_remote_daemon(test_env, VERSION_REFUSED)
     url = f"ws://{daemon.address}"
     attached = scripted_engine_env(test_env, product, ATTACHED)
     env = (

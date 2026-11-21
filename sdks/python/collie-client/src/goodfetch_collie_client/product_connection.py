@@ -167,8 +167,14 @@ async def open_engine(
     )
     environment = dict(os.environ if env is None else env)
     check_deployment_variables(environment)
+    # A remote Daemon's handshake and `hello` share one `timeout.connect`.
+    started_at = anyio.current_time()
     reach = await reach_engine(
-        engine, environment, lambda: locate_engine(environment, product)
+        engine,
+        environment,
+        lambda: locate_engine(environment, product),
+        connect_timeout=checked,
+        started_at=started_at,
     )
     opening = _Opening(
         close_timeout, connection_limits, checked, listener_queue, settings
@@ -179,7 +185,14 @@ async def open_engine(
         )
     else:
         connection = await _open_refusable(
-            product, environment, reach, opening, auto=engine == "auto"
+            product,
+            environment,
+            reach,
+            opening,
+            # This machine's Daemon's `hello` counts from its reach, which may
+            # have started it.
+            started_at if reach.runtime_file is None else anyio.current_time(),
+            auto=engine == "auto",
         )
     info = connection.engine
     logging.getLogger(CLIENT_LOGGER).info(
@@ -208,20 +221,21 @@ async def _open_refusable(
     env: Mapping[str, str],
     reach: DaemonReach,
     opening: _Opening,
+    started_at: float,
     *,
     auto: bool,
 ) -> ClientConnection:
     """Finishes `hello` with the Daemon `reach` opened, or the pick it hands over to.
 
-    This machine's Daemon refusing by Product or protocol version (ADR
-    0098): when its refusal holds `handover`, the pick is waited for within
-    `timeout.connect` of this call's start; otherwise, under `auto`, an
+    `hello` and any wait for a pick end within `timeout.connect` of
+    `started_at`, on anyio's clock. This machine's Daemon refusing by
+    Product or protocol version (ADR 0098): when its refusal holds
+    `handover`, the pick is waited for; otherwise, under `auto`, an
     Attached engine runs in its place, `EngineInfo.fallback` and one
     warning on `goodfetch.client` saying why, and under `daemon` the
     refusal raises, its `fix` adding this executable's `daemon restart`. A
     remote Daemon's refusal raises unchanged.
     """
-    started_at = anyio.current_time()
     daemon = reach
     while True:
         try:

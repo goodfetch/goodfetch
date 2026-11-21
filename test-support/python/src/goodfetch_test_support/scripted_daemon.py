@@ -1,12 +1,14 @@
 """The Scripted engine played as a Daemon (ADR 0069).
 
 For an SDK's tests of how `connect()` finds one: `socket` publishes it in
-the runtime file of a Goodfetch home, as a running Daemon is found, and
-`tcp` listens on loopback TCP, as an Exposed Daemon `GOODFETCH_URL` names
-does. It plays one script of the shared corpus to one Client and exits, 0
-once every step played, so a test that waits for its exit learns whether
-the Client sent exactly what the script holds. TypeScript's
-`scripted-daemon.ts` is its twin.
+the runtime file of a Goodfetch home, as a running Daemon is found, `tcp`
+listens on loopback TCP, and `websocket` serves a WebSocket on loopback TCP,
+as an Exposed Daemon `GOODFETCH_URL` names does, taking only a handshake
+with the Daemon's own `Origin` and answering the subprotocol it is given
+when the handshake offers it. It plays one script of the shared corpus to
+one Client and exits, 0 once every step played, so a test that waits for
+its exit learns whether the Client sent exactly what the script holds.
+TypeScript's `scripted-daemon.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ if TYPE_CHECKING:
 
     from goodfetch_test_support.environment import TestEnv
 
-ScriptedDaemonMode = Literal["socket", "tcp"]
+ScriptedDaemonMode = Literal["socket", "tcp", "websocket"]
 """How a Client reaches the Scripted Daemon."""
 
 EXIT_DEADLINE_SECONDS = 10.0
@@ -63,11 +65,16 @@ def start_scripted_daemon(
     script: str,
     mode: ScriptedDaemonMode,
     home: Path | None = None,
+    subprotocol: str | None = None,
 ) -> ScriptedDaemon:
     """Starts `goodfetch-scripted-engine` playing the corpus's `script` in `mode`.
 
     It returns once a Client can reach it: in `socket` mode its runtime file
-    is in the per-major folder of `home`, the test's own unless given.
+    is in the per-major folder of `home`, the test's own unless given, and
+    `websocket` mode answers `subprotocol`, which it requires: the SDK's
+    generated `WEBSOCKET_SUBPROTOCOL`, or another major's to play a Daemon
+    of another protocol major. Test support takes no SDK package, so the
+    test passes the SDK's own name.
 
     Raises:
         ToolsError: The manifest lists no Scripted engine.
@@ -76,8 +83,9 @@ def start_scripted_daemon(
     """
     engine = test_env.tools.path(Tool.SCRIPTED_ENGINE)
     home = test_env.home if home is None else home
+    offered = [] if subprotocol is None else ["--subprotocol", subprotocol]
     process = test_env.start(
-        [engine, "--script", CORPUS / script, "--mode", mode],
+        [engine, "--script", CORPUS / script, "--mode", mode, *offered],
         env={**test_env.env, "GOODFETCH_HOME": str(home)},
     )
     line = process.stdout.readline() if process.stdout is not None else b""

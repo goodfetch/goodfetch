@@ -1377,6 +1377,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.resume",
     "run.set_progress_message",
     "run.start",
+    "run.started_as",
     "run.stop",
     "run.usage",
     "sample.echo",

@@ -22,7 +22,6 @@ import {
   type PageId,
   type RunStarted,
   type SettingsExplanation,
-  type StartedAs,
 } from "./generated/index.ts";
 import { Page } from "./generated/handles.ts";
 import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
@@ -510,7 +509,6 @@ export class Run extends RunMembers implements AsyncDisposable {
 
   readonly #host: RunHost;
   readonly #scope: RunScope;
-  readonly #startedAs: StartedAs;
   #closing: Promise<void> | undefined;
   /** The Run's Key-value store (ADR 0103), kept in its run state across a resume. */
   readonly keyValueStore: KeyValueStore;
@@ -523,10 +521,9 @@ export class Run extends RunMembers implements AsyncDisposable {
       state: started.lifecycle === "running" ? "running" : "ended",
       failures: [],
     };
-    super(hostIn(host, scope, undefined, started.runId));
+    super(hostIn(host, scope, undefined, started.runId), started);
     this.#host = host;
     this.#scope = scope;
-    this.#startedAs = started.startedAs;
     this.keyValueStore = new KeyValueStore(host.keyValueStore, scope.id, (operation) => {
       ensureOpen(scope, operation);
     });
@@ -536,12 +533,6 @@ export class Run extends RunMembers implements AsyncDisposable {
   /** The Run's ID, which names it for good. Read without a round trip. */
   id(): string {
     return this.#scope.id;
-  }
-
-  /** Whether the start began the Run (`new`), resumed it (`resumed`) or found it finished (`ended`). Read without a round trip. */
-  startedAs(): StartedAs {
-    warnEntry(collieOperations, "run.start");
-    return this.#startedAs;
   }
 
   /**

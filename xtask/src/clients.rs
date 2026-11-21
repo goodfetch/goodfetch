@@ -17,8 +17,8 @@
 //! Python SDK packages (`sdks/python/`), read from pytest's listing in the
 //! same folder: each carries its case and mode as the marker
 //! `client_case(id="<id>", mode="attached")`. Without the listings, and for
-//! the surface whose runner does not write a case log yet, `sdk-rust`, a case
-//! they list is only noted.
+//! `sdk-rust`, whose case log this check does not read yet (issue 3158), a
+//! case they list is only noted.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -391,10 +391,10 @@ fn check_case(
             }
             (Surface::SdkRust, _, _) => {
                 notes.push(Finding::new(
-                        "unread-surface",
-                        format!("{} {surface}", case.id),
-                        "this surface's tests are not read yet; its runner's listing joins with its case-log writer (M2)",
-                    ));
+                    "unread-surface",
+                    format!("{} {surface}", case.id),
+                    "this surface's tests are not read yet (issue 3158)",
+                ));
                 continue;
             }
         };

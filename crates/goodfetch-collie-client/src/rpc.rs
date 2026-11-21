@@ -99,7 +99,7 @@ enum Command {
     /// for its reply.
     CancelSent(CallId),
     /// Ends the Connection: no more calls, the output closed, every call
-    /// in flight failed as closed.
+    /// in flight failed as cancelled by the close.
     Close,
 }
 
@@ -122,6 +122,16 @@ impl Ended {
             Self::Closed => Error::closed(),
             Self::Dropped => Error::dropped(),
             Self::Exited(details) => Error::engine_exited(details),
+        }
+    }
+
+    /// The error a call still in flight when the Connection ended fails
+    /// with: the Client's close cancelled it (ADR 0078), and any other end
+    /// fails it as it fails a later call.
+    fn in_flight_error(&self) -> Error {
+        match self {
+            Self::Closed => Error::cancelled_by_close(),
+            ended => ended.error(),
         }
     }
 }
@@ -318,11 +328,13 @@ impl Pending {
 }
 
 /// Sends calls, matches replies and deadlines to them, hands the engine's
-/// requests to `streams`, and fails what is left as closed when the
-/// Connection ends, by `close()`, by every handle dropped or by the engine
-/// closing its output, which also ends the streams. When the engine's
-/// side ends it and `ending` tells how its engine ended, what is left fails
-/// with `engine_exited` instead. Every call made after fails alike.
+/// requests to `streams`, and fails what is left when the Connection ends,
+/// by `close()`, by every handle dropped or by the engine closing its
+/// output, which also ends the streams. When the Client ended it, a call
+/// in flight fails with `call_cancelled` and one queued behind the close
+/// with `closed`; when the engine's side did, both fail as closed, or with
+/// `engine_exited` when `ending` tells how its engine ended. Every call
+/// made after fails as a queued one.
 async fn correlate(
     reader: Box<dyn AsyncRead + Send + Unpin>,
     mut commands: mpsc::UnboundedReceiver<Command>,
@@ -434,7 +446,7 @@ async fn correlate(
         }
     }
     for call in std::mem::take(&mut pending).into_values() {
-        call.fail(ended.error());
+        call.fail(ended.in_flight_error());
     }
 }
 

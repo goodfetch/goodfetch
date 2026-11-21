@@ -51,6 +51,9 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 # in-memory network (ADR 0060).
 goodfetch-engine.workspace = true
 goodfetch-runtime.workspace = true
+# The Rust runner's case-log writer, which the `daemon` plays of the client
+# conformance cases append their entries through (ADR 0069).
+goodfetch-conformance.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 rstest.workspace = true

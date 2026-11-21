@@ -20,6 +20,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use tokio::time::Instant;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
 
 use super::{
@@ -150,6 +151,10 @@ impl PermitRule for Rule {
     type State = Stateless;
 
     fn reads(&self, _: Step) {}
+
+    fn concurrency(&self) -> Option<u64> {
+        Some(self.cap)
+    }
 
     fn admit(&self, _: &Stateless, in_flight: u64, now: SystemTime) -> Verdict {
         match self.delay {
@@ -492,11 +497,31 @@ impl PermitRule for HalfASecond {
     }
 }
 
-/// A gate of one key, `shop.test`, whose requests wait in order and are
-/// always ready, which keeps each hold an ending gives it.
+/// A gate of one key, `shop.test`, whose requests wait in order under
+/// `rule`, ready unless held until a wake, which keeps each hold it is
+/// given.
 struct InOrder {
     waiting: std::collections::VecDeque<&'static str>,
     holds: Arc<Mutex<Vec<(Instant, Held)>>>,
+    rule: SharedRule,
+    held_until: Option<Instant>,
+}
+
+impl InOrder {
+    /// The requests `waiting` of a key under `rule`, each hold kept in
+    /// `holds`.
+    fn new(
+        waiting: &[&'static str],
+        rule: SharedRule,
+        holds: &Arc<Mutex<Vec<(Instant, Held)>>>,
+    ) -> Self {
+        Self {
+            waiting: waiting.iter().copied().collect(),
+            holds: Arc::clone(holds),
+            rule,
+            held_until: None,
+        }
+    }
 }
 
 impl Gate for InOrder {
@@ -517,7 +542,9 @@ impl Gate for InOrder {
     }
 
     fn ready_at(&self, now: Instant) -> Option<Instant> {
-        self.waiting.front().map(|_| now)
+        self.waiting
+            .front()
+            .map(|_| self.held_until.map_or(now, |until| until.max(now)))
     }
 
     fn admit(&mut self, _: Instant) -> Option<Admitted> {
@@ -536,12 +563,15 @@ impl Gate for InOrder {
 
     fn hold(&mut self, _: &str, until: Instant, held: Held) {
         self.holds.lock().unwrap().push((until, held));
+        self.held_until = Some(until);
     }
 
-    fn wake(&mut self, _: &str) {}
+    fn wake(&mut self, _: &str) {
+        self.held_until = None;
+    }
 
     fn rule(&self, _: &Resolved) -> Option<SharedRule> {
-        Some(SharedRule::new(HalfASecond))
+        Some(self.rule.clone())
     }
 
     fn ended(&mut self, key: &str, _: Instant, ended: Ended) {
@@ -569,10 +599,7 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
     let asked = start + Duration::from_secs(2);
     let (admitted, holds) = on_the_runtime(async |owner| {
         let holds = Arc::new(Mutex::new(Vec::new()));
-        let gate = InOrder {
-            waiting: ["1", "2", "3"].into(),
-            holds: Arc::clone(&holds),
-        };
+        let gate = InOrder::new(&["1", "2", "3"], SharedRule::new(HalfASecond), &holds);
         let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
         let politeness = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
         let holder = Holder {
@@ -623,5 +650,153 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
             ],
             Vec::new()
         )
+    );
+}
+
+/// A Run whose own requests in flight fill its key's concurrency asks the
+/// Politeness file once for its next request, which makes it the key's
+/// waiter in turn (ADR 0053), and holds the key without asking again until
+/// one of them ends, whatever wakes it meanwhile: with
+/// `politeness.delegation: false`, one request at a time costs its take,
+/// one busy take and its give back (ADR 0140's E6, #1899).
+///
+/// Covers: story:3-63, setting:politeness.domain.concurrency
+#[test]
+fn a_run_whose_own_requests_fill_its_keys_concurrency_asks_the_file_once_meanwhile() {
+    let work = CountedWork::default();
+    let (admitted, holds) = on_the_runtime(async |owner| {
+        let holds = Arc::new(Mutex::new(Vec::new()));
+        let one_at_a_time = SharedRule::new(Rule {
+            cap: 1,
+            delay: None,
+        });
+        let gate = InOrder::new(&["1", "2"], one_at_a_time, &holds);
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let politeness = Politeness::open(
+            folder.path().join("politeness.sqlite"),
+            &PolitenessOptions {
+                work: work.clone(),
+                ..PolitenessOptions::default()
+            },
+            Vec::new(),
+            |_, _| false,
+            "engine".to_owned(),
+            owner,
+        )
+        .await
+        .unwrap();
+        let holder = Holder {
+            run_id: "crawl".to_owned(),
+            epoch: 1,
+            run_folder: "crawl".into(),
+            delegates: false,
+        };
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+        let mut admission = Admission::new(Box::new(gate), &settings).sharing(
+            (politeness, None),
+            holder,
+            clock,
+            &settings,
+        );
+        let now = Instant::now();
+        let first = admission.admit(now).await.unwrap();
+        let while_in_flight = admission.admit(now).await.map(|admitted| admitted.id);
+        admission.wake(Some("shop.test"));
+        let woken_in_flight = admission.admit(now).await.map(|admitted| admitted.id);
+        admission
+            .ended(&first.id, "shop.test", now, Ended::Done)
+            .await;
+        let next = admission.admit(now).await.map(|admitted| admitted.id);
+        let holds: Vec<Held> = holds
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, held)| *held)
+            .collect();
+        (
+            [Some(first.id), while_in_flight, woken_in_flight, next],
+            holds,
+        )
+    });
+
+    assert_eq!(
+        (admitted, holds),
+        (
+            [Some("1".to_owned()), None, None, Some("2".to_owned())],
+            vec![Held::Concurrency, Held::Concurrency]
+        )
+    );
+    assert_eq!(
+        work.read(Row::PolitenessTransactions),
+        4,
+        "a take, one busy take, its give back and the next take"
+    );
+}
+
+/// A Run whose own request in flight fills its key's concurrency keeps the
+/// turn its next request began to wait for, ahead of another engine's Run
+/// that waits after it: the give back of its request wakes it, and its
+/// next request is admitted while the other's still waits (ADR 0053's
+/// turns, #1899).
+///
+/// Covers: story:3-81, setting:politeness.domain.concurrency
+#[test]
+fn a_run_whose_own_request_fills_its_key_keeps_its_turn_ahead_of_a_later_waiter() {
+    let admitted = on_the_runtime(async |owner| {
+        let folder = tempfile::tempdir().unwrap();
+        let one_at_a_time = SharedRule::new(Rule {
+            cap: 1,
+            delay: None,
+        });
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+        let mut admissions = Vec::new();
+        for (engine, waiting) in [("first", &["1", "2"][..]), ("second", &["3"][..])] {
+            let politeness = Politeness::open(
+                folder.path().join("politeness.sqlite"),
+                &PolitenessOptions::default(),
+                Vec::new(),
+                |_, _| false,
+                engine.to_owned(),
+                owner,
+            )
+            .await
+            .unwrap();
+            let holder = Holder {
+                run_id: engine.to_owned(),
+                epoch: 1,
+                run_folder: engine.into(),
+                delegates: false,
+            };
+            let gate = InOrder::new(waiting, one_at_a_time.clone(), &Arc::default());
+            admissions.push(Admission::new(Box::new(gate), &settings).sharing(
+                (politeness, None),
+                holder,
+                clock,
+                &settings,
+            ));
+        }
+        let [mut first, mut second] = <[Admission; 2]>::try_from(admissions).unwrap();
+        let now = Instant::now();
+        let one = first.admit(now).await.unwrap();
+        let first_waits = first.admit(now).await.map(|admitted| admitted.id);
+        let second_waits = second.admit(now).await.map(|admitted| admitted.id);
+        first.ended(&one.id, "shop.test", now, Ended::Done).await;
+        let first_next = first.admit(now).await.map(|admitted| admitted.id);
+        second.wake(Some("shop.test"));
+        let second_next = second.admit(now).await.map(|admitted| admitted.id);
+        [
+            Some(one.id),
+            first_waits,
+            second_waits,
+            first_next,
+            second_next,
+        ]
+    });
+
+    assert_eq!(
+        admitted,
+        [Some("1".to_owned()), None, None, Some("2".to_owned()), None]
     );
 }

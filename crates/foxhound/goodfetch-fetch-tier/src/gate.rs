@@ -246,10 +246,11 @@ pub struct RunHandOver {
     /// The Politeness the Run shares, once it opened; none while the Run's
     /// Politeness paces nothing, which consults no store (ADR 0138).
     pub politeness: Option<Politeness>,
-    /// The Politeness the Run shares, once it opened, whatever the Run's
-    /// own pacing: a robots.txt's Crawl-delay is recorded there for every
-    /// run sharing it (ADR 0086).
-    pub shared_politeness: Option<Politeness>,
+    /// The Crawl-delays the Run records in the Politeness it shares, once
+    /// it opened, whatever the Run's own pacing: a robots.txt's Crawl-delay
+    /// is recorded there for every run sharing it (ADR 0086), once a Run
+    /// while it asks the same (#1899).
+    pub crawl_delays: Option<goodfetch_frontier::CrawlDelays>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
     /// `politeness.domain.adaptive_delay`: on, each hop's latency is

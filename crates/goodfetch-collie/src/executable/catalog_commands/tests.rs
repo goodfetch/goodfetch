@@ -67,7 +67,7 @@ const WIDGET_PAGE: Operation =
 )]
 #[case::read(
     operation("widget.name", OperationKind::Read, Reach::AllSurfaces),
-    Some(Offer::Command)
+    None
 )]
 #[case::opener(
     operation("widget.open", OperationKind::Opener, Reach::AllSurfaces),

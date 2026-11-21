@@ -704,13 +704,23 @@ pub struct RunStarted {
     pub needs: Product,
 }
 
-/// What `run.usage`, `run.pause` and `run.migrate` take: the Run.
+/// What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
+/// the Run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+}
+
+/// What `run.started_as` answers: how the start that opened the Run's
+/// handle reached it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunStartedAs {
+    /// Whether the start began it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub started_as: StartedAs,
 }
 
 /// What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
@@ -880,6 +890,24 @@ pub const RUN_START: Operation = Operation {
     reach: Reach::AllSurfaces,
     params: schema_of::<RunStartParams>,
     result: schema_of::<RunStarted>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.started_as`.
+pub const RUN_STARTED_AS: Operation = Operation {
+    name: "run.started_as",
+    description: "Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.",
+    class: OperationClass::Read,
+    kind: OperationKind::Read,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunStartedAs>,
     events: &[],
     cancellable: false,
     input: None,
@@ -1375,6 +1403,7 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[
         RUN_START,
+        RUN_STARTED_AS,
         RUN_FINISH,
         RUN_STOP,
         RUN_ABORT,

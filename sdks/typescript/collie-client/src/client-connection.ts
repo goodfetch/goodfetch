@@ -809,10 +809,14 @@ export function phaseExceeded(
   });
 }
 
-/** The error a call in flight fails with when its Connection closes: cancelled by its Client. */
+/**
+ * The error a call in flight fails with when its program closes its
+ * Connection: cancelled by the program, its Connection closed under it
+ * (ADRs 0078 and 0113). A call made once it is closed fails with `closed`.
+ */
 function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
-    details: { by: "client" },
+    details: { by: "program", closed: "connection" },
   });
 }
 

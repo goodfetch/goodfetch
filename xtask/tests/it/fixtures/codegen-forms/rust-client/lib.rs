@@ -15,6 +15,17 @@ mod generated {
     pub(crate) mod handles;
 }
 
+/// What a program writes against the reads (ADR 0099): each answers its
+/// value at once, from the answer that opened its handle, by a method of
+/// the async handle and of its blocking twin.
+#[expect(dead_code, reason = "rustc checks the reads' types; nothing runs them")]
+fn reads(run: &generated::handles::Run, blocking: &generated::blocking::Run) {
+    let _: String = run.label();
+    let _: bool = run.is_resumed();
+    let _: String = blocking.label();
+    let _: bool = blocking.is_resumed();
+}
+
 mod markers {
     /// ADR 0030's run-time warning of a deprecated or Experimental entry.
     pub(crate) fn warn(

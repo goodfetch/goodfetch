@@ -1,10 +1,17 @@
 use std::collections::BTreeSet;
+use std::time::{Duration, SystemTime};
+
+use schemars::JsonSchema;
+use serde_json::{Value, json};
 
 use crate::catalog::Product;
 use crate::entries::MODULES;
 use crate::error_code::{ErrorCode, ErrorDetails};
+use crate::error_details::RETRY_AFTER_POINT_IN_TIME;
+use crate::foxhound::crawl::ResponseUnavailableDetails;
 use crate::foxhound::error_code as foxhound;
 use crate::hook::HookFailedDetails;
+use crate::page::BlockedDetails;
 
 /// `PascalCase` to `snake_case`.
 fn snake(pascal: &str) -> String {
@@ -82,4 +89,72 @@ fn every_code_of_each_product_has_its_constant() {
 #[test]
 fn a_details_type_names_its_code() {
     assert_eq!(HookFailedDetails::CODES, [ErrorCode::HOOK_FAILED]);
+}
+
+/// The `format` of `D`'s `retry_after` in its schema.
+fn retry_after_format<D: JsonSchema>() -> Option<Value> {
+    let schema = serde_json::to_value(schemars::schema_for!(D)).unwrap();
+    schema["properties"]["retry_after"].get("format").cloned()
+}
+
+#[test]
+fn the_codes_with_a_point_in_time_retry_after_are_those_whose_details_declare_one() {
+    let declaring = [BlockedDetails::CODES, ResponseUnavailableDetails::CODES].concat();
+
+    assert_eq!(RETRY_AFTER_POINT_IN_TIME, declaring.as_slice());
+    assert_eq!(
+        [
+            retry_after_format::<BlockedDetails>(),
+            retry_after_format::<ResponseUnavailableDetails>(),
+        ],
+        [Some(json!("date-time")), Some(json!("date-time"))]
+    );
+}
+
+#[test]
+fn response_unavailable_details_read_retry_after_as_a_point_in_time_in_any_offset() {
+    let read: ResponseUnavailableDetails = serde_json::from_value(json!({
+        "url": "https://a.test/",
+        "status": 503,
+        "retry_after": "2026-11-21T10:00:00+02:00",
+        "fix": "Re-admit the request once the site is back.",
+    }))
+    .unwrap();
+    let held: ResponseUnavailableDetails = serde_json::from_value(json!({
+        "url": "https://a.test/",
+        "status": null,
+    }))
+    .unwrap();
+
+    assert_eq!(
+        read,
+        ResponseUnavailableDetails {
+            url: Some("https://a.test/".to_owned()),
+            status: Some(503),
+            // 2026-11-21T08:00:00Z.
+            retry_after: Some(SystemTime::UNIX_EPOCH + Duration::from_hours(498_680)),
+            fix: Some("Re-admit the request once the site is back.".to_owned()),
+        }
+    );
+    assert_eq!((held.status, held.retry_after), (None, None));
+}
+
+/// A request Politeness holds unsent past `politeness.retry_after.max`
+/// fails with no URL in its details, only the time the site asked for.
+#[test]
+fn response_unavailable_details_read_a_request_held_unsent_with_no_url() {
+    let read: ResponseUnavailableDetails = serde_json::from_value(json!({
+        "status": null,
+        "retry_after": "2026-11-21T08:00:00Z",
+        "fix": "Re-admit the request once the site is back.",
+    }))
+    .unwrap();
+
+    assert_eq!(
+        (read.url, read.retry_after),
+        (
+            None,
+            Some(SystemTime::UNIX_EPOCH + Duration::from_hours(498_680))
+        )
+    );
 }

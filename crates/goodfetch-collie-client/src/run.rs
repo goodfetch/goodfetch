@@ -8,6 +8,7 @@
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
+use std::sync::Arc;
 
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
@@ -97,14 +98,10 @@ impl IntoFuture for Start {
                 .no_timeout()
                 .await?;
             log_start(&started);
-            let held = HeldRun::new(
-                self.connection,
-                started.run_id,
-                started.started_as,
-                started.lifecycle,
-            );
+            let held = HeldRun::new(self.connection, started.run_id.clone(), started.lifecycle);
             Ok(Run {
                 host: Host::run(held),
+                opened: Arc::new(started),
             })
         })
     }
@@ -133,12 +130,6 @@ fn log_start(started: &RunStarted) {
 }
 
 impl Run {
-    /// Whether the start began the Run, went on with it, or found it ended.
-    pub fn started_as(&self) -> StartedAs {
-        crate::markers::warn_operation("run.start");
-        self.host.held_run().started_as()
-    }
-
     /// Closes the Run for every clone: a Run that still runs stops at its
     /// next safe point, `stopped` and `incomplete`, as an abort by its
     /// program (`run.abort`), resumable by its Run ID; an ended one stays

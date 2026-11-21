@@ -65,7 +65,7 @@ pub use learn::{
     learn, learn_redirect,
 };
 pub use politeness::{
-    Pace, crawl_delay_read, last_start, latency_measured, longest_wait, paces,
+    CrawlDelays, Pace, crawl_delay_read, last_start, latency_measured, longest_wait, paces,
     refuse_second_copies, settled_at_send, start_after, start_after_robots_txt, started_again,
     started_at_send,
 };

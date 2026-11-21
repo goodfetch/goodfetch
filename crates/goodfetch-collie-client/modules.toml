@@ -46,8 +46,12 @@
 # `trace_context` is the seam the program's Trace context is read through
 # and how a request's params carry it in `_meta` (ADR 0132), which `rpc`
 # holds and `call`, `connection` and `event_stream` write.
+# `ai_work` is the result of AI work that can claim success, how it ended,
+# its Verdict and its model's claim apart, and `require_verified()`, which
+# fails with `error`'s `not_verified` (ADRs 0079 and 0117).
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
+ai_work = ["error"]
 answer = []
 blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
 call = ["error", "rpc", "trace_context"]

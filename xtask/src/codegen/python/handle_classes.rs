@@ -15,6 +15,10 @@
 //!   twin.
 //! - A value built without a call is a sync method, or a property when it
 //!   takes nothing; a sub-object is a property.
+//! - A read is a property, or a sync method when it is a yes or no (`is_`)
+//!   or a conversion (`as_`), the same in both classes: it answers from the
+//!   answer that opened the handle, which the handle is built with, and
+//!   sends nothing.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result's model: Python's type system has no mapped types.
 //!
@@ -53,7 +57,7 @@ use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
 use super::super::handles::{
-    Builder, DEPRECATION, Form, Handle, HandleId, Member, Overload, Parameters,
+    Builder, DEPRECATION, Form, Handle, HandleId, Member, Overload, Parameters, Read,
 };
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
@@ -716,6 +720,50 @@ fn builder(
     Ok(text)
 }
 
+/// One read, the same in both modes since it sends nothing: a property, or
+/// a method for a yes or no (`is_`) or a conversion (`as_`), which
+/// answers the value of the answer that opened its handle (issue 2798).
+fn read(layer: &Layer, read: &Read<'_>, imports: &mut Imports) -> Result<String> {
+    let operation = read.operation;
+    let property = layer
+        .definitions
+        .get(&operation.result.0)
+        .map(|result| &result["properties"][&read.property])
+        .with_context(|| format!("operation `{}` has no result type", operation.name))?;
+    let Some(returns) = annotation(property, imports) else {
+        bail!(
+            "operation `{}`: no Python annotation for its result's `{}`",
+            operation.name,
+            read.property
+        );
+    };
+    let decorator = if read.name.starts_with("is_") || read.name.starts_with("as_") {
+        ""
+    } else {
+        "    @property\n"
+    };
+    let mut text = decorator.to_owned();
+    if let Some(deprecated) = &operation.deprecated {
+        imports.deprecated = true;
+        text.push_str(&deprecated_decorator(deprecated));
+    }
+    let _ = writeln!(text, "    def {}(self) -> {returns}:", read.name);
+    text.push_str(&docstring(
+        "        ",
+        &operation.description,
+        operation.stability,
+        operation.deprecated.as_ref(),
+    ));
+    text.push_str(&warnings(
+        &operation.name,
+        operation.stability,
+        operation.deprecated.as_ref(),
+        &mut imports.markers,
+    ));
+    let _ = writeln!(text, "        return self._opened.{}", read.property);
+    Ok(text)
+}
+
 /// One handle's classes in `mode`: its sub-objects', then its own.
 fn classes(
     layer: &Layer,
@@ -746,14 +794,19 @@ fn classes(
             text.push_str(&member(layer, held, &handle.id, mode, imports)?);
         }
     }
+    // A handle with reads is built with the answer that opened it, which
+    // they answer from.
+    let own_constructor = match &handle.reads {
+        None => constructor.trim_end().to_owned(),
+        Some(reads) => format!(
+            "\n    def __init__(self, host: {host}, opened: {}) -> None:\n        \"\"\"Takes what it reaches its engine through and the answer that opened it; a program never constructs one.\"\"\"\n        self._host = host\n        self._opened = opened",
+            imports.model(&reads.opened)
+        ),
+    };
     let _ = write!(
         text,
-        "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}\n        super().__init__(host, {:?}, {:?})\n",
-        mode.base,
-        handle.namespace,
-        constructor.trim_end(),
-        handle.namespace,
-        handle.id.param
+        "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{own_constructor}\n        super().__init__(host, {:?}, {:?})\n",
+        mode.base, handle.namespace, handle.namespace, handle.id.param
     );
     for sub_object in &handle.sub_objects {
         let _ = writeln!(
@@ -774,6 +827,10 @@ fn classes(
     for held in &handle.members {
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);
+    }
+    for held in handle.reads() {
+        text.push('\n');
+        text.push_str(&read(layer, held, imports)?);
     }
     if handle.listener.is_some() || handle.published_listener.is_some() {
         text.push('\n');

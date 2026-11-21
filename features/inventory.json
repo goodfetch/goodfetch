@@ -1752,6 +1752,17 @@
       ]
     },
     {
+      "id": "error:not_verified",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_check_failed",
       "kind": "error",
       "area": 5,
@@ -4152,6 +4163,17 @@
     },
     {
       "id": "operation:run.start",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.started_as",
       "kind": "operation",
       "area": 3,
       "milestone": null,

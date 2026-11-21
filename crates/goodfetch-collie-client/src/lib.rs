@@ -11,12 +11,15 @@
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
 //! program that does not use async. [`file_saving`] writes a file to the
 //! program's path whole or not at all (ADR 0116). Each request carries the
-//! Trace context a [`TraceContextSource`] reads (ADR 0132). The SDK crates
+//! Trace context a [`TraceContextSource`] reads (ADR 0132). AI work's
+//! [`AiWorkResult`] keeps how it [`Ended`], its Verdict and its model's
+//! claim apart (ADRs 0079 and 0117). The SDK crates
 //! build on it; it depends on neither of them, on any Foxhound crate nor on
 //! any OpenTelemetry crate.
 
 #![warn(missing_docs)]
 
+mod ai_work;
 mod answer;
 pub mod blocking;
 mod call;
@@ -47,6 +50,7 @@ mod sync;
 mod trace_context;
 pub mod transport;
 
+pub use ai_work::{AiWorkResult, Ended, PartialOutput};
 pub use answer::Answer;
 pub use call::{Call, Query, Reply};
 pub use connect_timeout::ConnectTimeout;

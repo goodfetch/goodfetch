@@ -35,7 +35,7 @@ START_LOGGER = "goodfetch.client.run"
 """The logger a start that resumed or found its Run ended goes to."""
 
 
-@pytest.mark.covers("story:11-126", "story:11-127")
+@pytest.mark.covers("story:11-126", "story:11-127", "operation:run.started_as")
 @pytest.mark.client_case(id="start-reaches-its-run", mode="attached")
 @three_ways
 async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
@@ -64,7 +64,10 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
     reached = await failure(collie.start(run_id="capped"))
     await collie.close()
 
-    with client_case.check("each start answers how it reached the Run"):
+    with client_case.check(
+        "run.started_as answers how each start reached the Run, "
+        "without a message to the engine"
+    ):
         assert [run.started_as for run in (begun, resumed, ended)] == [
             StartedAs.new,
             StartedAs.resumed,

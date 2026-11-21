@@ -4,8 +4,11 @@
 //! over them in three states, a key left out inheriting, `None` clearing
 //! and a value setting, and `explain_settings()` on the connection and on
 //! the Run answers what each runs with, async and through `blocking`; a
-//! key the Operator policy locked refuses the connection itself. It also
-//! plays the `settings-refusals-say-how-to-fix` case in `linked` mode: a
+//! key the Operator policy locked refuses the connection itself. It plays
+//! the `settings-explained-with-their-source` case in `linked` mode: each
+//! key's origin, the Durability level whose preset gave it and the layer
+//! that locked it through a lock on that level. It also plays the
+//! `settings-refusals-say-how-to-fix` case in `linked` mode: a
 //! configuration-only key set in user configuration is explained from that
 //! file, and a Run setting a locked key is refused naming the layer that
 //! locked it. The typed setting constants leave a configuration-only or
@@ -164,6 +167,100 @@ fn a_connection_setting_a_locked_key_fails_to_connect_with_setting_locked() {
     });
 
     assert_eq!(refused.code(), ErrorCode::SETTING_LOCKED, "{refused:?}");
+}
+
+/// The keys the `settings-explained-with-their-source` case asks for: a
+/// Durability level, a key of its preset and a key set in code.
+const SOURCED: [&str; 3] = [
+    "run_state.batch.sync",
+    "run_state.durability",
+    "timeout.wait",
+];
+
+/// Each explained setting as its key, value, layer, origin, the preset that
+/// gave it and the layer that locked it.
+fn sourced(explanation: &SettingsExplanation) -> Vec<Value> {
+    explanation
+        .settings
+        .iter()
+        .map(|setting| {
+            json!([
+                setting.key,
+                setting.value,
+                setting.layer,
+                setting.origin,
+                setting.preset,
+                setting.locked_by
+            ])
+        })
+        .collect()
+}
+
+/// `explain_settings()` on the connection and on the Run reports each key's
+/// value, the layer and origin that set it, the Durability level whose
+/// preset gave it and the layer that locked it: the Operator policy's lock
+/// on `run_state.durability` locks `run_state.batch.sync`, which its preset
+/// gives, and a key set in code names its origin, the connection's value
+/// under the Run's own.
+/// Covers: story:11-74, setting:run_state.durability, setting:run_state.batch.sync
+#[test]
+fn explain_settings_names_each_keys_layer_origin_preset_and_lock() {
+    let env = TestEnv::new();
+    let layout = HomeLayout::of(env.home());
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes the Goodfetch home's Operator policy itself"
+    )]
+    {
+        std::fs::create_dir_all(layout.per_major()).unwrap();
+        std::fs::write(
+            layout.operator_policy(),
+            "version = \"0.1\"\n\n[lock.run_state]\ndurability = \"full\"\n",
+        )
+        .unwrap();
+    }
+
+    let explained = real_time_runtime().block_on(async {
+        let collie = Collie::connect(
+            options(&env).settings(Settings::new().set(timeout::WAIT, Duration::from_secs(3))),
+        )
+        .await
+        .unwrap();
+        let connection = collie.explain_settings().keys(SOURCED).await.unwrap();
+        let run = collie
+            .start()
+            .settings(Settings::new().set(timeout::WAIT, Duration::from_secs(5)))
+            .await
+            .unwrap();
+        let own = run.explain_settings().keys(SOURCED).await.unwrap();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+        (sourced(&connection), sourced(&own))
+    });
+
+    let level = json!({ "key": "run_state.durability", "value": "full" });
+    let locked = |wait: u64| {
+        vec![
+            json!([
+                "run_state.batch.sync",
+                "each",
+                "operator_policy",
+                null,
+                level,
+                "operator_policy"
+            ]),
+            json!([
+                "run_state.durability",
+                "full",
+                "operator_policy",
+                null,
+                null,
+                "operator_policy"
+            ]),
+            json!(["timeout.wait", wait, "run", "settings", null, null]),
+        ]
+    };
+    assert_eq!(explained, (locked(3_000), locked(5_000)));
 }
 
 /// A configuration-only key set in user configuration is explained from

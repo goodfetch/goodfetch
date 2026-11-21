@@ -1129,9 +1129,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
 /// A prefix keeps its one meaning and a query never waits (ADR 0099), a
 /// result is typed by fields a call declares (ADR 0147), and a call's own
 /// `timeout` names the setting it sets (ADR 0080), and a deprecated
-/// parameter or value leaves a call free of it (ADR 0099): `xtask codegen`
-/// refuses a catalog that says otherwise, naming the operation, in place of
-/// writing a member whose name, options or result lie.
+/// parameter or value leaves a call free of it (ADR 0099), and a read
+/// takes nothing but its handle and answers a value of the answer that
+/// opened it (issue 2798): `xtask codegen` refuses a catalog that says
+/// otherwise, naming the operation, in place of writing a member whose
+/// name, options or result lie.
 ///
 /// Covers: story:11-178
 #[rstest]
@@ -1156,6 +1158,31 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "operation `page.new_ready`"
 )]
 #[case::is_on_a_round_trip("\"page.close\"", "\"page.is_closed\"", "operation `page.is_closed`")]
+#[case::a_read_its_opener_does_not_answer(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub name: String,",
+    "operation `run.label`"
+)]
+#[case::a_read_of_another_type_than_its_opener_answers(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: u64,",
+    "operation `run.label`"
+)]
+#[case::a_read_whose_result_has_two_properties(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,\n    /// A second value a read cannot answer.\n    pub other: u64,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result has one property"
+)]
+#[case::a_read_whose_result_property_is_optional(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: Option<String>,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result's `label` is required"
+)]
+#[case::a_read_with_a_parameter(
+    "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n",
+    "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n    /// A parameter a read cannot take.\n    pub fresh: bool,\n",
+    "operation `run.is_resumed`"
+)]
 #[case::on_on_a_round_trip("\"page.close\"", "\"page.on_close\"", "operation `page.on_close`")]
 #[case::get_by_on_an_operation(
     "\"page.is_ready\"",

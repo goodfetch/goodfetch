@@ -2,6 +2,7 @@
 [modules]
 canaries = []
 case_list = []
+client_case = []
 host = []
 protocol = ["canaries", "case_list", "host", "proving_ground", "writer"]
 proving_ground = []

@@ -2,8 +2,10 @@
 //! handles a program holds: a round trip with a required text, a required
 //! boolean and an optional parameter, a query, a waiter, a `new_` member
 //! that opens a page, a value built without a call (a locator, whose ID is
-//! its own value), a sub-object (`page.keyboard`), a `close` and a query
-//! whose result is typed by the fields its call declares (`page.read`). The
+//! its own value), a sub-object (`page.keyboard`), a `close`, a query
+//! whose result is typed by the fields its call declares (`page.read`), and
+//! two reads the Run answers from `run.start`'s answer, a value
+//! (`run.label`) and a yes or no (`run.is_resumed`). The
 //! `codegen` workspace takes this module when a test asks what each
 //! language's generator writes for them. It declares `setting_invalid`,
 //! which an SDK raises before sending a call's own `timeout` it refuses
@@ -46,6 +48,32 @@ pub struct RunStartParams {}
 pub struct RunStarted {
     /// The Run.
     pub run_id: RunId,
+    /// The Run's label.
+    pub label: String,
+    /// Whether the start resumed a Run.
+    pub is_resumed: bool,
+}
+
+/// What `run.label` and `run.is_resumed` take: the Run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunParams {
+    /// The Run.
+    pub run_id: RunId,
+}
+
+/// What `run.label` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunLabel {
+    /// The Run's label.
+    pub label: String,
+}
+
+/// What `run.is_resumed` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunIsResumed {
+    /// Whether the start resumed a Run.
+    pub is_resumed: bool,
 }
 
 /// What `run.new_page` opens a page with.
@@ -326,6 +354,28 @@ pub const ENTRIES: Entries = Entries {
             params: schema_of::<RunStartParams>,
             result: schema_of::<RunStarted>,
             ..operation("run.start", "Starts a Run.", OperationKind::Opener, false)
+        },
+        Operation {
+            params: schema_of::<RunParams>,
+            result: schema_of::<RunLabel>,
+            reach: Reach::SdkOnly,
+            ..operation(
+                "run.label",
+                "The Run's label, from the start's answer.",
+                OperationKind::Read,
+                false,
+            )
+        },
+        Operation {
+            params: schema_of::<RunParams>,
+            result: schema_of::<RunIsResumed>,
+            reach: Reach::SdkOnly,
+            ..operation(
+                "run.is_resumed",
+                "Whether the start resumed a Run, from the start's answer.",
+                OperationKind::Read,
+                false,
+            )
         },
         Operation {
             params: schema_of::<NewPageParams>,

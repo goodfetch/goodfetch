@@ -10,6 +10,7 @@ expression: "workspace.read_text(&format!(\"{RUST_CLIENT}/src/generated/handles.
 #[derive(Clone, Debug)]
 pub struct Run {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::forms::RunId>,
+    pub(crate) opened: ::std::sync::Arc<::goodfetch_protocol::forms::RunStarted>,
 }
 
 impl Run {
@@ -48,6 +49,18 @@ impl Run {
         call.map(move |opened| Page {
             host: host.child(opened.page_id),
         })
+    }
+
+    /// Whether the start resumed a Run, from the start's answer.
+    #[must_use]
+    pub fn is_resumed(&self) -> bool {
+        ::std::borrow::ToOwned::to_owned(&self.opened.is_resumed)
+    }
+
+    /// The Run's label, from the start's answer.
+    #[must_use]
+    pub fn label(&self) -> String {
+        ::std::borrow::ToOwned::to_owned(&self.opened.label)
     }
 }
 

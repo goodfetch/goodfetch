@@ -285,20 +285,124 @@ form = "closer"
 
 [[member]]
 package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "AIWorkResult"
+entry = "none"
+reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+words = ["ai", "work", "result"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "constructor"
+entry = "none"
+reason = "What the SDK's AI work calls build their result with (ADR 0079), from its `AIWorkFields`."
+words = ["ai", "work", "result"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "ended"
+entry = "none"
+reason = "How the work ended, its answer inside (ADR 0117), read without a round trip."
+words = ["ended"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "verdict"
+entry = "none"
+reason = "Whether the program's checks prove the work (ADR 0079), read without a round trip."
+words = ["verdict"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "verdictReasons"
+entry = "none"
+reason = "Why the Verdict is not `verified` (ADR 0102), read without a round trip."
+words = ["verdict", "reasons"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "reported"
+entry = "none"
+reason = "What the model claimed, a signal and never proof (ADR 0100), read without a round trip."
+words = ["reported"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "requireVerified"
+entry = "none"
+reason = "Hands over the output only when the work finished and its Verdict is `verified`, and throws `not_verified` otherwise (ADR 0079), with no round trip."
+words = ["require", "verified"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "AIWorkFields"
+entry = "none"
+reason = "What `AIWorkResult`'s constructor takes (ADR 0079)."
+only = "Python's dataclass and Rust's struct take their fields directly."
+words = ["ai", "work", "fields"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Claim"
+entry = "none"
+reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
+only = "Rust's is `goodfetch-protocol`'s contract type, which no manifest lists (ADR 0038); #3164 generates TypeScript's and Python's."
+words = ["claim"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Ended"
+entry = "none"
+reason = "How AI work ended (ADR 0117), narrowed on `kind`: `finished` or `stopped`."
+words = ["ended"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "PartialOf"
+entry = "none"
+reason = "What stopped AI work had gathered, typed from its output (ADR 0100)."
+only = "Python's `partial` is a mapping or a list, and Rust's a `PartialOutput` read by type (ADR 0100)."
+words = ["partial", "of"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Reported"
+entry = "none"
+reason = "The model's claim and its message (ADR 0100): a signal, never proof."
+only = "Rust's is `goodfetch-protocol`'s contract type, which no manifest lists (ADR 0038); #3164 generates TypeScript's and Python's."
+words = ["reported"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
 receiver = "Run"
 member = "id"
 entry = "none"
 reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
 only = "Rust's `Run::id` is generated (ADR 0099)."
 words = ["id"]
-form = "read"
-
-[[member]]
-package = "@goodfetch/collie-client"
-receiver = "Run"
-member = "startedAs"
-entry = "run.start"
-words = ["started", "as"]
 form = "read"
 
 [[member]]
@@ -603,6 +707,15 @@ member = "isGoodfetchError"
 entry = "none"
 reason = "Whether a value is an error a Goodfetch SDK raised, from any copy of the package in one bundle, where `instanceof` fails (ADR 0079); each Product's own guard is generated."
 words = ["is", "goodfetch", "error"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "retryAfterOf"
+entry = "none"
+reason = "The point in time an error's details name as `retry_after`, the time the site's `Retry-After` asks for (ADRs 0092 and 0118), which the generated class of each code whose details declare one reads as its `retryAfter`, Foxhound's among them."
+words = ["retry", "after", "of"]
 form = "read"
 
 [[member]]

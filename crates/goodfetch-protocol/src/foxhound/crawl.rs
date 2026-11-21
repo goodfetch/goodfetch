@@ -543,6 +543,28 @@ pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `response_unavailable` details (ADR 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseUnavailableDetails {
+    /// The URL of the request; absent for a request Politeness held unsent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// The response's HTTP status; `null` for a request held unsent.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<u16>,
+    /// The time the site's `Retry-After` asks for, in RFC 3339, read in
+    /// either of its forms; `null` when it asks for none.
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
+    pub retry_after: Option<std::time::SystemTime>,
+    /// What to do about it, such as re-admitting the request once the site
+    /// is back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
+}
+
 /// What `label_unknown` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LabelUnknownDetails {

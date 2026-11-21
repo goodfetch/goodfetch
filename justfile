@@ -539,6 +539,14 @@ test suite *packages:
       [[ ${#select_playwright[@]} -gt 0 ]] || playwright_runs=false
       [[ ${#select_pytest[@]} -gt 0 ]] || python=false
     fi
+    # Each Rust test that runs a Client conformance case appends its entry to
+    # target/case-logs/nextest.jsonl (ADR 0069), emptied before nextest runs,
+    # as Vitest's and pytest's writers rewrite theirs.
+    export GOODFETCH_TEST_CASE_LOGS="$PWD/target/case-logs"
+    if $rust; then
+      mkdir -p target/case-logs
+      : > target/case-logs/nextest.jsonl
+    fi
     # Vitest, Playwright and pytest run their tests in an order seeded from
     # the tree under test (TESTING.md, Before merge); nextest runs each test
     # in its own process.

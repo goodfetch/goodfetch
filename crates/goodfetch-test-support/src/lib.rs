@@ -251,8 +251,8 @@ pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
 pub use variables::{
-    CALLGRIND_AT_ONCE_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
-    LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE,
-    SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, Variables,
-    current_test,
+    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
+    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE,
+    RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError,
+    TOOLS_VARIABLE, Variables, current_test,
 };

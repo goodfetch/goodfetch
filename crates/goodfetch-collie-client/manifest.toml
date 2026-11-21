@@ -39,6 +39,79 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "AiWorkResult"
+entry = "none"
+reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+words = ["ai", "work", "result"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "AiWorkResult"
+member = "require_verified"
+entry = "none"
+reason = "Hands over the output only when the work finished and its Verdict is `verified`, and fails with `not_verified` otherwise (ADR 0079), with no round trip."
+words = ["require", "verified"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Ended"
+entry = "none"
+reason = "How AI work ended (ADR 0117), exhaustive: `Finished` with its output or `Stopped` with its reason and partial output."
+words = ["ended"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "PartialOutput"
+entry = "none"
+reason = "What stopped AI work had gathered (ADR 0100), read by type."
+only = "TypeScript types the partial from its output as `PartialOf<T>`, and Python's is a mapping or a list (ADR 0100)."
+words = ["partial", "output"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "PartialOutput"
+member = "new"
+entry = "none"
+reason = "The partial output the engine sent, which the SDK's AI work calls build their result with (ADR 0100)."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "PartialOutput"
+member = "field"
+entry = "none"
+reason = "A top-level field of an object output as the type asked, none when the work gathered none (ADR 0100)."
+words = ["field"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "PartialOutput"
+member = "items"
+entry = "none"
+reason = "The elements of a list output gathered so far, each as the type asked (ADR 0100)."
+words = ["items"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "PartialOutput"
+member = "as_json"
+entry = "none"
+reason = "The JSON the partial output holds, whole."
+words = ["as", "json"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "Answer"
 member = "into_inner"
 entry = "none"
@@ -951,14 +1024,6 @@ form = "round_trip"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "Run"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
-form = "read"
-
-[[member]]
-crate = "goodfetch-collie-client"
-receiver = "Run"
 member = "close"
 entry = "run.abort"
 words = ["close"]
@@ -1583,14 +1648,6 @@ entry = "none"
 reason = "Its body parsed as JSON into `T`, as `crate::Response::json` parses it: UTF-8 whatever its charset, a leading BOM ignored."
 words = ["json"]
 form = "round_trip"
-
-[[member]]
-crate = "goodfetch-collie-client"
-receiver = "blocking::Run"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
-form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"

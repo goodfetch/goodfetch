@@ -1,0 +1,33 @@
+{
+  "description": "A Collie Client's hello carrying its Connection's own `connection.max_queued_write_bytes` of 1 in its settings (issue 2518), accepted by an engine that names Foxhound; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "settings": {
+            "connection": {
+              "max_queued_write_bytes": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    }
+  ]
+}

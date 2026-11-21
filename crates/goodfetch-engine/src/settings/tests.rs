@@ -1013,6 +1013,80 @@ fn timeout_connect_is_set_only_in_the_project_file(
     );
 }
 
+/// A Client's own bound is taken from `connect()`'s own `settings`, the
+/// run layer, alone: configuration, an Operator policy and a Recipe never
+/// reach the Client's transport, so each is refused naming `connect()`
+/// (issue 2518).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue, error:setting_not_applicable
+#[rstest]
+fn a_clients_own_bound_is_refused_outside_connect(
+    #[values(
+        "connection.max_pending_calls",
+        "connection.max_queued_write_bytes",
+        "connection.max_listener_queue"
+    )]
+    key: &str,
+    #[values(
+        SettingsLayer::OperatorPolicy,
+        SettingsLayer::UserConfiguration,
+        SettingsLayer::ProjectConfiguration,
+        SettingsLayer::Recipe
+    )]
+    layer: SettingsLayer,
+) {
+    let refused = resolve(
+        &only(layer, key, &json!(5)),
+        Product::Collie,
+        Product::Collie,
+    );
+
+    let (code, fix) = match &refused {
+        Err(error @ SettingsError::NotApplicable { fix, .. }) => (error.code(), fix.as_str()),
+        Err(error) => panic!("{error:?}"),
+        Ok(_) => panic!("{key} set by {layer:?} was taken"),
+    };
+    assert_eq!(code, "setting_not_applicable");
+    assert!(fix.contains("connect()"), "{fix}");
+}
+
+/// A Client's own bound set in `connect()`'s own `settings`, the run
+/// layer, is taken there (issue 2518).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue
+#[rstest]
+fn a_clients_own_bound_set_in_connect_is_taken(
+    #[values(
+        "connection.max_pending_calls",
+        "connection.max_queued_write_bytes",
+        "connection.max_listener_queue"
+    )]
+    key: &str,
+) {
+    let set = resolved(&only(SettingsLayer::Run, key, &json!(5)));
+
+    let value = set.effective(catalog_key(key)).unwrap();
+    assert_eq!((&value.value, value.layer), (&json!(5), SettingsLayer::Run));
+}
+
+/// With nothing set, a Client's own bound keeps its default: 10,000 calls,
+/// 64 MiB and 1,024 events (issue 2518).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue
+#[rstest]
+#[case::pending_calls("connection.max_pending_calls", 10_000)]
+#[case::queued_write_bytes("connection.max_queued_write_bytes", 67_108_864)]
+#[case::listener_queue("connection.max_listener_queue", 1_024)]
+fn a_clients_own_bound_keeps_its_default(#[case] key: &str, #[case] default: u64) {
+    let unset = resolved(&Layers::default());
+
+    let value = unset.effective(catalog_key(key)).unwrap();
+    assert_eq!(
+        (&value.value, value.layer),
+        (&json!(default), SettingsLayer::Default)
+    );
+}
+
 /// `timeout.connect` is 30 s by default, which `config explain` shows set
 /// by the default layer (ADR 0083).
 ///

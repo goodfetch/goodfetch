@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 pub(crate) fn sample(kind: &ValueKind) -> Value {
     match kind {
         ValueKind::Boolean => json!(true),
-        ValueKind::Count | ValueKind::CountUpTo(_) => json!(4),
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::CountFromOne => json!(4),
         ValueKind::Duration => json!(30_000),
         ValueKind::Text => json!("example"),
         ValueKind::Choice(words) => json!(words.first().copied().unwrap_or_default()),

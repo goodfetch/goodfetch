@@ -82,10 +82,30 @@ export interface ChannelBounds {
   readonly maxQueuedWriteBytes?: number | undefined;
 }
 
-/** The default bound on calls waiting for their answer. */
-const MAX_PENDING_CALLS = 10_000;
-/** The default bound on bytes waiting to be written. */
-const MAX_QUEUED_WRITE_BYTES = 64 * 1024 * 1024;
+/**
+ * One of the Client's own bounds, a setting of `connect()`'s own `settings`
+ * alone (issue 2518): its key as the wire and the engine's details write
+ * it, as a program writes it, and its default.
+ */
+export interface Bound {
+  readonly key: string;
+  readonly spelled: string;
+  readonly fallback: number;
+}
+
+/** The bound on calls waiting for their answer. */
+export const PENDING_CALLS: Bound = {
+  key: "connection.max_pending_calls",
+  spelled: "connection.maxPendingCalls",
+  fallback: 10_000,
+};
+
+/** The bound on bytes waiting to be written. */
+export const QUEUED_WRITE_BYTES: Bound = {
+  key: "connection.max_queued_write_bytes",
+  spelled: "connection.maxQueuedWriteBytes",
+  fallback: 64 * 1024 * 1024,
+};
 
 /** A Connection's bounds, each given or its default. */
 export interface CheckedBounds {
@@ -101,28 +121,27 @@ export interface CheckedBounds {
  */
 export function boundsOf(bounds: ChannelBounds): CheckedBounds {
   return {
-    maxPendingCalls: wholeBound("maxPendingCalls", bounds.maxPendingCalls, MAX_PENDING_CALLS),
-    maxQueuedWriteBytes: wholeBound(
-      "maxQueuedWriteBytes",
-      bounds.maxQueuedWriteBytes,
-      MAX_QUEUED_WRITE_BYTES,
-    ),
+    maxPendingCalls: wholeBound(PENDING_CALLS, bounds.maxPendingCalls),
+    maxQueuedWriteBytes: wholeBound(QUEUED_WRITE_BYTES, bounds.maxQueuedWriteBytes),
   };
 }
 
 /**
- * The Connection's bound `name`, `given` or `fallback` when left out.
+ * The Connection's `bound`, `given` or its default when left out.
  *
  * @throws {SettingInvalidError} when it is no whole number of 1 or more.
  */
-export function wholeBound(name: string, given: number | undefined, fallback: number): number {
-  const value = given ?? fallback;
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
-      fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
-    });
+export function wholeBound(bound: Bound, given: unknown): number {
+  const value = given ?? bound.fallback;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 1) {
+    return value;
   }
-  return value;
+  const shown = typeof value === "number" ? String(value) : (JSON.stringify(value) ?? typeof value);
+  const reason = `${shown} is no whole number of 1 or more`;
+  throw new SettingInvalidError(`\`${bound.spelled}\` is not valid: ${reason}`, {
+    fix: `Set \`${bound.spelled}\` in connect()'s settings to a whole number of 1 or more, or leave it out for its default of ${bound.fallback}.`,
+    details: { key: bound.key, layer: "run", reason },
+  });
 }
 
 interface Waiting {
@@ -265,7 +284,7 @@ export class Channel {
       return new ConnectionOverloadedError(
         `the Connection already holds ${this.#waiting.size} calls waiting for their answer, its bound, so this call was not sent`,
         {
-          fix: "Wait for earlier calls to end, or raise maxPendingCalls where the Connection opens.",
+          fix: `Wait for earlier calls to end, or raise \`${PENDING_CALLS.spelled}\` in connect()'s settings.`,
           details: { bound: "pending_calls", value: maxPendingCalls },
         },
       );
@@ -275,7 +294,7 @@ export class Channel {
       return new ConnectionOverloadedError(
         `the Connection already holds ${queued} bytes waiting to be written to the engine, and this call's ${length} would pass its bound of ${maxQueuedWriteBytes}, so it was not sent`,
         {
-          fix: "Wait for the engine to read earlier calls, or raise maxQueuedWriteBytes where the Connection opens.",
+          fix: `Wait for the engine to read earlier calls, or raise \`${QUEUED_WRITE_BYTES.spelled}\` in connect()'s settings.`,
           details: { bound: "queued_write_bytes", value: maxQueuedWriteBytes },
         },
       );

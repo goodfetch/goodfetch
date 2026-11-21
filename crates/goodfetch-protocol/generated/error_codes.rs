@@ -123,7 +123,7 @@ impl ErrorCode {
 
     /// `connection_overloaded`, in the `refused` group, retryable.
     ///
-    /// The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.
+    /// The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.
     pub const CONNECTION_OVERLOADED: Self = ErrorCode::from_static("connection_overloaded");
 
     /// `daemon_draining`, in the `unavailable` group, retryable.

@@ -3,8 +3,14 @@
 //! key another scope's code sets refused with `setting_not_applicable`
 //! naming those scopes, over the Connection's own settings key by key, so
 //! what a Run leaves out it inherits, its `null` clears and its value sets.
+//! The Connection's own `settings` also take a Client's transport bounds
+//! only from a Client that applies them (issue 2518).
 
-use goodfetch_protocol::catalog::{Product, SettingScope};
+use goodfetch_protocol::catalog::{Product, Setting, SettingScope};
+use goodfetch_protocol::connection::{
+    CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    Surface, applies_client_bounds,
+};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::{Map, Value};
@@ -12,6 +18,15 @@ use serde_json::{Map, Value};
 use super::error::SettingsError;
 use super::setting;
 use super::values::Values;
+
+/// The settings a Client applies to its own transport, of
+/// `Authority::ConnectionAlone`, which the engine takes only from a Client
+/// that applies them.
+const CLIENT_BOUNDS: [&Setting; 3] = [
+    &CONNECTION_MAX_PENDING_CALLS,
+    &CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    &CONNECTION_MAX_LISTENER_QUEUE,
+];
 
 /// Refuses `own`, a scope's own `settings` as `engine` reads them, when
 /// one sets a key that a program's code sets only at other scopes, as
@@ -45,6 +60,38 @@ pub fn check_scope(
         });
     }
     Ok(())
+}
+
+/// Refuses `own`, a `hello`'s settings from `surface` as `engine` reads
+/// them, when one sets a bound the Client of `surface` does not apply to
+/// its transport, where the value could not take effect (issue 2518).
+///
+/// # Errors
+///
+/// `setting_not_applicable` for the first such key; as [`Values::read`]
+/// for values it cannot read.
+pub fn check_client_bounds(
+    own: &Map<String, Value>,
+    surface: Surface,
+    engine: Product,
+) -> Result<(), SettingsError> {
+    if applies_client_bounds(surface) {
+        return Ok(());
+    }
+    let own = Values::read(SettingsLayer::Run, own, engine)?;
+    let applied_by_the_client = own
+        .keys()
+        .find(|key| CLIENT_BOUNDS.iter().any(|bound| bound.name == *key));
+    match applied_by_the_client {
+        Some(key) => Err(SettingsError::NotApplicable {
+            key: key.to_owned(),
+            layer: SettingsLayer::Run,
+            fix: format!(
+                "remove `{key}`: only the TypeScript Client reads its transport's bounds from `settings`; this Client takes them, where it has them, as options of its own `connect`"
+            ),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// The fix naming `scopes`, the ones whose own `settings` take a key.

@@ -154,6 +154,30 @@ class CDPURLNotAllowedError(RefusedError):
         super().__init__(message, code="cdp_url_not_allowed", group="refused", retryable=False, **fields)
 
 
+class CDPURLNotBrowserError(ProgramError):
+    """Something answered at a `cdp_url` Session source's address, but no browser speaks CDP there: an HTTP status and content type, a WebSocket that refused the upgrade, a CDP target that is not a browser (`page`, `node`, `worker`), or a product the engine does not drive, which `observed` says. The details name the address without its query or credentials, the settings layer that gave it and the fix: give the browser's endpoint, `http://host:port` or `ws://…/devtools/browser/<id>`, and when the same host serves `/json/version`, the browser address found there, which `browser_url` holds."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="cdp_url_not_browser", group="program", retryable=False, **fields)
+
+
+class CDPURLUnauthorizedError(RefusedError):
+    """A `cdp_url` Session source's address answered 401 or 403 to the HTTP request or the WebSocket upgrade. The details name the address without its query or credentials, the settings layer that gave it, the status, each header name sent with its Secret reference, never its value, and the fix: check the Secret references in `headers`."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="cdp_url_unauthorized", group="refused", retryable=False, **fields)
+
+
+class CDPURLUnreachableError(UnavailableError):
+    """Nothing answered at a `cdp_url` Session source's address when the call that opens the Session connected to it: its name did not resolve, the connection was refused or reset, or TLS failed. It fails at once, never waiting for the address. The details name the address without its query or credentials, the settings layer that gave it, the failure and the fix: start the browser with remote debugging on that port, or correct the address."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="cdp_url_unreachable", group="unavailable", retryable=True, **fields)
+
+
 class CertificateChangedError(RefusedError):
     """A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do."""
 
@@ -905,6 +929,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "call_cancelled": CallCancelledError,
     "capability_unavailable": CapabilityUnavailableError,
     "cdp_url_not_allowed": CDPURLNotAllowedError,
+    "cdp_url_not_browser": CDPURLNotBrowserError,
+    "cdp_url_unauthorized": CDPURLUnauthorizedError,
+    "cdp_url_unreachable": CDPURLUnreachableError,
     "certificate_changed": CertificateChangedError,
     "certificate_invalid": CertificateInvalidError,
     "challenge_unsolved": ChallengeUnsolvedError,

@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted by a Collie engine installed from PyPI, which refuses what only Foxhound carries with not_in_product (ADRs 0087, 0090 and 0095): Foxhound's operation `crawl.start`, then a Run's start setting Foxhound's `crawl.max_requests`, each naming the Product it needs and Foxhound's install command on PyPI; then a Run started, and its first three pages refused for the browser build they need (ADRs 0098 and 0115): absent from a cache the engine cannot write (`browser_not_installed`), refused by `egress.offline` (`artifact_unavailable_offline`) and failed with a 404 (`artifact_download_failed`, retryable), each naming the build, the Product version that pins it and `goodfetch-collie browser install`; the Run then finishes. The `product-and-provisioning-errors` client conformance case.",
+  "description": "A Collie Client's hello accepted by a Collie engine installed from PyPI, which refuses what only Foxhound carries with not_in_product (ADRs 0087, 0090 and 0095): Foxhound's operation `crawl.start`, then a Run's start setting Foxhound's `crawl.max_requests`, each naming the Product it needs and Foxhound's install command on PyPI; then a Run started, and its first five pages refused for the browser build they need (ADRs 0098 and 0115): absent from a cache the engine cannot write (`browser_not_installed`), refused by `egress.offline` (`artifact_unavailable_offline`), and its download failed with a 404, a broken connection and a wrong digest (`artifact_download_failed`, retryable, `failure` `http_status`, `network` and `digest_mismatch`), each naming the build, the Product version that pins it and `goodfetch-collie browser install`; the Run then finishes. The `product-and-provisioning-errors` client conformance case.",
   "steps": [
     {
       "expect": {
@@ -196,6 +196,70 @@
             "host": "storage.googleapis.com",
             "failure": "http_status",
             "status": 404,
+            "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "downloading the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 from storage.googleapis.com failed: the connection broke",
+          "data": {
+            "code": "artifact_download_failed",
+            "retryable": true,
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": {
+              "product": "collie",
+              "product_version": "0.0.0"
+            },
+            "host": "storage.googleapis.com",
+            "failure": "network",
+            "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "downloading the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 from storage.googleapis.com failed: the bytes' digest is not the pinned one",
+          "data": {
+            "code": "artifact_download_failed",
+            "retryable": true,
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": {
+              "product": "collie",
+              "product_version": "0.0.0"
+            },
+            "host": "storage.googleapis.com",
+            "failure": "digest_mismatch",
             "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
           }
         }

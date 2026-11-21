@@ -22,7 +22,7 @@ use serde_json::Value;
 use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
-pub use twins::{Locator, Page, Run, Session};
+pub use twins::{Locator, Page, Run, Session, WebSocket};
 
 /// The blocking twins of the handles, which `xtask codegen` writes.
 #[path = "generated/blocking.rs"]

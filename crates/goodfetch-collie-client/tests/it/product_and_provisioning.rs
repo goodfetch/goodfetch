@@ -37,6 +37,10 @@ struct Refused {
     offline: Error,
     /// The third, whose download fails with a 404.
     download_failed: Error,
+    /// The fourth, whose download's connection breaks.
+    connection_broke: Error,
+    /// The fifth, whose downloaded bytes have another digest.
+    wrong_digest: Error,
 }
 
 /// Plays the script's calls on a Connection to the Daemon at `endpoint`.
@@ -57,6 +61,8 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
     let not_installed = failure(run.new_page().await);
     let offline = failure(run.new_page().await);
     let download_failed = failure(run.new_page().await);
+    let connection_broke = failure(run.new_page().await);
+    let wrong_digest = failure(run.new_page().await);
     run.finish().await.unwrap();
     connection.close().await.unwrap();
     Refused {
@@ -65,6 +71,8 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
         not_installed,
         offline,
         download_failed,
+        connection_broke,
+        wrong_digest,
     }
 }
 
@@ -165,9 +173,12 @@ fn assert_offline(error: &Error) {
     );
 }
 
+/// What a failed download's error says to do, whatever failed.
+const DOWNLOAD_FIX: &str = "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache";
+
 /// A failed download fails with `artifact_download_failed`, retryable,
-/// naming its host and failure.
-fn assert_download_failed(error: &Error) {
+/// naming its host and `failure`, whose own fields `failure` holds.
+fn assert_download_failed(error: &Error, failure: &Value) {
     assert_eq!(
         code_group_retryable(error),
         (
@@ -176,20 +187,19 @@ fn assert_download_failed(error: &Error) {
             true
         )
     );
-    let fix = "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache";
-    assert_eq!(error.fix(), Some(fix));
+    assert_eq!(error.fix(), Some(DOWNLOAD_FIX));
     let details = error.details::<ArtifactDownloadFailedDetails>().unwrap();
-    assert_eq!(
-        serde_json::to_value(details).unwrap(),
-        json!({
-            "artifact": build(),
-            "pinned_by": pinned_by(),
-            "host": "storage.googleapis.com",
-            "failure": "http_status",
-            "status": 404,
-            "fix": fix,
-        })
-    );
+    let mut expected = json!({
+        "artifact": build(),
+        "pinned_by": pinned_by(),
+        "host": "storage.googleapis.com",
+        "fix": DOWNLOAD_FIX,
+    });
+    expected
+        .as_object_mut()
+        .unwrap()
+        .extend(failure.as_object().unwrap().clone());
+    assert_eq!(serde_json::to_value(details).unwrap(), expected);
 }
 
 /// The `product-and-provisioning-errors` client conformance case, played
@@ -197,7 +207,8 @@ fn assert_download_failed(error: &Error) {
 /// operation and setting fail with `not_in_product`, naming both Products
 /// and Foxhound's install command; a page whose build is missing fails with
 /// the provisioning code, naming the build, the Product version that pins
-/// it and its `browser install`.
+/// it and its `browser install`, a failed download its `failure`:
+/// `http_status`, `network` or `digest_mismatch`.
 /// Covers: story:11-10, story:11-13, story:11-189, story:11-294
 #[test]
 fn foxhounds_operation_and_setting_and_each_missing_build_fail_with_their_code_and_fix() {
@@ -208,7 +219,15 @@ fn foxhounds_operation_and_setting_and_each_missing_build_fail_with_their_code_a
     assert_not_in_product(&refused.operation, &refused.setting);
     assert_not_installed(&refused.not_installed);
     assert_offline(&refused.offline);
-    assert_download_failed(&refused.download_failed);
+    assert_download_failed(
+        &refused.download_failed,
+        &json!({"failure": "http_status", "status": 404}),
+    );
+    assert_download_failed(&refused.connection_broke, &json!({"failure": "network"}));
+    assert_download_failed(
+        &refused.wrong_digest,
+        &json!({"failure": "digest_mismatch"}),
+    );
     assert!(
         process.child().wait().unwrap().success(),
         "the Scripted engine played its script whole"

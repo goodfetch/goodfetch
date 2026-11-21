@@ -20,6 +20,9 @@ use crate::trace;
 pub(crate) struct Preamble<'a> {
     /// The Trace context of their `_meta`.
     pub(crate) meta: Option<TraceContext>,
+    /// Whether their `_meta` marks the call raw (ADR 0099): made through
+    /// its SDK's raw `call`, which the Run trace records.
+    pub(crate) raw: bool,
     /// Their Run ID and Session ID.
     pub(crate) ids: trace::Ids<'a>,
 }
@@ -85,17 +88,24 @@ impl<'a> Found<'a> {
     /// `invalid_params` when their `_meta` holds a key other than
     /// `traceparent`, `tracestate` and `raw`, or a value of another type.
     pub(super) fn checked(self) -> Result<Preamble<'a>, CallError> {
-        let meta = self.meta.map(trace_context).transpose()?;
+        let (meta, raw) = match self.meta.map(request_meta).transpose()? {
+            Some(meta) => {
+                let raw = meta.raw;
+                (Some(meta.trace_context()), raw)
+            }
+            None => (None, false),
+        };
         Ok(Preamble {
             meta,
+            raw,
             ids: self.ids,
         })
     }
 }
 
-/// The Trace context a request's `_meta` holds, once the whole `_meta` is
-/// checked, its raw mark (ADR 0099) included.
-fn trace_context(meta: &RawValue) -> Result<TraceContext, CallError> {
+/// What a request's `_meta` holds, once the whole `_meta` is checked: its
+/// Trace context and its raw mark (ADR 0099).
+fn request_meta(meta: &RawValue) -> Result<RequestMeta, CallError> {
     let refused = |error: String| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -108,7 +118,5 @@ fn trace_context(meta: &RawValue) -> Result<TraceContext, CallError> {
     if !meta.get().starts_with('{') {
         return Err(refused("it is no object".to_owned()));
     }
-    serde_json::from_str(meta.get())
-        .map(RequestMeta::trace_context)
-        .map_err(|error| refused(without_position(&error)))
+    serde_json::from_str(meta.get()).map_err(|error| refused(without_position(&error)))
 }

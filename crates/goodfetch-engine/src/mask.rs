@@ -9,9 +9,10 @@
 //!
 //! - [`Scope::Returned`]: what a call returns or an event carries, and so
 //!   what a model receives. A value shorter than [`SHORT`] characters, or a
-//!   one-time code of any length, is masked here only where it was typed
-//!   ([`Masks::apply_typed`]), so a price or an identifier that happens to
-//!   match it is never corrupted.
+//!   one-time code of any length, is masked here only in a read of the
+//!   field it was typed in ([`Masks::apply_typed`]), which a field read
+//!   calls once a Secret can be typed (#658), so a price or an identifier
+//!   that happens to match it is never corrupted.
 //! - [`Scope::Kept`]: what the engine keeps beside its outputs: run state,
 //!   the error messages it holds, Plans and the Effect journal. Every value.
 //! - [`Scope::KeptOutput`]: logs, the Run trace, HAR files, screenshots
@@ -73,7 +74,8 @@ pub enum Reach {
     /// than [`SHORT`] characters.
     Value,
     /// A one-time code, such as a TOTP code or a `code_source`'s: short
-    /// whatever its length.
+    /// whatever its length. Joined once the engine types TOTP codes (#658)
+    /// and `code_source` codes (#734).
     OneTimeCode,
 }
 

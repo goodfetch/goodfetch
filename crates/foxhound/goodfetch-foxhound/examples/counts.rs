@@ -112,6 +112,19 @@
 //! cells `politeness_sharing_run` and `document_tier_handler_beside`; on
 //! the file, in every other cell, it counts none (#2171).
 //!
+//! `E6.transactions` counts, in every cell but `politeness_delegation_off`
+//! and `concurrency_1_delegation_off`,
+//! the Politeness file's transactions outside a Delegation: 0, as the Run
+//! is the one that uses the site's key, which its engine then serves from
+//! memory (ADR 0142, #2172). Those two cells run at `politeness.delegation:
+//! false`, the second at `concurrency_1`'s settings too, and take each
+//! Permit in the file: their transactions count on
+//! `E6.undelegated_transactions` alone, over their attempts, the unit
+//! `undelegated_attempts`. `E6.delegation_transactions`
+//! divides by the Delegations taken, the unit `delegations`,
+//! `E6.delegations` by the cell's one Run, and `E6.other_transactions` by
+//! its attempts.
+//!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site
 //! served a page to and the one that read each sitemap, which is a Work
@@ -388,27 +401,73 @@ const PRIVATE_CELL: &str = "politeness_sharing_run";
 /// analysed, of the second origin [`BESIDE_ORIGINS`] counts.
 const BESIDE_CELL: &str = "document_tier_handler_beside";
 
+/// The row of the cells whose Run takes each Permit in the Politeness
+/// file, and those cells (#2172): at the default settings, and at
+/// `concurrency_1`'s, the cell whose transactions ADR 0140's note of #1899
+/// measured, which a delivery pass per request makes the worst.
+const UNDELEGATED_TRANSACTIONS: &str = "E6.undelegated_transactions";
+const UNDELEGATED_CELL: &str = "politeness_delegation_off";
+const UNDELEGATED_CONCURRENCY_1: &str = "concurrency_1_delegation_off";
+
+/// The row of two engines crawling B1's site on one home, each its own
+/// Run, which share its Politeness through the Politeness file (#2173),
+/// and their cell: every transaction on the file over both Runs' attempts.
+/// No other cell has a second engine, so each prints none of this row.
+const SHARED_TRANSACTIONS: &str = "E6.shared_transactions";
+const SHARED_CELL: &str = "two_engines";
+
+/// The transactions on a Politeness file: a Permit's, a Delegation's and
+/// every other.
+const FILE_TRANSACTIONS: [Row; 3] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+];
+
+/// Whether the cell named `name` takes each Permit in the Politeness file.
+fn takes_permits_in_file(name: &str) -> bool {
+    name == UNDELEGATED_CELL || name == UNDELEGATED_CONCURRENCY_1
+}
+
+/// The per-domain Politeness of the cell `concurrency_1` and of
+/// [`UNDELEGATED_CONCURRENCY_1`]: no delay, one request at a time.
+fn concurrency_1_domain() -> Value {
+    json!({ "delay": 0, "concurrency": 1 })
+}
+
 /// Whether the cell named `name` keeps its Run's Politeness to itself.
 fn private(name: &str) -> bool {
     name == PRIVATE_CELL || name == BESIDE_CELL
 }
 
-/// The rows a Run's own Politeness, in memory, counts none of (#2171).
-const PRIVATE_ROWS: [Row; 2] = [Row::PolitenessTransactions, Row::PolitenessOpens];
+/// The rows a Run's own Politeness, in memory, counts none of (#2171): no
+/// file's transaction, open or Delegation.
+const PRIVATE_ROWS: [Row; 5] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+    Row::PolitenessDelegations,
+    Row::PolitenessOpens,
+];
 
 /// The rows a cell with robots.txt off, and so pacing nothing under the
 /// fixture's delay of 0, counts fewer of: no robots.txt read or parsed
-/// (#1919), and no Politeness store consulted (#1920).
+/// (#1919), and no Politeness store consulted (#1920): the default cell's
+/// Run takes its Permits under a Delegation (#2172), with the file's
+/// transactions of its open, its robots.txt copy and its end.
 const OFF_REMOVES: &[Row] = &[
-    Row::PolitenessTransactions,
+    Row::PolitenessOtherTransactions,
     Row::RobotsParses,
     Row::RobotsReads,
 ];
 
 /// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
 /// is its work.
-const POLITENESS_ROWS: [Row; 5] = [
+const POLITENESS_ROWS: [Row; 8] = [
     Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+    Row::PolitenessDelegations,
     Row::PolitenessOpens,
     Row::PolitenessScriptSends,
     Row::RobotsParses,
@@ -745,6 +804,36 @@ fn kept_to_itself() -> Cell {
     }
 }
 
+/// The cells [`takes_permits_in_file`] names: a Run at `politeness.delegation:
+/// false` takes each Permit in a transaction of the Politeness file, as
+/// ADR 0053 decided (ADR 0142's Nothing-removed row, #2172), at the default
+/// settings and at `concurrency_1`'s.
+fn undelegated() -> [Cell; 2] {
+    [
+        undelegated_at(
+            UNDELEGATED_CELL,
+            json!({ "politeness": { "delegation": false } }),
+        ),
+        undelegated_at(
+            UNDELEGATED_CONCURRENCY_1,
+            json!({ "politeness": { "delegation": false, "domain": concurrency_1_domain() } }),
+        ),
+    ]
+}
+
+/// A cell named `name` whose Run runs at `settings`.
+fn undelegated_at(name: &'static str, settings: Value) -> Cell {
+    Cell {
+        name,
+        settings,
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 /// The cells of the per-page features ADR 0138's inventory switches off,
 /// each against the default cell: the Provenance log, whose Run trace then
 /// holds no entry; the Records, none of which is then validated, serialized
@@ -814,6 +903,22 @@ fn logs_provenance(cell: &Cell) -> bool {
     cell.settings["provenance"]["log"] != json!(false)
 }
 
+/// robots.txt off reads and parses no robots.txt (#1919), and with the
+/// fixture's delay of 0 waits out no Crawl-delay, so neither this cell nor
+/// [`OFF_CELL`] paces its domains: admission consults no Politeness store
+/// and takes no Permit (#1920).
+fn robots_txt_off() -> Cell {
+    Cell {
+        name: "robots_txt_off",
+        settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
+        frontier: None,
+        removes: OFF_REMOVES,
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 fn cells() -> Vec<Cell> {
     let mut cells = vec![
         Cell {
@@ -877,7 +982,7 @@ fn cells() -> Vec<Cell> {
         // the limit, so neither hides the other's work.
         Cell {
             name: "concurrency_1",
-            settings: json!({ "politeness": { "domain": { "delay": 0, "concurrency": 1 } } }),
+            settings: json!({ "politeness": { "domain": concurrency_1_domain() } }),
             frontier: None,
             removes: &[],
             removes_syncs: false,
@@ -906,19 +1011,7 @@ fn cells() -> Vec<Cell> {
         memory_budget(MEMORY_BUDGET_0, 0),
         bounded(),
         round_robin(),
-        // robots.txt off reads and parses no robots.txt (#1919), and with
-        // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
-        // paces its domains: admission consults no Politeness store and
-        // takes no Permit (#1920).
-        Cell {
-            name: "robots_txt_off",
-            settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
-            frontier: None,
-            removes: OFF_REMOVES,
-            removes_syncs: false,
-            handler: false,
-            limit: false,
-        },
+        robots_txt_off(),
         Cell {
             name: OFF_CELL,
             settings: json!({
@@ -933,6 +1026,7 @@ fn cells() -> Vec<Cell> {
         },
         kept_to_itself(),
     ];
+    cells.extend(undelegated());
     cells.extend(switched_off().into_iter().chain([varying_parameter()]));
     cells
 }
@@ -1097,6 +1191,7 @@ fn crawl(
             } else {
                 AfterStart::Finish
             },
+            second_engine: false,
         },
     );
     Crawl {
@@ -1577,6 +1672,75 @@ fn wire_share(planted: Option<&str>) {
     );
 }
 
+/// What [`SHARED_CELL`] counted: its two Runs' attempts and their
+/// transactions on the Politeness file.
+struct Shared {
+    attempts: u64,
+    transactions: u64,
+}
+
+/// The crawl of [`SHARED_CELL`], with the row `planted` planted: two
+/// engines on one home crawl the fixture's site, each its own Run, and
+/// each extracts each page once.
+fn two_engines(planted: Option<&str>) -> Shared {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let vfs = CountingVfs::register();
+    let crawled = crawl_with(
+        home.path(),
+        std::time::UNIX_EPOCH,
+        0,
+        Options {
+            metrics,
+            plant: planted.map(|name| plant(name, &work, vfs.name())),
+            fields: number_field(),
+            run_state_vfs: Some(vfs.name().to_owned()),
+            robots_txt: true,
+            second_engine: true,
+            ..Options::default()
+        },
+    );
+    assert_eq!(
+        crawled.body_bytes,
+        2 * body_bytes(),
+        "each engine is sent each body once"
+    );
+    assert_eq!(
+        crawled.records.len(),
+        2 * (PAGES.len() + 1),
+        "each engine extracts each page once"
+    );
+    Shared {
+        attempts: crawled.attempts,
+        transactions: FILE_TRANSACTIONS.iter().map(|row| work.read(*row)).sum(),
+    }
+}
+
+/// Every count and unit of `printed`, the default cell's line, at 0 but
+/// [`SHARED_TRANSACTIONS`] and its unit, which [`SHARED_CELL`] alone
+/// counts: no other row divides by its two Runs.
+fn shared_line(printed: &Value, shared: &Shared) -> Value {
+    let zeroed = |field: &str| -> Map<String, Value> {
+        printed[field]
+            .as_object()
+            .expect("invariant: a cell prints its counts and units")
+            .keys()
+            .map(|key| (key.clone(), json!(0)))
+            .collect()
+    };
+    let (mut units, mut counts) = (zeroed("units"), zeroed("counts"));
+    units.insert("shared_attempts".to_owned(), json!(shared.attempts));
+    counts.insert(SHARED_TRANSACTIONS.to_owned(), json!(shared.transactions));
+    json!({
+        "cell": SHARED_CELL,
+        "units": units,
+        "counts": counts,
+        "vfs_files": [],
+        "setup_syncs": 0,
+    })
+}
+
 /// The shorter site's crawl of `cell`, `ran`, served [`added_pages`] pages
 /// fewer than the whole site's, as its Records or its handler count them; a
 /// cell that keeps no Record has none to count.
@@ -1643,10 +1807,45 @@ fn assert_removes(cell: &Counted, default: &Counted) {
     );
 }
 
+/// Runs every cell, each with `planted`'s plant and watched as `watched`
+/// asks, and [`SHARED_CELL`] beside them unless `strace` watches.
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
 )]
+fn run_cells(planted: Option<&str>, watched: Watched) -> (Vec<Counted>, Option<Shared>) {
+    let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
+    // Side by side, each on its own paused runtime: no cell waits on another,
+    // so a family's rows stay within their minute. A plant runs in every
+    // cell: a row's Today is its worst cell's, often not the default's
+    // (`concurrency_1` for F2 and E6, the run-state cells for `F3.prepares`),
+    // which a unit more per page in the default cell alone stays under, and
+    // `E6.off_work` is held in its off cell alone. A bypass needs the default
+    // cell alone, the one `strace` watches, and the two engines are left out
+    // under `strace`, which reads the whole process against the cells' Run
+    // traces.
+    let traced = matches!(watched, Watched::Traced { .. });
+    std::thread::scope(|scope| {
+        let cells: Vec<_> = cells()
+            .into_iter()
+            .filter(|cell| !bypassed || cell.name == "default")
+            .map(|cell| scope.spawn(move || run(&cell, planted, watched)))
+            .collect();
+        let shared = (!traced).then(|| scope.spawn(move || two_engines(planted)));
+        (
+            cells
+                .into_iter()
+                .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
+                .collect(),
+            shared.map(|shared| {
+                shared
+                    .join()
+                    .expect("invariant: the two engines' checks passed")
+            }),
+        )
+    })
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -1664,7 +1863,6 @@ fn main() {
         return;
     }
     let (pages, cell, planted, watched) = asked(&arguments);
-    let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
     if let Some(name) = cell {
         let cell = cells()
             .into_iter()
@@ -1676,29 +1874,13 @@ fn main() {
         }
         return;
     }
-    // Side by side, each on its own paused runtime: no cell waits on another,
-    // so a family's rows stay within their minute. A plant runs in every
-    // cell: a row's Today is its worst cell's, often not the default's
-    // (`concurrency_1` for F2 and E6, the run-state cells for `F3.prepares`),
-    // which a unit more per page in the default cell alone stays under, and
-    // `E6.off_work` is held in its off cell alone. A bypass needs the default
-    // cell alone, the one `strace` watches.
-    let counted: Vec<Counted> = std::thread::scope(|scope| {
-        let cells: Vec<_> = cells()
-            .into_iter()
-            .filter(|cell| !bypassed || cell.name == "default")
-            .map(|cell| scope.spawn(move || run(&cell, planted, watched)))
-            .collect();
-        cells
-            .into_iter()
-            .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
-            .collect()
-    });
+    let (counted, shared) = run_cells(planted, watched);
     let default = &counted[0];
     for cell in &counted {
         assert_removes(cell, default);
         let counts = counts_of(cell);
         let off = cell.name == OFF_CELL;
+        let undelegated = takes_permits_in_file(cell.name);
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
         let full = cell.level == DURABILITY_FULL;
         let leases = cell.attempts + cell.sitemaps;
@@ -1727,6 +1909,9 @@ fn main() {
             "origins": if cell.name == BESIDE_CELL { BESIDE_ORIGINS } else { ORIGINS },
             "off_attempts": if off { cell.attempts } else { 0 },
             "private_attempts": if private(cell.name) { cell.attempts } else { 0 },
+            "undelegated_attempts": if undelegated { cell.attempts } else { 0 },
+            "shared_attempts": 0,
+            "delegations": cell.count(Row::PolitenessDelegations),
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
             "batched_leases": if batched && !cell.spills() { leases } else { 0 },
@@ -1738,16 +1923,17 @@ fn main() {
             },
             "full_pages": if full { cell.pages } else { 0 },
         });
-        println!(
-            "{}",
-            json!({
-                "cell": cell.name,
-                "units": units,
-                "counts": counts,
-                "vfs_files": cell.vfs_files,
-                "setup_syncs": cell.setup_syncs,
-            })
-        );
+        let printed = json!({
+            "cell": cell.name,
+            "units": units,
+            "counts": counts,
+            "vfs_files": cell.vfs_files,
+            "setup_syncs": cell.setup_syncs,
+        });
+        println!("{printed}");
+        if let Some(shared) = shared.as_ref().filter(|_| cell.name == default.name) {
+            println!("{}", shared_line(&printed, shared));
+        }
     }
 }
 
@@ -1781,6 +1967,17 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
         PRIVATE_TRANSACTIONS.to_owned(),
         json!(if private { private_work } else { 0 }),
     );
+    let undelegated = takes_permits_in_file(cell.name);
+    let transactions = cell.count(Row::PolitenessTransactions);
+    counts.insert(
+        Row::PolitenessTransactions.name().to_owned(),
+        json!(if undelegated { 0 } else { transactions }),
+    );
+    counts.insert(
+        UNDELEGATED_TRANSACTIONS.to_owned(),
+        json!(if undelegated { transactions } else { 0 }),
+    );
+    counts.insert(SHARED_TRANSACTIONS.to_owned(), json!(0));
     let evidence: u64 = EVIDENCE_ROWS.iter().map(|row| cell.count(*row)).sum();
     let learning_off = cell.name == LEARNING_OFF;
     counts.insert(

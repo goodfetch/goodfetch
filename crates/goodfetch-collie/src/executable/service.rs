@@ -344,10 +344,7 @@ fn record_copy(
             path: path.display().to_string(),
             size,
             modified_at,
-            pins: crate::pinned_artifacts()
-                .into_iter()
-                .map(|artifact| artifact.id)
-                .collect(),
+            pins: crate::pins::pinned_artifact_ids(),
             copy: Some(copy.clone()),
             last_seen: SystemTime::from(machine.now()),
         })

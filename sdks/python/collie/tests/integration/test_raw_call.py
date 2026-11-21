@@ -2,11 +2,13 @@
 
 A Collie program reaches it: `call` on the Connection and on each value
 sends the wire's JSON, marked raw in its `_meta`, and answers the
-engine's unchanged, and the main path's protections hold. TypeScript's
-`raw-call.test.ts` is its twin.
+engine's unchanged, and the main path's protections hold. On the executable
+of the same commit, the Run trace records a Run's raw call, marked raw.
+TypeScript's `raw-call.test.ts` is its twin.
 """
 
-from collections.abc import Awaitable
+import json
+from collections.abc import Awaitable, Mapping
 from datetime import timedelta
 
 import pytest
@@ -134,3 +136,28 @@ async def test_reaches_operations_the_sdk_does_not_generate(
             for record in caplog.records
             if record.name == CLIENT_LOGGER
         ] == []
+
+
+@pytest.mark.covers("story:11-181")
+@three_ways
+async def test_the_runs_trace_records_its_raw_call_marked_raw(
+    way: Way, env: Mapping[str, str], test_env: TestEnv
+) -> None:
+    """On the executable of the same commit, a Run's raw call is in its trace.
+
+    Marked raw, with how it ended; the generated calls that start and
+    finish the Run are not there.
+    """
+    collie = await way.open(
+        lambda: AsyncCollie.connect(env=env), lambda: Collie.connect(env=env)
+    )
+    run = await collie.start()
+    await run.call("run.usage")
+    await run.finish()
+    await collie.close()
+
+    log = test_env.home / "0.0" / "runs" / run.id / "trace" / "calls.jsonl"
+    lines = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [(line["operation"], line["raw"], line["ended"]) for line in lines] == [
+        ("run.usage", True, "answered")
+    ]

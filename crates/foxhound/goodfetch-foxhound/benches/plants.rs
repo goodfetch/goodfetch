@@ -227,53 +227,102 @@ fn politeness(work: &CountedWork) -> (&'static Runtime, Politeness) {
 
 /// A planted key's state on a Politeness file: loading it prepares one
 /// statement more when its change asks, and saving it writes one row more
-/// when its change wrote.
+/// when its change wrote, in a transaction counted on `E6.transactions`.
 struct Planted;
 
-impl KeyState for Planted {
-    type Key = str;
-    /// Whether loading it prepares a statement.
-    type Reads = bool;
-    /// Whether saving it writes a row.
-    type Writes = bool;
+/// The same, its transaction counted on `E6.delegation_transactions`.
+struct PlantedDelegation;
 
-    fn load(connection: &rusqlite::Connection, _: &str, prepares: bool) -> rusqlite::Result<Self> {
-        if prepares {
-            connection.prepare("SELECT 1").map(drop)?;
+/// The same, its transaction counted on `E6.other_transactions`.
+struct PlantedOther;
+
+/// Implements [`KeyState`] for a planted state, its transactions counted
+/// on `row`.
+macro_rules! planted {
+    ($state:ident, $row:expr) => {
+        impl KeyState for $state {
+            type Key = str;
+            /// Whether loading it prepares a statement.
+            type Reads = bool;
+            /// Whether saving it writes a row.
+            type Writes = bool;
+
+            const TRANSACTIONS: Row = $row;
+
+            fn load(
+                connection: &rusqlite::Connection,
+                _: &str,
+                prepares: bool,
+            ) -> rusqlite::Result<Self> {
+                if prepares {
+                    connection.prepare("SELECT 1").map(drop)?;
+                }
+                Ok(Self)
+            }
+
+            fn save(
+                &self,
+                connection: &rusqlite::Connection,
+                _: &str,
+                writes: &bool,
+            ) -> rusqlite::Result<()> {
+                if *writes {
+                    connection.execute("INSERT INTO planted VALUES (1)", [])?;
+                }
+                Ok(())
+            }
+
+            fn load_from(_: &MemoryTables, _: &str, _: bool) -> Self {
+                Self
+            }
+
+            fn save_to(&self, _: &mut MemoryTables, _: &str, _: &bool) {}
         }
-        Ok(Self)
-    }
-
-    fn save(
-        &self,
-        connection: &rusqlite::Connection,
-        _: &str,
-        writes: &bool,
-    ) -> rusqlite::Result<()> {
-        if *writes {
-            connection.execute("INSERT INTO planted VALUES (1)", [])?;
-        }
-        Ok(())
-    }
-
-    fn load_from(_: &MemoryTables, _: &str, _: bool) -> Self {
-        Self
-    }
-
-    fn save_to(&self, _: &mut MemoryTables, _: &str, _: &bool) {}
+    };
 }
+
+planted!(Planted, Row::PolitenessTransactions);
+planted!(PlantedDelegation, Row::PolitenessDelegationTransactions);
+planted!(PlantedOther, Row::PolitenessOtherTransactions);
 
 /// The plant of the row named `name`, one of the Politeness permit's (E6).
 pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
     match name {
         // One transaction more on a Politeness file, which Politeness off
         // and a Run's own Politeness must not do either.
-        "E6.transactions" | "E6.off_work" | "E6.private_transactions" => {
+        "E6.transactions"
+        | "E6.off_work"
+        | "E6.private_transactions"
+        | "E6.undelegated_transactions"
+        | "E6.shared_transactions" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
                 let insert = file.change("planted", false, |_: &mut Planted| ((), true));
                 beside(runtime, insert).expect("invariant: the planted file takes a write");
             })
+        }
+        // One transaction more on a Politeness file, counted as a
+        // Delegation's or as another.
+        "E6.delegation_transactions" => {
+            let (runtime, file) = politeness(work);
+            Arc::new(move |_: &str| {
+                let insert = file.change("planted", false, |_: &mut PlantedDelegation| ((), true));
+                beside(runtime, insert).expect("invariant: the planted file takes a write");
+            })
+        }
+        "E6.other_transactions" => {
+            let (runtime, file) = politeness(work);
+            Arc::new(move |_: &str| {
+                let insert = file.change("planted", false, |_: &mut PlantedOther| ((), true));
+                beside(runtime, insert).expect("invariant: the planted file takes a write");
+            })
+        }
+        // A Delegation is taken by a Politeness file's actor for a Run's
+        // take, which a plant has no Run for: its counted seam is the count
+        // alone.
+        "E6.delegations" => {
+            let work = work.clone();
+            Arc::new(move |_: &str| work.count(Row::PolitenessDelegations))
         }
         // One statement prepared more on a Politeness file's connection,
         // which Callgrind sees beneath the file's own functions.

@@ -10,6 +10,7 @@
 mod attached;
 mod call_cancelled;
 mod cancellation;
+mod cdp_url_errors;
 mod closing;
 mod compile_fail;
 mod connection;
@@ -29,3 +30,4 @@ mod scripted_daemon;
 mod session_events;
 mod settings;
 mod start;
+mod web_socket;

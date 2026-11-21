@@ -6,7 +6,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::Url;
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::HANDLER_FAILED;
 use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
 use goodfetch_protocol::page::{BLOCKED, NAVIGATION_FAILED};

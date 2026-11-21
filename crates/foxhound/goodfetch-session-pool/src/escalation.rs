@@ -26,7 +26,7 @@
 //! The per-domain record and the proxy-tier climb arrive with the next
 //! tickets of the spec.
 
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 
 /// Where a Session met a block: the tier its request was fetched on, none

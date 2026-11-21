@@ -35,7 +35,7 @@ use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_ro
 use goodfetch_frontier::payload::{self, Payload};
 use goodfetch_frontier::trap_links::{self, Mark};
 use goodfetch_frontier::{Candidate, Declared, Entering, Keyed, Url, sitemap};
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod, NotAddedReason};
 use goodfetch_protocol::foxhound::outcomes::{

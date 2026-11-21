@@ -1,7 +1,7 @@
 //! `escalation`'s decisions (spec #600's seam: a pure function of the
 //! cause and where its Session met it).
 
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rstest::rstest;
 

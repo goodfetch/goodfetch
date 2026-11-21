@@ -389,11 +389,9 @@ fn set_wire_timeout(params: &mut Value, timeout: Timeout) {
     }
 }
 
-/// `after` in whole milliseconds, rounded up, as a timeout is sent and
-/// reported.
-pub(crate) fn wire_millis(after: Duration) -> u64 {
-    u64::try_from(after.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX)
-}
+/// A duration in whole milliseconds, rounded up, as a timeout is sent and
+/// reported, and a duration Setting too.
+pub(crate) use goodfetch_protocol::catalog::wire_millis;
 
 /// C-SEND-SYNC: a call and a query, and the futures they become, move
 /// between threads and outlive the borrow that made them.

@@ -158,6 +158,12 @@ impl serde::Serialize for BatchThreshold {
     }
 }
 
+impl crate::catalog::SettingJson for BatchThreshold {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 /// A value of `run_state.batch.pages`, `.interval` or `.bytes`.
 pub const BATCH_THRESHOLD_SHAPE: ValueShape = ValueShape {
     name: "BatchThreshold",

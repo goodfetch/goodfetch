@@ -1,7 +1,7 @@
 use goodfetch_protocol::catalog::ValueKind;
 use serde_json::{Value, json};
 
-use super::{scope_type, settings_module};
+use super::{foxhound_settings_module, scope_type, settings_module};
 use crate::codegen::layer::Setting;
 
 fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Setting {
@@ -78,6 +78,61 @@ fn each_scope_types_the_settings_it_sets_by_their_snake_case_segments() {
         class(&module, "Settings").contains("    proxy: NotRequired[ConnectionProxySettings]\n")
     );
     assert!(!module.contains("trusted_cas"), "{module}");
+}
+
+#[test]
+fn a_crawl_types_collie_and_foxhound_run_settings_and_a_label_only_its_own() {
+    let settings = [
+        setting(
+            "fetch.tier",
+            json!({ "enum": ["auto", "http", "browser"] }),
+            false,
+            &["connection", "run", "label"],
+        ),
+        setting(
+            "politeness.domain.concurrency",
+            json!({ "type": "integer", "minimum": 1 }),
+            false,
+            &["connection", "run"],
+        ),
+        setting(
+            "proxy.base_url",
+            json!({ "type": "string" }),
+            true,
+            &["connection", "run", "session"],
+        ),
+    ];
+
+    let module = foxhound_settings_module(&settings).unwrap();
+
+    let crawl = class(&module, "CrawlSettings");
+    for area in [
+        "    fetch: NotRequired[RunFetchSettings]\n",
+        "    politeness: NotRequired[RunPolitenessSettings]\n",
+        "    proxy: NotRequired[RunProxySettings]\n",
+    ] {
+        assert!(crawl.contains(area), "{area} in {crawl}");
+    }
+    let label = class(&module, "LabelSettings");
+    assert!(
+        label.contains("    fetch: NotRequired[LabelFetchSettings]\n"),
+        "{label}"
+    );
+    assert!(
+        !label.contains("politeness") && !label.contains("proxy"),
+        "{label}"
+    );
+    assert!(
+        class(&module, "LabelFetchSettings")
+            .contains("    tier: NotRequired[Literal[\"auto\", \"http\", \"browser\"]]\n"),
+        "{module}"
+    );
+    assert!(
+        class(&module, "FoxhoundSettings")
+            .contains("    proxy: NotRequired[ConnectionProxySettings]\n"),
+        "{module}"
+    );
+    assert!(!module.contains("class RunSettings("), "{module}");
 }
 
 #[test]

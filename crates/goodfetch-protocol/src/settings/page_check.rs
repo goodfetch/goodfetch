@@ -72,6 +72,12 @@ pub struct PageCheck {
     pub expected_page: Option<PageMatch>,
 }
 
+impl crate::catalog::SettingJson for PageCheck {
+    fn into_setting_json(self) -> serde_json::Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 /// `session.page_check`'s values: a [`PageCheck`].
 pub const PAGE_CHECK_SHAPE: ValueShape = ValueShape {
     name: "PageCheck",

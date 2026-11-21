@@ -413,5 +413,92 @@ impl SettingScope {
     }
 }
 
+/// A value of a Setting as the wire carries it (ADR 0083): what each type
+/// the SDKs' typed keys take implements, here for the values of every
+/// [`ValueKind`] and the types of the shapes this crate defines, and in a
+/// Product's client crate through [`SettingWord`] for its choices of words.
+pub trait SettingJson {
+    /// The value's JSON.
+    fn into_setting_json(self) -> Value;
+}
+
+/// A choice of words a Setting takes, which goes on the wire as its word:
+/// what each generated choice enum of a Product's client crate implements.
+pub trait SettingWord {
+    /// The word, as the catalog spells it.
+    fn word(&self) -> &'static str;
+}
+
+/// `duration` in whole milliseconds, rounded up, so that no duration but
+/// zero sends 0: how a duration Setting and a call's timeout are sent.
+#[must_use]
+pub fn wire_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX)
+}
+
+/// The JSON of a value of a shape's type, which its own `Serialize` gives.
+pub(crate) fn shape_json(value: impl serde::Serialize) -> Value {
+    serde_json::to_value(value).expect("invariant: a value of the protocol's shapes is JSON")
+}
+
+/// Its word.
+impl<T: SettingWord> SettingJson for T {
+    fn into_setting_json(self) -> Value {
+        Value::from(self.word())
+    }
+}
+
+impl SettingJson for bool {
+    fn into_setting_json(self) -> Value {
+        Value::Bool(self)
+    }
+}
+
+impl SettingJson for u64 {
+    fn into_setting_json(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl SettingJson for String {
+    fn into_setting_json(self) -> Value {
+        Value::String(self)
+    }
+}
+
+/// Its [`wire_millis`].
+impl SettingJson for std::time::Duration {
+    fn into_setting_json(self) -> Value {
+        Value::from(wire_millis(self))
+    }
+}
+
+/// Null for `None`.
+impl<T: SettingJson> SettingJson for Option<T> {
+    fn into_setting_json(self) -> Value {
+        self.map_or(Value::Null, SettingJson::into_setting_json)
+    }
+}
+
+impl<T: SettingJson> SettingJson for Vec<T> {
+    fn into_setting_json(self) -> Value {
+        Value::Array(
+            self.into_iter()
+                .map(SettingJson::into_setting_json)
+                .collect(),
+        )
+    }
+}
+
+impl<T: SettingJson> SettingJson for std::collections::BTreeMap<String, T> {
+    fn into_setting_json(self) -> Value {
+        Value::Object(
+            self.into_iter()
+                .map(|(name, entry)| (name, entry.into_setting_json()))
+                .collect(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests;

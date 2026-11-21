@@ -9,8 +9,8 @@
 //! protocol and Product versions `hello` names, the engine's command and
 //! the variable naming its executable, Collie's handles in their ADR 0099
 //! forms (`handle_classes`) and the types of its scopes' `settings`
-//! (`settings`, ADR 0083). Foxhound's layer imports what Collie's client
-//! package defines.
+//! (`settings`, ADR 0083), and Foxhound's those of a crawl and a Label.
+//! Foxhound's layer imports what Collie's client package defines.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -189,9 +189,11 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
             handle_classes::handles_module(layer, &handles)?,
         ));
     }
-    if layer.product == Product::Collie {
-        files.push(("settings.py", settings::settings_module(&layer.settings)?));
-    }
+    let settings_module = match layer.product {
+        Product::Collie => settings::settings_module(&layer.settings)?,
+        Product::Foxhound => settings::foxhound_settings_module(&layer.settings)?,
+    };
+    files.push(("settings.py", settings_module));
     Ok(Generated {
         files,
         types: TypesFile {

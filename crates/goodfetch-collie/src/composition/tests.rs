@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use goodfetch_engine::secrets;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{OperationKind, Product};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -10,7 +10,12 @@ use super::composition;
 #[test]
 fn collies_composition_has_exactly_one_handler_for_each_operation_of_collies_catalog() {
     let mut handled: Vec<&str> = composition().operations().collect();
-    let mut catalog: Vec<&str> = operations_of(Product::Collie).map(|op| op.name).collect();
+    // A read sends no message, so the engine has no handler for it (issue
+    // 2798).
+    let mut catalog: Vec<&str> = operations_of(Product::Collie)
+        .filter(|op| op.kind != OperationKind::Read)
+        .map(|op| op.name)
+        .collect();
 
     handled.sort_unstable();
     catalog.sort_unstable();

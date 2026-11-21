@@ -271,6 +271,14 @@ class DialogAlreadyHandledError(ProgramError):
         super().__init__(message, code="dialog_already_handled", group="program", retryable=False, **fields)
 
 
+class EdgeHandlersUnsupportedError(ProgramError):
+    """The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="edge_handlers_unsupported", group="program", retryable=False, **fields)
+
+
 class EffectKeyInvalidError(ProgramError):
     """An Effect key is empty or longer than 255 Unicode code points (ADR 0106). The details name the key."""
 
@@ -956,6 +964,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
     "dialog_already_handled": DialogAlreadyHandledError,
+    "edge_handlers_unsupported": EdgeHandlersUnsupportedError,
     "effect_key_invalid": EffectKeyInvalidError,
     "effect_key_reused": EffectKeyReusedError,
     "effect_output_invalid": EffectOutputInvalidError,

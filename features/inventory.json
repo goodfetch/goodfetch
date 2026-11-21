@@ -1344,6 +1344,17 @@
       ]
     },
     {
+      "id": "error:edge_handlers_unsupported",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:effect_key_invalid",
       "kind": "error",
       "area": 3,

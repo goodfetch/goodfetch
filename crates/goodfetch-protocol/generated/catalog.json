@@ -352,6 +352,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "edge_handlers_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "An Effect key is empty or longer than 255 Unicode code points (ADR 0106). The details name the key.",
       "exit_code": null,
       "group": "program",

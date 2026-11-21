@@ -24,7 +24,7 @@ use tracing_core::metadata::Kind;
 use tracing_core::subscriber::Interest;
 use tracing_core::{Dispatch, Event, Level, Metadata, dispatcher};
 
-use crate::sync::Mutex;
+use crate::sync::StaticMutex;
 
 /// The target of what the crate itself logs: a refused log level, a
 /// handle dropped unclosed, a notification no call awaits.
@@ -218,8 +218,8 @@ fn is_identifier(segment: &str) -> bool {
 /// target known when the program is compiled, an engine's is known only
 /// when its event arrives. A kept callsite is found without allocating.
 fn relayed(target: &str, level: Level) -> &'static Relayed {
-    static KEPT: Mutex<BTreeMap<String, Vec<(Level, &'static Relayed)>>> =
-        Mutex::new(BTreeMap::new());
+    static KEPT: StaticMutex<BTreeMap<String, Vec<(Level, &'static Relayed)>>> =
+        StaticMutex::new(BTreeMap::new());
     let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
     let key = if kept.len() < TARGETS_KEPT || kept.contains_key(target) {
         target

@@ -22,12 +22,12 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 from anyio.abc import ByteStream
-from goodfetch_collie_client.connection import ClientConnection
-from goodfetch_collie_client.file_saving import (
+from goodfetch_collie_client._file_saving import (
     FileSaving,
     save_file,
     write_file_whole,
 )
+from goodfetch_collie_client.connection import ClientConnection
 from goodfetch_collie_client.generated.errors import (
     ERROR_CLASSES,
     FileWriteFailedError,

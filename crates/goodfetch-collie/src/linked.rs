@@ -502,7 +502,7 @@ impl ProductConnection {
             token: Some(daemon.token.expose().to_owned()),
             ..hello
         };
-        let endpoint = Endpoint::Daemon(daemon.endpoint.clone());
+        let endpoint = daemon.endpoint();
         let (connection, said) = ClientConnection::open_within(
             runtime,
             &Network::Os,
@@ -513,7 +513,7 @@ impl ProductConnection {
             trace_context::source(),
         )
         .await
-        .map_err(|error| daemon.unreached(error, home))?;
+        .map_err(|error| daemon.unreached(error, home, &version()))?;
         Ok(Self {
             connection,
             engine: None,

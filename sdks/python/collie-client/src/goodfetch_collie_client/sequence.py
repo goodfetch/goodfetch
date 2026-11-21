@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.listeners import Order, Streams
     from goodfetch_collie_client.portal import PrivateLoop
 
+__all__ = ["AsyncSequence", "Sequence"]
+
 _Item = TypeVar("_Item")
 
 

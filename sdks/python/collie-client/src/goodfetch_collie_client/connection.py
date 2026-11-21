@@ -17,8 +17,17 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 
+from goodfetch_collie_client._framing import object_members
+from goodfetch_collie_client._once import Once
+from goodfetch_collie_client._opening_process import OpeningProcess
+from goodfetch_collie_client._rpc import (
+    Channel,
+    InvalidLine,
+    ReadFailed,
+    WriteFailed,
+)
+from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client.attached_engine import EngineExit
-from goodfetch_collie_client.framing import object_members
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     PROTOCOL_VERSION,
@@ -63,12 +72,8 @@ from goodfetch_collie_client.host_logging import (
 from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
-from goodfetch_collie_client.once import Once
-from goodfetch_collie_client.opening_process import OpeningProcess
-from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.settings import settings_on_wire
-from goodfetch_collie_client.shared_subscription import SharedSubscription
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -76,6 +81,7 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
         RunLimit,
@@ -84,7 +90,8 @@ if TYPE_CHECKING:
     )
     from goodfetch_collie_client.generated.settings import RunSettings, Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
-    from goodfetch_collie_client.rpc import TransportEnd
+
+__all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
 
 CONNECT_TIMEOUT = 30_000
 """How long opening waits for `hello`'s answer, in milliseconds (ADR 0083).

@@ -83,8 +83,9 @@ impl<T: DeserializeOwned, P> Call<T, P> {
 impl<T, P> Call<T, P> {
     /// Fails the call if its reply has not come within `timeout`: with
     /// `deadline_exceeded`, or with the engine's `deadline_exceeded` for an
-    /// operation that takes its own `timeout`. A reply that comes later
-    /// changes nothing.
+    /// operation that takes its own `timeout`. A cancellable call the
+    /// client's own timer ends is cancelled with `$/cancel`, as a dropped
+    /// one is (ADR 0080). A reply that comes later changes nothing.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Timeout::After(timeout);
         self

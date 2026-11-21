@@ -367,8 +367,27 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
 /// Covers: story:11-48
 #[test]
 fn a_dropped_cancellable_call_is_cancelled_by_its_id() {
-    let read = after_a_dropped_call(PAGE_GOTO.name);
+    let read = after_an_ended_call(PAGE_GOTO.name, Cut::Dropped);
 
+    assert_cancelled_then_next(&read);
+}
+
+/// A cancellable call whose timer, the client's own, runs out fails with
+/// `deadline_exceeded` and is cancelled with `$/cancel` naming its id, so
+/// the engine's work ends too (ADR 0080); the peer's late reply to it and
+/// the next call then go as usual.
+///
+/// Covers: story:11-47
+#[test]
+fn a_cancellable_call_past_its_clients_timer_is_cancelled_by_its_id() {
+    let read = after_an_ended_call(PAGE_GOTO.name, Cut::TimedOut);
+
+    assert_cancelled_then_next(&read);
+}
+
+/// The peer read the call, then its `$/cancel` naming its id, then the next
+/// call, and nothing else.
+fn assert_cancelled_then_next(read: &[serde_json::Value]) {
     assert_eq!(read[0]["method"], PAGE_GOTO.name);
     assert_eq!(
         read[1],
@@ -383,17 +402,27 @@ fn a_dropped_cancellable_call_is_cancelled_by_its_id() {
 /// the next call straight after it.
 #[test]
 fn a_dropped_call_that_is_not_cancellable_sends_no_cancel() {
-    let read = after_a_dropped_call(ENGINE_INFO.name);
+    let read = after_an_ended_call(ENGINE_INFO.name, Cut::Dropped);
 
     let methods: Vec<_> = read.iter().map(|line| line["method"].clone()).collect();
     assert_eq!(methods, [ENGINE_INFO.name, ENGINE_INFO.name]);
 }
 
-/// Every line a peer reads after `hello` when the client drops a call of
-/// `method` once the peer has read it, then makes an `engine.info` call and
-/// closes; the peer answers the dropped call only after reading that next
-/// call.
-fn after_a_dropped_call(method: &'static str) -> Vec<serde_json::Value> {
+/// How the client ends a call the peer leaves unanswered.
+#[derive(Clone, Copy)]
+enum Cut {
+    /// The program drops its future once the peer has read it.
+    Dropped,
+    /// Its timer, the client's own, runs out; the call fails with
+    /// `deadline_exceeded`.
+    TimedOut,
+}
+
+/// Every line a peer reads after `hello` when the client ends a call of
+/// `method`, as `cut` says, once the peer has read it, then makes an
+/// `engine.info` call and closes; the peer answers the ended call only
+/// after reading that next call.
+fn after_an_ended_call(method: &'static str, cut: Cut) -> Vec<serde_json::Value> {
     use tokio::io::AsyncWriteExt as _;
     let (network, mut lines, mut writer) = scripted();
     let said = said();
@@ -430,12 +459,20 @@ fn after_a_dropped_call(method: &'static str) -> Vec<serde_json::Value> {
             )
             .await
             .unwrap();
-            let call = connection
-                .call::<serde_json::Value>(method, &serde_json::json!({}))
-                .no_timeout();
-            tokio::select! {
-                replied = call => panic!("the peer never answers before the drop: {replied:?}"),
-                _ = heard => {}
+            let call = connection.call::<serde_json::Value>(method, &serde_json::json!({}));
+            match cut {
+                Cut::Dropped => tokio::select! {
+                    replied = call.no_timeout() => panic!("the peer never answers before the drop: {replied:?}"),
+                    _ = heard => {}
+                },
+                Cut::TimedOut => {
+                    let expired = call.timeout(Duration::from_secs(1)).await;
+                    assert!(
+                        matches!(&expired, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+                        "{expired:?}"
+                    );
+                    heard.await.unwrap();
+                }
             }
             let answered: Result<EngineInfo, Error> = connection
                 .call(ENGINE_INFO.name, &EngineInfoParams::default())

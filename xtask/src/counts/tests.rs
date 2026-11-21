@@ -11,16 +11,20 @@ use super::{NOT_RUN_YET, ROWS, UnderValgrind};
 /// instructions beneath the clean-up's removal, beneath a selector's
 /// compilation and beneath the generic set's build, a counting VFS's syncs,
 /// E6's sums over its off cell and over its cell of a Run's own Politeness,
+/// its transactions in the cell at `politeness.delegation: false` and in
+/// the cell of two engines crawling one site,
 /// the evidence rows' sum over the cell with learning off, the page waits at
 /// `full`, which `F2.page_waits`' counter counts in the cells at that level,
 /// and the lease reads past the memory budget, which `F3.lease_reads`'
 /// counter counts in the cell at budget 0.
-const READ_ELSEWHERE: [&str; 17] = [
+const READ_ELSEWHERE: [&str; 19] = [
     "E2.log_prepares",
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
     "E6.private_transactions",
+    "E6.shared_transactions",
+    "E6.undelegated_transactions",
     "F1.clean_up_instructions",
     "F1.generic_set_instructions",
     "F1.selector_compilation_instructions",

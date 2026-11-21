@@ -365,6 +365,12 @@ class ConnectionPolitenessProxySettings(TypedDict):
 class ConnectionPolitenessSettings(TypedDict):
     """The `politeness` settings of `Settings`."""
 
+    delegation: NotRequired[bool]
+    """Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
+
+    `politeness.delegation`.
+    """
+
     proxy: NotRequired[ConnectionPolitenessProxySettings]
 
     sharing: NotRequired[Literal["shared", "per_daemon", "run"]]
@@ -1376,6 +1382,12 @@ class RunPolitenessProxySettings(TypedDict):
 
 class RunPolitenessSettings(TypedDict):
     """The `politeness` settings of `RunSettings`."""
+
+    delegation: NotRequired[bool]
+    """Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
+
+    `politeness.delegation`.
+    """
 
     proxy: NotRequired[RunPolitenessProxySettings]
 

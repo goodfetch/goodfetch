@@ -144,7 +144,7 @@ fn crawl_delay_asked(
     location: &str,
     delay: Option<Duration>,
 ) -> rusqlite::Result<()> {
-    changed(file, key, Parts::NONE, |state: &mut DomainState| {
+    changed(file, key, Parts::CRAWL_DELAYS, |state: &mut DomainState| {
         ((), state.crawl_delay_asked(location.to_owned(), delay))
     })
 }

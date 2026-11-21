@@ -16,7 +16,9 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
-use goodfetch_protocol::jsonrpc::{ErrorObject, META, Message, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::{
+    ErrorObject, META, Message, Request, RequestId, RequestMeta, TraceContext, Version,
+};
 use goodfetch_protocol::run::{RUN_ABORT, RunAbortParams, RunId, RunOwner, RunReport};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde_json::Value;
@@ -210,10 +212,25 @@ impl ToOwner {
     ) -> Result<Result<Value, ErrorObject>, NoAnswer> {
         let span = trace::client_span(method);
         let mut params = serde_json::to_value(params).expect("invariant: params encode");
-        if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
+        // A raw call's request keeps its raw mark on its way to the owner,
+        // whose Run trace records it (ADR 0099).
+        let raw = trace::in_raw_call();
+        let sent = trace::sent(&span);
+        if (raw || sent.is_some())
+            && let Value::Object(members) = &mut params
+        {
+            let TraceContext {
+                traceparent,
+                tracestate,
+            } = sent.unwrap_or_default();
+            let meta = RequestMeta {
+                traceparent,
+                tracestate,
+                raw,
+            };
             members.insert(
                 META.to_owned(),
-                serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
+                serde_json::to_value(meta).expect("invariant: a request's `_meta` encodes as JSON"),
             );
         }
         let answer = async {

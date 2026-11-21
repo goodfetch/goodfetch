@@ -69,7 +69,22 @@ fn taken(engine: &mut Attached, held: &mut Vec<Value>) -> Value {
 /// comes meanwhile kept in `held`. Answers how many requests that value
 /// shows waiting for the site, and how many handled.
 fn settled(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> (u64, u64) {
+    settled_under(engine, run_id, held, &["domain_concurrency"])
+}
+
+/// Follows the progress of `run_id` on `engine` as [`settled`] does, until
+/// its due request has waited under each of `reasons` in turn, the last
+/// with nothing being fetched, or nothing is pending any more. Answers how
+/// many requests the last value shows waiting under the last reason, and
+/// how many handled.
+fn settled_under(
+    engine: &mut Attached,
+    run_id: &str,
+    held: &mut Vec<Value>,
+    reasons: &[&str],
+) -> (u64, u64) {
     let mut params = json!({ "run_id": run_id });
+    let mut seen = 0;
     loop {
         engine.send(&json!({
             "jsonrpc": "2.0", "id": "progress", "method": "run.progress", "params": params,
@@ -82,12 +97,19 @@ fn settled(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> (u64, 
                 break message["result"].clone();
             }
         };
-        let waiting = progress["waiting"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|group| group["reason"] == "domain_concurrency")
-            .and_then(|group| group["count"].as_u64());
+        let count = |reason: &str| {
+            progress["waiting"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|group| group["reason"] == reason)
+                .and_then(|group| group["count"].as_u64())
+        };
+        while seen + 1 < reasons.len() && count(reasons[seen]).is_some() {
+            seen += 1;
+        }
+        let last = reasons.last().copied().unwrap_or_default();
+        let waiting = count(last).filter(|_| seen + 1 == reasons.len());
         let requests = &progress["requests"];
         // A request still being fetched is not handled yet: the count of
         // those handled is read once none is.
@@ -111,6 +133,16 @@ fn url(request: &Value) -> String {
 
 fn answer(engine: &mut Attached, request: &Value) {
     engine.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "records": [] } }));
+}
+
+/// Aborts `run_id`, and answers its Run report.
+fn abort(engine: &mut Attached, run_id: &str) -> Value {
+    engine.call(
+        "abort",
+        "run.abort",
+        &json!({ "run_id": run_id }),
+        &mut |_| Some(json!({ "result": { "records": [] } })),
+    )
 }
 
 /// Finishes `run_id`, its work done, and answers its Run report.
@@ -186,6 +218,114 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
             ],
             ((1, 1), (1, 0), (1, 0), 0),
             (json!("finished"), json!("finished")),
+        )
+    );
+}
+
+/// Two crawls of one site, in two engines, keep its delay together: the
+/// first engine sends its page and holds the site's Delegation, and the
+/// second crawl's request, which recalls it (ADR 0142), waits under
+/// `domain_delay` for the hour since that send, none sent. The crawls
+/// fetch no robots.txt, whose request would start the hour before the
+/// first page's.
+///
+/// Covers: story:3-80, setting:politeness.domain.delay, setting:politeness.delegation, format:politeness-file
+#[test]
+fn two_engines_crawling_one_site_keep_its_delay_together() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let an_hour_apart = json!({
+        "politeness": { "domain": { "delay": 3_600_000 } },
+        "site_preferences": { "respect_robots_txt": false },
+    });
+    let mut first = site.engine(&env);
+    let mut second = site.engine(&env);
+
+    let mut held = start(&mut first, "first", &[site.page("/1")], &an_hour_apart);
+    let sent = taken(&mut first, &mut held);
+    answer(&mut first, &sent);
+    let mut none_yet = start(&mut second, "second", &[site.page("/2")], &an_hour_apart);
+    let behind = settled_under(&mut second, "second", &mut none_yet, &["domain_delay"]);
+    let sent_early = none_yet.len();
+    let reports = (
+        finish(&mut first, "first")["result"]["lifecycle"].clone(),
+        abort(&mut second, "second")["result"]["lifecycle"].clone(),
+    );
+    assert!(first.finished());
+    assert!(second.finished());
+
+    assert_eq!(
+        (url(&sent), behind, sent_early, reports),
+        (
+            site.page("/1"),
+            (1, 0),
+            0,
+            (json!("finished"), json!("stopped"))
+        )
+    );
+}
+
+/// Two crawls of one site, in two engines, keep its 429's halving
+/// together: with the first crawl's four requests in flight, the one the
+/// site answers 429 halves the site's concurrency from four to two (ADR
+/// 0021) and backs it off. The second crawl's request waits under
+/// `backoff`, then, the backoff over, under `domain_concurrency` while the
+/// first's three others are in flight, which the cap of four would let it
+/// pass; it is sent once they ended.
+///
+/// Covers: story:3-80, setting:politeness.domain.concurrency, setting:politeness.backoff.initial, setting:politeness.delegation, format:politeness-file
+#[test]
+fn two_engines_crawling_one_site_keep_its_429_halving_together() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    env.user_configuration("governor.http.floor = 4\ngovernor.http.ceiling = 4\n");
+    let four = json!({
+        "crawl": { "handler": { "concurrency": 4 } },
+        "politeness": {
+            "domain": { "concurrency": 4 },
+            "backoff": { "initial": 1_000, "max": 1_000 },
+        },
+    });
+    let quiet = |mark: &str| site.url("scope.test", &format!("/quiet?mark={mark}"));
+    let refused = site.url("scope.test", "/quiet?mark=refused&status=429");
+    let mut first = site.engine(&env);
+    let mut second = site.engine(&env);
+
+    let seeds = [quiet("1"), quiet("2"), quiet("3"), refused.clone()];
+    let mut held = start(&mut first, "first", &seeds, &four);
+    let mut in_flight: Vec<Value> = (0..4).map(|_| taken(&mut first, &mut held)).collect();
+    let at = in_flight
+        .iter()
+        .position(|request| url(request) == refused)
+        .expect("the page answered 429 is in flight");
+    answer(&mut first, &in_flight.remove(at));
+    let mut none_yet = start(&mut second, "second", &[quiet("second")], &four);
+    let behind = settled_under(
+        &mut second,
+        "second",
+        &mut none_yet,
+        &["backoff", "domain_concurrency"],
+    );
+    let sent_early = none_yet.len();
+    for request in &in_flight {
+        answer(&mut first, request);
+    }
+    let second_one = taken(&mut second, &mut none_yet);
+    answer(&mut second, &second_one);
+    let reports = (
+        finish(&mut first, "first")["result"]["lifecycle"].clone(),
+        finish(&mut second, "second")["result"]["lifecycle"].clone(),
+    );
+    assert!(first.finished());
+    assert!(second.finished());
+
+    assert_eq!(
+        (behind, sent_early, url(&second_one), reports),
+        (
+            (1, 0),
+            0,
+            quiet("second"),
+            (json!("finished"), json!("finished"))
         )
     );
 }

@@ -44,6 +44,12 @@ CACHE = "/srv/goodfetch/browsers"
 INSTALL = "pip install goodfetch-foxhound"
 """Foxhound's install command on the engine's channel, PyPI."""
 
+DOWNLOAD_FIX = (
+    "Retry, or run `goodfetch-collie browser install` beforehand, or point"
+    " GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
+)
+"""What a failed download's error says to do, whatever failed."""
+
 
 @pytest.mark.covers(
     "story:11-10",
@@ -82,6 +88,8 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
     not_installed = await failure(run.new_page())
     offline = await failure(run.new_page())
     download_failed = await failure(run.new_page())
+    connection_broke = await failure(run.new_page())
+    wrong_digest = await failure(run.new_page())
     await run.finish()
     await collie.close()
 
@@ -177,16 +185,42 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             download_failed.group,
             download_failed.retryable,
         ) == ("artifact_download_failed", "unavailable", True)
-        assert download_failed.fix == (
-            "Retry, or run `goodfetch-collie browser install` beforehand, or point"
-            " GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
-        )
+        assert download_failed.fix == DOWNLOAD_FIX
         assert download_failed.details == {
             "artifact": BUILD,
             "pinned_by": PINNED_BY,
             "host": "storage.googleapis.com",
             "failure": "http_status",
             "status": 404,
+        }
+    with client_case.check(
+        "a download whose connection broke raises ArtifactDownloadFailedError"
+        " naming the network"
+    ):
+        assert isinstance(connection_broke, ArtifactDownloadFailedError)
+        assert (connection_broke.group, connection_broke.retryable) == (
+            "unavailable",
+            True,
+        )
+        assert connection_broke.fix == DOWNLOAD_FIX
+        assert connection_broke.details == {
+            "artifact": BUILD,
+            "pinned_by": PINNED_BY,
+            "host": "storage.googleapis.com",
+            "failure": "network",
+        }
+    with client_case.check(
+        "a download whose bytes have another digest raises"
+        " ArtifactDownloadFailedError naming the digest mismatch"
+    ):
+        assert isinstance(wrong_digest, ArtifactDownloadFailedError)
+        assert (wrong_digest.group, wrong_digest.retryable) == ("unavailable", True)
+        assert wrong_digest.fix == DOWNLOAD_FIX
+        assert wrong_digest.details == {
+            "artifact": BUILD,
+            "pinned_by": PINNED_BY,
+            "host": "storage.googleapis.com",
+            "failure": "digest_mismatch",
         }
     with client_case.check(
         "the script played to its end, so its engine wrote no failure"

@@ -451,6 +451,7 @@ async fn run_until(
         run_id: run.to_owned(),
         epoch: 1,
         run_folder: PathBuf::from(run),
+        delegates: true,
     };
     while clock.wall() < end {
         match politeness
@@ -814,6 +815,7 @@ async fn a_runs_own_politeness_reserves_a_send_at_its_grant_and_a_late_send_hold
         run_id: "own".to_owned(),
         epoch: 1,
         run_folder: PathBuf::from("own"),
+        delegates: true,
     };
     let granted = |taken: Taken| match taken {
         Taken::Granted(permit) => permit,
@@ -892,6 +894,7 @@ async fn a_send_on_a_runs_own_politeness_waits_for_no_one_and_keeps_its_own_inst
         run_id: "own".to_owned(),
         epoch: 1,
         run_folder: PathBuf::from("own"),
+        delegates: true,
     };
     let Taken::Granted(first) = own.take(KEY, &holder, &delayed, at(10)) else {
         panic!("the first take is not granted");

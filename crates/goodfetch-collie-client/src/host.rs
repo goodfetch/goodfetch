@@ -23,7 +23,7 @@ use serde_json::Value;
 use crate::call::{Call, Note, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
-use crate::event_stream::EventStream;
+use crate::event_stream::{EventStream, Opens};
 use crate::published::Interest;
 use crate::raw_call::{RawCall, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
@@ -151,6 +151,37 @@ impl<Id> Host<Id> {
             self.params(params),
             event,
             Box::new(|data| serde_json::from_value(data).map_err(Error::shape)),
+        )
+    }
+
+    /// The stream of the values that the events of the call of `method`
+    /// with `params`, which is sent now, open as `opens` says: each is
+    /// `build` of its opening payload and of the stream of its own events.
+    /// Once the value is closed it sends nothing and the stream hands
+    /// `closed` once.
+    pub(crate) fn listen_opening<T, D, U, P>(
+        &self,
+        method: &str,
+        params: P,
+        opens: Opens,
+        build: impl Fn(D, EventStream<U>) -> T + Send + Sync + 'static,
+    ) -> EventStream<T>
+    where
+        D: DeserializeOwned,
+        U: DeserializeOwned + 'static,
+        P: Serialize,
+    {
+        EventStream::opening(
+            self.connection().sender(),
+            method,
+            self.params(params),
+            opens,
+            Box::new(move |data, events| {
+                let opened = serde_json::from_value(data).map_err(Error::shape)?;
+                let events =
+                    events.and_then(|event| serde_json::from_value(event).map_err(Error::shape));
+                Ok(build(opened, events))
+            }),
         )
     }
 

@@ -32,6 +32,10 @@ const BUILD = {
 /** The Product version that pins it. */
 const PINNED_BY = { product: "collie", product_version: "0.0.0" };
 
+/** What a failed download's error says to do, whatever failed. */
+const DOWNLOAD_FIX =
+  "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache";
+
 describe("A Collie Connection on the Scripted engine as a Collie engine", () => {
   test(
     "raises NotInProductError for Foxhound's operation and setting, and each missing build's class",
@@ -65,6 +69,8 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
       const notInstalled = await failure(run.newPage());
       const offline = await failure(run.newPage());
       const downloadFailed = await failure(run.newPage());
+      const connectionBroke = await failure(run.newPage());
+      const wrongDigest = await failure(run.newPage());
       await run.finish();
       await collie.close();
 
@@ -135,7 +141,7 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
             code: "artifact_download_failed",
             group: "unavailable",
             retryable: true,
-            fix: "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache",
+            fix: DOWNLOAD_FIX,
             details: {
               artifact: BUILD,
               pinned_by: PINNED_BY,
@@ -143,6 +149,40 @@ describe("A Collie Connection on the Scripted engine as a Collie engine", () => 
               failure: "http_status",
               status: 404,
             },
+          });
+        },
+      );
+      await clientCase.check(
+        "a download whose connection broke raises ArtifactDownloadFailedError naming the network",
+        () => {
+          expect(connectionBroke).toBeInstanceOf(ArtifactDownloadFailedError);
+          expect(connectionBroke).toMatchObject({
+            group: "unavailable",
+            retryable: true,
+            fix: DOWNLOAD_FIX,
+          });
+          expect(connectionBroke).toHaveProperty("details", {
+            artifact: BUILD,
+            pinned_by: PINNED_BY,
+            host: "storage.googleapis.com",
+            failure: "network",
+          });
+        },
+      );
+      await clientCase.check(
+        "a download whose bytes have another digest raises ArtifactDownloadFailedError naming the digest mismatch",
+        () => {
+          expect(wrongDigest).toBeInstanceOf(ArtifactDownloadFailedError);
+          expect(wrongDigest).toMatchObject({
+            group: "unavailable",
+            retryable: true,
+            fix: DOWNLOAD_FIX,
+          });
+          expect(wrongDigest).toHaveProperty("details", {
+            artifact: BUILD,
+            pinned_by: PINNED_BY,
+            host: "storage.googleapis.com",
+            failure: "digest_mismatch",
           });
         },
       );

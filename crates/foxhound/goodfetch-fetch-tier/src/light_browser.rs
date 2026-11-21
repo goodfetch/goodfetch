@@ -30,6 +30,7 @@ use goodfetch_engine::browser_cache::{
     BrowserCache, BuildPlatform, CacheLocation, HeldArtifact, PinnedArtifact, Platform,
 };
 use goodfetch_engine::children::Children;
+use goodfetch_engine::executables;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::response_limits::Limits;
@@ -342,8 +343,10 @@ pub(crate) fn arguments(url: &str, proxy: &str) -> Vec<String> {
 ///
 /// # Errors
 ///
-/// `navigation_failed` when Lightpanda cannot start, fails, or reaches no
-/// document; `response_limit_exceeded` when its report passes
+/// `executable_blocked_by_smart_app_control` where Windows' Smart App
+/// Control or another App Control policy refuses Lightpanda (ADR 0039);
+/// `navigation_failed` when Lightpanda cannot start otherwise, fails, or
+/// reaches no document; `response_limit_exceeded` when its report passes
 /// `network.max_body_size`.
 ///
 /// # Cancel safety
@@ -378,9 +381,10 @@ pub(crate) async fn render(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     let mut group = Children::new().map_err(|error| failed(error.to_string()))?;
-    let mut child = group
-        .spawn(command)
-        .map_err(|error| failed(format!("it does not start: {error}")))?;
+    let mut child = group.spawn(command).map_err(|error| {
+        executables::blocked_by_smart_app_control(executable, &error)
+            .unwrap_or_else(|| failed(format!("it does not start: {error}")))
+    })?;
     let mut output = Vec::new();
     if let Some(stdout) = child.stdout.take() {
         stdout

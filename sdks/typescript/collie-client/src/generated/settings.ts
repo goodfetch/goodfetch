@@ -314,6 +314,12 @@ export interface Settings {
     readonly resolve?: { readonly [key: string]: readonly string[] };
   };
   readonly politeness?: {
+    /**
+     * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
+     *
+     * `politeness.delegation`.
+     */
+    readonly delegation?: boolean;
     readonly proxy?: {
       /**
        * How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.
@@ -1012,6 +1018,12 @@ export interface RunSettings {
     readonly resolve?: { readonly [key: string]: readonly string[] };
   };
   readonly politeness?: {
+    /**
+     * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
+     *
+     * `politeness.delegation`.
+     */
+    readonly delegation?: boolean;
     readonly proxy?: {
       /**
        * How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.
@@ -1746,6 +1758,7 @@ const SPELLING: Spelling = {
     tracesEndpoint: "traces_endpoint",
   }],
   politeness: ["politeness", {
+    delegation: "delegation",
     proxy: ["proxy", {
       concurrency: "concurrency",
       rate: "rate",

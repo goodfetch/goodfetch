@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::audit::Actor;
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::effect::{
     EFFECT_KEY_INVALID, EFFECT_KEY_REUSED, EFFECT_OUTPUT_INVALID, EFFECT_OUTPUT_MAX_SIZE,
     EFFECT_RECONCILED, EFFECT_UNCERTAIN, EffectAttempt, EffectCloseParams, EffectClosed,
@@ -838,8 +838,9 @@ fn cancelled() -> CallError {
         &CALL_CANCELLED,
         "The call was cancelled by its Client.",
         &CallCancelledDetails {
-            by: StoppedBy::Client,
+            by: CancelledBy::Client,
             closed: None,
+            person: None,
         },
     )
 }

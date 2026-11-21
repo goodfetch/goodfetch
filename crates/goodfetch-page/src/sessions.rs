@@ -69,7 +69,7 @@ use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
-use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
+use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY};
@@ -504,7 +504,7 @@ impl Sessions {
         match life.apply(SessionEvent::SourceReady, None)? {
             SessionEffect::Opened => {}
             // A `close()` while it opened abandoned the open (S3).
-            _ => return Err(cancelled(StoppedBy::Program, ClosedValue::Session)),
+            _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
         self.record(&run, position, false, &settings, borrowed.as_ref(), context)
             .await?;

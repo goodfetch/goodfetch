@@ -11,7 +11,6 @@ import { AttachedEngine } from "./attached-engine.ts";
 import {
   ClientConnection,
   connectLimit,
-  phaseExceeded,
   type EngineInfo,
   type Reached,
 } from "./client-connection.ts";
@@ -46,6 +45,7 @@ import { isRecord } from "./framing.ts";
 import { LISTENER_QUEUE } from "./listeners.ts";
 import {
   PENDING_CALLS,
+  phaseExceeded,
   QUEUED_WRITE_BYTES,
   wholeBound,
   type ChannelBounds,

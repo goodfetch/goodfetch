@@ -511,6 +511,22 @@ impl Layer {
         })
     }
 
+    /// Whether `operation` takes a scope's settings as raw JSON: its params'
+    /// `settings` is an object of any keys, nested by wire segment, such as
+    /// `run.resume`'s run layer, which no settings type checks, so its
+    /// generated member warns of each deprecated key they set (ADR 0099).
+    pub(super) fn takes_raw_settings(&self, operation: &Operation) -> bool {
+        let params = &operation.params.0;
+        self.definitions
+            .get(params)
+            .or_else(|| self.collie_definitions.get(params))
+            .and_then(|schema| schema.pointer("/properties/settings"))
+            .is_some_and(|settings| {
+                settings.get("type").and_then(Value::as_str) == Some("object")
+                    && settings.get("properties").is_none()
+            })
+    }
+
     /// Whether `name` is a type of Collie's client package rather than this
     /// layer's.
     pub(super) fn is_collie_type(&self, name: &str) -> bool {

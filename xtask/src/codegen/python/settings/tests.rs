@@ -1,7 +1,14 @@
+use std::collections::BTreeMap;
+
+use anyhow::Result;
 use goodfetch_protocol::catalog::ValueKind;
+use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{foxhound_settings_module, scope_type, settings_module};
+use super::{
+    collie_deprecated_fields, foxhound_deprecated_fields, foxhound_settings_module, scope_type,
+    settings_module,
+};
 use crate::codegen::layer::Setting;
 
 fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Setting {
@@ -395,4 +402,71 @@ fn a_deprecated_setting_carries_its_deprecation_in_its_docstring_and_the_registr
         )),
         "{module}"
     );
+}
+
+type Generated<T> = fn(&[Setting]) -> T;
+
+/// Covers: story:11-182
+#[rstest]
+#[case::collie(
+    settings_module,
+    collie_deprecated_fields,
+    &[
+        "ConnectionPolitenessDomainSettings.wait",
+        "RunPolitenessDomainSettings.wait",
+        "SessionPolitenessDomainSettings.wait",
+    ],
+)]
+#[case::foxhound(
+    foxhound_settings_module,
+    foxhound_deprecated_fields,
+    &["ConnectionPolitenessDomainSettings.wait", "RunPolitenessDomainSettings.wait"],
+)]
+fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as(
+    #[case] module: Generated<Result<String>>,
+    #[case] deprecated_fields: Generated<BTreeMap<String, Vec<String>>>,
+    #[case] expected: &[&str],
+) {
+    let deprecation = goodfetch_protocol::catalog::Deprecation {
+        since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+        replacement: None,
+        earliest_removal: goodfetch_protocol::catalog::ProtocolVersion { major: 1, minor: 0 },
+        note: "Gone.".to_owned(),
+    };
+    let mut old = setting(
+        "politeness.domain.wait",
+        json!({ "type": "integer" }),
+        false,
+        &["connection", "run", "session"],
+    );
+    old.deprecated = Some(deprecation);
+    let settings = [
+        old,
+        setting(
+            "timeout.navigation",
+            json!({ "type": "integer" }),
+            false,
+            &["run"],
+        ),
+    ];
+
+    let fields = deprecated_fields(&settings);
+
+    let module = module(&settings).unwrap();
+    assert_eq!(
+        fields,
+        BTreeMap::from([(
+            "politeness.domain.wait".to_owned(),
+            expected.iter().map(|&field| field.to_owned()).collect()
+        )])
+    );
+    let undeclared: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|field| {
+            let (name, _) = field.split_once('.').unwrap();
+            !class(&module, name).contains("\n    wait: NotRequired[int]\n")
+        })
+        .collect();
+    assert!(undeclared.is_empty(), "{undeclared:?} in {module}");
 }

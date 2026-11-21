@@ -122,6 +122,7 @@ pub(crate) fn answer(
             product_version: identity.product_version.clone(),
             engine_instance: instance.clone(),
             private_endpoint: None,
+            max_calls_in_flight: super::max_calls_in_flight(),
         },
         surface,
         behind_gateway,

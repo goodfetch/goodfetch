@@ -6292,6 +6292,16 @@
           "arrived_in": "0.1",
           "description": "The engine process, new each time an engine starts: the positions\nof its events count within it, so a Client that meets a new one\nresyncs (ADR 0031)."
         },
+        "max_calls_in_flight": {
+          "arrived_in": "0.1",
+          "description": "How many calls the engine keeps in flight on this Connection: one\nmore is refused with `too_many_calls`, so a Client sends at most\nthis many at once and queues the rest in the order they were made\n(ADR 0038; issue 2529). Absent from an engine that sets no cap, such\nas the Scripted engine.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "private_endpoint": {
           "anyOf": [
             {

@@ -453,7 +453,10 @@ function signalled<Types extends Record<keyof Types, OperationTypes>>(
       params: Types[Name]["params"],
       options: CallOptions,
     ): Promise<Types[Name]["result"]> {
-      return calls.call(operation, params, { signal: alsoStoppedBy(options.signal, signal) });
+      return calls.call(operation, params, {
+        signal: alsoStoppedBy(options.signal, signal),
+        deadline: options.deadline,
+      });
     },
   };
 }

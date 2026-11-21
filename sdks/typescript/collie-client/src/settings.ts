@@ -78,6 +78,43 @@ function spelled(
   return wire;
 }
 
+/**
+ * Warns, once per process, of each of `deprecated`'s keys that `settings`,
+ * raw as the wire takes them and nested by `snake_case` segment, set: what
+ * a generated operation taking a raw run layer checks (ADR 0099). A key set
+ * to `null`, which clears, is set; one set to `undefined` is not.
+ */
+export function warnDeprecatedOnWire(
+  settings: SettingsOnWire | undefined,
+  deprecated: DeprecatedSettings,
+): void {
+  if (settings === undefined) {
+    return;
+  }
+  for (const [key, text] of deprecated) {
+    if (setsOnWire(settings, key)) {
+      warnDeprecatedSetting(key, text);
+    }
+  }
+}
+
+/** Whether `settings`, nested by wire segment, set the dotted `key`. */
+function setsOnWire(settings: object, key: string): boolean {
+  const segments = key.split(".");
+  let level: object = settings;
+  for (const [index, segment] of segments.entries()) {
+    const value: unknown = Object.getOwnPropertyDescriptor(level, segment)?.value;
+    if (index === segments.length - 1) {
+      return value !== undefined;
+    }
+    if (!isTable(value)) {
+      return false;
+    }
+    level = value;
+  }
+  return false;
+}
+
 /** The dotted wire key of `segment` in the area keyed `area`, `""` at the root. */
 function keyOf(area: string, segment: string): string {
   return area === "" ? segment : `${area}.${segment}`;

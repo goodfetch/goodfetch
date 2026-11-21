@@ -3268,6 +3268,14 @@ export interface HelloResult {
    */
   engineInstance: EngineInstance;
   /**
+   * How many calls the engine keeps in flight on this Connection: one
+   * more is refused with `too_many_calls`, so a Client sends at most
+   * this many at once and queues the rest in the order they were made
+   * (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+   * as the Scripted engine.
+   */
+  maxCallsInFlight?: number | null;
+  /**
    * An Attached engine's private endpoint, reported to the Client of its
    * stdio alone: where that Client's `workers=N` handler processes, and a
    * Daemon forwarding a live action, connect (ADRs 0024 and 0031).

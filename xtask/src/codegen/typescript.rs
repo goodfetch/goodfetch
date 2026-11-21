@@ -26,6 +26,7 @@ use super::{Generated, TypesFile};
 mod errors;
 mod listeners;
 mod markers;
+mod operation;
 mod settings;
 mod signature;
 mod wire;
@@ -33,6 +34,7 @@ mod wire;
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
 };
+use operation::operation_method;
 use signature::signature;
 
 /// Where Foxhound's layer imports Collie's generated layer from.
@@ -332,6 +334,19 @@ fn operations(layer: &Layer) -> String {
         .iter()
         .filter(|operation| operation.sends())
         .collect();
+    // A run layer taken as raw JSON is checked for deprecated keys as a
+    // typed member's settings are (ADR 0099).
+    let raw_settings_import = if sending
+        .iter()
+        .any(|operation| layer.takes_raw_settings(operation))
+    {
+        format!(
+            "import {{ {} }} from \"./settings.ts\";\n",
+            settings::WARN_DEPRECATED_SETTINGS
+        )
+    } else {
+        String::new()
+    };
     let mut text = format!("{HEADER}\n");
     match layer.product {
         Product::Collie => {
@@ -345,6 +360,7 @@ fn operations(layer: &Layer) -> String {
                 &[ENTRY_MARKERS],
             ));
             text.push_str(&type_imports(layer, &types));
+            text.push_str(&raw_settings_import);
             let _ = writeln!(
                 text,
                 "\nexport type {{ CallOptions, Caller, OperationTypes }} from \"{CALLER_MODULE}\";"
@@ -361,6 +377,7 @@ fn operations(layer: &Layer) -> String {
                 &[ENTRY_MARKERS],
             ));
             text.push_str(&type_imports(layer, &types));
+            text.push_str(&raw_settings_import);
         }
     }
     let _ = write!(
@@ -395,28 +412,7 @@ fn operations(layer: &Layer) -> String {
     );
     for operation in sending {
         text.push('\n');
-        text.push_str(&doc(
-            "  ",
-            &operation.description,
-            operation.stability,
-            operation.deprecated.as_ref(),
-        ));
-        let method = camel(&operation.name);
-        let (params, result) = (&operation.params.0, &operation.result.0);
-        let warn = warnings(operation);
-        if operation.cancellable {
-            let _ = write!(
-                text,
-                "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, options);\n  }}\n",
-                operation.name
-            );
-        } else {
-            let _ = write!(
-                text,
-                "  {method}(params: {params}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, {{}});\n  }}\n",
-                operation.name
-            );
-        }
+        text.push_str(&operation_method(layer, operation));
     }
     text.push_str("}\n");
     text
@@ -667,10 +663,21 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
         )
     };
     let (declared, sent) = signature_of(Overload::Every);
-    let call_options = if operation.cancellable {
-        "{ signal: options.signal }"
+    // A call's own timeout also bounds its wait in the Client's queue under
+    // the engine's cap on calls in flight (ADR 0038; issue 2529).
+    let mut options = Vec::new();
+    if operation.cancellable {
+        options.push("signal: options.signal".to_owned());
+    }
+    if let Some(setting) = &member.timeout_setting {
+        options.push(format!(
+            "deadline: {{ key: {setting:?}, value: options.{TIMEOUT} }}"
+        ));
+    }
+    let call_options = if options.is_empty() {
+        "{}".to_owned()
     } else {
-        "{}"
+        format!("{{ {} }}", options.join(", "))
     };
     let call = format!(
         "this.#host.call({:?}, {sent}, {call_options})",

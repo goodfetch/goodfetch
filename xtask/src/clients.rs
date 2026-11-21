@@ -16,9 +16,13 @@
 //! or `daemon`. The `sdk-python` surface's tests are the pytest tests of the
 //! Python SDK packages (`sdks/python/`), read from pytest's listing in the
 //! same folder: each carries its case and mode as the marker
-//! `client_case(id="<id>", mode="attached")`. Without the listings, and for
-//! `sdk-rust`, whose case log this check does not read yet (issue 3158), a
-//! case they list is only noted.
+//! `client_case(id="<id>", mode="attached")`. Without the listings, a case
+//! they list is only noted. The `sdk-rust` surface's tests are those of the
+//! Rust SDK crates, read through the Feature scanner too: each carries its
+//! case and mode by the call that logs its run (ADR 0069),
+//! `ClientCaseRun::start(<folder>, "<id>", RustMode::Linked)` or
+//! `RustMode::Daemon`, written out in its body. A call in a helper the test
+//! calls carries nothing, since the check reads no call graph.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -32,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
@@ -46,9 +51,10 @@ pub(crate) enum Command {
     /// surface's modes, a test carrying an unknown case, a case on a surface
     /// or in a mode the case does not list, or no mode, two cases with one
     /// ID, a case whose modes are on no surface it lists, a case giving
-    /// modes of their own to a surface it does not list, and a case list
-    /// that does not parse. A listed surface whose tests are not read yet is
-    /// noted.
+    /// modes of their own to a surface it does not list, a Rust test's
+    /// `ClientCaseRun::start` call that does not write out its case and
+    /// mode, and a case list that does not parse. Without `--listings`, a
+    /// listed SDK surface whose tests are not read is noted.
     Check {
         /// The folder of the runners' listings `xtask journeys listings`
         /// writes, whose Vitest listing gives the `sdk-typescript` surface's
@@ -65,6 +71,16 @@ const CASE_LIST: &str = "conformance/clients/cases.toml";
 const EXECUTABLE_CRATES: [&str; 2] = products::PACKAGES;
 /// The module in a test's path that the case's module follows.
 const CASES_MODULE: &str = "client_conformance";
+/// The crates whose tests implement the `sdk-rust` surface's cases: Collie's
+/// crate, published as its Rust SDK, and the client crate it builds on. A
+/// test of either carries the mode its case runs in: `linked` where the
+/// engine is linked into the test, or where the case is decided before any
+/// call, `daemon` where it reaches a Daemon.
+const RUST_SDK_CRATES: [&str; 2] = ["goodfetch-collie", "goodfetch-collie-client"];
+/// The type whose `start` call carries a case on the `sdk-rust` surface.
+const CASE_RUN: &str = "ClientCaseRun";
+/// The type naming the Rust SDK's modes in that call.
+const RUST_MODE: &str = "RustMode";
 /// The folder of the packages whose Vitest tests implement the
 /// `sdk-typescript` surface's cases: each Product's TypeScript SDK packages.
 const TYPESCRIPT_PACKAGES: &str = "sdks/typescript/";
@@ -299,13 +315,14 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
             ));
         }
     }
-    let cli = cli_tests(cargo, root, &by_module, &mut findings)?;
     let by_id: BTreeMap<&str, &Case> = unique
         .iter()
         .map(|case| (case.id.as_str(), *case))
         .collect();
+    let scanned = scanned_tests(cargo, root, &by_module, &by_id, &mut findings)?;
     let tested = Tested {
-        cli,
+        cli: scanned.cli,
+        rust: scanned.rust,
         typescript: listings
             .map(|folder| typescript_tests(root, folder, &by_id, &mut findings))
             .transpose()?,
@@ -324,6 +341,7 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
 /// whose listing was not given.
 struct Tested<'a> {
     cli: BTreeSet<(&'a str, Mode)>,
+    rust: BTreeSet<(&'a str, Mode)>,
     typescript: Option<BTreeSet<(&'a str, Mode)>>,
     python: Option<BTreeSet<(&'a str, Mode)>>,
 }
@@ -389,14 +407,14 @@ fn check_case(
                     ));
                 continue;
             }
-            (Surface::SdkRust, _, _) => {
-                notes.push(Finding::new(
-                    "unread-surface",
-                    format!("{} {surface}", case.id),
-                    "this surface's tests are not read yet (issue 3158)",
-                ));
-                continue;
-            }
+            (Surface::SdkRust, _, _) => (
+                &tested.rust,
+                format!(
+                    "no test of {} calls `{CASE_RUN}::start(…, \"{}\", {RUST_MODE}::…)`",
+                    RUST_SDK_CRATES.join(" or "),
+                    case.id
+                ),
+            ),
         };
         for mode in modes {
             if !implemented.contains(&(case.id.as_str(), mode)) {
@@ -429,65 +447,236 @@ fn read(root: &Path) -> Result<Result<Option<Vec<Case>>, String>> {
         .map_err(|error| error.message().to_owned()))
 }
 
+/// Each case and mode the Rust tests the Feature scanner reads implement,
+/// on the `cli` surface and on `sdk-rust`.
+struct Scanned<'a> {
+    cli: BTreeSet<(&'a str, Mode)>,
+    rust: BTreeSet<(&'a str, Mode)>,
+}
+
 /// Each case and mode a test of the executable crates implements on the
-/// `cli` surface; a test that carries an unknown case, a case or mode the
-/// case does not list, or no mode, is a finding.
-fn cli_tests<'a>(
+/// `cli` surface, and a test of the Rust SDK crates on `sdk-rust`; a test
+/// that carries an unknown case, a case or mode the case does not list, or
+/// no mode, or that may not run where its case does, is a finding.
+fn scanned_tests<'a>(
     cargo: &OsStr,
     root: &Path,
-    cases: &BTreeMap<String, &'a Case>,
+    by_module: &BTreeMap<String, &'a Case>,
+    by_id: &BTreeMap<&str, &'a Case>,
     findings: &mut Vec<Finding>,
-) -> Result<BTreeSet<(&'a str, Mode)>> {
-    let mut implemented = BTreeSet::new();
-    for test in features::tests(cargo, root, Some(&EXECUTABLE_CRATES))? {
-        let segments: Vec<&str> = test.name.split("::").collect();
-        let Some(position) = segments.iter().position(|segment| *segment == CASES_MODULE) else {
-            continue;
-        };
-        let subject = format!("{} {}", test.binary, test.name);
-        let carried = &segments[position + 1..];
-        let case = match carried {
-            [module, _, ..] => cases.get(*module),
-            _ => None,
-        };
-        let Some(case) = case else {
-            findings.push(Finding::new(
-                "unknown-case",
-                subject,
-                format!("no case of {CASE_LIST} has this module's ID"),
-            ));
-            continue;
-        };
-        let Some(mode) = carried.last().and_then(|segment| Mode::of(segment)) else {
-            findings.push(Finding::new(
-                "no-mode",
-                subject,
-                "name the test, or its rstest case, after the mode it runs in",
-            ));
-            continue;
-        };
-        if !case.surfaces.contains(&Surface::Cli) || !case.modes_on(Surface::Cli).contains(&mode) {
-            findings.push(Finding::new(
-                "unlisted",
-                subject,
-                format!("the case does not list the cli surface in the {mode} mode"),
-            ));
-            continue;
+) -> Result<Scanned<'a>> {
+    let mut packages: Vec<&str> = EXECUTABLE_CRATES.to_vec();
+    packages.extend(RUST_SDK_CRATES);
+    packages.sort_unstable();
+    packages.dedup();
+    let mut scanned = Scanned {
+        cli: BTreeSet::new(),
+        rust: BTreeSet::new(),
+    };
+    for test in features::tests(cargo, root, Some(packages.as_slice()))? {
+        let features::Test {
+            binary,
+            name,
+            package,
+            gates,
+            body,
+            ..
+        } = test;
+        let subject = format!("{binary} {name}");
+        if EXECUTABLE_CRATES.contains(&package.as_str())
+            && let Some(carried) = cli_carried(&name, by_module, &subject, findings)
+        {
+            implement(
+                carried,
+                Surface::Cli,
+                &gates,
+                &subject,
+                findings,
+                &mut scanned.cli,
+            );
         }
-        if !case.runs_wherever_it_does(&test.gates) {
-            findings.push(Finding::new(
-                "gated",
-                subject,
-                format!(
-                    "behind {}, it may not run where the case does; drop the gate, or list the case's one platform in its `platforms`",
-                    test.gates.join(" and ")
-                ),
-            ));
-            continue;
+        if RUST_SDK_CRATES.contains(&package.as_str()) {
+            for run in case_runs(body) {
+                if let Some(carried) = rust_carried(run, by_id, &subject, findings) {
+                    implement(
+                        carried,
+                        Surface::SdkRust,
+                        &gates,
+                        &subject,
+                        findings,
+                        &mut scanned.rust,
+                    );
+                }
+            }
         }
-        implemented.insert((case.id.as_str(), mode));
     }
-    Ok(implemented)
+    Ok(scanned)
+}
+
+/// The case and mode a test named `name` carries on the `cli` surface, by
+/// its `client_conformance::<case>::…<mode>` path; `None` for a test
+/// outside that module, or one carrying an unknown case or no mode, which
+/// is a finding.
+fn cli_carried<'a>(
+    name: &str,
+    cases: &BTreeMap<String, &'a Case>,
+    subject: &str,
+    findings: &mut Vec<Finding>,
+) -> Option<(&'a Case, Mode)> {
+    let segments: Vec<&str> = name.split("::").collect();
+    let position = segments
+        .iter()
+        .position(|segment| *segment == CASES_MODULE)?;
+    let carried = &segments[position + 1..];
+    let case = match carried {
+        [module, _, ..] => cases.get(*module),
+        _ => None,
+    };
+    let Some(case) = case else {
+        findings.push(Finding::new(
+            "unknown-case",
+            subject,
+            format!("no case of {CASE_LIST} has this module's ID"),
+        ));
+        return None;
+    };
+    let Some(mode) = carried.last().and_then(|segment| Mode::of(segment)) else {
+        findings.push(Finding::new(
+            "no-mode",
+            subject,
+            "name the test, or its rstest case, after the mode it runs in",
+        ));
+        return None;
+    };
+    Some((case, mode))
+}
+
+/// The case and mode a `ClientCaseRun::start` call carries on the
+/// `sdk-rust` surface; `None` for a call that does not write them out or
+/// names an unknown case, which is a finding.
+fn rust_carried<'a>(
+    run: Result<(String, Mode), Malformed>,
+    cases: &BTreeMap<&str, &'a Case>,
+    subject: &str,
+    findings: &mut Vec<Finding>,
+) -> Option<(&'a Case, Mode)> {
+    let Ok((id, mode)) = run else {
+        findings.push(Finding::new(
+            "malformed",
+            subject,
+            format!(
+                "its `{CASE_RUN}::start` call is not `{CASE_RUN}::start(<folder>, \"<case>\", {RUST_MODE}::Linked)` or `{RUST_MODE}::Daemon`, its case and mode written out"
+            ),
+        ));
+        return None;
+    };
+    let Some(case) = cases.get(id.as_str()) else {
+        findings.push(Finding::new(
+            "unknown-case",
+            subject,
+            format!("no case of {CASE_LIST} has the ID `{id}`"),
+        ));
+        return None;
+    };
+    Some((case, mode))
+}
+
+/// Records that a test with `gates` implements `case` on `surface` in
+/// `mode`, or the finding that keeps it from doing so: the case does not
+/// list that surface in that mode, or the test may not run where it does.
+fn implement<'a>(
+    (case, mode): (&'a Case, Mode),
+    surface: Surface,
+    gates: &[String],
+    subject: &str,
+    findings: &mut Vec<Finding>,
+    implemented: &mut BTreeSet<(&'a str, Mode)>,
+) {
+    if !case.surfaces.contains(&surface) || !case.modes_on(surface).contains(&mode) {
+        findings.push(Finding::new(
+            "unlisted",
+            subject,
+            format!("the case does not list the {surface} surface in the {mode} mode"),
+        ));
+        return;
+    }
+    if !case.runs_wherever_it_does(gates) {
+        findings.push(Finding::new(
+            "gated",
+            subject,
+            format!(
+                "behind {}, it may not run where the case does; drop the gate, or list the case's one platform in its `platforms`",
+                gates.join(" and ")
+            ),
+        ));
+        return;
+    }
+    implemented.insert((case.id.as_str(), mode));
+}
+
+/// The case and mode of each `ClientCaseRun::start` call in `tokens`, at
+/// any depth, a macro's arguments included; [`Malformed`] for a call whose
+/// case is not a string literal or whose mode is not `RustMode::Linked` or
+/// `RustMode::Daemon` written out.
+fn case_runs(tokens: TokenStream) -> Vec<Result<(String, Mode), Malformed>> {
+    let mut runs = Vec::new();
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    for (index, tree) in trees.iter().enumerate() {
+        if let [
+            TokenTree::Ident(owner),
+            TokenTree::Punct(first),
+            TokenTree::Punct(second),
+            TokenTree::Ident(function),
+            TokenTree::Group(arguments),
+            ..,
+        ] = &trees[index..]
+            && *owner == CASE_RUN
+            && first.as_char() == ':'
+            && second.as_char() == ':'
+            && *function == "start"
+            && arguments.delimiter() == Delimiter::Parenthesis
+        {
+            runs.push(case_run(arguments.stream()));
+        } else if let TokenTree::Group(group) = tree {
+            runs.extend(case_runs(group.stream()));
+        }
+    }
+    runs
+}
+
+/// A `ClientCaseRun::start` call whose case or mode is not written out.
+struct Malformed;
+
+/// The case and mode of the `ClientCaseRun::start` call with `arguments`.
+fn case_run(arguments: TokenStream) -> Result<(String, Mode), Malformed> {
+    let mut split: Vec<TokenStream> = Vec::new();
+    let mut current = TokenStream::new();
+    for tree in arguments {
+        if matches!(&tree, TokenTree::Punct(punct) if punct.as_char() == ',') {
+            split.push(std::mem::take(&mut current));
+        } else {
+            current.extend([tree]);
+        }
+    }
+    if !current.is_empty() {
+        split.push(current);
+    }
+    let [_, case, mode] = <[TokenStream; 3]>::try_from(split).map_err(|_| Malformed)?;
+    let case = syn::parse2::<syn::LitStr>(case)
+        .map_err(|_| Malformed)?
+        .value();
+    let mode = syn::parse2::<syn::Path>(mode).map_err(|_| Malformed)?;
+    let names: Vec<String> = mode
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    let mode = match names.as_slice() {
+        [.., owner, variant] if owner == RUST_MODE && variant == "Linked" => Mode::Linked,
+        [.., owner, variant] if owner == RUST_MODE && variant == "Daemon" => Mode::Daemon,
+        _ => return Err(Malformed),
+    };
+    Ok((case, mode))
 }
 
 #[derive(Deserialize)]

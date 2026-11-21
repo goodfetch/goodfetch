@@ -8,11 +8,12 @@
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{Collie, ErrorCode, Limits, Money, RunId, StartedAs, UsageKind, blocking};
 use goodfetch_collie_client::ClientConnection;
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::ReachedLimit;
 use goodfetch_protocol::usage::{
     LimitRaiseRefusedDetails, USAGE_LIST, UsageListParams, UsageListResult,
 };
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::json;
 
 use super::options;
@@ -43,6 +44,12 @@ async fn listed(connection: &ClientConnection, kind: &str) -> Vec<(String, Optio
 /// Covers: story:11-51
 #[test]
 fn limits_reach_the_engine_at_connect_and_at_a_runs_start_with_each_price_in_millionths() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "limits-sent-in-millionths",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let connect = Limits::new()
         .count(UsageKind::REQUESTS, 500)
@@ -108,6 +115,12 @@ fn a_connection_limit_with_nothing_left_refuses_a_runs_start() {
 /// Covers: story:11-51, error:not_in_product
 #[test]
 fn a_connection_limit_the_engine_refuses_fails_the_connect() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-limit-refused-closes",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let paid_fetches = Limits::new().count(UsageKind::named("paid_fetch"), 3);
     real_time_runtime().block_on(async {
@@ -128,6 +141,12 @@ fn a_connection_limit_the_engine_refuses_fails_the_connect() {
 /// Covers: story:11-51, error:limit_raise_refused
 #[test]
 fn a_start_naming_a_run_again_lowers_its_limits_and_never_raises_them() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "limits-lowered-never-raised",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let nightly = RunId::parse("nightly").unwrap();
     let requests = |amount| Limits::new().count(UsageKind::REQUESTS, amount);

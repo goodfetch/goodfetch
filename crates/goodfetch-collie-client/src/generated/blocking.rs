@@ -632,7 +632,7 @@ impl Page {
 
     /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
     ///
-    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning.
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning. An event that opens a value hands that value, whose own `events` hand the events of its own the same call carries, in order, its close last; dropping that stream passes over them, and the call goes on.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -642,8 +642,14 @@ impl Page {
     pub fn events<E: crate::events::PageEvent>(
         &self,
         event: E,
-    ) -> crate::blocking::EventIter<E::Data> {
-        crate::blocking::EventIter::new(self.inner.events(event), self.inner.host.connection())
+    ) -> crate::blocking::EventIter<E::BlockingData> {
+        let connection = self.inner.host.connection().clone();
+        crate::blocking::EventIter::new(
+            self.inner.events(event).map(move |data| {
+                <E as crate::events::sealed::PageEvent>::blocking(data, &connection)
+            }),
+            self.inner.host.connection(),
+        )
     }
 
     /// A locator (ADR 0085): what an action looks for on a page, resolved
@@ -656,6 +662,44 @@ impl Page {
         Locator {
             inner: self.inner.locator(selector),
         }
+    }
+}
+
+/// The blocking twin of a [`crate::WebSocket`], whose own events a blocking
+/// iterator hands.
+#[derive(Debug)]
+pub struct WebSocket {
+    /// Its URL.
+    pub url: String,
+    /// The browser's ID for the socket, which its events name.
+    pub web_socket_id: String,
+    events: crate::blocking::EventIter<crate::WebSocketEvent>,
+}
+
+impl WebSocket {
+    /// The blocking twin of `value`, whose events are read on
+    /// `connection`'s runtime.
+    pub(crate) fn new(value: crate::WebSocket, connection: &crate::ClientConnection) -> Self {
+        let crate::WebSocket {
+            url,
+            web_socket_id,
+            events,
+        } = value;
+        Self {
+            url,
+            web_socket_id,
+            events: crate::blocking::EventIter::new(events, connection),
+        }
+    }
+
+    /// Its own events, in order, each once, its close last, after which
+    /// the iterator ends; it also ends with the call that opened it.
+    /// Dropping the iterator passes over the events it has not read, and
+    /// the call's other streams go on. The call stays lossless: events
+    /// held unread keep their credits, so once the engine waits on them,
+    /// the call's other streams wait too.
+    pub fn events(self) -> crate::blocking::EventIter<crate::WebSocketEvent> {
+        self.events
     }
 }
 

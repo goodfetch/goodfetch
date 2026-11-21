@@ -612,6 +612,23 @@ number = 4
 kind = "error"
 prefix = "cdp_url_not_allowed"
 
+# Area 5's `cdp_url` probe (#743, ADR 0115): nothing answered, something
+# that is not a browser answered, or the credentials sent were refused.
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_unreachable"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_not_browser"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_unauthorized"
+
 # Area 4's local addresses (#637, ADR 0044): a value that yields no address.
 [[area]]
 number = 4

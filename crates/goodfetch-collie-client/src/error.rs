@@ -101,6 +101,17 @@ impl Error {
         self.text("fix")
     }
 
+    /// The same failure whose `fix` is `fix`, as an SDK that knows more
+    /// of the remedy than the engine words it, such as the refusal of a
+    /// Daemon that cannot hand over (ADR 0098).
+    #[must_use]
+    pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
+        self.0
+            .data
+            .insert("fix".to_owned(), Value::String(fix.into()));
+        self
+    }
+
     /// The operation the call made, by its canonical catalog name, such as
     /// `locator.click`.
     #[must_use]

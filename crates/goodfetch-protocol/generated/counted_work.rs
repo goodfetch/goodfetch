@@ -30,7 +30,7 @@ const SHARED_PATHS: [&str; 24] = [
 ];
 
 /// Every work a row of Counted work counts (ADR 0140).
-const WORKS: [&str; 89] = [
+const WORKS: [&str; 92] = [
     "acknowledgements",
     "actor_round_trips",
     "admission_evidence",
@@ -50,6 +50,8 @@ const WORKS: [&str; 89] = [
     "declaration_reads",
     "decodes",
     "deep_copies",
+    "delegation_transactions",
+    "delegations",
     "detection_reads",
     "document_encodes",
     "document_loads",
@@ -78,6 +80,7 @@ const WORKS: [&str; 89] = [
     "messages_no_hook",
     "opening_commands",
     "opens",
+    "other_transactions",
     "page_learning",
     "page_waits",
     "parses",

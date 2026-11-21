@@ -82,6 +82,16 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
         .collect()
 }
 
+/// The ids of every artifact this version pins, which an executable or
+/// linked program records in the list of installed executables so the
+/// clean-up keeps their entries (ADR 0098).
+pub(crate) fn pinned_artifact_ids() -> Vec<ArtifactId> {
+    pinned_artifacts()
+        .into_iter()
+        .map(|artifact| artifact.id)
+        .collect()
+}
+
 /// The bytes `text` spells in hex, two digits each.
 fn hex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {

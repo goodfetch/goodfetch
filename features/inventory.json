@@ -1139,6 +1139,39 @@
       ]
     },
     {
+      "id": "error:cdp_url_not_browser",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:cdp_url_unauthorized",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:cdp_url_unreachable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:certificate_changed",
       "kind": "error",
       "area": 4,
@@ -9606,6 +9639,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.delegation",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -20039,7 +20083,7 @@
       "id": "story:4-57",
       "kind": "story",
       "area": 4,
-      "milestone": "M1 Core",
+      "milestone": "M3 Browser automation",
       "status": "active",
       "products": [
         "collie",

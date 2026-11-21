@@ -178,6 +178,11 @@ class Reached:
     """The Goodfetch home it runs in, or `None` when none is known."""
     url: str | None
     """Where a Daemon was reached, or `None` for an Attached engine."""
+    fallback: EngineFallback | None = None
+    """Why `auto` ran an Attached engine in place of the Daemon it found (ADR 0098).
+
+    `None` when it ran the one it chose.
+    """
 
 
 ATTACHED_ELSEWHERE = Reached("attached", None, None)
@@ -242,6 +247,7 @@ class ClientConnection:
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
         connect_timeout: int | NotGiven | None = not_given,
+        connect_started_at: float | None = None,
         listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
     ) -> ClientConnection:
@@ -258,7 +264,9 @@ class ClientConnection:
         Subscription.
         `connect_timeout`, already checked by `timeout_of`, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
-        when left out, none for `None`. A refused Product, protocol version
+        when left out, none for `None`, counted from `connect_started_at`,
+        on anyio's clock, when given, as for a Daemon a refused one handed
+        over to (ADR 0098), else from now. A refused Product, protocol version
         or Limit raises here, once the transport and its engine are ended;
         so does a cancelled opening, and a `hello` unanswered within
         `connect_timeout`, with `DeadlineExceededError`. A Daemon that
@@ -269,7 +277,15 @@ class ClientConnection:
             transport, engine, error_classes, close_timeout, reached, listener_queue
         )
         try:
-            await connection._hello(needs, daemon, connect_timeout, settings)
+            await connection._hello(
+                needs,
+                daemon,
+                connect_timeout,
+                anyio.current_time()
+                if connect_started_at is None
+                else connect_started_at,
+                settings,
+            )
             for limit in limits:
                 await connection._set_limit(limit)
         except BaseException:
@@ -473,6 +489,7 @@ class ClientConnection:
         needs: Product,
         daemon: DaemonHello | None,
         connect_timeout: int | NotGiven | None,
+        connect_started_at: float,
         settings: Settings | None,
     ) -> None:
         params = HelloParams(
@@ -489,7 +506,9 @@ class ClientConnection:
         if settings is not None:
             params.settings = settings_on_wire(settings)
         try:
-            answer = await self._hello_answer(params, connect_timeout)
+            answer = await self._hello_answer(
+                params, connect_timeout, connect_started_at
+            )
         except EngineExitedError as error:
             if daemon is None:
                 raise
@@ -509,37 +528,28 @@ class ClientConnection:
             home=self._reached.home,
             engine_path=None if self._engine is None else self._engine.path,
             url=self._reached.url,
-            fallback=None,
+            fallback=self._reached.fallback,
         )
 
     async def _hello_answer(
-        self, params: HelloParams, connect_timeout: int | NotGiven | None
+        self,
+        params: HelloParams,
+        connect_timeout: int | NotGiven | None,
+        started_at: float,
     ) -> object:
-        """`hello`'s answer, once it came within `connect_timeout`.
+        """`hello`'s answer, once it came within `connect_timeout` of `started_at`.
 
         Past it, raises `DeadlineExceededError`, its `limit` naming
         `timeout.connect` at the run layer, given as an argument, or at its
         default, and `waited_for` `hello` (ADR 0083).
         """
-        if connect_timeout is None:
+        connect = connect_limit(connect_timeout)
+        if connect is None:
             return await self.call("hello", params)
-        if isinstance(connect_timeout, NotGiven):
-            value = CONNECT_TIMEOUT
-            limit = SettingLimit(
-                key="timeout.connect", value=value, layer=SettingsLayer.default
-            )
-        else:
-            value = connect_timeout
-            limit = SettingLimit(
-                key="timeout.connect",
-                value=value,
-                layer=SettingsLayer.run,
-                origin=RunOrigin.argument,
-            )
-        started_at = anyio.current_time()
-        with anyio.move_on_after(value / 1000):
+        value, limit = connect
+        with anyio.CancelScope(deadline=started_at + value / 1000):
             return await self.call("hello", params)
-        raise _phase_exceeded(
+        raise phase_exceeded(
             f"timeout.connect ({value} ms) passed before the engine answered hello",
             fix=(
                 "Raise connect()'s timeout, or find why the engine does not answer "
@@ -612,7 +622,7 @@ class ClientConnection:
                 await self._engine.exited()
             await self._channel.abandon()
             limit = round(self._close_timeout * 1000)
-            raise _phase_exceeded(
+            raise phase_exceeded(
                 f"the Connection did not close within timeout.close ({limit} ms), "
                 "so its engine was stopped",
                 fix=(
@@ -699,7 +709,30 @@ def _log_start(started: RunStarted) -> None:
             )
 
 
-def _phase_exceeded(
+def connect_limit(
+    connect_timeout: int | NotGiven | None,
+) -> tuple[int, SettingLimit] | None:
+    """How many milliseconds `timeout.connect` gives `hello`, and the setting.
+
+    `connect_timeout`, already checked by `timeout_of`, at the run layer,
+    given as an argument, or else `timeout.connect`'s 30 s default; `None`
+    for none.
+    """
+    if connect_timeout is None:
+        return None
+    if isinstance(connect_timeout, NotGiven):
+        return CONNECT_TIMEOUT, SettingLimit(
+            key="timeout.connect", value=CONNECT_TIMEOUT, layer=SettingsLayer.default
+        )
+    return connect_timeout, SettingLimit(
+        key="timeout.connect",
+        value=connect_timeout,
+        layer=SettingsLayer.run,
+        origin=RunOrigin.argument,
+    )
+
+
+def phase_exceeded(
     message: str,
     *,
     fix: str,

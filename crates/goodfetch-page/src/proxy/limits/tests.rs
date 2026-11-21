@@ -328,6 +328,7 @@ async fn a_wait_for_room_through_a_proxy_ends_once_its_run_is_cancelled() {
         run_id: "waiting".to_owned(),
         epoch: 1,
         run_folder: PathBuf::from("waiting"),
+        delegates: true,
     };
     let rule = SharedRule::new(concurrency(1));
     let ending = CancellationToken::new();

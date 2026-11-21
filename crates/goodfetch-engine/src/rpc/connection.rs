@@ -44,6 +44,7 @@
 //! Size: one Connection's life, the transition table's states and every
 //! carriage that reaches them, kept whole so each message passes one loop.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
@@ -56,9 +57,8 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach, SettingScope};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, CancelledBy, Form, HELLO,
-    HelloParams, NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, Surface,
-    TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
+    CANCEL, CancelParams, Form, HELLO, HelloParams, NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED,
+    PanicEnded, PrivateEndpoint, Surface, TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -74,10 +74,11 @@ use tracing::Instrument as _;
 use super::framing::{
     Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
 };
+use super::raw_call::{Named, RawCall};
 use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
 use super::{
-    Line, failure_line, handshake, not_in_product, notification_line, record, record_cancel,
-    success_line,
+    Line, cancelled_by_client, failure_line, handshake, not_in_product, notification_line, record,
+    record_cancel, success_line,
 };
 use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
@@ -85,7 +86,7 @@ use crate::clock::Clock;
 use crate::composition::params::Arrived;
 use crate::composition::{
     Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, Handlers, InputSender,
+    DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -142,6 +143,9 @@ pub(crate) struct Dispatch {
     /// The runtime's metrics, which count a call's panic (ADR 0148), and
     /// whose Counted work the Connections' messages add to.
     pub(crate) metrics: Metrics,
+    /// What finds the Run a raw call names by a page or a Session, whose
+    /// trace records it (ADR 0099).
+    pub(crate) runs_of_calls: Arc<[Arc<dyn RunOfCall>]>,
 }
 
 impl Dispatch {
@@ -1240,6 +1244,26 @@ impl Session<'_> {
             Err(error) => return Err((id, error)),
         };
         let span = trace::server_span(operation.name, &id, &preamble.ids, preamble.meta.as_ref());
+        // Only a raw call's answer is wrapped (ADR 0099): a generated
+        // call's goes on as it was, and adds no work.
+        let answer = if preamble.raw {
+            let [run, session] = preamble.ids.map(|named| named.map(Cow::into_owned));
+            RawCall {
+                operation: operation.name,
+                arrived_at: self.connection.engine.clock().timestamp(),
+                named: Named {
+                    run,
+                    session,
+                    page: arrived.params().page().map(Cow::into_owned),
+                },
+                connection: Arc::clone(&self.connection),
+                runs_of_calls: Arc::clone(&self.dispatch.runs_of_calls),
+                cancelled: operation.cancellable.then(|| token.clone()),
+            }
+            .recorded(answer)
+        } else {
+            answer
+        };
         let answer = CallWatch {
             answer: answer.instrument(span.clone()),
             metrics: self.dispatch.metrics.clone(),
@@ -1264,15 +1288,7 @@ impl Session<'_> {
                 tokio::select! {
                     biased;
                     answered = answer => answered,
-                    () = token.cancelled() => Err(CallError::new(
-                        &CALL_CANCELLED,
-                        "The call was cancelled by its Client.",
-                        &CallCancelledDetails {
-                            by: CancelledBy::Client,
-                            closed: None,
-                            person: None,
-                        },
-                    )),
+                    () = token.cancelled() => Err(cancelled_by_client()),
                 }
             } else {
                 answer.await

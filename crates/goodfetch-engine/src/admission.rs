@@ -357,7 +357,11 @@ impl Shared {
                 own.stop_waiting(&self.holder);
                 Ok(())
             }
-            None => self.politeness.stop_waiting(&self.holder).await,
+            None => {
+                self.politeness
+                    .stop_waiting(&self.holder, self.clock.wall())
+                    .await
+            }
         }
     }
 }

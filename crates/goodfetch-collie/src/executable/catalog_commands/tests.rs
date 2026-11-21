@@ -323,6 +323,27 @@ fn a_timeout_that_is_no_positive_duration_is_a_usage_error(#[case] timeout: &str
     );
 }
 
+/// `run start` takes its Run's Limits as `--limit`, repeatable, and no
+/// longer as raw JSON.
+#[test]
+fn run_start_takes_its_limits_as_repeated_limit_flags() {
+    let run_start = collies("run.start");
+
+    let params = parse(
+        run_start,
+        &["--limit", "requests=5", "--limit", "page_crashes=1"],
+    )
+    .unwrap();
+
+    assert_eq!(
+        params,
+        json!({ "limits": [
+            { "usage_kind": "requests", "amount": 5 },
+            { "usage_kind": "page_crashes", "amount": 1 },
+        ] })
+    );
+}
+
 /// Collie's catalog entry `name`.
 fn collies(name: &str) -> &'static Operation {
     operations_of(Product::Collie)

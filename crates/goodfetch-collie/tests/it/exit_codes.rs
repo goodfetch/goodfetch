@@ -4,7 +4,8 @@
 //! a call that fails exits with its Error code's own row, else its group's,
 //! the code and group coming from the Scripted engine run as a Daemon, which
 //! answers `config explain --daemon` with them; a Run that ended `stopped`
-//! exits `20` and resumes by its Run ID; and `SIGTERM` exits `143` once the
+//! exits `20` and resumes by its Run ID; a start's `--limit` above the
+//! Run's own Limit is refused, exit `4`; and `SIGTERM` exits `143` once the
 //! call it interrupted is cancelled. A failure before any call, as a
 //! Daemon nothing answers for or a deployment variable the executable
 //! cannot take, prints as every failure does, `{ "error" }` under
@@ -370,6 +371,33 @@ fn a_stopped_run_exits_20_under_require_verified() {
         .unwrap();
 
     assert_eq!(finished.exit, Some(20), "{}", finished.stderr);
+}
+
+/// `run start --limit` gives the Run its Limits: a start that names the
+/// Run again above one is refused, `limit_raise_refused`, exit `4`
+/// (ADR 0102).
+///
+/// Covers: story:11-206, command:run.start, exit:refused
+#[test]
+fn a_run_start_raising_a_limit_the_run_was_given_exits_4() {
+    let env = TestEnv::new();
+    let start = |amount: &str| {
+        cli(&env, COLLIE)
+            .args(["run", "start", "--run-id", "held", "--attached", "--json"])
+            .args(["--limit", &format!("requests={amount}")])
+            .args(["--limit", "page_crashes=1"])
+            .run()
+            .unwrap()
+    };
+
+    let given = start("5");
+    let raised = start("8");
+
+    assert_eq!(
+        (given.exit, failed_with(&raised)),
+        (Some(0), (Some(4), json!("limit_raise_refused"))),
+        "{given}\n{raised}"
+    );
 }
 
 #[cfg(unix)]

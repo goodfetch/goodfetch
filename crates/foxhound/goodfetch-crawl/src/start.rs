@@ -37,10 +37,11 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error, start_error,
+    StartLimits, checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error,
+    start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
-use goodfetch_engine::settings::Opening;
+use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
@@ -215,21 +216,11 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    let given = std::mem::take(&mut params.limits);
+    let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();
     let pages = code_free::declare(&mut params, &pages, &work).await?;
-    let (settings, _) = context
-        .engine()
-        .settings()
-        .open(Opening {
-            run: Some(Product::Foxhound),
-            project: params.project,
-            recipe: None,
-            settings: run_layer(&params.settings, &context)?,
-            origin: Some(RunOrigin::Settings),
-            acting_for_model: context.surface().acts_for_model(),
-        })
-        .await
-        .map_err(|error| settings_error(&error, &context))?;
+    let settings = opened_settings(&mut params, &context).await?;
     hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
@@ -291,6 +282,12 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
+            // Its Limits hold it before its driver sends a request; a
+            // crawl they cannot hold ends `failed` rather than run unheld.
+            if let Err(error) = limits.give(&started, &context).await {
+                run.end(delivery::failed(&run, &error)).await;
+                return Err(error);
+            }
             let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
             run.spawn(delivery::drive(
                 run.clone(),
@@ -307,14 +304,39 @@ async fn start(
         Started::Interrupted(run_id) => {
             let kept = (opening, serving.payloads().clone(), extraction);
             redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            resume_run(&context, run_id, None, settings).await
+            let resumed = resume_run(&context, run_id, None, settings).await?;
+            limits.give(&resumed, &context).await?;
+            Ok(resumed)
         }
         Started::Ended(ended) => {
             let kept = (opening, serving.payloads().clone(), extraction);
             redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
+            limits.give(&ended, &context).await?;
             Ok(ended)
         }
     }
+}
+
+/// The crawl's settings, opened as a Foxhound Run's from the start's
+/// `project` and `settings` layers.
+async fn opened_settings(
+    params: &mut CrawlStartParams,
+    context: &CallContext,
+) -> Result<RunSettings, CallError> {
+    let (settings, _) = context
+        .engine()
+        .settings()
+        .open(Opening {
+            run: Some(Product::Foxhound),
+            project: params.project.take(),
+            recipe: None,
+            settings: run_layer(&params.settings, context)?,
+            origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
+        })
+        .await
+        .map_err(|error| settings_error(&error, context))?;
+    Ok(settings)
 }
 
 /// A new crawl's first rows: its `invariants`, declared Labels, Datasets

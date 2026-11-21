@@ -1,18 +1,22 @@
 // The Scripted engine played as a Daemon (ADR 0069), for an SDK's tests of
 // how `connect()` finds one: `socket` publishes it in the runtime file of a
-// Goodfetch home, as a running Daemon is found, and `tcp` listens on
-// loopback TCP, as an Exposed Daemon `GOODFETCH_URL` names does. It plays
-// one script of the shared corpus to one Client and exits, 0 once every
-// step played, so a test that awaits its exit learns whether the Client
-// sent exactly what the script holds.
+// Goodfetch home, as a running Daemon is found, `tcp` listens on loopback
+// TCP, and `websocket` serves a WebSocket on loopback TCP, as an Exposed
+// Daemon `GOODFETCH_URL` names does, taking only a handshake with the
+// Daemon's own `Origin` and answering the generated subprotocol
+// `goodfetch.v<major>` when the handshake offers it. It plays one script of
+// the shared corpus to one Client and exits, 0 once every step played, so a
+// test that awaits its exit learns whether the Client sent exactly what the
+// script holds.
 import { fileURLToPath } from "node:url";
+import { WEBSOCKET_SUBPROTOCOL } from "@goodfetch/collie-client/generated";
 import { TestSupportError } from "./errors.ts";
 import type { Exit, ProcessRecord } from "./process-record.ts";
 import { corpusScript } from "./product-env.ts";
 import { toolPath, type TestEnvDescription } from "./test-env.ts";
 
 /** How a Client reaches the Scripted Daemon. */
-export type ScriptedDaemonMode = "socket" | "tcp";
+export type ScriptedDaemonMode = "socket" | "tcp" | "websocket";
 
 /** A Scripted engine waiting for its Client. */
 export interface ScriptedDaemon {
@@ -27,7 +31,9 @@ export interface ScriptedDaemon {
 /**
  * Starts `goodfetch-scripted-engine` playing the corpus's script `script` in
  * `mode`, recorded in `processes`, and resolves once a Client can reach it:
- * in `socket` mode its runtime file is in `home`'s per-major folder.
+ * in `socket` mode its runtime file is in `home`'s per-major folder, and in
+ * `websocket` mode it answers `subprotocol`, another major's playing a
+ * Daemon of another protocol major.
  * `tool_missing` when the manifest lists no Scripted engine, and
  * `scripted_daemon_failed`, once it is killed, when it exits or prints
  * anything else before saying where it listens.
@@ -38,11 +44,18 @@ export async function startScriptedDaemon(
   script: string,
   mode: ScriptedDaemonMode,
   home: string = description.home,
+  subprotocol: string = WEBSOCKET_SUBPROTOCOL,
 ): Promise<ScriptedDaemon> {
   const engine = toolPath(description.tools, "scripted_engine");
   const started = processes.spawn(
     engine,
-    ["--script", fileURLToPath(corpusScript(script)), "--mode", mode],
+    [
+      "--script",
+      fileURLToPath(corpusScript(script)),
+      "--mode",
+      mode,
+      ...(mode === "websocket" ? ["--subprotocol", subprotocol] : []),
+    ],
     { env: { ...description.env, GOODFETCH_HOME: home } },
   );
   const { stdout, stderr } = started.child;

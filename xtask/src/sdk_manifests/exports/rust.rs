@@ -17,6 +17,7 @@
 //!   adds none;
 //! - each function of such a trait, on the trait's path.
 //!
+//! A struct's public field is plain data (ADR 0099), which no line lists.
 //! An item or member under `#[doc(hidden)]` is no one's. One in a module
 //! named `generated`, or read from a file under a `generated` folder, is the
 //! generator's. A member a macro expands to is not read.

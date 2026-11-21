@@ -8,8 +8,10 @@
 # declares it: the `Error`, `Limits` or `Response` this crate re-exports
 # from `goodfetch-collie-client` is that crate's to list, and a contract type
 # it re-exports from `goodfetch-protocol`, such as `RunId`, no manifest's
-# (ADR 0038). `goodfetch-foxhound` re-exports this crate's `ConnectOptions`
-# and `EngineChoice`, which this manifest lists and its own does not.
+# (ADR 0038). `goodfetch-foxhound` re-exports this crate's `ConnectOptions`,
+# `EngineChoice`, `EngineFallback`, `EngineInfo`, `EngineKind` and
+# `RemoteDaemon`, which this manifest lists and its own does not. A struct's
+# public field is plain data (ADR 0099), which no line lists.
 
 [[member]]
 crate = "goodfetch-collie"

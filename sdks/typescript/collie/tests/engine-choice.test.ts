@@ -18,7 +18,7 @@ import {
   toolPath,
   type Canary,
 } from "@goodfetch/test-support";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
 
@@ -508,11 +508,40 @@ const VERSION_FIX =
 
 /**
  * What a refusal's `fix` adds for a Collie Client whose executable is at
- * `path` (ADR 0098): its `daemon restart`, and Foxhound at its version or
- * newer, since a Foxhound of the major would still be the pick.
+ * `path` and would be its major's pick (ADR 0098): its `daemon restart`.
  */
 function restartFix(path: string): string {
-  return `Run \`${path} daemon restart\` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
+  return `Run \`${path} daemon restart\` to restart the Daemon on its major's pick.`;
+}
+
+/** What a refusal's `fix` adds after the restart while a Foxhound of the major is installed (ADR 0098). */
+const FOXHOUND_FIX =
+  "Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (`npm install @goodfetch/foxhound`) and run its `daemon restart`.";
+
+/**
+ * Records a Foxhound executable of the Scripted engine's version 0.0.0 in
+ * `home`'s list of installed executables, at a file that is still at its
+ * path, as its own run records it (ADR 0098).
+ */
+async function installFoxhound(home: string): Promise<void> {
+  const path = join(home, "goodfetch-foxhound");
+  const modifiedAt = new Date("2026-01-02T08:00:00Z");
+  await writeFile(path, "foxhound");
+  await utimes(path, modifiedAt, modifiedAt);
+  const foxhound = {
+    kind: "product_executable",
+    product: "foxhound",
+    product_version: "0.0.0",
+    path,
+    size: "foxhound".length,
+    modified_at: "2026-01-02T08:00:00Z",
+    pins: [],
+    last_seen: new Date().toISOString(),
+  };
+  await writeFile(
+    join(home, "installed-executables.json"),
+    JSON.stringify({ format_version: "0.1", executables: [foxhound] }),
+  );
 }
 
 describe("Collie.connect() when the Daemon refuses it by Product or protocol version", () => {
@@ -651,7 +680,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
         expect(exit).toMatchObject({ code: 0 }),
       );
       await clientCase.check(
-        "connect() raises the refusal, its fix naming this executable's daemon restart and Foxhound",
+        "connect() raises the refusal, its fix naming this executable's daemon restart alone, with no Foxhound installed",
         () =>
           expect(error).toMatchObject({
             name: "ProtocolVersionUnsupportedError",
@@ -663,6 +692,32 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
       await clientCase.check("nothing is logged, and no Attached engine started", () =>
         expect(logged).toEqual([]),
       );
+    },
+  );
+
+  test(
+    "with engine daemon and a Foxhound of the major installed, the refusal's fix also names Foxhound at its version or newer",
+    { tags: ["daemon", "story:11-293", "error:protocol_version_unsupported"] },
+    async ({ testEnv, processes }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-refused-protocol-version-unsupported.json",
+        "socket",
+      );
+      await installFoxhound(testEnv.home);
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, engine: "daemon" }));
+
+      expect({ daemon: await daemon.exit, error }).toMatchObject({
+        daemon: { code: 0 },
+        error: {
+          code: "protocol_version_unsupported",
+          fix: `${VERSION_FIX} ${restartFix(env["GOODFETCH_COLLIE_ENGINE_PATH"] ?? "")} ${FOXHOUND_FIX}`,
+        },
+      });
     },
   );
 

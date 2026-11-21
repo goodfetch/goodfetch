@@ -18,6 +18,7 @@ mod ids;
 
 use std::borrow::Cow;
 use std::str::FromStr as _;
+use std::sync::Arc;
 
 use goodfetch_protocol::jsonrpc::{RequestId, TraceContext};
 use goodfetch_protocol::run::RunId;
@@ -28,6 +29,8 @@ use opentelemetry::trace::{
 use tracing::Span;
 use tracing::field::Empty;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+use crate::run_trace::RawCallLine;
 
 pub use ids::EntropyIds;
 
@@ -308,21 +311,46 @@ impl Link {
     }
 }
 
-tokio::task_local! {
-    /// Set while a raw call's handler runs (ADR 0099).
-    static RAW_CALL: ();
+/// A raw call's mark (ADR 0099): its line in the trace of the live Run it
+/// names, when it names one, which the Run's end writes for a call that
+/// ends that Run or waits for its end.
+#[derive(Clone, Debug)]
+pub(crate) struct RawMark(Option<Arc<RawCallLine>>);
+
+impl RawMark {
+    /// The mark of a raw call whose line is `line`, if it has one.
+    pub(crate) fn new(line: Option<Arc<RawCallLine>>) -> Self {
+        Self(line)
+    }
+
+    /// Its line, when it is one of `run_id`'s trace.
+    pub(crate) fn line_of(&self, run_id: &RunId) -> Option<&Arc<RawCallLine>> {
+        self.0.as_ref().filter(|line| line.run() == run_id)
+    }
 }
 
-/// Runs `handler`, a raw call's (ADR 0099), so that a request it sends on
-/// to its Run's owner is marked raw too. Only a raw call's handler runs
+tokio::task_local! {
+    /// Set while a raw call's handler runs (ADR 0099).
+    static RAW_CALL: RawMark;
+}
+
+/// Runs `handler`, a raw call's (ADR 0099), under its `mark`, so that a
+/// request it sends on to its Run's owner is marked raw too, and the end
+/// of the Run it ends writes its line. Only a raw call's handler runs
 /// under it: a generated call's pays nothing for the mark.
-pub(crate) async fn raw_call<F: Future>(handler: F) -> F::Output {
-    RAW_CALL.scope((), handler).await
+pub(crate) async fn raw_call<F: Future>(mark: RawMark, handler: F) -> F::Output {
+    RAW_CALL.scope(mark, handler).await
 }
 
 /// Whether the current task runs a raw call's handler.
 pub(crate) fn in_raw_call() -> bool {
-    RAW_CALL.try_with(|()| ()).is_ok()
+    RAW_CALL.try_with(|_| ()).is_ok()
+}
+
+/// The mark of the raw call whose handler the current task runs, if it
+/// runs one.
+pub(crate) fn raw_mark() -> Option<RawMark> {
+    RAW_CALL.try_with(RawMark::clone).ok()
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "43"
+version = "44"
 
 [[capability]]
 name = "lifecycle"
@@ -350,6 +350,18 @@ name = "errors"
 [[capability.case]]
 id = "errors-and-outcomes"
 covers = ["story:11-28", "story:11-30", "story:11-187"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Partial results (ADR 0079; issue 3161): a value of a declared type is
+# complete. A navigation into a redirect loop raises `too_many_redirects`,
+# whose details hold what it gathered before it failed: the first URL, the
+# hops it followed and the count it passed. A `page.read` of several fields
+# answers one outcome per field, a value or null with why, never one error
+# for the call. Played by the Scripted engine as `errors-and-outcomes` is.
+[[capability.case]]
+id = "partial-results"
+covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 

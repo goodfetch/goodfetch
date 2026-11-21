@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::local_addresses::{BlockSizes, Host, Ipv6Prefix, LocalAddresses, Rotation};
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rstest::rstest;

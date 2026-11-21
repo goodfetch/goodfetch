@@ -87,7 +87,7 @@ fn forwarded_read(env: &TestEnv, raw: bool) -> Value {
             .instrument(tracing::info_span!(SERVING));
         let reading = async {
             if raw {
-                crate::trace::raw_call(reading).await
+                crate::trace::raw_call(crate::trace::RawMark::new(None), reading).await
             } else {
                 reading.await
             }

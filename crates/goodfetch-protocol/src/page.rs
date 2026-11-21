@@ -394,13 +394,15 @@ pub struct LoggedOutDetails {
     pub judged_by: JudgedBy,
 }
 
-/// What `blocked` details (ADRs 0092 and 0118).
+/// What `blocked` details (ADRs 0092 and 0118), their cause Collie's
+/// `BlockCause`, or `Cause` as Foxhound reads them
+/// (`foxhound::block::BlockedDetails`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BlockedDetails {
+pub struct BlockedDetails<Cause = BlockCause> {
     /// The Block cause, kept as received by an SDK that does not know it
     /// (ADR 0079).
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub cause: BlockCause,
+    pub cause: Cause,
     /// The URL of the document that met it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,

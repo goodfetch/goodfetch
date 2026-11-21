@@ -16,7 +16,8 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::home::RUN_TRACE_CALLS;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, raw_call_lines};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::run::{call, run_folder};
@@ -79,10 +80,18 @@ fn pages() -> Contribution {
 /// reply and the lines of the Run's raw call log, without when each call
 /// arrived, which the test asserts is there.
 fn traced(calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
+    let (mut replies, lines) = ended_by(calls, &("run.finish", json!({ "run_id": RUN })));
+    replies.pop();
+    (replies, lines)
+}
+
+/// [`traced`], [`RUN`] ended by `ending`, whose reply is the last.
+fn ended_by(calls: &[(&str, Value)], ending: &(&str, Value)) -> (Vec<Value>, Vec<Value>) {
     let env = TestEnv::new();
     let engine = engine_with(Product::Collie, Some(pages()));
     let calls: Vec<(String, Value)> = calls
         .iter()
+        .chain([ending])
         .map(|(method, params)| ((*method).to_owned(), params.clone()))
         .collect();
     let replies = attached_on(&engine, &env, |mut client: Client| async move {
@@ -93,30 +102,12 @@ fn traced(calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
         for (id, (method, params)) in (2..).zip(calls) {
             replies.push(call(&mut client, id, &method, params).await);
         }
-        call(&mut client, 1_000, "run.finish", json!({ "run_id": RUN })).await;
         replies
     });
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test reads the Run trace the engine wrote in its own Goodfetch home"
-    )]
-    let log =
-        std::fs::read_to_string(run_folder(&env, RUN).join(RUN_TRACE_CALLS)).unwrap_or_default();
-    let lines = log
-        .lines()
-        .map(|line| {
-            let mut line: Value = serde_json::from_str(line).unwrap();
-            let arrived_at = line
-                .as_object_mut()
-                .and_then(|line| line.remove("arrived_at"));
-            assert!(
-                arrived_at.as_ref().is_some_and(Value::is_string),
-                "a raw call's line says when it arrived: {line}"
-            );
-            line
-        })
-        .collect();
-    (replies, lines)
+    (
+        replies,
+        raw_call_lines(&run_folder(&env, RUN).join(RUN_TRACE_CALLS)),
+    )
 }
 
 /// `params`, marked raw.
@@ -155,6 +146,28 @@ fn a_raw_call_is_a_line_of_its_runs_trace_marked_raw_with_how_it_ended() {
             }),
             json!({ "operation": "test.on_page", "raw": true, "ended": "answered" }),
         ]
+    );
+}
+
+/// A raw call that ends its own Run, or waits for its end, is a line of
+/// that Run's trace, written before the Run's end closes it.
+/// Covers: story:11-181
+#[rstest]
+#[case::finish("run.finish", "finished")]
+#[case::stop("run.stop", "stopped")]
+#[case::abort("run.abort", "stopped")]
+fn a_raw_call_that_ends_its_own_run_is_a_line_of_its_runs_trace(
+    #[case] ending: &str,
+    #[case] lifecycle: &str,
+) {
+    let (replies, lines) = ended_by(&[], &(ending, raw(&json!({ "run_id": RUN }))));
+
+    assert_eq!(
+        (replies[0]["result"]["lifecycle"].clone(), lines),
+        (
+            json!(lifecycle),
+            vec![json!({ "operation": ending, "raw": true, "ended": "answered" })],
+        )
     );
 }
 

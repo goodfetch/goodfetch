@@ -19,10 +19,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::block::BlockCause;
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::foxhound::block::BlockCause;
 use crate::foxhound::frontier::NotAddedReason;
 use crate::open_value::{UnknownMember, UnknownValue};
 use crate::run::RunId;

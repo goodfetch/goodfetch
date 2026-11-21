@@ -166,7 +166,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 connection,
                 id,
                 epoch,
-                Unsuccessful::Blocked(goodfetch_protocol::block::BlockCause::RateLimit),
+                Unsuccessful::Blocked(goodfetch_protocol::foxhound::block::BlockCause::RateLimit),
                 &ended_at(),
                 &mut Changed::default(),
             ),

@@ -550,6 +550,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "warnDeprecatedOnWire"
+entry = "none"
+reason = "Warns once per process of each deprecated setting a raw run layer sets, `null` included, by a Product's generated `DeprecatedSettings` (ADR 0099), which Foxhound's generated operations call through their `warnDeprecatedSettings`."
+words = ["warn", "deprecated", "on", "wire"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "warnExperimental"
 entry = "none"
 reason = "ADR 0030's run-time warning of an Experimental entry, once per process through `process.emitWarning` (ADR 0099), which Foxhound's generated members call."

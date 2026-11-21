@@ -99,7 +99,7 @@ fn retry_after_format<D: JsonSchema>() -> Option<Value> {
 
 #[test]
 fn the_codes_with_a_point_in_time_retry_after_are_those_whose_details_declare_one() {
-    let declaring = [BlockedDetails::CODES, ResponseUnavailableDetails::CODES].concat();
+    let declaring = [<BlockedDetails>::CODES, ResponseUnavailableDetails::CODES].concat();
 
     assert_eq!(RETRY_AFTER_POINT_IN_TIME, declaring.as_slice());
     assert_eq!(

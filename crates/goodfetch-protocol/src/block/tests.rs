@@ -25,19 +25,17 @@ fn catalog_entry(name: &str) -> Option<Value> {
         .cloned()
 }
 
-/// Covers: block-cause:challenge, block-cause:captcha, block-cause:rate_limit, block-cause:ip_block, block-cause:decoy, block-cause:payment_required, block-cause:consent_required
+/// Covers: block-cause:challenge, block-cause:captcha, block-cause:rate_limit, block-cause:ip_block, block-cause:payment_required, block-cause:consent_required
 #[rstest]
-#[case::challenge(BlockCause::Challenge, "challenge", "collie")]
-#[case::captcha(BlockCause::Captcha, "captcha", "collie")]
-#[case::rate_limit(BlockCause::RateLimit, "rate_limit", "collie")]
-#[case::ip_block(BlockCause::IpBlock, "ip_block", "collie")]
-#[case::decoy(BlockCause::Decoy, "decoy", "foxhound")]
-#[case::payment_required(BlockCause::PaymentRequired, "payment_required", "collie")]
-#[case::consent_required(BlockCause::ConsentRequired, "consent_required", "collie")]
-fn each_block_cause_is_on_the_wire_as_written_and_in_the_catalog_under_its_products_mark(
+#[case::challenge(BlockCause::Challenge, "challenge")]
+#[case::captcha(BlockCause::Captcha, "captcha")]
+#[case::rate_limit(BlockCause::RateLimit, "rate_limit")]
+#[case::ip_block(BlockCause::IpBlock, "ip_block")]
+#[case::payment_required(BlockCause::PaymentRequired, "payment_required")]
+#[case::consent_required(BlockCause::ConsentRequired, "consent_required")]
+fn each_of_collies_block_causes_is_on_the_wire_as_written_and_in_the_catalog_as_collies(
     #[case] cause: BlockCause,
     #[case] wire: &str,
-    #[case] product: &str,
 ) {
     let written = serde_json::to_value(&cause).unwrap();
 
@@ -47,7 +45,22 @@ fn each_block_cause_is_on_the_wire_as_written_and_in_the_catalog_under_its_produ
         cause
     );
     let entry = catalog_entry(wire).expect("the catalog lists the Block cause");
-    assert_eq!(entry["product"], product);
+    assert_eq!(entry["product"], "collie");
+}
+
+/// `decoy` is the one Block cause the catalog marks Foxhound's (ADR 0095).
+/// Covers: block-cause:decoy
+#[test]
+fn decoy_alone_is_foxhounds_block_cause_in_the_catalog() {
+    let foxhounds: Vec<Value> = catalog()["shared_type_values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|value| value["type"] == "block_cause" && value["product"] == "foxhound")
+        .map(|value| value["name"].clone())
+        .collect();
+
+    assert_eq!(foxhounds, [json!("decoy")]);
 }
 
 #[test]

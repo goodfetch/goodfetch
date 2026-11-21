@@ -20,7 +20,9 @@ use goodfetch_protocol::connection::{
     DaemonEndpoint, DeadlineExceededDetails, EnginePanickedDetails, HelloParams,
 };
 use goodfetch_protocol::page::TargetNotUniqueDetails;
-use goodfetch_protocol::secrets::{SecretInputRefusedDetails, SecretUnavailableDetails};
+use goodfetch_protocol::secrets::{
+    SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails,
+};
 use goodfetch_test_support::{Canaries, Canary, Output, SecretKind, TestEnv, logged};
 use serde_json::{Value, json};
 
@@ -90,8 +92,8 @@ fn limit(error: &Error) -> Value {
     serde_json::to_value(error.limit()).unwrap()
 }
 
-/// An unbound placeholder is a program error, and a refused input a
-/// refused one naming the Secret's reference.
+/// An unbound placeholder is a program error naming the placeholders bound,
+/// and a refused input a refused one naming the Secret's reference.
 fn assert_program_and_refused(unbound: &Error, input_refused: &Error) {
     assert_eq!(
         code_group_retryable(unbound),
@@ -106,6 +108,14 @@ fn assert_program_and_refused(unbound: &Error, input_refused: &Error) {
                 "Bind `shop_user` to a Secret reference in the Run's `secrets`, or use a placeholder it binds"
             )
         )
+    );
+    let details = unbound.details::<SecretUnboundDetails>().unwrap();
+    assert_eq!(
+        serde_json::to_value(details).unwrap(),
+        json!({
+            "placeholder": "shop_user",
+            "bound": ["shop_password", "shop_otp"],
+        })
     );
 
     assert_eq!(

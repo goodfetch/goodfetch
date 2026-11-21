@@ -16,16 +16,16 @@ use std::process::Stdio;
 
 use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::home::RUN_FILE;
+use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_CALLS};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
+use goodfetch_test_support::{RuntimeFile, TestEnv, cli, raw_call_lines};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, short_idle, validate};
 use crate::daemon_client;
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, DaemonClient, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -72,30 +72,39 @@ fn launched(env: &TestEnv) -> (goodfetch_test_support::Process, RuntimeFile) {
     (daemon, found)
 }
 
-/// Aborts `run_id` through an Attached engine of the test's home.
-fn aborted_by_an_attached_engine(env: &TestEnv, run_id: &str) -> Value {
+/// Aborts a Run through an Attached engine of the test's home, with
+/// `params`, which name it.
+fn aborted_by_an_attached_engine(env: &TestEnv, params: &Value) -> Value {
     let mut engine = Attached::start(env, COLLIE);
     engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let aborted = engine.ask(1, "run.abort", &json!({ "run_id": run_id }));
+    let aborted = engine.ask(1, "run.abort", params);
     engine.finish();
     aborted
+}
+
+/// Starts the Daemon of the test's home and the Run `live` on it, and
+/// answers the Daemon's runtime file and the Connection that started the
+/// Run, which keeps it live while it is open.
+fn daemon_with_live_run(env: &TestEnv) -> (RuntimeFile, DaemonClient) {
+    short_idle(env, 60_000);
+    json_of(COLLIE.as_ref(), env, &["daemon", "start", "--json"]);
+    let found =
+        RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
+    let mut client = daemon_client(&found);
+    client.call(1, "run.start", &json!({ "run_id": "live" }));
+    (found, client)
 }
 
 /// Covers: operation:run.abort
 #[test]
 fn an_abort_of_a_run_the_daemon_writes_goes_to_the_daemon_the_run_index_names() {
     let env = TestEnv::new();
-    short_idle(&env, 60_000);
     let _stops = StopsTheDaemon::of(&env, COLLIE);
-    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
-    let found =
-        RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut client = daemon_client(&found);
-    client.call(1, "run.start", &json!({ "run_id": "live" }));
+    let (found, _client) = daemon_with_live_run(&env);
     let owned = row(&env, "live");
 
-    let aborted = aborted_by_an_attached_engine(&env, "live");
+    let aborted = aborted_by_an_attached_engine(&env, &json!({ "run_id": "live" }));
 
     assert_eq!(
         (
@@ -107,6 +116,28 @@ fn an_abort_of_a_run_the_daemon_writes_goes_to_the_daemon_the_run_index_names() 
             json!({ "daemon": serde_json::to_value(&found.endpoint).unwrap() }),
             json!("stopped"),
             json!({ "lifecycle": "stopped", "owner": null, "presence": "present", "location": "runs/live" }),
+        )
+    );
+}
+
+/// A raw abort an Attached engine forwards to the Daemon that owns the Run
+/// is a line of the Run trace the Daemon writes, marked raw (ADR 0099).
+/// Covers: story:11-181
+#[test]
+fn a_raw_abort_forwarded_to_the_runs_owner_is_a_line_of_its_run_trace() {
+    let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let _live = daemon_with_live_run(&env);
+
+    let aborted =
+        aborted_by_an_attached_engine(&env, &json!({ "run_id": "live", "_meta": { "raw": true } }));
+
+    let lines = raw_call_lines(&HomeLayout::of(env.home()).run_trace("live", RUN_TRACE_CALLS));
+    assert_eq!(
+        (aborted["result"]["lifecycle"].clone(), lines),
+        (
+            json!("stopped"),
+            vec![json!({ "operation": "run.abort", "raw": true, "ended": "answered" })],
         )
     );
 }
@@ -123,7 +154,7 @@ fn a_killed_daemons_stale_row_never_blocks_another_engines_takeover() {
     daemon.child().wait().unwrap();
     let stale = row(&env, "cut");
 
-    let aborted = aborted_by_an_attached_engine(&env, "cut");
+    let aborted = aborted_by_an_attached_engine(&env, &json!({ "run_id": "cut" }));
 
     assert_eq!(
         (

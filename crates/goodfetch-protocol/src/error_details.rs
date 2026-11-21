@@ -36,6 +36,11 @@ impl ErrorDetails for crate::run::RunDetails {
     ];
 }
 
+/// `blocked`'s details as Foxhound reads them, its cause Foxhound's.
+impl ErrorDetails for crate::foxhound::block::BlockedDetails {
+    const CODES: &'static [ErrorCode] = &[ErrorCode::BLOCKED];
+}
+
 impl ErrorDetails for crate::run::ReachedLimit {
     const CODES: &'static [ErrorCode] = &[ErrorCode::LIMIT_REACHED];
 }
@@ -124,6 +129,7 @@ details! {
     crate::secrets::SecretDomainNotAllowedDetails => ErrorCode::SECRET_DOMAIN_NOT_ALLOWED,
     crate::secrets::SecretInputRefusedDetails => ErrorCode::SECRET_INPUT_REFUSED,
     crate::secrets::SecretUnavailableDetails => ErrorCode::SECRET_UNAVAILABLE,
+    crate::secrets::SecretUnboundDetails => ErrorCode::SECRET_UNBOUND,
     crate::security::BrowserSandboxUnavailableDetails => ErrorCode::BROWSER_SANDBOX_UNAVAILABLE,
     crate::settings::CapabilityUnavailableDetails => ErrorCode::CAPABILITY_UNAVAILABLE,
     crate::settings::SettingInvalidDetails => ErrorCode::SETTING_INVALID,

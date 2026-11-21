@@ -7,24 +7,34 @@ beating `GOODFETCH_URL`. Each plays a Scripted engine's script (ADR 0069),
 as an Attached engine, as a Daemon on a Unix socket, or on loopback TCP. A
 Scripted Daemon exits 0 only once every step played, so its exit says the
 Client sent exactly what the script holds, the Daemon's token in `hello`
-included. `test_engine_choice_daemon.py` reaches the Daemon of the same
-commit. TypeScript's `engine-choice.test.ts` is its twin.
+included. A Daemon that refuses `hello` by Product or protocol version is
+left for an Attached engine under `auto`, waited past when it hands over,
+and raised under `daemon` or when remote (ADR 0098).
+`test_engine_choice_daemon.py` reaches the Daemon of the same commit.
+TypeScript's `engine-choice.test.ts` is its twin.
 """
 
 import json
 import logging
 from collections.abc import Callable, Mapping
+from datetime import timedelta
 from pathlib import Path
 
+import anyio
 import anyio.to_thread
 import pytest
 from collie_calls import CLIENT_LOGGER, engine_warnings, failure, open_collie
 from goodfetch_collie import (
+    AsyncCollie,
     DaemonUnreachableError,
+    DeadlineExceededError,
+    EngineChoice,
+    EngineFallback,
     EngineInfo,
     EngineNotFoundError,
     GoodfetchError,
     Product,
+    ProtocolVersionUnsupportedError,
     RemoteDaemon,
     SettingInvalidError,
 )
@@ -33,6 +43,7 @@ from goodfetch_test_support import (
     CanaryHit,
     ClientCaseRecord,
     NamedOutput,
+    ScriptedDaemon,
     TestEnv,
     Way,
     scripted_engine_env,
@@ -511,3 +522,253 @@ async def test_engine_daemon_starts_the_daemon_when_none_runs_and_reaches_it(
         Product.collie,
         str(test_env.home),
     )
+
+
+VERSION_REFUSED = "sdk-python/connect/daemon-refused-protocol-version-unsupported.json"
+"""The script of a Daemon of an older protocol that refuses `hello` (ADR 0098)."""
+
+VERSION_FIX = (
+    "Upgrade the engine to a version that speaks protocol 0.1, or use a Client of"
+    " the engine's own version."
+)
+"""The `fix` the refusal of `VERSION_REFUSED` gives."""
+
+HANDS_OVER = "sdk-python/connect/daemon-hands-over.json"
+"""The script of an idle Daemon that refuses `hello` and hands over to the pick."""
+
+
+def restart_fix(path: str) -> str:
+    """What a refusal's `fix` adds for a Collie Client whose executable is `path`.
+
+    Its `daemon restart`, and Foxhound at its version or newer, since a
+    Foxhound of the major would still be the pick (ADR 0098).
+    """
+    return (
+        f"Run `{path} daemon restart` to restart the Daemon on its major's pick."
+        " Collie's executable would still not run the Daemon while a Foxhound of"
+        " the major is installed: install Foxhound 0.0.0 or newer (`pip install"
+        " goodfetch-foxhound`) and run its `daemon restart`."
+    )
+
+
+def logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str, object]]:
+    """Each line `goodfetch.client` got: its level, its message and its fields."""
+    return [
+        (
+            record.levelno,
+            record.getMessage(),
+            {
+                field: record.__dict__[field]
+                for field in ("fallback", "engine")
+                if field in record.__dict__
+            },
+        )
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ]
+
+
+@pytest.mark.covers("story:11-9", "story:11-290")
+@pytest.mark.client_case(
+    id="connect-falls-back-when-the-daemon-refuses", mode="attached"
+)
+@pytest.mark.parametrize(
+    ("script", "fix", "code"),
+    [
+        (
+            "sdk-python/connect/daemon-refused-not-in-product.json",
+            "Install goodfetch-collie and connect to its engine.",
+            "not_in_product",
+        ),
+        (VERSION_REFUSED, VERSION_FIX, "protocol_version_unsupported"),
+    ],
+    ids=["by-product", "by-protocol-version"],
+)
+@three_ways
+async def test_falls_back_to_an_attached_engine_when_the_daemon_refuses_and_says_why(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+    script: str,
+    fix: str,
+    code: str,
+) -> None:
+    """With `engine` at `auto`, a Daemon refusing by Product or version is left."""
+    caplog.set_level(logging.INFO, logger=CLIENT_LOGGER)
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    daemon = start_scripted_daemon(test_env, script, "socket")
+
+    collie = await open_collie(way, env)
+    engine = collie.engine
+    await collie.close()
+    played = await exit_code(daemon.wait)
+
+    path = env["GOODFETCH_COLLIE_ENGINE_PATH"]
+    with client_case.check(
+        "the Daemon played its script through: hello carried its token, and it"
+        " refused it"
+    ):
+        assert played == 0
+    with client_case.check(
+        "engine reports the Attached engine, and the fallback's cause and fix"
+    ):
+        assert engine.fallback is not None
+        assert code in engine.fallback.cause
+        assert daemon.address in engine.fallback.cause
+        assert engine == EngineInfo(
+            kind="attached",
+            product=Product.collie,
+            version="0.0.0",
+            protocol_version="0.1",
+            project_file=None,
+            home=str(test_env.home),
+            engine_path=path,
+            url=None,
+            fallback=EngineFallback(
+                cause=engine.fallback.cause, fix=f"{fix} {restart_fix(path)}"
+            ),
+        )
+    with client_case.check(
+        "the fallback is logged once at warning, before the engine reached at info"
+    ):
+        [(warning, why, fields), (info, reached_text, reached_fields)] = logged(caplog)
+        assert (warning, fields) == (logging.WARNING, {"fallback": engine.fallback})
+        assert daemon.address in why
+        assert (info, reached_fields) == (logging.INFO, {"engine": engine})
+        assert "Attached engine" in reached_text
+
+
+@pytest.mark.covers("story:11-9", "story:11-293", "error:protocol_version_unsupported")
+@pytest.mark.client_case(id="connect-falls-back-when-the-daemon-refuses", mode="daemon")
+@three_ways
+async def test_fails_with_the_refusal_under_engine_daemon_its_fix_naming_restart(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With `engine` at `daemon`, the refusal raises; its fix adds `daemon restart`."""
+    caplog.set_level(logging.DEBUG, logger=CLIENT_LOGGER)
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    daemon = start_scripted_daemon(test_env, VERSION_REFUSED, "socket")
+
+    error = await failure(open_collie(way, env, engine="daemon"))
+    played = await exit_code(daemon.wait)
+
+    with client_case.check("the Daemon played its script through"):
+        assert played == 0
+    with client_case.check(
+        "connect() raises the refusal, its fix naming this executable's daemon"
+        " restart and Foxhound"
+    ):
+        assert isinstance(error, ProtocolVersionUnsupportedError)
+        assert error.fix == (
+            f"{VERSION_FIX} {restart_fix(env['GOODFETCH_COLLIE_ENGINE_PATH'])}"
+        )
+        assert error.details == {
+            "client_protocol_version": "0.1",
+            "engine_protocol_version": "0.0",
+        }
+    with client_case.check("nothing is logged, and no Attached engine started"):
+        assert logged(caplog) == []
+
+
+@pytest.mark.covers("story:11-295", "error:protocol_version_unsupported")
+@pytest.mark.parametrize(
+    "in_env", [False, True], ids=["remote-daemon", "goodfetch-url"]
+)
+@three_ways
+async def test_fails_with_a_remote_daemons_refusal_which_it_never_falls_back_from(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    caplog: pytest.LogCaptureFixture,
+    in_env: bool,
+) -> None:
+    """Through `RemoteDaemon(url, token)` or `GOODFETCH_URL`, the refusal is raised."""
+    caplog.set_level(logging.DEBUG, logger=CLIENT_LOGGER)
+    daemon = start_scripted_daemon(test_env, VERSION_REFUSED, "tcp")
+    url = f"ws://{daemon.address}"
+    attached = scripted_engine_env(test_env, product, ATTACHED)
+    env = (
+        {**attached, "GOODFETCH_URL": url, "GOODFETCH_TOKEN": "scripted-daemon-token"}
+        if in_env
+        else attached
+    )
+    engine: EngineChoice = (
+        "auto" if in_env else RemoteDaemon(url, "scripted-daemon-token")
+    )
+
+    error = await failure(open_collie(way, env, engine=engine))
+
+    assert await exit_code(daemon.wait) == 0
+    assert isinstance(error, ProtocolVersionUnsupportedError)
+    assert error.fix == VERSION_FIX
+    assert logged(caplog) == []
+
+
+@pytest.mark.covers("story:11-292")
+@three_ways
+async def test_waits_for_the_pick_an_idle_daemon_hands_over_to_and_reaches_it(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A refusal marked `handover` is waited past until the pick serves."""
+    caplog.set_level(logging.INFO, logger=CLIENT_LOGGER)
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    handing = start_scripted_daemon(test_env, HANDS_OVER, "socket")
+    opened: list[AsyncCollie] = []
+    picks: list[ScriptedDaemon] = []
+
+    async def connect() -> None:
+        opened.append(await open_collie(way, env))
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(connect)
+        assert await exit_code(handing.wait) == 0
+        # The pick starts once the Daemon that handed over has stopped.
+        picks.append(
+            await anyio.to_thread.run_sync(
+                start_scripted_daemon, test_env, DAEMON, "socket"
+            )
+        )
+    [collie] = opened
+    [pick] = picks
+    engine = collie.engine
+    await collie.close()
+
+    assert await exit_code(pick.wait) == 0
+    assert (engine.kind, engine.url, engine.fallback) == ("daemon", pick.address, None)
+    [(level, message, fields)] = logged(caplog)
+    assert (level, fields) == (logging.INFO, {"engine": engine})
+    assert "Daemon" in message
+
+
+@pytest.mark.covers("story:11-292", "error:deadline_exceeded")
+@three_ways
+async def test_fails_with_deadline_exceeded_when_no_pick_follows_a_handover_in_time(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """Past `timeout.connect`, counted from the connect's start, no pick served."""
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    handing = start_scripted_daemon(test_env, HANDS_OVER, "socket")
+
+    error = await failure(
+        open_collie(way, env, connect_timeout=timedelta(milliseconds=300))
+    )
+
+    assert await exit_code(handing.wait) == 0
+    assert isinstance(error, DeadlineExceededError)
+    assert error.limit is not None
+    assert (
+        error.limit.key,
+        error.limit.value,
+        error.limit.layer,
+        error.limit.origin,
+    ) == ("timeout.connect", 300, "run", "argument")
+    assert error.details["waited_for"] == "hello"

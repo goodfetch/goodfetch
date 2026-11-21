@@ -98,8 +98,14 @@ class AsyncCollie(AsyncConnection):
         the running Daemon of the Goodfetch home, else starts an Attached
         engine; `attached` always starts one; `daemon` reaches the Daemon,
         starting it when none runs; `RemoteDaemon(url, token)` reaches that
-        remote Daemon, on a loopback `ws://` address. The engine reached is
-        logged at info on `goodfetch.client`. `env` is the environment map,
+        remote Daemon, on a loopback `ws://` address. This machine's Daemon
+        refusing Collie by Product or version is waited past when it hands
+        over to its major's pick; otherwise `auto` starts an Attached engine
+        in its place, `engine.fallback` saying why, with one warning on
+        `goodfetch.client`, and `daemon` raises the refusal, its `fix`
+        naming this executable's `daemon restart` (ADR 0098). The engine
+        reached is logged at info on `goodfetch.client`. `env` is the
+        environment map,
         read here and never at import: the process's own when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
         its work. `timeout` is how long `hello` waits for the engine's
@@ -299,8 +305,14 @@ class Collie(Connection):
         running Daemon of the Goodfetch home, else starts an Attached
         engine; `attached` always starts one; `daemon` reaches the Daemon,
         starting it when none runs; `RemoteDaemon(url, token)` reaches that
-        remote Daemon, on a loopback `ws://` address. The engine reached is
-        logged at info on `goodfetch.client`. `env` is the environment map,
+        remote Daemon, on a loopback `ws://` address. This machine's Daemon
+        refusing Collie by Product or version is waited past when it hands
+        over to its major's pick; otherwise `auto` starts an Attached engine
+        in its place, `engine.fallback` saying why, with one warning on
+        `goodfetch.client`, and `daemon` raises the refusal, its `fix`
+        naming this executable's `daemon restart` (ADR 0098). The engine
+        reached is logged at info on `goodfetch.client`. `env` is the
+        environment map,
         read here and never at import: the process's own when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
         its work. `timeout` is how long `hello` waits for the engine's

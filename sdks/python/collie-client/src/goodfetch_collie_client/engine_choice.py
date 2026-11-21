@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast, overload
 from urllib.parse import urlsplit
 
 import anyio
@@ -89,6 +89,16 @@ class AttachedReach:
 
 
 @dataclass(frozen=True)
+class RuntimeFile:
+    """The runtime file a Daemon of this machine was reached by."""
+
+    home: str
+    """The Goodfetch home it is in."""
+    text: str = field(repr=False)
+    """What it held, its token included."""
+
+
+@dataclass(frozen=True)
 class DaemonReach:
     """A Daemon reached, before `hello`."""
 
@@ -104,6 +114,12 @@ class DaemonReach:
     """The token its `hello` carries."""
     closed_at_hello: Callable[[], DaemonUnreachableError]
     """What fails `connect()` when the Daemon closes before it answers."""
+    runtime_file: RuntimeFile | None
+    """The runtime file this machine's Daemon was reached by.
+
+    By it the Daemon it hands over to is told from it (ADR 0098); `None`
+    for a remote Daemon, which never hands over.
+    """
 
 
 Reach: TypeAlias = AttachedReach | DaemonReach
@@ -209,6 +225,7 @@ async def _reach_remote(remote: RemoteDaemon, source: str) -> DaemonReach:
         stream=stream,
         token=remote.token,
         closed_at_hello=lambda: _unreachable(_closed_at_hello(url), fix),
+        runtime_file=None,
     )
 
 
@@ -375,14 +392,48 @@ def _refusal_of(printed: bytes) -> tuple[str, str | None] | None:
     return message, fix if isinstance(fix, str) else None
 
 
-async def _running_daemon(home: str) -> DaemonReach | None:
+HANDOVER_POLL = 0.05
+"""How often, in seconds, the wait for the Daemon an idle one hands over to
+reads the runtime file."""
+
+
+@overload
+async def handed_over_to(handed_over: RuntimeFile, until: None) -> DaemonReach: ...
+@overload
+async def handed_over_to(
+    handed_over: RuntimeFile, until: float
+) -> DaemonReach | None: ...
+async def handed_over_to(
+    handed_over: RuntimeFile, until: float | None
+) -> DaemonReach | None:
+    """The Daemon serving in `handed_over`'s home once another handed over (ADR 0098).
+
+    The runtime file is read again every 50 ms, the one whose text is
+    `handed_over`'s skipped, until a Daemon answers; `None` once `until`, on
+    anyio's clock, passed. With no `until`, it waits until cancelled.
+
+    Raises:
+        DaemonUnreachableError: The runtime file cannot be read.
+    """
+    while True:
+        pick = await _running_daemon(handed_over.home, skipped=handed_over.text)
+        if pick is not None:
+            return pick
+        if until is not None and anyio.current_time() >= until:
+            return None
+        await anyio.sleep(HANDOVER_POLL)
+
+
+async def _running_daemon(
+    home: str, *, skipped: str | None = None
+) -> DaemonReach | None:
     """The Daemon whose runtime file is in `home`'s folder of the SDK's line.
 
-    When its endpoint answers; `None` when there is no runtime file, it
-    holds no endpoint and token, as a dead Daemon's half-written or older
-    one, or nothing listens where it says, as for a Daemon that died.
-    Whether the endpoint answers says whether it runs, as the TypeScript
-    SDK, which cannot ask the Daemon's lock, finds it.
+    When its endpoint answers; `None` when there is no runtime file, its
+    text is `skipped`, it holds no endpoint and token, as a dead Daemon's
+    half-written or older one, or nothing listens where it says, as for a
+    Daemon that died. Whether the endpoint answers says whether it runs, as
+    the TypeScript SDK, which cannot ask the Daemon's lock, finds it.
 
     Raises:
         DaemonUnreachableError: The runtime file cannot be read.
@@ -394,6 +445,8 @@ async def _running_daemon(home: str) -> DaemonReach | None:
         return None
     except (OSError, UnicodeDecodeError) as cause:
         raise _unreadable(file) from cause
+    if text == skipped:
+        return None
     runtime = _runtime_file_of(text)
     if runtime is None:
         return None
@@ -420,6 +473,7 @@ async def _running_daemon(home: str) -> DaemonReach | None:
         stream=stream,
         token=token,
         closed_at_hello=lambda: _unreachable(_closed_at_hello(address), fix),
+        runtime_file=RuntimeFile(home, text),
     )
 
 

@@ -104,7 +104,7 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -1950,8 +1950,9 @@ fn given_back(code: &str, details: &Map<String, Value>) -> bool {
                 matches!(
                     details,
                     CallCancelledDetails {
-                        by: StoppedBy::Program,
+                        by: CancelledBy::Program,
                         closed: None,
+                        ..
                     }
                 )
             },

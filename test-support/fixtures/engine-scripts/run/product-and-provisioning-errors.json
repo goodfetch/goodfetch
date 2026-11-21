@@ -1,0 +1,240 @@
+{
+  "description": "A Collie Client's hello accepted by a Collie engine installed from npm, which refuses what only Foxhound carries with not_in_product (ADRs 0087, 0090 and 0095): Foxhound's operation `crawl.start`, then a Run's start setting Foxhound's `crawl.max_requests`, each naming the Product it needs and Foxhound's install command on npm; then a Run started, and its first three pages refused for the browser build they need (ADRs 0098 and 0115): absent from a cache the engine cannot write (`browser_not_installed`), refused by `egress.offline` (`artifact_unavailable_offline`) and failed with a 404 (`artifact_download_failed`, retryable), each naming the build, the Product version that pins it and `goodfetch-collie browser install`; the Run then finishes. The `product-and-provisioning-errors` client conformance case.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "_meta": { "raw": true },
+          "seeds": [{ "url": "https://shop.test/", "label": "page" }]
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "`crawl.start` is part of Foxhound, and this engine is Collie 0.0.0.",
+          "data": {
+            "code": "not_in_product",
+            "retryable": false,
+            "product": "collie",
+            "product_version": "0.0.0",
+            "needs": "foxhound",
+            "requested": "crawl.start",
+            "fix": "Run it with Foxhound, which contains everything Collie does (`npm install @goodfetch/foxhound`), or connect to a Foxhound engine.",
+            "install": "npm install @goodfetch/foxhound"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "_meta": { "raw": true },
+          "settings": {
+            "crawl": {
+              "max_requests": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "`crawl.max_requests` is part of Foxhound, and this engine is Collie 0.0.0.",
+          "data": {
+            "code": "not_in_product",
+            "retryable": false,
+            "product": "collie",
+            "product_version": "0.0.0",
+            "needs": "foxhound",
+            "requested": "crawl.max_requests",
+            "fix": "Run it with Foxhound, which contains everything Collie does (`npm install @goodfetch/foxhound`), or connect to a Foxhound engine.",
+            "install": "npm install @goodfetch/foxhound"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 is not in the Browser cache at /srv/goodfetch/browsers, which this engine cannot write",
+          "data": {
+            "code": "browser_not_installed",
+            "retryable": false,
+            "missing": {
+              "kind": "pinned",
+              "artifact": {
+                "kind": "browser",
+                "name": "chrome-for-testing",
+                "build": "141.0.7390.54-linux64"
+              },
+              "pinned_by": {
+                "product": "collie",
+                "product_version": "0.0.0"
+              },
+              "cache": "/srv/goodfetch/browsers"
+            },
+            "fix": "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 is not in the Browser cache at /srv/goodfetch/browsers, and `egress.offline` refuses its download",
+          "data": {
+            "code": "artifact_unavailable_offline",
+            "retryable": false,
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": {
+              "product": "collie",
+              "product_version": "0.0.0"
+            },
+            "cache": "/srv/goodfetch/browsers",
+            "limit": {
+              "key": "egress.offline",
+              "value": true,
+              "layer": "user_configuration"
+            },
+            "fix": "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "downloading the browser build chrome-for-testing 141.0.7390.54-linux64, pinned by Collie 0.0.0 from storage.googleapis.com failed: storage.googleapis.com answered 404",
+          "data": {
+            "code": "artifact_download_failed",
+            "retryable": true,
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": {
+              "product": "collie",
+              "product_version": "0.0.0"
+            },
+            "host": "storage.googleapis.com",
+            "failure": "http_status",
+            "status": 404,
+            "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

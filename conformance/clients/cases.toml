@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "36"
+version = "37"
 
 [[capability]]
 name = "lifecycle"
@@ -281,6 +281,25 @@ id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
+
+# What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,
+# 0090, 0095, 0098 and 0115; issue 1263): Foxhound's operation and setting
+# raise `NotInProductError` (`UnavailableError`, not retryable), whose
+# details name the engine's Product and version, the Product needed, what
+# was asked and Foxhound's install command on the engine's channel, which
+# `fix` names; a page whose build is missing raises
+# `BrowserNotInstalledError` (not retryable), `ArtifactUnavailableOfflineError`
+# (a `RefusedError` whose `limit` names `egress.offline`) or
+# `ArtifactDownloadFailedError` (retryable), each naming the build, the
+# Product version that pins it and, in `fix`, that Product's `browser
+# install`. Played by the Scripted engine: attached in TypeScript and Python
+# (asyncio, Trio and the sync API), and as the Daemon Rust's client crate
+# reaches.
+[[capability.case]]
+id = "product-and-provisioning-errors"
+covers = ["story:11-10", "story:11-13", "story:11-189", "story:11-294"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh
 # ID begins it, an interrupted Run's resumes it, logged at info, and a

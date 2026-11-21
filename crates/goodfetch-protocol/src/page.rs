@@ -50,6 +50,7 @@ use crate::run::RunId;
 use crate::settings::SettingLimit;
 
 pub mod access_mode;
+pub mod cdp_url;
 pub mod dialog;
 pub mod events;
 pub mod functions;

@@ -278,6 +278,33 @@ export class CDPURLNotAllowedError extends RefusedError<"cdp_url_not_allowed"> {
 }
 
 /**
+ * Something answered at a `cdp_url` Session source's address, but no browser speaks CDP there: an HTTP status and content type, a WebSocket that refused the upgrade, a CDP target that is not a browser (`page`, `node`, `worker`), or a product the engine does not drive, which `observed` says. The details name the address without its query or credentials, the settings layer that gave it and the fix: give the browser's endpoint, `http://host:port` or `ws://…/devtools/browser/<id>`, and when the same host serves `/json/version`, the browser address found there, which `browser_url` holds.
+ */
+export class CDPURLNotBrowserError extends ProgramError<"cdp_url_not_browser"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "CDPURLNotBrowserError", code: "cdp_url_not_browser", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A `cdp_url` Session source's address answered 401 or 403 to the HTTP request or the WebSocket upgrade. The details name the address without its query or credentials, the settings layer that gave it, the status, each header name sent with its Secret reference, never its value, and the fix: check the Secret references in `headers`.
+ */
+export class CDPURLUnauthorizedError extends RefusedError<"cdp_url_unauthorized"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "CDPURLUnauthorizedError", code: "cdp_url_unauthorized", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * Nothing answered at a `cdp_url` Session source's address when the call that opens the Session connected to it: its name did not resolve, the connection was refused or reset, or TLS failed. It fails at once, never waiting for the address. The details name the address without its query or credentials, the settings layer that gave it, the failure and the fix: start the browser with remote debugging on that port, or correct the address.
+ */
+export class CDPURLUnreachableError extends UnavailableError<"cdp_url_unreachable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "CDPURLUnreachableError", code: "cdp_url_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.
  */
 export class CertificateChangedError extends RefusedError<"certificate_changed"> {
@@ -1085,6 +1112,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   call_cancelled: CallCancelledError,
   capability_unavailable: CapabilityUnavailableError,
   cdp_url_not_allowed: CDPURLNotAllowedError,
+  cdp_url_not_browser: CDPURLNotBrowserError,
+  cdp_url_unauthorized: CDPURLUnauthorizedError,
+  cdp_url_unreachable: CDPURLUnreachableError,
   certificate_changed: CertificateChangedError,
   certificate_invalid: CertificateInvalidError,
   challenge_unsolved: ChallengeUnsolvedError,
@@ -1191,6 +1221,9 @@ export type CollieErrorCode =
   | "call_cancelled"
   | "capability_unavailable"
   | "cdp_url_not_allowed"
+  | "cdp_url_not_browser"
+  | "cdp_url_unauthorized"
+  | "cdp_url_unreachable"
   | "certificate_changed"
   | "certificate_invalid"
   | "challenge_unsolved"
@@ -1282,7 +1315,7 @@ export type CollieErrorCode =
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "certificate_changed", "certificate_invalid", "challenge_unsolved", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "dialog_already_handled", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_unavailable", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "dialog_already_handled", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_unavailable", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -1300,6 +1333,9 @@ export type CollieError =
   | CallCancelledError
   | CapabilityUnavailableError
   | CDPURLNotAllowedError
+  | CDPURLNotBrowserError
+  | CDPURLUnauthorizedError
+  | CDPURLUnreachableError
   | CertificateChangedError
   | CertificateInvalidError
   | ChallengeUnsolvedError

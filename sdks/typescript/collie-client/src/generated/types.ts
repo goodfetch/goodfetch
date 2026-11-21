@@ -1013,7 +1013,8 @@ export type Verdict = "verified" | "rejected" | "needs_review" | (string & {});
  */
 export type RouteId = string;
 /**
- * Who stopped a call (ADR 0113).
+ * Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+ * call the stop cancels names it as its `by` (ADR 0113).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StoppedBy".

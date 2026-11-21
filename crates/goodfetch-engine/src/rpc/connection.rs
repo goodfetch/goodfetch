@@ -56,8 +56,8 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach, SettingScope};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, Form, HELLO, HelloParams,
-    NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, CancelledBy, Form, HELLO,
+    HelloParams, NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, Surface,
     TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
@@ -1268,8 +1268,9 @@ impl Session<'_> {
                         &CALL_CANCELLED,
                         "The call was cancelled by its Client.",
                         &CallCancelledDetails {
-                            by: StoppedBy::Client,
+                            by: CancelledBy::Client,
                             closed: None,
+                            person: None,
                         },
                     )),
                 }

@@ -941,11 +941,10 @@ struct Place {
     left: Vec<(u64, Driver)>,
 }
 
-/// The failure of an ask its seat's place actor never answered: the
-/// actor ends with its Run.
-fn place_ended() -> CallError {
+/// The failure of an ask to a seat its Session closed.
+fn place_closed() -> CallError {
     crate::errors::cancelled(
-        goodfetch_protocol::connection::StoppedBy::Program,
+        goodfetch_protocol::connection::CancelledBy::Program,
         goodfetch_protocol::connection::ClosedValue::Session,
     )
 }
@@ -1089,8 +1088,14 @@ impl SeatShared {
         self.place
             .send(PlaceCommand::Seated { opens, answer })
             .await
-            .map_err(|_| place_ended())?;
-        answered.await.map_err(|_| place_ended())?
+            .map_err(|_| self.place_ended())?;
+        answered.await.map_err(|_| self.place_ended())?
+    }
+
+    /// The failure of an ask its place actor never answered: the actor
+    /// ends with its Run, so the ask fails as the Run's stop does.
+    fn place_ended(&self) -> CallError {
+        crate::errors::run_stopped(&self.pool.shared.run)
     }
 
     /// The browser `number` closes: the Session leaves it if seated there,
@@ -1122,7 +1127,7 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
             // A seat its Session closed opens no browser context again,
             // whatever asked before the close and arrives after it.
             PlaceCommand::Seated { answer, .. } if place.closed => {
-                let _ = answer.send(Err(place_ended()));
+                let _ = answer.send(Err(place_closed()));
             }
             // Its Session settles the failure into the loss once it reaches
             // it (`SessionLife::settled`).

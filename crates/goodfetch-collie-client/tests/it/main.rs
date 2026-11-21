@@ -8,6 +8,7 @@
 
 #[cfg(unix)]
 mod attached;
+mod call_cancelled;
 mod closing;
 mod compile_fail;
 mod connection;

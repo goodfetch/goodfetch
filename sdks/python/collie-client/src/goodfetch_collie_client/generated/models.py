@@ -3141,17 +3141,17 @@ class StopReason11(UnknownMember):
 
 
 class StoppedBy(StrEnum):
-    """Who stopped a call (ADR 0113)."""
+    """
+    Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+    call the stop cancels names it as its `by` (ADR 0113).
+    """
 
     client = "client"
-    """A Client, such as through `$/cancel`."""
+    """A Client, through `run.abort`."""
     program = "program"
     """The program, such as through `run.stop` (ADR 0102)."""
     browser = "browser"
-    """
-    The browser, outside every Client: a page's window closed there, or
-    the browser quit (ADR 0113).
-    """
+    """The browser, outside every Client."""
 
 
 class StorageLevel(StrEnum):

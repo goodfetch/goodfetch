@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, BinaryIO, NoReturn, cast
 import anyio
 import anyio.to_thread
 
-from goodfetch_collie_client.framing import object_members
+from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client.generated.errors import (
     FileWriteFailedError,
     PathNotWritableError,

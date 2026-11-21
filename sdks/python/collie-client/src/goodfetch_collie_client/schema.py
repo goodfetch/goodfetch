@@ -38,6 +38,8 @@ from goodfetch_collie_client.json_values import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+__all__ = ["JSONSchema", "SchemaCodec", "schema_codec"]
+
 T = TypeVar("T")
 
 JSONSchema: TypeAlias = JSONObject

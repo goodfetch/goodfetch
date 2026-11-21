@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from goodfetch_collie_client._rpc import error_of_reply
 from goodfetch_collie_client.generated.errors import (
     ERROR_CLASSES,
     ERROR_GROUP_CLASSES,
@@ -21,7 +22,6 @@ from goodfetch_collie_client.generated.errors import (
     ProgramError,
     SettingInvalidError,
 )
-from goodfetch_collie_client.rpc import error_of_reply
 
 if TYPE_CHECKING:
     from goodfetch_collie_client.generated.errors import ErrorGroup

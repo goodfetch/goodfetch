@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
 
+__all__ = ["AsyncHandle", "Handle", "raw_params"]
 
 _META = "_meta"
 """The member of a request's params that holds its envelope (ADR 0132)."""

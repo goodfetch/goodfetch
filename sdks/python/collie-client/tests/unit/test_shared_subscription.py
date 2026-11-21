@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING
 import anyio
 import anyio.lowlevel
 import pytest
-from goodfetch_collie_client.framing import object_members
+from goodfetch_collie_client._framing import object_members
+from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client.generated.errors import (
     EnginePanickedError,
     ListenerEventsLostError,
@@ -31,7 +32,6 @@ from goodfetch_collie_client.listeners import (
     Order,
     subscribe_published,
 )
-from goodfetch_collie_client.shared_subscription import SharedSubscription
 from pydantic import BaseModel
 
 if TYPE_CHECKING:

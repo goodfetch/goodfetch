@@ -20,6 +20,14 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.errors import ErrorGroup
     from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
 
+__all__ = [
+    "BaseGoodfetchError",
+    "ErrorClass",
+    "ErrorFields",
+    "GoodfetchError",
+    "retry_after_of",
+]
+
 
 class ErrorFields(TypedDict, total=False):
     """What an error carries beyond its code, group and retryable flag (ADR 0079).

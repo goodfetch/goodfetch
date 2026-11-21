@@ -14,6 +14,8 @@ from typing import TypeAlias, cast
 
 from pydantic import JsonValue
 
+__all__ = ["JSONObject", "JSONValue"]
+
 JSONValue: TypeAlias = JsonValue
 """A JSON value, as `json.loads` gives it: Pydantic's own, so a model's
 field typed with it validates as JSON."""

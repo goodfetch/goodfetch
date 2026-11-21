@@ -24,7 +24,7 @@
 use goodfetch_protocol::home::RUN_TRACE_CALLS;
 use goodfetch_test_client::{Attached, HomeLayout};
 use goodfetch_test_support::ToolStatus;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, raw_call_lines};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, provenance, settings, tiers};
@@ -916,21 +916,7 @@ fn a_raw_call_naming_a_served_page_is_a_line_of_its_runs_trace() {
     });
     assert!(engine.finished());
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test reads the Run trace the engine wrote in its own Goodfetch home"
-    )]
-    let log =
-        std::fs::read_to_string(HomeLayout::of(env.home()).run_trace("served", RUN_TRACE_CALLS))
-            .unwrap_or_default();
-    let lines: Vec<Value> = log
-        .lines()
-        .map(|line| {
-            let mut line: Value = serde_json::from_str(line).unwrap();
-            line.as_object_mut().unwrap().remove("arrived_at");
-            line
-        })
-        .collect();
+    let lines = raw_call_lines(&HomeLayout::of(env.home()).run_trace("served", RUN_TRACE_CALLS));
     assert_eq!(
         (formats["result"]["markdown"].is_string(), lines),
         (

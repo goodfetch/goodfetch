@@ -314,7 +314,7 @@ impl Link {
 /// A raw call's mark (ADR 0099): its line in the trace of the live Run it
 /// names, when it names one, which the Run's end writes for a call that
 /// ends that Run or waits for its end.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct RawMark(Option<Arc<RawCallLine>>);
 
 impl RawMark {

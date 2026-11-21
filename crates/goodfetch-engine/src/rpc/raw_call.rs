@@ -54,7 +54,8 @@ impl RawCall {
     /// Run's trace once it ends. The Run is found before the handler runs,
     /// so a call that closes its page is still written; a call that ends
     /// its own Run, or waits for its end, is written by that end, before
-    /// the trace closes; a call that names no live Run is not written.
+    /// the trace closes, when it reaches the Run's registry before that end
+    /// is decided; a call that names no live Run is not written.
     pub(super) fn recorded(self, answer: GuardAnswer) -> GuardAnswer {
         Box::pin(async move {
             let line = match self.run().await {

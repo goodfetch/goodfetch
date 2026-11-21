@@ -19,7 +19,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_CALLS};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
+use goodfetch_test_support::{RuntimeFile, TestEnv, cli, raw_call_lines};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -132,16 +132,7 @@ fn a_raw_abort_forwarded_to_the_runs_owner_is_a_line_of_its_run_trace() {
     let aborted =
         aborted_by_an_attached_engine(&env, &json!({ "run_id": "live", "_meta": { "raw": true } }));
 
-    let log =
-        std::fs::read_to_string(runs(&env).join("live").join(RUN_TRACE_CALLS)).unwrap_or_default();
-    let lines: Vec<Value> = log
-        .lines()
-        .map(|line| {
-            let mut line: Value = serde_json::from_str(line).unwrap();
-            line.as_object_mut().unwrap().remove("arrived_at");
-            line
-        })
-        .collect();
+    let lines = raw_call_lines(&HomeLayout::of(env.home()).run_trace("live", RUN_TRACE_CALLS));
     assert_eq!(
         (aborted["result"]["lifecycle"].clone(), lines),
         (

@@ -641,13 +641,18 @@ fn section(
     text.push_str("  },\n");
 }
 
-/// The layer's `wire.ts`: Collie's table, or Foxhound's, which adds its
-/// own types to Collie's.
-pub(super) fn file(layer: &Layer) -> Result<String> {
-    let mut definitions = layer.collie_definitions.clone();
-    definitions.extend(layer.definitions.clone());
-    let table = wire(
-        &definitions,
+/// Whether the type `name`, the layer's own or Collie's, holds fields to
+/// rename or points in time, which reading it from the wire converts.
+pub(super) fn converts(layer: &Layer, name: &str) -> Result<bool> {
+    let table = wire(&reachable(layer), |own| own == name, [], [])?;
+    Ok(table.types.contains_key(name))
+}
+
+/// The layer's table: where its own types, operations and events hold
+/// fields to rename or points in time.
+fn table(layer: &Layer) -> Result<Wire> {
+    wire(
+        &reachable(layer),
         |name| layer.definitions.contains_key(name),
         layer.operations.iter().map(|operation| {
             (
@@ -660,7 +665,21 @@ pub(super) fn file(layer: &Layer) -> Result<String> {
             .events
             .iter()
             .map(|event| (event.name.as_str(), event.payload.0.as_str())),
-    )?;
+    )
+}
+
+/// Every type the layer's own reach: Collie's, then the layer's, which
+/// win over Collie's of the same name.
+fn reachable(layer: &Layer) -> Map<String, Value> {
+    let mut definitions = layer.collie_definitions.clone();
+    definitions.extend(layer.definitions.clone());
+    definitions
+}
+
+/// The layer's `wire.ts`: Collie's table, or Foxhound's, which adds its
+/// own types to Collie's.
+pub(super) fn file(layer: &Layer) -> Result<String> {
+    let table = table(layer)?;
     let product = layer.product.name();
     let mut text = format!("{HEADER}\n");
     match layer.product {

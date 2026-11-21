@@ -136,6 +136,24 @@ export function retryAfterOf(details: Readonly<Record<string, unknown>> | undefi
   return typeof sent === "string" ? (pointInTime(sent) ?? null) : null;
 }
 
+/**
+ * A code's `details` as the type `Details` its class reads them as (ADR
+ * 0079), or `undefined` when they lack one of the fields `required` names,
+ * as those of an error a program builds without details do. Like every
+ * engine response, the values are taken as sent, beyond the protocol
+ * version check.
+ */
+export function detailsOf<Details extends object>(
+  details: Readonly<Record<string, unknown>> | undefined,
+  required: readonly (keyof Details & string)[],
+): Readonly<Details> | undefined {
+  if (details === undefined || !required.every((field) => field in details)) {
+    return undefined;
+  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the catalog names `Details` as the code's details, which hold each field it requires.
+  return details as Readonly<Details>;
+}
+
 /** The class of one Error code: its message, then what it carries. */
 export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
 

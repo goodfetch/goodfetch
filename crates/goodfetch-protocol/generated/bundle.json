@@ -830,6 +830,40 @@
         }
       ]
     },
+    "CallCancelledDetails": {
+      "description": "What `call_cancelled` details (ADR 0113).",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/CancelledBy",
+          "arrived_in": "0.1",
+          "description": "Who stopped the call."
+        },
+        "closed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClosedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What was closed or stopped under it, when something was rather than\nthe call itself cancelled."
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "Whom the stopping Client acts for (ADR 0031), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "type": "object"
+    },
     "CancelParams": {
       "additionalProperties": false,
       "description": "What `$/cancel` names: the call to stop.",
@@ -844,6 +878,32 @@
         "id"
       ],
       "type": "object"
+    },
+    "CancelledBy": {
+      "description": "Who stopped a call that `call_cancelled` ended (ADR 0113): the\nvocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open\n(ADR 0079).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through a Client that acts for them (ADR 0031).",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "Another Client, such as through `$/cancel`.",
+          "type": "string"
+        },
+        {
+          "const": "program",
+          "description": "The program, closing a parent value from another task or thread.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "CapabilityResult": {
       "description": "One capability of a `conformance` document.",
@@ -1451,6 +1511,37 @@
         "crates_io"
       ],
       "type": "object"
+    },
+    "ClosedValue": {
+      "description": "What was closed or stopped under a call that `call_cancelled` ended\n(ADR 0113), open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "page",
+          "description": "Its page.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "Its page's Session.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "Its page's browser.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "Its Run, stopped.",
+          "type": "string"
+        },
+        {
+          "const": "connection",
+          "description": "Its Connection.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "CommandError": {
       "additionalProperties": true,

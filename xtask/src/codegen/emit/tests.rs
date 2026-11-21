@@ -390,6 +390,27 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
     );
 }
 
+/// An Error code whose details the SDKs read typed names its details type
+/// (ADR 0079); a code whose details they still read as a map names none.
+#[rstest]
+#[case::typed("call_cancelled", Some(json!({ "$ref": "#/$defs/CallCancelledDetails" })))]
+#[case::read_as_a_map("deadline_exceeded", None)]
+fn an_error_code_names_the_details_type_the_sdks_read_typed(
+    #[case] code: &str,
+    #[case] details: Option<serde_json::Value>,
+) {
+    let emitted = emit();
+
+    let entry = emitted.catalog["error_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == code)
+        .unwrap();
+
+    assert_eq!(entry.get("details").cloned(), details);
+}
+
 #[rstest]
 #[case::success("success", 0)]
 #[case::a_groups_row("refused", 4)]

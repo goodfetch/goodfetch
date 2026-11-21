@@ -21,15 +21,13 @@ from goodfetch_collie import (
     AsyncCollie,
     Collie,
     ExplainedSetting,
-    Settings,
-    SettingsLayer,
-)
-from goodfetch_collie_client.generated.errors import (
     ProgramError,
     RefusedError,
     SettingInvalidError,
     SettingLockedError,
     SettingNotApplicableError,
+    Settings,
+    SettingsLayer,
     SettingUnknownError,
 )
 from goodfetch_test_support import (

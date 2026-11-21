@@ -10,8 +10,10 @@
 //! and [`Locator`], have the members the catalog gives them, one form per
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
 //! program that does not use async. [`file_saving`] writes a file to the
-//! program's path whole or not at all (ADR 0116). The SDK crates build on
-//! it; it depends on neither of them nor on any Foxhound crate.
+//! program's path whole or not at all (ADR 0116). Each request carries the
+//! Trace context a [`TraceContextSource`] reads (ADR 0132). The SDK crates
+//! build on it; it depends on neither of them, on any Foxhound crate nor on
+//! any OpenTelemetry crate.
 
 #![warn(missing_docs)]
 
@@ -42,6 +44,7 @@ mod run;
 mod schema;
 pub mod settings;
 mod sync;
+mod trace_context;
 pub mod transport;
 
 pub use answer::Answer;
@@ -65,3 +68,4 @@ pub use schema::{Schema, SchemaError};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).
 pub use schemars;
+pub use trace_context::{TraceContext, TraceContextSource};

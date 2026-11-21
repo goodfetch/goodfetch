@@ -52,6 +52,7 @@ pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
+mod trace_context;
 
 pub use collie::Collie;
 pub use composition::{composition, composition_with};

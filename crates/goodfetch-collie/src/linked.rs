@@ -53,6 +53,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::engine_choice::{self, DaemonReach, EngineChoice, EngineInfo, EngineKind, Reach};
 use crate::runtime::{self, Threads};
+use crate::trace_context;
 
 /// What a connection opens with, in either Product's SDK. Its `Debug`
 /// output names the environment's variables without their values, which
@@ -450,6 +451,7 @@ impl ProductConnection {
             hello,
             asked.timeout,
             asked.listener_queue,
+            trace_context::source(),
         )
         .await?;
         let opened = Self {
@@ -485,6 +487,7 @@ impl ProductConnection {
             hello,
             asked.timeout,
             asked.listener_queue,
+            trace_context::source(),
         )
         .await
         .map_err(|error| daemon.unreached(error, home.as_ref()))?;

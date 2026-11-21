@@ -216,6 +216,7 @@ fn an_unread_session_stream_loses_only_its_own_events_past_its_listener_queue() 
             hello(),
             ConnectTimeout::Off,
             ListenerQueue::new(2).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -286,6 +287,7 @@ fn a_stream_that_lost_events_names_them_when_its_subscription_ends() {
             hello(),
             ConnectTimeout::Off,
             ListenerQueue::new(2).unwrap(),
+            None,
         )
         .await
         .unwrap();

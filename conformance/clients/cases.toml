@@ -550,3 +550,19 @@ id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The program's Trace context (ADR 0132; issue 1558): a call made inside the
+# program's active span sends that span's `traceparent`, and its
+# `tracestate` when set, in `_meta`, never Baggage, and a call made outside
+# any span sends no `_meta`; against the Scripted engine. Rust leads, behind
+# its `opentelemetry` feature, played as a Daemon's client: its `daemon`
+# mode. TypeScript, Python (asyncio, Trio and the sync API) and Rust's
+# `linked` mode join with issue 1558's follow-up.
+[[capability]]
+name = "trace-context"
+
+[[capability.case]]
+id = "trace-context"
+covers = ["story:11-138"]
+surfaces = ["sdk-rust"]
+modes = ["daemon"]

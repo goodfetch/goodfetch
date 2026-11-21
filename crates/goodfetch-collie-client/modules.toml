@@ -41,16 +41,19 @@
 # `schema` is the Schema a program's own types cross the wire through.
 # `opening_process` is the process that opened a Connection, the only one
 # whose uses reach its engine (ADR 0078), which `rpc` and `handler` check.
+# `trace_context` is the seam the program's Trace context is read through
+# and how a request's params carry it in `_meta` (ADR 0132), which `rpc`
+# holds and `call`, `connection` and `event_stream` write.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
 answer = []
 blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
-call = ["error", "rpc"]
+call = ["error", "rpc", "trace_context"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "transport"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "raw_call", "run"]
 error = []
-event_stream = ["error", "published", "rpc"]
+event_stream = ["error", "published", "rpc", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
@@ -65,9 +68,10 @@ opening_process = ["error"]
 published = ["error", "listener_queue", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
-rpc = ["error", "handler", "line", "logging", "opening_process", "transport"]
+rpc = ["error", "handler", "line", "logging", "opening_process", "trace_context", "transport"]
 run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []
+trace_context = []
 transport = []

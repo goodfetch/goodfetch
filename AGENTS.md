@@ -33,7 +33,7 @@ Write every repository and tracker artifact (ADRs, specs, tickets, glossary entr
 
 Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The checks each role runs, implementer, merger or pull request, are its [Checks by role](docs/testing/checks-by-role.md); an orchestrator's brief points there and lists none.
 
-The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner.
+The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner, except for a temporary Exception that an open ticket removes, which the coordinator decides and reports (the register's rule of 2026-11-21).
 
 Traps that break things, each explained in `STYLE.md`:
 

@@ -93,7 +93,8 @@ fn engine(env: &TestEnv) -> Attached {
     engine_on(env, &cache)
 }
 
-/// Under `auto`, a Run that allows the light-browser tier samples each
+/// Under `auto`, a Run that allows the light-browser tier and sends its
+/// HTTP from the browser (`fetch.http_from: browser`) samples each
 /// Label on `http`, which Provenance records as `browser_fetch`, its
 /// document sent from the Session's browser (issue 2409), on
 /// `light_browser` and on `browser`: a listing its script
@@ -131,7 +132,7 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
         &json!({ "listing": {}, "painted": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut |inside, handle| {
             let html = raw_html(inside, handle);
@@ -209,7 +210,8 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
 /// script of the handler's, escalates its request to the browser under
 /// `auto`, where it is served; under a forced `light_browser`, a gesture
 /// fails with `browser_required` naming `fetch.tier` and the call, and
-/// nothing escalates (ADR 0093).
+/// nothing escalates (ADR 0093). Under `auto`, its HTTP leaves from the
+/// browser (`fetch.http_from: browser`).
 ///
 /// Covers: story:5-120, story:5-115, error:browser_required, operation:page.evaluate, operation:locator.click
 #[test]
@@ -238,7 +240,7 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
         &json!({ "listing": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut |inside, handle| {
             let html = raw_html(inside, handle);
@@ -403,7 +405,8 @@ fn a_crawl_request_with_a_method_or_body_on_a_forced_light_browser_fails_with_br
 /// moved onto the light-browser tier escalates to the browser before
 /// Lightpanda sends anything: the site receives it only as that `POST`,
 /// from Chrome, and Provenance names the crawl request's method as what
-/// escalated it (issue 2471).
+/// escalated it (issue 2471). Its HTTP leaves from the browser
+/// (`fetch.http_from: browser`).
 ///
 /// Covers: story:6-212, story:6-259, story:5-120, setting:fetch.light_browser
 #[test]
@@ -435,7 +438,7 @@ fn a_post_crawl_request_on_a_label_learned_onto_the_light_browser_escalates_to_t
         &settings(
             &proving_ground,
             &json!({
-                "fetch": { "tier": "auto", "light_browser": true },
+                "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" },
                 "site_preferences": { "respect_robots_txt": false },
             }),
         ),
@@ -660,7 +663,8 @@ fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused(
 /// it cannot serve exactly ends that run and runs the same handler again
 /// in the browser in the same attempt, where it is served; every request
 /// ends `succeeded` in one attempt, and Provenance names each call that
-/// escalated.
+/// escalated. Its HTTP leaves from the browser (`fetch.http_from:
+/// browser`).
 ///
 /// Covers: story:6-261, story:6-259, story:5-120, story:5-115, setting:fetch.light_browser, error:attempt_ended, operation:page.formats, operation:locator.wait_for_count, operation:locator.wait_for, operation:page.wait_for_response, operation:page.evaluate, operation:locator.click, operation:page.goto, operation:page.request, operation:page.close
 #[test]
@@ -679,7 +683,7 @@ fn under_auto_a_call_the_light_browser_cannot_serve_escalates_its_request_once()
         &json!({ "listing": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut rows_handler(first, &mut seen),
     );

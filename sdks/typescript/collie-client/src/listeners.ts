@@ -17,7 +17,7 @@ import type { Stream } from "./client-connection.ts";
 import { ListenerEventsLostError } from "./generated/errors.ts";
 import type { Listener, Subscription } from "./handle.ts";
 import type { Opened } from "./opened.ts";
-import type { ChannelOpenOptions } from "./rpc.ts";
+import type { Bound, ChannelOpenOptions } from "./rpc.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
 import { batchOf, type StreamedEvent } from "./stream.ts";
 
@@ -27,8 +27,15 @@ export const CREDITS = 16;
 /** How many events its listener gets through before the subscription grants as many again. */
 export const REGRANT = 8;
 
-/** How many events a listener of published events holds in its own queue when `maxListenerQueue` is left out: as many as the engine holds for a `page.on` call. */
+/** How many events a listener of published events holds in its own queue when `connection.maxListenerQueue` is left out: as many as the engine holds for a `page.on` call. */
 export const MAX_LISTENER_QUEUE = 1_024;
+
+/** The bound on each listener's own queue, a setting of `connect()`'s own `settings` alone (issue 2518). */
+export const LISTENER_QUEUE: Bound = {
+  key: "connection.max_listener_queue",
+  spelled: "connection.maxListenerQueue",
+  fallback: MAX_LISTENER_QUEUE,
+};
 
 /** What a subscription listens to, and what it tells its value. */
 export interface Listening<Payload> {
@@ -275,7 +282,7 @@ export function subscribePublished<Payload>(
       new ListenerEventsLostError(
         `the listener of \`${listening.event}\` held ${bound} events, as many as its queue takes, so it was removed and lost ${lost} more`,
         {
-          fix: "Make the listener return sooner, or raise connect()'s maxListenerQueue, then listen again with `on`.",
+          fix: `Make the listener return sooner, or raise \`${LISTENER_QUEUE.spelled}\` in connect()'s settings, then listen again with \`on\`.`,
           details: { event: listening.event, lost },
         },
       ),

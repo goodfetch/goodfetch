@@ -567,8 +567,7 @@ impl Plan<'_> {
                 commit_interval,
                 ..
             } => (durability, commit_interval),
-            // Scenario 1's: nothing kept but the Records it reads.
-            Config::FoxhoundProgram => ("off", None),
+            Config::FoxhoundProgram => ("batch", None),
             Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
@@ -775,10 +774,10 @@ impl Plan<'_> {
                 .filter(|_| keeps_records)
                 .map(|read| &read.times),
         )?;
-        let sample_pages = read
-            .as_ref()
+        let (sample_pages, tiers) = read
             .filter(|_| self.config.samples())
-            .map(|read| read.sample_pages);
+            .map(|read| (read.sample_pages, read.tiers))
+            .unzip();
         let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
@@ -791,6 +790,7 @@ impl Plan<'_> {
         let peak_bytes = usage.peak_bytes;
         Ok(Measured {
             sample_pages,
+            tiers,
             extracted,
             ..measured(
                 seconds,
@@ -908,6 +908,7 @@ fn measured(
         latency: observed.latency,
         latency_end: observed.latency_end,
         sample_pages: None,
+        tiers: None,
         extracted: None,
     }
 }

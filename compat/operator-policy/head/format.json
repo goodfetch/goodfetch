@@ -1186,6 +1186,27 @@
             },
             "type": "object"
           },
+          "connection": {
+            "additionalProperties": false,
+            "properties": {
+              "max_listener_queue": {
+                "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_pending_calls": {
+                "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_queued_write_bytes": {
+                "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "consent": {
             "additionalProperties": false,
             "properties": {
@@ -4165,6 +4186,27 @@
                   }
                 ],
                 "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
+              }
+            },
+            "type": "object"
+          },
+          "connection": {
+            "additionalProperties": false,
+            "properties": {
+              "max_listener_queue": {
+                "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_pending_calls": {
+                "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_queued_write_bytes": {
+                "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
               }
             },
             "type": "object"

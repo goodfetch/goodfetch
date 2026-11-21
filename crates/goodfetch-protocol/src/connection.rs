@@ -1014,7 +1014,7 @@ pub struct InternalDetails {
 /// A call an SDK runtime's own bounds refused unsent (ADRs 0079 and 0081).
 pub const CONNECTION_OVERLOADED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "connection_overloaded",
-    description: "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.",
+    description: "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.",
     group: ErrorGroup::Refused,
     retryable: true,
     exit_code: None,
@@ -1155,14 +1155,25 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[TIMEOUT_HELLO, NETWORK_MAX_HELLO_SIZE],
+    settings: &[
+        TIMEOUT_HELLO,
+        NETWORK_MAX_HELLO_SIZE,
+        CONNECTION_MAX_PENDING_CALLS,
+        CONNECTION_MAX_QUEUED_WRITE_BYTES,
+        CONNECTION_MAX_LISTENER_QUEUE,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };
 
+mod bounds;
 mod engine_panicked;
 mod opening;
 
+pub use bounds::{
+    CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    applies_client_bounds,
+};
 pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
 pub use opening::{NETWORK_MAX_HELLO_SIZE, TIMEOUT_HELLO};
 

@@ -254,6 +254,7 @@ receiver = "Connection"
 member = "engine"
 entry = "none"
 reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.engine`'s line holds."
+only = "Rust's `Connection` trait leaves the engine to each Product's type, as `Collie::engine`, since `EngineInfo` is `goodfetch-collie`'s."
 words = ["engine"]
 form = "read"
 
@@ -288,6 +289,7 @@ receiver = "Run"
 member = "id"
 entry = "none"
 reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
+only = "Rust's `Run::id` is generated (ADR 0099)."
 words = ["id"]
 form = "read"
 
@@ -609,6 +611,7 @@ receiver = "(module)"
 member = "Listener"
 entry = "none"
 reason = "What a value's generated `on` takes (ADR 0081): it gets each event's payload and the count of telemetry events dropped before it."
+only = "Rust reads a value's events from an `EventStream`, which no listener or subscription type wraps (ADR 0081)."
 words = ["listener"]
 form = "type"
 
@@ -618,6 +621,7 @@ receiver = "(module)"
 member = "Subscription"
 entry = "none"
 reason = "What a value's generated `on` returns (ADR 0081), which removes its listener."
+only = "Rust reads a value's events from an `EventStream`, which no listener or subscription type wraps (ADR 0081)."
 words = ["subscription"]
 form = "type"
 
@@ -645,6 +649,7 @@ receiver = "(module)"
 member = "Sequence"
 entry = "none"
 reason = "What a method reading a sequence to its end returns, such as Foxhound's `CrawlRun.records` (ADR 0081): an iterator that subscribes when made and closes at once."
+only = "Rust reads a sequence as an `EventStream` (ADR 0081)."
 words = ["sequence"]
 form = "type"
 
@@ -703,6 +708,7 @@ receiver = "(module)"
 member = "Handle"
 entry = "none"
 reason = "The base every generated handle extends, which gives it the raw catalog call on its value (ADR 0099)."
+only = "Rust's generated handles need no hand-written base type (ADR 0099)."
 words = ["handle"]
 form = "type"
 
@@ -721,6 +727,7 @@ receiver = "(module)"
 member = "RawParams"
 entry = "none"
 reason = "What the raw catalog call sends: the wire's JSON, a second value named by its ID (ADR 0099)."
+only = "Rust's raw call is the `RawCall` builder, which takes its params and timeout itself (ADR 0099)."
 words = ["raw", "params"]
 form = "type"
 
@@ -730,6 +737,7 @@ receiver = "(module)"
 member = "RawCallOptions"
 entry = "none"
 reason = "What the raw catalog call takes beside its params: the operation's own `timeout` and a `signal` (ADR 0099)."
+only = "Rust's raw call is the `RawCall` builder, which takes its params and timeout itself (ADR 0099)."
 words = ["raw", "call", "options"]
 form = "type"
 
@@ -910,6 +918,7 @@ receiver = "(module)"
 member = "EngineInfo"
 entry = "none"
 reason = "The engine a Connection reached, from the engine's reply to `hello` (ADR 0095)."
+only = "Rust declares it in `goodfetch-collie`, with the engine that crate links (ADR 0087)."
 words = ["engine", "info"]
 form = "type"
 
@@ -919,6 +928,7 @@ receiver = "(module)"
 member = "StartOptions"
 entry = "none"
 reason = "What starting a Run takes (ADR 0102), shaped by the SDK around `run.start`'s params."
+only = "Rust's start is the `Start` builder (ADR 0081), which takes its options itself."
 words = ["start", "options"]
 form = "type"
 
@@ -928,6 +938,7 @@ receiver = "(module)"
 member = "ConnectOptions"
 entry = "none"
 reason = "The options of `connect()`, which no catalog entry shapes (ADR 0078)."
+only = "Rust declares it in `goodfetch-collie`, with the engine that crate links (ADR 0087)."
 words = ["connect", "options"]
 form = "type"
 
@@ -937,6 +948,7 @@ receiver = "(module)"
 member = "ConnectOverOptions"
 entry = "none"
 reason = "The options of `connectOver()`, which no catalog entry shapes (ADR 0078)."
+only = "Rust's SDK opens a Connection with `ConnectOptions` alone."
 words = ["connect", "over", "options"]
 form = "type"
 
@@ -946,6 +958,7 @@ receiver = "(module)"
 member = "EngineChoice"
 entry = "none"
 reason = "The engine `connect()` reaches: an Attached engine, a Daemon or a remote one (ADR 0078)."
+only = "Rust declares it in `goodfetch-collie`, with the engine that crate links (ADR 0087)."
 words = ["engine", "choice"]
 form = "type"
 
@@ -955,6 +968,7 @@ receiver = "(module)"
 member = "RemoteDaemon"
 entry = "none"
 reason = "A remote Daemon and the token its `hello` takes, which `connect()` reaches."
+only = "Rust declares it in `goodfetch-collie`, with the engine that crate links (ADR 0087)."
 words = ["remote", "daemon"]
 form = "type"
 
@@ -982,6 +996,7 @@ receiver = "(module)"
 member = "Logger"
 entry = "none"
 reason = "The host program's logger, which the SDK writes through and nowhere else."
+only = "Rust logs through `tracing` (ADR 0078), under the targets `logging` names."
 words = ["logger"]
 form = "type"
 
@@ -1036,6 +1051,7 @@ receiver = "(module)"
 member = "Run"
 entry = "none"
 reason = "The Run the Connection's start opens (ADR 0102), which the generated handle of `run` extends."
+only = "Rust's `Run` handle is generated (ADR 0099)."
 words = ["run"]
 form = "type"
 
@@ -1045,6 +1061,7 @@ receiver = "Run"
 member = "keyValueStore"
 entry = "none"
 reason = "The Run's Key-value store, opened with the Run, with no round trip."
+only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "read"
 
@@ -1054,6 +1071,7 @@ receiver = "Run"
 member = "constructor"
 entry = "none"
 reason = "The Connection's start opens a Run; a program never constructs one."
+only = "Rust's `Run` has no constructor at all."
 words = ["run"]
 form = "read"
 
@@ -1108,6 +1126,7 @@ receiver = "(module)"
 member = "KeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store: `run.keyValueStore`, whose methods serve the `key_value_store` operations."
+only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "type"
 
@@ -1166,6 +1185,7 @@ receiver = "(module)"
 member = "StoredBytes"
 entry = "none"
 reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
+only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["stored", "bytes"]
 form = "type"
 
@@ -1175,6 +1195,7 @@ receiver = "(module)"
 member = "StoredValue"
 entry = "none"
 reason = "What the Key-value store keeps: any JSON value but a top-level null."
+only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["stored", "value"]
 form = "type"
 
@@ -1184,6 +1205,7 @@ receiver = "(module)"
 member = "JSONObject"
 entry = "none"
 reason = "A JSON object, which the SDK's hand-written types name."
+only = "Rust names JSON with `serde_json`'s `Value` and `Map`."
 words = ["json", "object"]
 form = "type"
 
@@ -1193,6 +1215,7 @@ receiver = "(module)"
 member = "JSONValue"
 entry = "none"
 reason = "A JSON value, which the SDK's hand-written types name."
+only = "Rust names JSON with `serde_json`'s `Value` and `Map`."
 words = ["json", "value"]
 form = "type"
 
@@ -1202,6 +1225,7 @@ receiver = "(module)"
 member = "JSONSchema"
 entry = "none"
 reason = "A JSON Schema document written by hand, which a call taking a schema accepts."
+only = "Rust's hand-written JSON Schema is a `Schema` made with `Schema::json`."
 words = ["json", "schema"]
 form = "type"
 
@@ -1220,6 +1244,7 @@ receiver = "(module)"
 member = "SchemaInput"
 entry = "none"
 reason = "What a program sends under a schema: its input type, or a JSON value."
+only = "Rust's typed schema is a `Schema` derived from a `schemars` type, which reads no Standard Schema."
 words = ["schema", "input"]
 form = "type"
 
@@ -1229,6 +1254,7 @@ receiver = "(module)"
 member = "SchemaOutput"
 entry = "none"
 reason = "What a program receives under a schema: its output type, or a JSON value."
+only = "Rust's typed schema is a `Schema` derived from a `schemars` type, which reads no Standard Schema."
 words = ["schema", "output"]
 form = "type"
 
@@ -1238,6 +1264,7 @@ receiver = "(module)"
 member = "StandardJSONSchemaV1"
 entry = "none"
 reason = "The Standard JSON Schema interface, version 1, which a typed schema implements."
+only = "Rust's typed schema is a `Schema` derived from a `schemars` type, which reads no Standard Schema."
 words = ["standard", "json", "schema", "v1"]
 form = "type"
 
@@ -1247,6 +1274,7 @@ receiver = "(module)"
 member = "StandardSchemaV1"
 entry = "none"
 reason = "The Standard Schema interface, version 1, which a typed schema implements."
+only = "Rust's typed schema is a `Schema` derived from a `schemars` type, which reads no Standard Schema."
 words = ["standard", "schema", "v1"]
 form = "type"
 
@@ -1256,6 +1284,7 @@ receiver = "(module)"
 member = "TypedSchema"
 entry = "none"
 reason = "A schema in the program's own types: Standard Schema with Standard JSON Schema."
+only = "Rust's typed schema is a `Schema` derived from a `schemars` type, which reads no Standard Schema."
 words = ["typed", "schema"]
 form = "type"
 
@@ -1265,6 +1294,7 @@ receiver = "(module)"
 member = "FieldValue"
 entry = "none"
 reason = "The value one field declaration answers (ADR 0147), typed from the declaration."
+only = "Rust reads every field into one type, `FieldValues`' `T`, so names no single field's value."
 words = ["field", "value"]
 form = "type"
 

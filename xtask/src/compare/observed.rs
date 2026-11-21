@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 
-use super::trials::{LatencyEnd, Percentiles, Work};
+use super::trials::{CURVE_PARTS, LatencyEnd, Percentiles, Work};
 
 /// The target of a trial's start marker.
 pub(crate) const MARKER: &str = "/compare/start";
@@ -232,17 +232,17 @@ pub(crate) fn observe(
     let mut times: Vec<f64> = first.values().copied().collect();
     times.sort_by(f64::total_cmp);
     observed.first_page_seconds = times.first().copied().unwrap_or(f64::NAN);
-    let tenth = seconds / 10.0;
-    let mut counts = [0u64; 10];
+    let tenth = seconds / float(CURVE_PARTS as u64);
+    let mut counts = [0u64; CURVE_PARTS];
     for &at in &times {
         // A page answered after the tool's exit was timed would be past
         // the last tenth; it counts in it.
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
-            reason = "the tenth's index, clamped to 0 to 9"
+            reason = "the tenth's index, clamped to the curve's parts"
         )]
-        let part = ((at / tenth).floor().max(0.0) as usize).min(9);
+        let part = ((at / tenth).floor().max(0.0) as usize).min(CURVE_PARTS - 1);
         counts[part] += 1;
     }
     observed.curve = counts.iter().map(|&count| float(count) / tenth).collect();

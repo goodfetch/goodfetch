@@ -22,6 +22,10 @@ pub enum ValueKind {
     /// which the engine could not apply past its ceiling; a larger value is
     /// `setting_invalid`. It caps and narrows as a count does.
     CountUpTo(u64),
+    /// A whole number from 1, as `connection.max_pending_calls`, where 0
+    /// would refuse every call (issue 2518). A Client applies it to its own
+    /// transport, so no layer caps or narrows it.
+    CountFromOne,
     /// A duration in whole milliseconds, the one unit of every surface's
     /// wire (ADR 0080).
     Duration,
@@ -88,6 +92,10 @@ impl ValueKind {
             Self::CountUpTo(most) => match value.as_u64() {
                 Some(count) if count <= *most => Ok(()),
                 _ => wrong(&format!("a whole number from 0 to {most}")),
+            },
+            Self::CountFromOne => match value.as_u64() {
+                Some(1..) => Ok(()),
+                _ => wrong("a whole number from 1"),
             },
             Self::Duration => wrong("a whole number of milliseconds"),
             Self::Text if value.is_string() => Ok(()),
@@ -171,6 +179,7 @@ impl ValueKind {
             Self::Boolean => json!({ "type": "boolean" }),
             Self::Count => json!({ "type": "integer", "minimum": 0 }),
             Self::CountUpTo(most) => json!({ "type": "integer", "minimum": 0, "maximum": most }),
+            Self::CountFromOne => json!({ "type": "integer", "minimum": 1 }),
             Self::Duration => json!({
                 "type": "integer",
                 "minimum": 0,
@@ -310,6 +319,11 @@ pub enum Authority {
     /// themselves (ADR 0083); anywhere else it is `setting_not_applicable`,
     /// since only the engine reads the other layers, once reached.
     ProjectFileAlone,
+    /// Only `connect()`'s own `settings`, as `connection.max_pending_calls`,
+    /// which the Client applies to its own transport from its first call
+    /// (issue 2518); anywhere else it is `setting_not_applicable`, since
+    /// no other layer reaches that transport.
+    ConnectionAlone,
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
@@ -358,6 +372,7 @@ impl Authority {
             Self::OperatorPolicyAlone => "operator_policy_alone",
             Self::Machine => "machine",
             Self::ProjectFileAlone => "project_file_alone",
+            Self::ConnectionAlone => "connection_alone",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::NotByModel => "not_by_model",

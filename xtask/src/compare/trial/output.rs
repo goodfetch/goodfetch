@@ -4,7 +4,8 @@
 //! ground serves (#2136; see `extracted`); and what a counted run on that
 //! site changes so that every page is left ([`traced`]).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -146,6 +147,10 @@ fn written(config: Config) -> Result<Written> {
     })
 }
 
+/// The tier a page is counted under when its Record's Provenance names
+/// none.
+pub(crate) const NO_TIER: &str = "none";
+
 /// What a trial reads of Foxhound's Records.
 pub(super) struct Read {
     /// Each page's first Record's commit time, in seconds from the trial's
@@ -153,12 +158,17 @@ pub(super) struct Read {
     pub(super) times: HashMap<String, f64>,
     /// The pages whose Record came from a sample's browser run.
     pub(super) sample_pages: u64,
+    /// The pages each tier sent, by the tier its first Record's Provenance
+    /// names, `none` where it names none (#2175).
+    pub(super) tiers: BTreeMap<String, u64>,
 }
 
 /// Foxhound's Records' commit times, in seconds from `started`, by path,
-/// and the pages whose Record came from a sample's browser run.
+/// the pages whose Record came from a sample's browser run, and the pages
+/// each tier sent.
 pub(super) fn read(records: &[Record], started: jiff::Timestamp) -> Result<Read> {
-    let mut times = HashMap::new();
+    // Each page's first Record's commit time and tier.
+    let mut firsts: BTreeMap<String, (f64, &str)> = BTreeMap::new();
     let mut samples = HashSet::new();
     for record in records {
         let committed: jiff::Timestamp = record
@@ -174,13 +184,30 @@ pub(super) fn read(records: &[Record], started: jiff::Timestamp) -> Result<Read>
         if record.sample {
             samples.insert(path.clone());
         }
-        times
-            .entry(path)
-            .and_modify(|first: &mut f64| *first = first.min(seconds))
-            .or_insert(seconds);
+        let tier = record.tier.as_deref().unwrap_or(NO_TIER);
+        match firsts.entry(path) {
+            Entry::Occupied(mut first) => {
+                let first = first.get_mut();
+                if seconds < first.0 {
+                    *first = (seconds, tier);
+                }
+            }
+            Entry::Vacant(page) => {
+                page.insert((seconds, tier));
+            }
+        }
     }
+    let mut tiers = BTreeMap::new();
+    for (_, tier) in firsts.values() {
+        *tiers.entry((*tier).to_owned()).or_insert(0) += 1;
+    }
+    let times = firsts
+        .into_iter()
+        .map(|(path, (seconds, _))| (path, seconds))
+        .collect();
     Ok(Read {
         times,
         sample_pages: samples.len() as u64,
+        tiers,
     })
 }

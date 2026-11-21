@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    Executables, Options, counted_output, order, profile_folder, run, set_aside, side_executable,
-    size_points, spider_executable,
+    Executables, Options, counted_output, instruction_cells, order, profile_folder, run, set_aside,
+    side_executable, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -589,6 +589,32 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
             (Tool::Foxhound, 64, None),
             (Tool::Spider, 16, Some(64)),
             (Tool::Spider, 64, Some(128)),
+        ]
+    );
+}
+
+/// The Callgrind cell counts the cells its ratios read: in scenario 1
+/// Foxhound's first cell, its cell at the catalog's defaults on the row
+/// that does not send from the browser and Spider's main row; in the
+/// extraction scenario both of Foxhound's rows and Spider's (#2175).
+#[test]
+fn the_callgrind_cell_counts_the_cells_its_ratios_read() {
+    let measured: Vec<_> = matrix::measured().collect();
+
+    let cells: Vec<(Scenario, &str)> = instruction_cells(&measured)
+        .into_iter()
+        .map(|(cell, _)| (cell.scenario, cell.name))
+        .collect();
+
+    assert_eq!(
+        cells,
+        vec![
+            (Scenario::Raw, "foxhound"),
+            (Scenario::Raw, "spider"),
+            (Scenario::Raw, "foxhound defaults learned"),
+            (Scenario::Extraction, "foxhound"),
+            (Scenario::Extraction, matrix::FILTER_LISTS_OFF),
+            (Scenario::Extraction, "spider"),
         ]
     );
 }

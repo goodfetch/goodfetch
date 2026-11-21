@@ -46,7 +46,7 @@ pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,
 };
-pub use scopes::{beneath_connection, check_scope};
+pub use scopes::{beneath_connection, check_client_bounds, check_scope};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;

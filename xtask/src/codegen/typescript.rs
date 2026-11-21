@@ -19,13 +19,14 @@ use goodfetch_protocol::settings::{
 };
 
 use super::handles::{self, Form, Handle, HandleId, Member, Overload};
-use super::layer::{Deprecation, Layer, Operation, Stability};
+use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
 mod errors;
 mod listeners;
 mod markers;
+mod operation;
 mod settings;
 mod signature;
 mod wire;
@@ -33,6 +34,7 @@ mod wire;
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
 };
+use operation::operation_method;
 use signature::signature;
 
 /// Where Foxhound's layer imports Collie's generated layer from.
@@ -413,42 +415,6 @@ fn operations(layer: &Layer) -> String {
         text.push_str(&operation_method(layer, operation));
     }
     text.push_str("}\n");
-    text
-}
-
-/// The async method of the operations class sending `operation`, with its
-/// `TSDoc` and its warnings: its markers', and the deprecated keys of a run
-/// layer it takes as raw JSON, as a typed member's settings are (ADR 0099).
-fn operation_method(layer: &Layer, operation: &Operation) -> String {
-    let mut text = doc(
-        "  ",
-        &operation.description,
-        operation.stability,
-        operation.deprecated.as_ref(),
-    );
-    let method = camel(&operation.name);
-    let (params, result) = (&operation.params.0, &operation.result.0);
-    let mut warn = warnings(operation);
-    if layer.takes_raw_settings(operation) {
-        let _ = writeln!(
-            warn,
-            "    {}(params.settings);",
-            settings::WARN_DEPRECATED_SETTINGS
-        );
-    }
-    if operation.cancellable {
-        let _ = write!(
-            text,
-            "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, options);\n  }}\n",
-            operation.name
-        );
-    } else {
-        let _ = write!(
-            text,
-            "  {method}(params: {params}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, {{}});\n  }}\n",
-            operation.name
-        );
-    }
     text
 }
 

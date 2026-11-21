@@ -2,8 +2,7 @@
 //! of a page that was fetched, and an explicit `null` for one never
 //! fetched, never a made-up 0 (ADR 0035).
 
-use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::page::BlockedDetails;
+use goodfetch_protocol::foxhound::block::{BlockCause, BlockedDetails};
 
 use super::{noindexed, reached_through_trap};
 use crate::delivery::attempt::Answer;

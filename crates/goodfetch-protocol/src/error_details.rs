@@ -36,6 +36,11 @@ impl ErrorDetails for crate::run::RunDetails {
     ];
 }
 
+/// `blocked`'s details as Foxhound reads them, its cause Foxhound's.
+impl ErrorDetails for crate::foxhound::block::BlockedDetails {
+    const CODES: &'static [ErrorCode] = &[ErrorCode::BLOCKED];
+}
+
 impl ErrorDetails for crate::run::ReachedLimit {
     const CODES: &'static [ErrorCode] = &[ErrorCode::LIMIT_REACHED];
 }

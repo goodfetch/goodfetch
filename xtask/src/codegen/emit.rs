@@ -39,7 +39,6 @@
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::{BrowserCleaned, BrowserInstalled};
 use goodfetch_protocol::case_log::CaseLogEntry;
 use goodfetch_protocol::catalog::sections::Sections;
@@ -52,6 +51,7 @@ use goodfetch_protocol::daemon::{
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::events::{CreditParams, EventBatch};
 use goodfetch_protocol::formats::FORMATS;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::dataset::RecordRead;
 use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use goodfetch_protocol::journey::{Journey, JourneyCatalog};

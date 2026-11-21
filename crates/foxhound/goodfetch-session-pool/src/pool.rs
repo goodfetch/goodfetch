@@ -47,7 +47,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::local_addresses::{
     BlockSizes, Host, Rotation, SessionAddresses, Unavailable, block_of,
 };
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rusqlite::Connection;

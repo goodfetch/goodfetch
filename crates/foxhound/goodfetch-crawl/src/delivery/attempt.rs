@@ -102,9 +102,9 @@ use goodfetch_fetch_tier::{
     tier_provenance, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -1441,11 +1441,14 @@ impl On<'_> {
         if let Some(call) = facts.escalated {
             return Found::Unreadable(call);
         }
-        if let Some((block, error)) = tiering.tiers.block(page_id).await.filter(|(block, _)| {
-            block.checks_the_browser()
-                || escalation::on_block(&block.cause, self.met(choice, how)) == Action::Sample
-        }) {
-            return Found::Blocked(block.cause, error);
+        if let Some((block, error)) = tiering.tiers.block(page_id).await {
+            let checks_the_browser = block.checks_the_browser();
+            let cause = BlockCause::from(block.cause);
+            if checks_the_browser
+                || escalation::on_block(&cause, self.met(choice, how)) == Action::Sample
+            {
+                return Found::Blocked(cause, error);
+            }
         }
         Found::Readable
     }

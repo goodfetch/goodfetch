@@ -11,11 +11,11 @@ import {
   Collie,
   EngineExitedError,
   type GoodfetchError,
-  isGoodfetchError,
   RunStateUnavailableError,
 } from "@goodfetch/collie";
 import {
   failure,
+  goodfetchFailure,
   recordingLogger,
   scriptedEngineEnv,
   searchCanaries,
@@ -33,15 +33,6 @@ const CRASH_CANARY: Canary = {
   kind: "model_api_key",
   value: "model-api-key-canary-7c1e4a90d2b3",
 };
-
-/** The Goodfetch error `promise` rejects with. */
-async function goodfetchFailure(promise: Promise<unknown>): Promise<GoodfetchError> {
-  const error = await failure(promise);
-  if (!isGoodfetchError(error)) {
-    throw new Error(`the call failed with ${String(error)}, no Goodfetch error`);
-  }
-  return error;
-}
 
 /** What a runtime's own error reads as in ADR 0079's layout: its parts, not its wording. */
 function layoutOf(error: GoodfetchError): {

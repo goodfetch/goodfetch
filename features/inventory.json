@@ -10693,6 +10693,17 @@
       ]
     },
     {
+      "id": "setting:usage.ledger_read_interval",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:version.age_notice",
       "kind": "setting",
       "area": 3,

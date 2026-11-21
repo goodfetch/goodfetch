@@ -38,12 +38,13 @@ const HOST: &str = "tiers.test";
 
 /// The settings of a racing crawl of the Proving ground, two requests at a
 /// time on a domain with no delay, so a race's navigation has room beside
-/// its browser-fetch (ADR 0086), and one sample per Label on a domain.
+/// its browser-fetch (ADR 0086), and one sample per Label on a domain, its
+/// HTTP sent from the browser (`fetch.http_from: browser`).
 fn racing(proving_ground: &ProvingGround) -> Value {
     settings(
         proving_ground,
         &json!({
-            "fetch": { "tier_race": true, "sample": { "count": 1 } },
+            "fetch": { "tier_race": true, "http_from": "browser", "sample": { "count": 1 } },
             "politeness": { "domain": { "concurrency": 2, "delay": 0 } },
         }),
     )

@@ -37,6 +37,7 @@ use super::{
 };
 use crate::robots_txt;
 
+mod crawl_delays;
 mod pacing;
 
 /// A rule's steps on a Politeness file's connection, each loading the

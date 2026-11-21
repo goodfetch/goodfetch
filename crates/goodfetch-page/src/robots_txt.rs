@@ -75,16 +75,30 @@ pub fn applicable_rules<'a, R>(
     groups: &'a [Group<R>],
     operator: Option<&ProductToken>,
 ) -> Vec<&'a R> {
+    applicable_groups(groups, |group| &group.user_agents, operator)
+        .into_iter()
+        .flat_map(|group| &group.rules)
+        .collect()
+}
+
+/// The groups a crawl obeys of `groups`, a robots.txt file's groups in
+/// file order, each read for its `User-agent` lines' values with
+/// `user_agents`, as [`applicable_rules`] selects them, in file order: a
+/// parse's own groups are selected without copying their values (#1899).
+pub fn applicable_groups<'a, G>(
+    groups: &'a [G],
+    user_agents: impl Fn(&G) -> &[String],
+    operator: Option<&ProductToken>,
+) -> Vec<&'a G> {
     let foxhound = ProductToken::foxhound();
-    let named = |group: &Group<R>| {
-        group.user_agents.iter().any(|user_agent| {
+    let named = |group: &G| {
+        user_agents(group).iter().any(|user_agent| {
             foxhound.named_by(user_agent)
                 || operator.is_some_and(|token| token.named_by(user_agent))
         })
     };
-    let everyone = |group: &Group<R>| {
-        group
-            .user_agents
+    let everyone = |group: &G| {
+        user_agents(group)
             .iter()
             .any(|user_agent| is_star(user_agent))
     };
@@ -98,7 +112,6 @@ pub fn applicable_rules<'a, R>(
                 everyone(group)
             }
         })
-        .flat_map(|group| &group.rules)
         .collect()
 }
 

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
+use serde::Serialize;
 
 use crate::call::Query;
 use crate::connection::ClientConnection;
@@ -88,22 +89,39 @@ impl IntoFuture for Start {
     /// on the calling thread, which the start tells the engine first when
     /// it changed (ADR 0078).
     fn into_future(mut self) -> Self::IntoFuture {
+        let settings = self.settings.within(SettingScope::Run);
+        let started = settings.map(|settings| {
+            self.params.settings = settings;
+            self.connection.start_with(RUN_START.name, self.params)
+        });
+        Box::pin(async move { started?.await })
+    }
+}
+
+impl ClientConnection {
+    /// Starts a Run with `opener`, a Product's own call that opens a Run
+    /// and answers `RunStarted`, such as Foxhound's `crawl.start` (ADR
+    /// 0102), sending `params`: the Run it answers is held as a start's
+    /// is, closed with the Connection. Reads the level the program's
+    /// subscriber records for the engine on the calling thread, which the
+    /// start tells the engine first when it changed (ADR 0078).
+    pub fn start_with(
+        &self,
+        opener: &'static str,
+        params: impl Serialize + Send + 'static,
+    ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
         let log_level = engine_log_level();
-        Box::pin(async move {
-            self.params.settings = self.settings.within(SettingScope::Run)?;
-            self.connection.follow_log_level(log_level).await?;
-            let started: RunStarted = self
-                .connection
-                .call(RUN_START.name, &self.params)
-                .no_timeout()
-                .await?;
+        let connection = self.clone();
+        async move {
+            connection.follow_log_level(log_level).await?;
+            let started: RunStarted = connection.call(opener, &params).no_timeout().await?;
             log_start(&started);
-            let held = HeldRun::new(self.connection, started.run_id.clone(), started.lifecycle);
+            let held = HeldRun::new(connection, started.run_id.clone(), started.lifecycle);
             Ok(Run {
                 host: Host::run(held),
                 opened: Arc::new(started),
             })
-        })
+        }
     }
 }
 

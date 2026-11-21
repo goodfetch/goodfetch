@@ -2726,6 +2726,7 @@ dependencies = [
  "csv",
  "data-encoding",
  "flate2",
+ "futures-util",
  "goodfetch-clean-up-rules",
  "goodfetch-collie",
  "goodfetch-collie-client",

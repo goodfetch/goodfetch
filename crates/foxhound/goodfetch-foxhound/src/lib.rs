@@ -39,13 +39,17 @@
 
 pub mod blocking;
 mod composition;
+mod crawl;
+mod crawl_requests;
 #[cfg(feature = "executable")]
 pub mod executable;
 mod foxhound;
 mod sample;
 pub mod settings;
+mod sync;
 
 pub use composition::{composition, composition_with};
+pub use crawl::{Crawl, CrawlContext, CrawlRun, Dataset, Label, Seed, StartCrawl};
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{
     ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
@@ -59,6 +63,8 @@ pub use goodfetch_collie_client::{
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the
 /// engine.
 pub use goodfetch_protocol::foxhound::error_code;
+pub use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{
     FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,

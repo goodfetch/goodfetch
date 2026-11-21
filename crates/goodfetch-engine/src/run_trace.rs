@@ -49,8 +49,8 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
@@ -59,6 +59,7 @@ use goodfetch_protocol::home::{
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
+use goodfetch_protocol::run::RunId;
 use jiff::Timestamp;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TrySendError;
@@ -313,8 +314,8 @@ impl CallLog {
     /// ended as `ended`: answered, or failed with its Error code. Its line
     /// is written with the next group the writer writes, and no one waits
     /// for it. It is lost with a `warn` event when the writer's mailbox is
-    /// full, and with a `debug` one once the Run has ended, as is the line
-    /// of a call that ends its own Run, sent after that end.
+    /// full, and with a `debug` one once the Run has ended; a call that ends
+    /// its Run writes its [`RawCallLine`] before that end.
     pub fn raw_call(&self, operation: &str, arrived_at: Timestamp, ended: Result<(), &str>) {
         /// A line of the raw call log, its members in the order written.
         #[derive(Serialize)]
@@ -360,6 +361,50 @@ impl CallLog {
                 operation,
                 "a raw call is not in the Run trace: its Run has ended"
             ),
+        }
+    }
+}
+
+/// A raw call's line in the trace of the live Run it names (ADR 0099, G8),
+/// written once: by the call when it ends, with how it ended, or, for a
+/// call that ends that Run or waits for its end, by the Run's end, as
+/// answered, before the end stops the writer, whichever comes first.
+#[derive(Debug)]
+pub struct RawCallLine {
+    run: RunId,
+    log: CallLog,
+    operation: &'static str,
+    arrived_at: Timestamp,
+    written: OnceLock<()>,
+}
+
+impl RawCallLine {
+    /// The line of a raw call of `operation`, arrived at `arrived_at`,
+    /// naming the Run `run`, whose raw call log is `log`.
+    pub fn new(run: RunId, log: CallLog, operation: &'static str, arrived_at: Timestamp) -> Self {
+        Self {
+            run,
+            log,
+            operation,
+            arrived_at,
+            written: OnceLock::new(),
+        }
+    }
+
+    /// The Run whose trace it is a line of.
+    pub fn run(&self) -> &RunId {
+        &self.run
+    }
+
+    /// Whether it was written.
+    pub fn is_written(&self) -> bool {
+        self.written.get().is_some()
+    }
+
+    /// Writes the line, the call `ended` as it says, unless it was written.
+    pub fn write(&self, ended: Result<(), &str>) {
+        if self.written.set(()).is_ok() {
+            self.log.raw_call(self.operation, self.arrived_at, ended);
         }
     }
 }

@@ -30,6 +30,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
@@ -52,7 +53,9 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
 
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams, named};
+use goodfetch_engine::{
+    Answered, CallContext, CallError, GuardAnswer, ReadParams, RunOfCall, named,
+};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
@@ -2270,6 +2273,24 @@ impl FetchTiers {
             }
             Unserved::Refused(error) => error,
         }
+    }
+}
+
+// The Run a raw call names by a page a document tier serves, whose trace
+// records it (ADR 0099); a browser page's is Collie's Sessions'.
+impl RunOfCall for FetchTiers {
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
+        let run = self
+            .served_page(&PageId(page_id.to_owned()))
+            .map(|page| page.hand_over.run().id().clone());
+        Box::pin(std::future::ready(run))
+    }
+
+    fn session_run(&self, _session_id: &str) -> Option<RunId> {
+        None
     }
 }
 

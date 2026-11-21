@@ -23,7 +23,9 @@ use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, META, ProtocolFailure}
 use goodfetch_protocol::naming;
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
-use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingLimit};
+use goodfetch_protocol::settings::{
+    SETTING_INVALID, SETTING_UNKNOWN, SettingInvalidDetails, SettingLimit, SettingUnknownDetails,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -249,6 +251,17 @@ impl Error {
     #[must_use]
     pub fn setting_invalid(message: String, details: &SettingInvalidDetails) -> Self {
         Self::of(&SETTING_INVALID, message).with_details(details)
+    }
+
+    /// A name a Product crate's connection reads before it reaches an
+    /// engine, such as a `GOODFETCH_` variable off the closed list of
+    /// deployment variables, is unknown: `setting_unknown`, with `details`
+    /// and `fix` saying what to do.
+    #[must_use]
+    pub fn setting_unknown(message: String, details: &SettingUnknownDetails, fix: String) -> Self {
+        let mut error = Self::of(&SETTING_UNKNOWN, message).with_details(details);
+        error.0.data.insert("fix".to_owned(), fix.into());
+        error
     }
 
     /// A call refused before it is sent, as the engine would refuse its

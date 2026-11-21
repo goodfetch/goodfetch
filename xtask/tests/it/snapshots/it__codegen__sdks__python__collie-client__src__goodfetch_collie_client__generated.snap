@@ -28,6 +28,24 @@ PRODUCT_VERSION: Final = "0.0.0"
 ATTACHED_ENGINE_COMMAND: Final = "attached-engine"
 """The executable's hidden command that serves one Connection over stdio."""
 
+DEPLOYMENT_PREFIX: Final = "GOODFETCH_"
+"""The prefix every deployment variable has, which ADR 0034 reserves."""
+
+DEPLOYMENT_VARIABLES: Final = (
+    "GOODFETCH_BROWSERS_PATH",
+    "GOODFETCH_CHANNEL",
+    "GOODFETCH_COLLIE_ENGINE_PATH",
+    "GOODFETCH_DAEMON_ADDRESS",
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
+    "GOODFETCH_FOXHOUND_ENGINE_PATH",
+    "GOODFETCH_HOME",
+    "GOODFETCH_OPS_ADDRESS",
+    "GOODFETCH_TEST_SEED",
+    "GOODFETCH_TOKEN",
+    "GOODFETCH_URL",
+)
+"""The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083)."""
+
 COLLIE_ENGINE_PATH_VARIABLE: Final = "GOODFETCH_COLLIE_ENGINE_PATH"
 """The variable naming Collie's executable (ADR 0090)."""
 

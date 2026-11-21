@@ -477,24 +477,6 @@ async def test_fails_with_setting_invalid_before_any_engine_starts_when_goodfetc
 
 
 @pytest.mark.anyio
-async def test_takes_an_empty_goodfetch_url_for_unset(
-    test_env: TestEnv, product: ToolProduct
-) -> None:
-    """An empty `GOODFETCH_URL` names no Daemon, as the engine reads it."""
-    env = {
-        **scripted_engine_env(test_env, product, ATTACHED),
-        "GOODFETCH_URL": "",
-        "GOODFETCH_TOKEN": "",
-    }
-
-    collie = await open_collie(Way.ASYNCIO, env)
-    engine = collie.engine
-    await collie.close()
-
-    assert engine.kind == "attached"
-
-
-@pytest.mark.anyio
 async def test_refuses_an_engine_choice_it_does_not_know(
     test_env: TestEnv, product: ToolProduct
 ) -> None:

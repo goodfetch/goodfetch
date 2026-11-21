@@ -31,6 +31,11 @@
 //! (`index`), so a member sets each by name; a type or field the handles
 //! cannot spell fails `xtask codegen` with the operation named, and rustc
 //! checks every member against the crate's own types.
+//!
+//! Size: one concern, the handles' Rust text: the models a namespace's
+//! handle, members and builders are read into, and the `Module` that
+//! writes both twins from them; the index, listeners, raw call and
+//! settings live in modules of their own.
 
 mod index;
 mod listeners;

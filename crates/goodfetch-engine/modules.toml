@@ -167,9 +167,10 @@ writer = []
 
 # Which of `rpc`'s own modules may import which.
 [submodules.rpc]
-connection = ["framing", "handshake", "websocket"]
+connection = ["framing", "handshake", "raw_call", "websocket"]
 framing = []
 handshake = []
+raw_call = []
 stream = []
 websocket = ["framing"]
 

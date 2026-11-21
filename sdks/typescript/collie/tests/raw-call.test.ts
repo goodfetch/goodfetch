@@ -1,7 +1,11 @@
 // The raw catalog call (ADR 0099, G8) on the Scripted engine as a Foxhound
 // engine, which a Collie program reaches: `call` on the Connection and on
 // each value sends the wire's JSON, marked raw in its `_meta`, and answers
-// the engine's unchanged, and the main path's protections hold.
+// the engine's unchanged, and the main path's protections hold. On the
+// executable of the same commit, the Run trace records a Run's raw call,
+// marked raw.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Collie } from "@goodfetch/collie";
 import {
   CallCancelledError,
@@ -124,6 +128,33 @@ describe("The raw call on the Scripted engine as the Attached engine", () => {
         "the script played to its end, so nothing was retried or sent unasked",
         () => expect(warned).toEqual([]),
       );
+    },
+  );
+});
+
+describe("The raw call on the executable of the same commit", () => {
+  test(
+    "is in its Run's trace, marked raw, and the generated calls are not",
+    { tags: ["story:11-181"] },
+    async ({ env, testEnv }) => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env });
+      const run = await collie.start();
+      await run.call("run.usage");
+      await run.finish();
+      await collie.close();
+
+      const log = readFileSync(
+        join(testEnv.home, "0.0", "runs", run.id(), "trace", "calls.jsonl"),
+        "utf8",
+      );
+      const lines = log
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line): unknown => JSON.parse(line));
+      expect(lines).toEqual([
+        expect.objectContaining({ operation: "run.usage", raw: true, ended: "answered" }),
+      ]);
     },
   );
 });

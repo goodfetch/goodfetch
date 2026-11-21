@@ -22,13 +22,16 @@ pub mod framing;
 
 mod connection;
 mod handshake;
+mod raw_call;
 mod stream;
 mod websocket;
 
 pub use self::stream::send_events;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{Form, NOT_IN_PRODUCT};
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, Form, NOT_IN_PRODUCT,
+};
 
 use goodfetch_protocol::jsonrpc::{ErrorResponse, RequestId, Version};
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
@@ -94,6 +97,19 @@ fn not_in_product(
 ) -> CallError {
     let (message, details) = identity.not_in_product(requested, needs, behind_gateway);
     CallError::new(&NOT_IN_PRODUCT, message, &details)
+}
+
+/// The error of a call its Client cancelled.
+fn cancelled_by_client() -> CallError {
+    CallError::new(
+        &CALL_CANCELLED,
+        "The call was cancelled by its Client.",
+        &CallCancelledDetails {
+            by: CancelledBy::Client,
+            closed: None,
+            person: None,
+        },
+    )
 }
 
 /// The line of a failure, the one conversion of an error for the wire, its

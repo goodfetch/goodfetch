@@ -48,6 +48,8 @@ mod session_pages;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,7 +68,7 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
-use goodfetch_engine::{CallContext, CallError};
+use goodfetch_engine::{CallContext, CallError, RunOfCall};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
@@ -297,6 +299,34 @@ pub(crate) struct OpenPage {
     _admission: Arc<Permit>,
     /// Its place among its browser's open pages, left at the same moment.
     in_browser: Arc<InBrowser>,
+}
+
+// The Run a raw call names by a page or a Session, whose trace records it
+// (ADR 0099).
+impl RunOfCall for Sessions {
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
+        Box::pin(async move {
+            let page_id = PageId(page_id.to_owned());
+            let state = self.state.lock().await;
+            state
+                .pages
+                .get(&page_id)
+                .map(|page| page.run.id().clone())
+                .or_else(|| {
+                    state
+                        .crashed
+                        .get(&page_id)
+                        .map(|(run_id, _)| run_id.clone())
+                })
+        })
+    }
+
+    fn session_run(&self, session_id: &str) -> Option<RunId> {
+        parse_session_id(&SessionId(session_id.to_owned())).map(|(run_id, _)| run_id)
+    }
 }
 
 /// The ID of the Session at `position` of the Run `run`.

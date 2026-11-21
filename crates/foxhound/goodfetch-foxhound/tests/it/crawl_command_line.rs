@@ -248,7 +248,7 @@ fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
             followed.exit,
             restarted.exit,
             refused["error"]["code"].clone(),
-            refused["error"]["details"]["scope"].clone(),
+            refused["error"]["scope"].clone(),
         ),
         (
             Some(20),

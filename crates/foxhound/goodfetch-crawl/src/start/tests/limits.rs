@@ -64,15 +64,11 @@ fn a_limit_given_at_a_crawls_start_stops_it_on_its_run_scope() {
     );
 }
 
-/// A start naming the crawl again above its Limit is refused before it
-/// resumes, and one under the ID of a crawl its Limit stopped is refused
-/// with `limit_reached` while that Limit stays used up (ADR 0102).
-#[test]
-fn a_crawl_start_naming_the_crawl_again_is_refused_above_its_limit_and_once_it_is_used_up() {
-    let env = TestEnv::new();
-
-    let (raised, used_up) = crawl(
-        || dependencies(&env, RunStateOptions::default()),
+/// The reply to a `crawl.start` naming the crawl `held` again with
+/// `amount` requests, once its first start's Limit of two stopped it.
+fn restarted(env: &TestEnv, amount: u64) -> Value {
+    crawl(
+        || dependencies(env, RunStateOptions::default()),
         async |client| {
             client
                 .call("crawl.start", start_with("held", 2), &mut |_| Reply::Silent)
@@ -80,28 +76,49 @@ fn a_crawl_start_naming_the_crawl_again_is_refused_above_its_limit_and_once_it_i
             client
                 .call("run.finish", json!({ "run_id": "held" }), &mut one_record)
                 .await;
-            let raised = client
-                .call("crawl.start", start_with("held", 8), &mut |_| Reply::Silent)
-                .await;
-            let used_up = client
-                .call("crawl.start", start_with("held", 2), &mut |_| Reply::Silent)
-                .await;
-            (raised, used_up)
+            client
+                .call("crawl.start", start_with("held", amount), &mut |_| {
+                    Reply::Silent
+                })
+                .await
         },
+    )
+}
+
+/// A start naming the crawl again above its Limit is refused before it
+/// resumes (ADR 0102).
+#[test]
+fn a_crawl_start_naming_the_crawl_again_above_its_limit_is_refused() {
+    let env = TestEnv::new();
+
+    let raised = restarted(&env, 8);
+
+    assert_eq!(
+        raised["error"]["data"]["code"],
+        json!("limit_raise_refused"),
+        "{raised:#?}"
     );
+}
+
+/// A start under the ID of a crawl its Limit stopped is refused with
+/// `limit_reached`, naming the crawl's own Limit, while that Limit stays
+/// used up (ADR 0102).
+#[test]
+fn a_crawl_start_naming_a_crawl_its_limit_stopped_is_refused_limit_reached() {
+    let env = TestEnv::new();
+
+    let used_up = restarted(&env, 2);
 
     assert_eq!(
         (
-            &raised["error"]["data"]["code"],
             &used_up["error"]["data"]["code"],
             &used_up["error"]["data"]["scope"],
         ),
         (
-            &json!("limit_raise_refused"),
             &json!("limit_reached"),
-            &json!({ "kind": "run", "id": "held" }),
+            &json!({ "kind": "run", "id": "held" })
         ),
-        "{raised:#?}\n{used_up:#?}"
+        "{used_up:#?}"
     );
 }
 

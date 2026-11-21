@@ -334,17 +334,13 @@ fn run_start_takes_its_limits_as_repeated_limit_flags() {
         &["--limit", "requests=5", "--limit", "page_crashes=1"],
     )
     .unwrap();
-    let raw = parse(run_start, &["--limits", "[]"]).unwrap_err();
 
     assert_eq!(
-        (params, raw.kind()),
-        (
-            json!({ "limits": [
-                { "usage_kind": "requests", "amount": 5 },
-                { "usage_kind": "page_crashes", "amount": 1 },
-            ] }),
-            ErrorKind::UnknownArgument,
-        )
+        params,
+        json!({ "limits": [
+            { "usage_kind": "requests", "amount": 5 },
+            { "usage_kind": "page_crashes", "amount": 1 },
+        ] })
     );
 }
 

@@ -1,4 +1,4 @@
-use clap::error::ErrorKind;
+use clap::error::{ContextKind, ErrorKind};
 use clap::{Args as _, Command, FromArgMatches as _};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -70,9 +70,12 @@ fn a_malformed_limit_is_a_usage_error_naming_the_flag(#[case] flag: &str) {
         (
             error.kind(),
             error.exit_code(),
-            error.to_string().contains("--limit")
+            error
+                .get(ContextKind::InvalidArg)
+                .map(ToString::to_string)
+                .as_deref()
         ),
-        (ErrorKind::ValueValidation, 2, true),
+        (ErrorKind::ValueValidation, 2, Some("--limit <KIND=AMOUNT>")),
         "{error}"
     );
 }

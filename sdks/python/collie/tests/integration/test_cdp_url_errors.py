@@ -10,7 +10,7 @@ TypeScript's `cdp-url-errors.test.ts` is its twin.
 
 import pytest
 from collie_calls import engine_warnings, failure, open_collie
-from goodfetch_collie_client.generated.errors import (
+from goodfetch_collie import (
     CDPURLNotAllowedError,
     CDPURLNotBrowserError,
     CDPURLUnauthorizedError,

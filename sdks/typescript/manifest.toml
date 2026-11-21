@@ -284,6 +284,116 @@ form = "closer"
 
 [[member]]
 package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "AIWorkResult"
+entry = "none"
+reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+words = ["ai", "work", "result"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "constructor"
+entry = "none"
+reason = "What the SDK's AI work calls build their result with (ADR 0079), from its `AIWorkFields`."
+words = ["ai", "work", "result"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "ended"
+entry = "none"
+reason = "How the work ended, its answer inside (ADR 0117), read without a round trip."
+words = ["ended"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "verdict"
+entry = "none"
+reason = "Whether the program's checks prove the work (ADR 0079), read without a round trip."
+words = ["verdict"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "verdictReasons"
+entry = "none"
+reason = "Why the Verdict is not `verified` (ADR 0102), read without a round trip."
+words = ["verdict", "reasons"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "reported"
+entry = "none"
+reason = "What the model claimed, a signal and never proof (ADR 0100), read without a round trip."
+words = ["reported"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "AIWorkResult"
+member = "requireVerified"
+entry = "none"
+reason = "Hands over the output only when the work finished and its Verdict is `verified`, and throws `not_verified` otherwise (ADR 0079), with no round trip."
+words = ["require", "verified"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "AIWorkFields"
+entry = "none"
+reason = "What `AIWorkResult`'s constructor takes (ADR 0079)."
+only = "Python's dataclass and Rust's struct take their fields directly."
+words = ["ai", "work", "fields"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Claim"
+entry = "none"
+reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
+words = ["claim"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Ended"
+entry = "none"
+reason = "How AI work ended (ADR 0117), narrowed on `kind`: `finished` or `stopped`."
+words = ["ended"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "PartialOf"
+entry = "none"
+reason = "What stopped AI work had gathered, typed from its output (ADR 0100)."
+only = "Python's `partial` is a mapping or a list, and Rust's a `PartialOutput` read by type (ADR 0100)."
+words = ["partial", "of"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Reported"
+entry = "none"
+reason = "The model's claim and its message (ADR 0100): a signal, never proof."
+words = ["reported"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
 receiver = "Run"
 member = "id"
 entry = "none"

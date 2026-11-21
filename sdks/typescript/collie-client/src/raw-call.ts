@@ -145,7 +145,10 @@ export async function rawCall(
   }
   // The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132).
   sent[META] = { raw: true };
-  const result = await send(operation, sent, { signal: options.signal });
+  const result = await send(operation, sent, {
+    signal: options.signal,
+    deadline: { key: "timeout", value: options.timeout },
+  });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a result is JSON.
   return result as JSONValue;
 }

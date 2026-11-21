@@ -8,6 +8,7 @@ import { playScript, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { startAndFinish } from "../tests/programs/tracer.ts";
 import { EngineExitedError, NotInProductError } from "@goodfetch/collie-client";
+import { pageOf } from "@goodfetch/collie-client/runtime";
 import { Collie } from "./collie.ts";
 import { connectOver } from "./testing.ts";
 
@@ -275,6 +276,134 @@ describe("connect() over a transport whose writes the engine's side rejects", ()
 
       expect(error).toBeInstanceOf(EngineExitedError);
       expect(error).toMatchObject({ code: "engine_exited", cause: refused });
+    },
+  );
+});
+
+/**
+ * An engine played by hand whose `hello` result caps its calls in flight
+ * at `cap`: each later request it reads waits in `calls` for `answer`.
+ */
+function cappingEngine(cap: number): {
+  transport: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
+  calls: { readonly id: unknown; readonly method: unknown }[];
+  answer(id: unknown, result: unknown): void;
+} {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const calls: { readonly id: unknown; readonly method: unknown }[] = [];
+  let replies: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const reply = (id: unknown, result: unknown): void =>
+    replies?.enqueue(encoder.encode(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`));
+  const readable = new ReadableStream<Uint8Array>({
+    start(controller) {
+      replies = controller;
+    },
+  });
+  const writable = new WritableStream<Uint8Array>({
+    write(bytes) {
+      const lines = decoder.decode(bytes).split("\n");
+      for (const line of lines.filter((text) => text !== "")) {
+        const message: unknown = JSON.parse(line);
+        if (typeof message !== "object" || message === null || !("id" in message)) {
+          continue;
+        }
+        const method = "method" in message ? message.method : undefined;
+        if (method === "hello") {
+          reply(message.id, {
+            protocol_version: "0.1",
+            product: "collie",
+            product_version: "0.0.0",
+            engine_instance: "0123456789abcdef",
+            max_calls_in_flight: cap,
+          });
+        } else {
+          calls.push({ id: message.id, method });
+        }
+      }
+    },
+  });
+  return { transport: { readable, writable }, calls, answer: reply };
+}
+
+/** Answers with `result` the call `engine` reads in place `index`, once it is sent. */
+async function answerCall(
+  engine: ReturnType<typeof cappingEngine>,
+  index: number,
+  result: unknown,
+): Promise<void> {
+  await expect.poll(() => engine.calls.length).toBeGreaterThan(index);
+  engine.answer(engine.calls[index]?.id, result);
+}
+
+describe("a Connection whose engine caps its calls in flight", () => {
+  test("starts 300 calls at once and gets every answer, at most the cap in flight, the rest sent in order", async () => {
+    const engine = cappingEngine(256);
+    const collie = await connectOver(engine.transport);
+    const calls = Array.from({ length: 300 }, () => collie.call("run.list", {}));
+    await new Promise((resolve) => setImmediate(resolve));
+    const sentAtOnce = engine.calls.length;
+
+    for (let index = 0; index < 300; index += 1) {
+      await answerCall(engine, index, { runs: [] });
+    }
+    const answers = await Promise.all(calls);
+
+    expect(sentAtOnce).toBe(256);
+    expect(engine.calls.map((call) => call.id)).toEqual(
+      Array.from({ length: 300 }, (_, index) => index + 1),
+    );
+    expect(answers).toEqual(Array.from({ length: 300 }, () => ({ runs: [] })));
+  });
+
+  test(
+    "fails a raw call that waits past its timeout for a place with deadline_exceeded, never sent",
+    { tags: ["error:deadline_exceeded"] },
+    async () => {
+      const engine = cappingEngine(1);
+      const collie = await connectOver(engine.transport);
+      const holding = collie.call("run.list", {});
+
+      const error = await failure(collie.call("run.list", {}, { timeout: 5 }));
+      await answerCall(engine, 0, { runs: [] });
+      await holding;
+
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        limit: { value: 5, layer: "run", origin: "argument" },
+        details: { waited_for: "calls_in_flight" },
+      });
+      expect(engine.calls).toHaveLength(1);
+    },
+  );
+
+  test(
+    "fails a handler's page call that waits past its timeout for a place with deadline_exceeded, never sent",
+    { tags: ["error:deadline_exceeded"] },
+    async () => {
+      const engine = cappingEngine(1);
+      const collie = await connectOver(engine.transport);
+      const starting = collie.start();
+      await answerCall(engine, 0, {
+        run_id: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+        lifecycle: "running",
+        needs: "collie",
+        started_as: "new",
+      });
+      const run = await starting;
+      const holding = collie.call("run.list", {});
+      const page = pageOf(run, "page-1", new AbortController().signal);
+
+      const error = await failure(page.goto("https://example.com/", { timeout: 5 }));
+      await answerCall(engine, 1, { runs: [] });
+      await holding;
+
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        limit: { key: "timeout.navigation", value: 5 },
+        details: { waited_for: "calls_in_flight" },
+      });
+      expect(engine.calls.map((call) => call.method)).toEqual(["run.start", "run.list"]);
     },
   );
 });

@@ -44,6 +44,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
 ### Calls, and where user code runs
 
 - **No queue in the SDK** (K04). Each call goes to the engine when it is made, and the engine starts a page's calls in arrival order (ADR 0080). Cypress's queue draws #1417 (492 reactions, open since 2018), and Selenium removed WebDriverJS's promise manager for "reduced debuggability" (#2969). Whether gestures on one page run one at a time is [Collie's page API](https://github.com/goodfetch/goodfetch/issues/472)'s (ADR 0085).
+  > Note (agent decision, not read by the owner), 2026-11-21, [#2529](https://github.com/goodfetch/goodfetch/issues/2529): one queue amends this. A Client holds back the calls past the engine's cap on calls in flight, which `hello`'s result advertises, and sends them in the order they were made as places free (ADR 0038's note of that day). Under the cap each call still goes to the engine when it is made.
 - **Where user code runs.** This covers the requests that need the program's answer (a crawl handler, a route, a dialog handler, a Hook in code) and listeners:
   - TypeScript: on the program's event loop. A function the engine calls may return a value or a promise.
   - Python async: as tasks on the connection's loop, inside a task group owned by the value that registered them, so closing that value cancels and awaits them (ADR 0038's tree). Handlers, routes and Hooks are `async def`, which the type checker enforces; predicates are plain functions; listeners may be either.

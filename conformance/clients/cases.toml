@@ -311,6 +311,25 @@ covers = ["story:11-10", "story:11-13", "story:11-189", "story:11-294"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
+# Errors and outcomes (ADRs 0067 and 0079; issue 2948): a navigation to a
+# missing page returns its 404 response, an outcome, while a failure in each
+# of the seven groups raises its code's class under its group's, carrying
+# its code, whether it is retryable, the operation, call and Run IDs, the
+# fields that apply and its details; a code no catalog has, here a model
+# one, raises its group's class with the code kept. The program fills a
+# field with a Secret's value, the canary, which no rendering of any error
+# (message, string form, debug form, stack) nor any log line holds. Played
+# by the Scripted engine: attached in TypeScript and Python (asyncio, Trio
+# and the sync API), and as the Daemon Rust's client crate reaches.
+[[capability]]
+name = "errors"
+
+[[capability.case]]
+id = "errors-and-outcomes"
+covers = ["story:11-28", "story:11-30", "story:11-187"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
 # A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh
 # ID begins it, an interrupted Run's resumes it, logged at info, and a
 # finished Run's returns it ended, logged at warning, where a call that would

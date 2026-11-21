@@ -511,9 +511,6 @@ fn operations(layer: &Layer) -> String {
         if returns { ", result_of" } else { "" }
     );
     let mut warned = BTreeSet::new();
-    // A run layer taken as raw JSON is checked for deprecated keys as a
-    // typed member's settings are (ADR 0099).
-    let checks_settings = sent().any(|operation| layer.takes_raw_settings(operation));
     let mut body = String::new();
     for (prefix, caller, asynchronous) in [("Async", "AsyncCaller", true), ("", "Caller", false)] {
         let mode = if asynchronous { "async" } else { "sync" };
@@ -546,6 +543,8 @@ fn operations(layer: &Layer) -> String {
                 operation.deprecated.as_ref(),
                 &mut warned,
             ));
+            // A run layer taken as raw JSON is checked for deprecated keys
+            // as a typed member's settings are (ADR 0099).
             if layer.takes_raw_settings(operation) {
                 warned.insert(settings::WARN_DEPRECATED_SETTINGS);
                 body.push_str(&settings::raw_settings_check());
@@ -564,7 +563,7 @@ fn operations(layer: &Layer) -> String {
         text.push('\n');
         text.push_str(&imports);
     }
-    if checks_settings {
+    if warned.contains(settings::WARN_DEPRECATED_SETTINGS) {
         let _ = writeln!(
             text,
             "from .settings import {}",

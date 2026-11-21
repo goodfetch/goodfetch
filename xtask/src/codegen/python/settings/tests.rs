@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
+use anyhow::Result;
 use goodfetch_protocol::catalog::ValueKind;
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    COLLIE_SCOPES, FOXHOUND_SCOPES, deprecated_fields, foxhound_settings_module, scope_type,
+    collie_deprecated_fields, foxhound_deprecated_fields, foxhound_settings_module, scope_type,
     settings_module,
 };
 use crate::codegen::layer::Setting;
@@ -402,9 +404,29 @@ fn a_deprecated_setting_carries_its_deprecation_in_its_docstring_and_the_registr
     );
 }
 
+type Generated<T> = fn(&[Setting]) -> T;
+
 /// Covers: story:11-182
-#[test]
-fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as() {
+#[rstest]
+#[case::collie(
+    settings_module,
+    collie_deprecated_fields,
+    &[
+        "ConnectionPolitenessDomainSettings.wait",
+        "RunPolitenessDomainSettings.wait",
+        "SessionPolitenessDomainSettings.wait",
+    ],
+)]
+#[case::foxhound(
+    foxhound_settings_module,
+    foxhound_deprecated_fields,
+    &["ConnectionPolitenessDomainSettings.wait", "RunPolitenessDomainSettings.wait"],
+)]
+fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as(
+    #[case] module: Generated<Result<String>>,
+    #[case] deprecated_fields: Generated<BTreeMap<String, Vec<String>>>,
+    #[case] expected: &[&str],
+) {
     let deprecation = goodfetch_protocol::catalog::Deprecation {
         since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
         replacement: None,
@@ -428,43 +450,23 @@ fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as() {
         ),
     ];
 
-    for (module, scopes, expected) in [
-        (
-            settings_module(&settings).unwrap(),
-            &COLLIE_SCOPES[..],
-            [
-                "ConnectionPolitenessDomainSettings",
-                "RunPolitenessDomainSettings",
-                "SessionPolitenessDomainSettings",
-            ]
-            .as_slice(),
-        ),
-        (
-            foxhound_settings_module(&settings).unwrap(),
-            &FOXHOUND_SCOPES[..],
-            [
-                "ConnectionPolitenessDomainSettings",
-                "RunPolitenessDomainSettings",
-            ]
-            .as_slice(),
-        ),
-    ] {
-        let fields = deprecated_fields(&settings, scopes);
+    let fields = deprecated_fields(&settings);
 
-        let expected: Vec<String> = expected
-            .iter()
-            .map(|class| format!("{class}.wait"))
-            .collect();
-        assert_eq!(
-            fields,
-            BTreeMap::from([("politeness.domain.wait".to_owned(), expected.clone())])
-        );
-        for field in &expected {
+    let module = module(&settings).unwrap();
+    assert_eq!(
+        fields,
+        BTreeMap::from([(
+            "politeness.domain.wait".to_owned(),
+            expected.iter().map(|&field| field.to_owned()).collect()
+        )])
+    );
+    let undeclared: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|field| {
             let (name, _) = field.split_once('.').unwrap();
-            assert!(
-                class(&module, name).contains("\n    wait: NotRequired[int]\n"),
-                "{field} in {module}"
-            );
-        }
-    }
+            !class(&module, name).contains("\n    wait: NotRequired[int]\n")
+        })
+        .collect();
+    assert!(undeclared.is_empty(), "{undeclared:?} in {module}");
 }

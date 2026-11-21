@@ -78,7 +78,7 @@ fn python_fields(python: &[PythonFields], key: &str) -> String {
     let modules: Vec<String> = python
         .iter()
         .filter_map(|(module, fields)| {
-            let fields = fields.get(key).filter(|fields| !fields.is_empty())?;
+            let fields = fields.get(key)?;
             let fields: Vec<String> = fields.iter().map(|field| format!("`{field}`")).collect();
             Some(format!("`{module}`: {}", fields.join(", ")))
         })

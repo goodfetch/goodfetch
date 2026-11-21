@@ -409,7 +409,7 @@ fn operations(layer: &Layer) -> String {
     );
     for operation in sending {
         text.push('\n');
-        text.push_str(&method(layer, operation));
+        text.push_str(&operation_method(layer, operation));
     }
     text.push_str("}\n");
     text
@@ -418,7 +418,7 @@ fn operations(layer: &Layer) -> String {
 /// The async method of the operations class sending `operation`, with its
 /// `TSDoc` and its warnings: its markers', and the deprecated keys of a run
 /// layer it takes as raw JSON, as a typed member's settings are (ADR 0099).
-fn method(layer: &Layer, operation: &Operation) -> String {
+fn operation_method(layer: &Layer, operation: &Operation) -> String {
     let mut text = doc(
         "  ",
         &operation.description,

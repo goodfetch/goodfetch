@@ -290,7 +290,8 @@ fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
 /// script-rendered feed's attempt runs its handler on `http`, then again in
 /// the browser, as a sample, where `http` cannot serve its wait; what the
 /// `http` run staged is discarded with its answer, and the browser run's
-/// commit is the one that counts.
+/// commit is the one that counts. Its HTTP leaves from the browser
+/// (`fetch.http_from: browser`), so no `browser_fetch` run follows.
 ///
 /// Covers: story:6-236, operation:crawl_request.enqueue, operation:locator.wait_for_count
 #[test]
@@ -306,7 +307,10 @@ fn an_escalated_attempts_first_run_leaves_none_of_what_it_staged() {
         "escalated",
         &[json!({ "url": feed, "label": "page" })],
         &json!({ "page": {}, "child": {} }),
-        &crate::fetch_tiers::settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &crate::fetch_tiers::settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "auto", "http_from": "browser" } }),
+        ),
         &mut |inside, handle| {
             if handle["crawl_request"]["label"] != "page" {
                 return json!({ "result": { "records": [] } });

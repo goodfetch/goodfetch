@@ -10,9 +10,9 @@ TypeScript's `raw-call.test.ts` is its twin.
 import json
 from collections.abc import Awaitable, Mapping
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 import pytest
+from collie_calls import locator_on
 from goodfetch_collie import (
     AsyncCollie,
     ClosedError,
@@ -29,9 +29,6 @@ from goodfetch_test_support import (
 )
 from goodfetch_test_support import Product as ToolProduct
 
-if TYPE_CHECKING:
-    from goodfetch_collie_client.generated.handles import AsyncLocator, AsyncPage
-
 RUN_ID = "01ke6p4ym0j8x3v5wq2rtbn7hc"
 
 CLIENT_LOGGER = "goodfetch.client"
@@ -43,16 +40,6 @@ async def failure(call: Awaitable[object]) -> GoodfetchError:
     with pytest.raises(GoodfetchError) as raised:
         await call
     return raised.value
-
-
-def locator_on(way: Way, page: "AsyncPage", selector: str) -> "AsyncLocator":
-    """`page`'s locator for `selector`, its methods async whatever the way.
-
-    A builder is a plain method in both APIs (ADR 0099), so the sync way's
-    proxy hands the sync `Locator` itself, which `way.api` wraps.
-    """
-    built = page.locator(selector)
-    return way.api(built, built)
 
 
 @pytest.mark.covers("story:11-181")

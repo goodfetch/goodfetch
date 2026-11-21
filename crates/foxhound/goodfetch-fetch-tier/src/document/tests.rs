@@ -10,9 +10,10 @@ use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use serde_json::json;
 
 use super::{
-    LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath, first_elements_in,
-    found, locating, matched, value_locators,
+    LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath, findings,
+    first_elements_in, found, locating, matched, value_locators,
 };
+use goodfetch_counted_work::Row;
 
 /// Counts no test of this file reads.
 fn no_counts() -> goodfetch_counted_work::CountedWork {
@@ -257,7 +258,10 @@ fn an_xpath_locator_reads_the_first_element_it_finds_in_the_served_document() {
 #[case::path_from_a_value("string(//h1)/b")]
 #[case::count_of_a_value("//a[count('b') = 1]")]
 fn an_xpath_a_browser_refuses_or_that_answers_a_value_is_refused(#[case] expression: &str) {
-    assert!(check_xpath(expression).is_err(), "{expression}");
+    assert!(
+        check_xpath(expression, &no_counts()).is_err(),
+        "{expression}"
+    );
     assert!(
         matches!(
             first_elements(&tree(ARTICLE), &[xpath(expression)], &no_counts()),
@@ -308,6 +312,79 @@ fn a_list_finds_every_element_and_each_row_its_fields_under_it() {
                 vec![Some(boxed), None],
             ]),
         ])
+    );
+}
+
+/// The fields `json` declares, by name.
+fn fields_of(json: serde_json::Value) -> std::collections::BTreeMap<String, PageField> {
+    serde_json::from_value(json).unwrap()
+}
+
+/// An `XPath` locator is parsed once for the engine, kept in its cache as a
+/// CSS selector's matcher is (issue 2713): a served page's `page.read`
+/// reads its fields' locators on each call, and the first read of an
+/// expression counts one on `F1.selector_compilations`, the second none.
+#[test]
+fn a_second_read_of_an_xpath_locator_parses_nothing() {
+    let fields = fields_of(json!({
+        "heading": { "locator": { "kind": "xpath", "selector": "//article/h1" } },
+    }));
+    let work = no_counts();
+
+    let first = findings(&fields, &work).map(|findings| findings.len());
+    let after_first = work.read(Row::PageSelectorCompilations);
+    let second = findings(&fields, &work).map(|findings| findings.len());
+    let after_second = work.read(Row::PageSelectorCompilations);
+
+    assert_eq!(
+        (first, after_first, second, after_second),
+        (Ok(1), 1, Ok(1), 1)
+    );
+}
+
+/// The crawl's fallback reads an `XPath` list field on each page whose
+/// fields the untouched page's readers do not read: two pages parse its
+/// expression once, not once a page (issue 2713).
+#[test]
+fn an_xpath_list_field_read_on_two_pages_is_parsed_once() {
+    let fields = fields_of(json!({
+        "names": { "list": { "locator": { "kind": "xpath", "selector": "//li/a" } } },
+    }));
+    let work = no_counts();
+    let names = || {
+        Found::List(vec![
+            field("a", "Delta", &[("href", "/kites/delta")]),
+            field("a", "Box", &[("href", "/kites/box")]),
+        ])
+    };
+
+    let pages = [
+        found(&tree(LISTING), &fields, &work),
+        found(&tree(LISTING), &fields, &work),
+    ];
+
+    assert_eq!(
+        (pages, work.read(Row::PageSelectorCompilations)),
+        ([Ok(vec![names()]), Ok(vec![names()])], 1)
+    );
+}
+
+/// An `XPath` locator the engine does not read is refused with the same
+/// sentence on every read, its refusal kept for the engine as a valid
+/// expression is: parsed once, counted once (issue 2713).
+#[test]
+fn an_invalid_xpath_locator_is_refused_alike_on_every_read() {
+    let fields = fields_of(json!({
+        "title": { "locator": { "kind": "xpath", "selector": "//h1[" } },
+    }));
+    let work = no_counts();
+
+    let first = findings(&fields, &work).map(drop).unwrap_err();
+    let second = findings(&fields, &work).map(drop).unwrap_err();
+
+    assert_eq!(
+        (second, work.read(Row::PageSelectorCompilations)),
+        (first, 1)
     );
 }
 

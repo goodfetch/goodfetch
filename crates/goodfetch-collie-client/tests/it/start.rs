@@ -11,6 +11,7 @@
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
+use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{
@@ -76,6 +77,11 @@ pub(crate) fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
         panic!("{result:?}");
     };
     failure
+}
+
+/// `error`'s code, group and whether it is retryable.
+pub(crate) fn code_group_retryable(error: &Error) -> (ErrorCode, ErrorGroup, bool) {
+    (error.code(), error.group(), error.retryable())
 }
 
 /// What each step of the script answered.

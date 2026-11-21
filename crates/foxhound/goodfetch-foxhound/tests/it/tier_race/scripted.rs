@@ -378,13 +378,14 @@ fn labels() -> Value {
 }
 
 /// The `crawl.start` of `seeds` of `labels`, with `settings` over a racing Run's: one
-/// sample per Label on a domain, one handler at a time, two requests at a
+/// sample per Label on a domain, its HTTP sent from the browser
+/// (`fetch.http_from: browser`), one handler at a time, two requests at a
 /// time on a domain with no delay, so a race's navigation has room beside
 /// its browser-fetch, and the site's host mapped to an address the egress
 /// policy lets through, which no connection reaches.
 fn start((seeds, labels): (&[Value], &Value), settings: &Value) -> Value {
     let mut racing = json!({
-        "fetch": { "tier_race": true, "sample": { "count": 1 } },
+        "fetch": { "tier_race": true, "http_from": "browser", "sample": { "count": 1 } },
         "politeness": { "domain": { "concurrency": 2, "delay": 0 } },
         "crawl": { "handler": { "concurrency": 1 } },
         "network": { "resolve": { HOST: ["127.0.0.1"] } },

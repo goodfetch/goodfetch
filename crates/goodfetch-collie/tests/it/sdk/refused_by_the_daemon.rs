@@ -29,7 +29,8 @@ use tracing::Level;
 use tracing::subscriber::with_default;
 
 use super::engine_choice::{
-    environment, hello, listening, played_whole, reached, scripted, text, version,
+    environment, hello, listening, played_whole, reached, remote, scripted, subprotocol, text,
+    version,
 };
 
 /// The Daemon refusing by protocol version, unable to hand over.
@@ -192,11 +193,11 @@ fn a_remote_daemons_refusal_fails_the_connect_unchanged(#[case] in_environment: 
 
     let (process, refused) =
         with_default(subscriber, || {
-            let (process, line) = scripted(
+            let (process, line) = remote(
                 &env,
                 REFUSED_BY_VERSION,
                 &hello(SCRIPTED_DAEMON_TOKEN),
-                "tcp",
+                &subprotocol(),
             );
             let url = format!("ws://{}", line["address"].as_str().unwrap());
             let options =

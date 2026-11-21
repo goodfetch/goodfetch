@@ -53,7 +53,9 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.limits import Limits
     from pydantic import JsonValue
 
-COLLIE = ProductPackage(
+__all__ = ["AsyncCollie", "Collie", "Connecting", "async_connect_over", "connect_over"]
+
+_COLLIE = ProductPackage(
     needs=Product.collie,
     name="Collie",
     package="goodfetch-collie",
@@ -140,7 +142,7 @@ class AsyncCollie(AsyncConnection):
         return Connecting(
             functools.partial(
                 open_engine,
-                COLLIE,
+                _COLLIE,
                 env=env,
                 engine=engine,
                 limits=limits,
@@ -347,7 +349,7 @@ class Collie(Connection):
         return _open_sync(
             functools.partial(
                 open_engine,
-                COLLIE,
+                _COLLIE,
                 env=env,
                 engine=engine,
                 limits=limits,
@@ -475,7 +477,7 @@ def async_connect_over(
     """
     return Connecting(
         functools.partial(
-            open_over, COLLIE, transport, max_listener_queue=max_listener_queue
+            open_over, _COLLIE, transport, max_listener_queue=max_listener_queue
         )
     )
 
@@ -490,7 +492,7 @@ def connect_over(
     """
     return _open_sync(
         functools.partial(
-            open_over, COLLIE, transport, max_listener_queue=max_listener_queue
+            open_over, _COLLIE, transport, max_listener_queue=max_listener_queue
         )
     )
 

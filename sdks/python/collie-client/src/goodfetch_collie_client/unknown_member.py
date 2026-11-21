@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+__all__ = ["UnknownMember"]
+
 
 class UnknownMember(BaseModel):
     """A member of an open tagged union this package does not know."""

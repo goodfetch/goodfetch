@@ -3,7 +3,7 @@
 Its `on` call is sent when `on` is called and stays in flight. A page's
 events come on that call itself, in `$/events` batches, never more than the
 credits granted; a Session's come on the Connection's own Subscription,
-which every such listener shares (`shared_subscription`), and its call only
+which every such listener shares (`_shared_subscription`), and its call only
 arms the listener in the engine. The listener gets the events one at a
 time, in order, and an awaitable it returns is awaited before the next. On
 its own call, a credit goes back only once it settled, so a slow listener
@@ -34,8 +34,8 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
 import anyio
 
+from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client.caller import result_of
-from goodfetch_collie_client.framing import object_members
 from goodfetch_collie_client.generated.errors import (
     ListenerEventsLostError,
     SettingInvalidError,
@@ -53,10 +53,12 @@ if TYPE_CHECKING:
     )
     from pydantic import BaseModel
 
+    from goodfetch_collie_client._shared_subscription import SharedSubscription
     from goodfetch_collie_client.handle import AsyncListener
-    from goodfetch_collie_client.shared_subscription import SharedSubscription
 
     _Work = Callable[[], Coroutine[Any, Any, None]]
+
+__all__ = ["MAX_LISTENER_QUEUE"]
 
 _Model = TypeVar("_Model", bound="BaseModel")
 

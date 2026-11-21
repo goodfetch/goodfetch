@@ -14,19 +14,19 @@ from typing import TYPE_CHECKING
 
 import anyio
 import pytest
+from goodfetch_collie_client._rpc import Channel
 from goodfetch_collie_client.generated.errors import ERROR_CLASSES as COLLIE_ERRORS
 from goodfetch_collie_client.generated.errors import ClosedError
 from goodfetch_collie_client.listeners import Order
 from goodfetch_collie_client.portal import PrivateLoop
-from goodfetch_collie_client.rpc import Channel
 from goodfetch_collie_client.sequence import AsyncSequence, Reading
 from goodfetch_foxhound.generated.errors import ERROR_CLASSES as FOXHOUND_ERRORS
 from goodfetch_foxhound.generated.errors import AttemptEndedError
 from goodfetch_test_support.play_script import Finished, play_script
 
 if TYPE_CHECKING:
+    from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.goodfetch_error import GoodfetchError
-    from goodfetch_collie_client.rpc import TransportEnd
 
 _RUN = "01ke6p4ym0j8x3v5wq2rtbn7hc"
 

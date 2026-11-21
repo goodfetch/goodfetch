@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from goodfetch_collie_client.framing import object_members
+from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from goodfetch_collie_client.sequence import AsyncSequence, Sequence
+
+__all__ = ["AsyncKeyValueStore", "KeyValueStore"]
 
 KEYS = "key_value_store.keys"
 """The operation `keys` sends."""

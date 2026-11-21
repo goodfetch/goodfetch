@@ -273,6 +273,7 @@ def test_importing_the_sdk_loads_no_adapter_ai_provider_or_browser_driver(
             "sniffio",
             "typing_extensions",
             "typing_inspection",
+            "websockets",
         ]
     )
 

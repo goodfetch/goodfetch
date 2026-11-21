@@ -17,9 +17,10 @@ use std::time::Duration;
 
 use goodfetch_collie::{Collie, EngineChoice, Error, ErrorCode, blocking};
 use goodfetch_collie_client::ClientConnection;
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::home::RUN_TRACE_CALLS;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
+use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, case_logs, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::engine_choice::{hello, played_whole, scripted};
@@ -279,6 +280,7 @@ fn the_blocking_raw_call_reaches_operations_the_sdk_does_not_generate() {
 /// Covers: story:11-181
 #[test]
 fn the_raw_call_reaches_a_linked_engine() {
+    let _case = ClientCaseRun::start(case_logs().as_deref(), "raw-call", RustMode::Linked).unwrap();
     let env = TestEnv::new();
 
     let run_id = real_time_runtime().block_on(async {

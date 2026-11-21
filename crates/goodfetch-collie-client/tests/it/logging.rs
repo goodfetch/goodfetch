@@ -10,7 +10,6 @@
 //! These are Rust's `daemon` mode plays; `goodfetch-collie`'s
 //! `sdk::logging` tests play the cases `linked`.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use goodfetch_collie_client::logging::{self, engine_log_level};
@@ -20,23 +19,11 @@ use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{
-    CASE_LOGS_VARIABLE, CapturedLog, Process, TestEnv, Variables, capturing,
-};
+use goodfetch_test_support::{CapturedLog, Process, TestEnv, capturing, case_logs};
 use tracing::Level;
 use tracing::subscriber::with_default;
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
-
-/// Starts running the client conformance `case` in `daemon` mode: its
-/// entry joins the case log `just test` names (ADR 0069), which `xtask
-/// clients check` is to read for `sdk-rust` (issue 3158).
-fn daemon_case(case: &str) -> ClientCaseRun {
-    let folder = Variables::from_process()
-        .get(CASE_LOGS_VARIABLE)
-        .map(PathBuf::from);
-    ClientCaseRun::start(folder.as_deref(), case, RustMode::Daemon).unwrap()
-}
 
 /// This crate's `hello` to the Scripted engine's Daemon, carrying the
 /// level the program's subscriber records for the engine.
@@ -91,7 +78,12 @@ fn recording(level: Level) -> (impl tracing::Subscriber + Send + Sync + use<>, C
 /// Covers: story:11-26
 #[test]
 fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_changed() {
-    let mut case = daemon_case("log-level-follows-the-logger");
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "log-level-follows-the-logger",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_debug, _) = recording(Level::DEBUG);
@@ -129,7 +121,12 @@ fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_change
 /// Covers: story:11-26
 #[test]
 fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
-    let mut case = daemon_case("log-level-follows-the-logger");
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "log-level-follows-the-logger",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_debug, _) = recording(Level::DEBUG);
@@ -176,7 +173,12 @@ fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
 /// Covers: story:11-25
 #[test]
 fn each_engine_log_event_reaches_the_subscriber_under_goodfetch_engine() {
-    let mut case = daemon_case("engine-logs-reach-the-logger");
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "engine-logs-reach-the-logger",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_trace, log) = recording(Level::TRACE);

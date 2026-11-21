@@ -11,13 +11,14 @@ use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{
     ClientConnection, ConnectionRuntime, Error, ErrorCode, ErrorDetails,
 };
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::DaemonEndpoint;
 use goodfetch_protocol::egress::CdpUrlNotAllowedDetails;
 use goodfetch_protocol::page::cdp_url::{
     CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails,
 };
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, case_logs};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -85,6 +86,8 @@ fn assert_refused<D: ErrorDetails + Serialize>(
 /// Covers: story:11-294
 #[test]
 fn each_cdp_url_code_fails_the_sessions_opening_with_its_group_fix_and_details() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "cdp-url-errors", RustMode::Daemon).unwrap();
     let env = TestEnv::new();
     let (process, endpoint) = scripted_daemon(&env, "run/cdp-url-errors.json");
     let refused = goodfetch_test_support::real_time_runtime().block_on(refused_pages(endpoint));

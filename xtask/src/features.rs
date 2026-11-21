@@ -42,7 +42,7 @@ pub(crate) use command::{CommandLines, SECTION as COMMANDS};
 pub(crate) use files::{INVENTORY, MATRIX, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 pub(crate) use report::manual_exceptions;
-pub(crate) use scan::tests;
+pub(crate) use scan::{Test, tests};
 
 /// The report's files in its folder.
 const REPORT_JSON: &str = "features.json";

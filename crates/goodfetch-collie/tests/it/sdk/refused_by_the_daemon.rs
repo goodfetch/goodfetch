@@ -14,6 +14,7 @@ use std::time::Duration;
 use goodfetch_collie::{
     Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, ErrorCode, RemoteDaemon, blocking,
 };
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::InstalledList;
@@ -22,7 +23,7 @@ use goodfetch_protocol::connection::{DeadlineExceededDetails, WaitedFor};
 use goodfetch_protocol::executables::ExecutableKind;
 use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
 use goodfetch_test_support::{
-    CapturedLog, SCRIPTED_DAEMON_TOKEN, TestEnv, capturing, real_time_runtime,
+    CapturedLog, SCRIPTED_DAEMON_TOKEN, TestEnv, capturing, case_logs, real_time_runtime,
 };
 use rstest::rstest;
 use tracing::Level;
@@ -76,6 +77,12 @@ fn auto_links_its_own_engine_when_the_daemon_refuses(
     #[case] code: &str,
     #[case] given_fix: &str,
 ) {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-falls-back-when-the-daemon-refuses",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (subscriber, log) = client_warnings();
 
@@ -143,6 +150,12 @@ fn a_blocking_connection_falls_back_too() {
 /// Covers: story:11-9, story:11-293
 #[test]
 fn daemon_fails_with_the_refusal_whose_fix_names_the_install_command_first() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-falls-back-when-the-daemon-refuses",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (subscriber, log) = client_warnings();
 

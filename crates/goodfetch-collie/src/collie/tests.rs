@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_engine::Dependencies;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -14,6 +15,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::secrets::Keychain;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_protocol::run::{Lifecycle, RUN_REPORT, RunId, RunParams, RunReport, StartedAs};
+use goodfetch_test_support::case_logs;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 
@@ -115,6 +117,12 @@ fn closing_a_collie_from_a_clone_stops_its_running_run_and_closes_every_clone() 
 /// Covers: story:11-15
 #[test]
 fn two_collies_run_at_once_in_one_process() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "two-connections-at-once",
+        RustMode::Linked,
+    )
+    .unwrap();
     let (first_home, second_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
@@ -141,6 +149,12 @@ fn two_collies_run_at_once_in_one_process() {
 /// Covers: story:11-15
 #[test]
 fn a_collie_connects_again_after_a_close() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-after-close",
+        RustMode::Linked,
+    )
+    .unwrap();
     let home = tempfile::tempdir().unwrap();
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {

@@ -15,12 +15,13 @@ use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::{
     CallCancelledDetails, CancelledBy, ClosedValue, DaemonEndpoint, HelloParams,
 };
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{RunId, Tags};
-use goodfetch_test_support::{TestEnv, logged};
+use goodfetch_test_support::{TestEnv, case_logs, logged};
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt as _;
 
@@ -148,6 +149,12 @@ fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
 /// Covers: story:11-31, story:11-192
 #[test]
 fn the_runtimes_own_errors_head_each_call_in_one_layout() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "runtime-errors-in-the-callers-form",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (closing, closing_endpoint) = scripted_daemon(&env, "run/closed-while-running.json");
     let nightly = RunId::parse("nightly").unwrap();
@@ -240,6 +247,12 @@ fn a_close_stops_a_running_run_once_and_frees_an_ended_runs_value_without_a_call
 /// Covers: story:11-20
 #[test]
 fn a_failed_close_fails_with_the_engines_error() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "failed-close-raises-a-typed-error",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (process, endpoint) = scripted_daemon(&env, "run/abort-refused.json");
     let nightly = RunId::parse("nightly").unwrap();

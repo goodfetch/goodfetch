@@ -9,9 +9,10 @@
 //! and Python's `test_product_and_provisioning_errors.py` are its twins.
 
 use goodfetch_collie::{Collie, Error, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::NotInProductDetails;
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::options;
@@ -54,6 +55,12 @@ fn assert_not_in_product(answer: Result<Value, Error>, requested: &str) {
 /// Covers: story:11-10, story:11-189
 #[test]
 fn foxhounds_operation_and_setting_fail_on_the_linked_engine_naming_foxhounds_cargo_install() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "product-and-provisioning-errors",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
 
     let (operation, setting) = real_time_runtime().block_on(async {

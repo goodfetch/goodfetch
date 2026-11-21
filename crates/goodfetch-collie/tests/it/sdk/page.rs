@@ -13,11 +13,12 @@ use goodfetch_collie::{
     Collie, Error, ErrorCode, FieldLocator, FieldTransform, PageField, Response, UnreadField,
     UnreadReason, ValueField, blocking,
 };
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::{FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{
-    ProvingGround, ProvingGroundDescription, TestEnv, ToolStatus, browser_cache_in_home,
+    ProvingGround, ProvingGroundDescription, TestEnv, ToolStatus, browser_cache_in_home, case_logs,
     real_time_runtime,
 };
 use serde::Deserialize;
@@ -134,6 +135,12 @@ impl Product {
 /// Covers: story:11-77
 #[test]
 fn a_program_fills_the_proving_grounds_form_and_reads_its_markdown() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "page-form-program",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let form = proving_ground.start_url("actionability/20").unwrap();
@@ -172,6 +179,12 @@ fn a_program_fills_the_proving_grounds_form_and_reads_its_markdown() {
 /// Covers: story:11-84
 #[test]
 fn goto_answers_the_response_of_a_404() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "goto-404-returns-the-response",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let start = proving_ground.start_url("statuses/1").unwrap();
@@ -203,6 +216,12 @@ fn goto_answers_the_response_of_a_404() {
 /// Covers: story:11-77
 #[test]
 fn a_runs_second_page_opens_in_its_session_and_a_new_sessions_page_in_another() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "second-new-page-in-the-default-session",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let form = proving_ground.start_url("actionability/20").unwrap();
@@ -243,6 +262,8 @@ fn a_runs_second_page_opens_in_its_session_and_a_new_sessions_page_in_another() 
 /// Covers: story:11-77, operation:page.read
 #[test]
 fn page_read_answers_the_declared_fields_typed_in_one_call() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "page-read-fields", RustMode::Linked).unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let product = proving_ground.start_url("catalog/2").unwrap();
@@ -283,6 +304,8 @@ fn page_read_answers_the_declared_fields_typed_in_one_call() {
 /// Covers: story:11-77, operation:page.read
 #[test]
 fn page_read_answers_the_declared_fields_typed_through_blocking() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "page-read-fields", RustMode::Linked).unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let product = proving_ground.start_url("catalog/2").unwrap();
@@ -313,6 +336,12 @@ fn page_read_answers_the_declared_fields_typed_through_blocking() {
 /// Covers: story:11-77, story:11-17
 #[test]
 fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "closed-page-raises-closed",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let proving_ground = proving_ground(&env);
     let form = proving_ground.start_url("actionability/20").unwrap();

@@ -13,7 +13,10 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
-use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
+use goodfetch_protocol::settings::{
+    COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
+    FOXHOUND_ENGINE_PATH_VARIABLE,
+};
 
 use super::handles::{self, Form, Handle, HandleId, Member, Overload};
 use super::layer::{Deprecation, Layer, Stability};
@@ -288,8 +291,15 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n",
-                layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n",
+                layer.protocol_version,
+                layer.product_version,
+                ATTACHED_ENGINE,
+                DEPLOYMENT_VARIABLES
+                    .iter()
+                    .map(|variable| format!("  {variable:?},"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             ),
             "Collie",
             "COLLIE",

@@ -579,27 +579,67 @@ async def test_fails_connect_when_no_platform_wheel_is_installed_naming_it(
     )
 
 
-@pytest.mark.covers("story:11-2", "error:setting_invalid")
+@pytest.mark.covers("story:11-2", "story:11-73", "error:setting_invalid")
+@pytest.mark.parametrize("variable", ["GOODFETCH_COLLIE_ENGINE_PATH", "GOODFETCH_URL"])
 @three_ways
-async def test_fails_connect_when_its_engine_path_is_set_but_empty(
-    way: Way,
+async def test_fails_connect_when_a_deployment_variable_is_set_but_empty(
+    way: Way, variable: str
 ) -> None:
     """An empty value is never taken for unset (ADR 0083)."""
-    error = await connect_failure(way, {"GOODFETCH_COLLIE_ENGINE_PATH": ""})
+    error = await connect_failure(way, {variable: ""})
 
     assert summary(error) == {
         "code": "setting_invalid",
         "group": "program",
-        "fix": (
-            "Set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable, "
-            "goodfetch-collie, or leave it unset to use the one goodfetch-collie "
-            "installed."
-        ),
-        "details": {
-            "key": "GOODFETCH_COLLIE_ENGINE_PATH",
-            "reason": "an empty value names no executable",
-        },
+        "fix": f"Give {variable} a value, or unset it.",
+        "details": {"key": variable, "reason": "it is empty; unset it instead"},
     }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_invalid")
+@three_ways
+async def test_fails_connect_when_a_deployment_variable_is_no_unicode(
+    way: Way,
+) -> None:
+    """A byte `os.environ` could not decode is refused, not passed on."""
+    error = await connect_failure(way, {"GOODFETCH_HOME": "/home/\udcff"})
+
+    assert summary(error)["details"] == {
+        "key": "GOODFETCH_HOME",
+        "reason": "it is not Unicode",
+    }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_unknown")
+@three_ways
+async def test_fails_connect_on_a_goodfetch_variable_off_the_list(
+    way: Way,
+) -> None:
+    """The `GOODFETCH_` prefix is reserved: the closest variable is named."""
+    error = await connect_failure(way, {"GOODFETCH_HOEM": "/home/goodfetch"})
+
+    assert str(error) == (
+        "`GOODFETCH_HOEM` in the environment is no deployment variable; "
+        "did you mean `GOODFETCH_HOME`?"
+    )
+    assert summary(error) == {
+        "code": "setting_unknown",
+        "group": "program",
+        "fix": "Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.",
+        "details": {"key": "GOODFETCH_HOEM", "closest": "GOODFETCH_HOME"},
+    }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_unknown")
+@three_ways
+async def test_fails_connect_on_a_goodfetch_variable_close_to_none_naming_none(
+    way: Way,
+) -> None:
+    """A name far from every deployment variable gets no `closest`."""
+    error = await connect_failure(way, {"GOODFETCH_TELEMETRY": "1"})
+
+    assert error.code == "setting_unknown"
+    assert error.details == {"key": "GOODFETCH_TELEMETRY"}
 
 
 @pytest.mark.covers("story:11-2", "error:setting_invalid")

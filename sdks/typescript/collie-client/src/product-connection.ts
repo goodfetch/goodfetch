@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
 import { ClientConnection, type EngineInfo } from "./client-connection.ts";
+import { checkDeploymentVariables } from "./deployment-variables.ts";
 import { reachEngine, type EngineChoice, type Reach } from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
 import type { OperationNames } from "./goodfetch-error.ts";
@@ -117,7 +118,10 @@ export interface ConnectOptions<S = Settings> extends ConnectOverOptions<S> {
    * when left out (ADRs 0062, 0083). Only the Product's own engine-path
    * variable is read (`GOODFETCH_COLLIE_ENGINE_PATH` by `Collie`,
    * `GOODFETCH_FOXHOUND_ENGINE_PATH` by `Foxhound`), and the Attached engine
-   * gets exactly this map as its environment.
+   * gets exactly this map as its environment. A `GOODFETCH_` variable off
+   * the closed list of deployment variables (`setting_unknown`, naming the
+   * closest) or one set but empty (`setting_invalid`) fails `connect()`
+   * before any engine is reached.
    */
   readonly env?: Readonly<Record<string, string>> | undefined;
 }
@@ -216,6 +220,7 @@ export async function openEngine<S>(
   // Read before an engine starts, so a refused option leaves none behind.
   const common = opening(product, options);
   const env = options.env ?? processEnvironment();
+  checkDeploymentVariables(env);
   const reach = await reachEngine(options.engine ?? "auto", {
     env,
     executable: () => locateEngine(env, product),

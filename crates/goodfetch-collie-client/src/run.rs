@@ -105,6 +105,17 @@ impl ClientConnection {
     /// is, closed with the Connection. Reads the level the program's
     /// subscriber records for the engine on the calling thread, which the
     /// start tells the engine first when it changed (ADR 0078).
+    ///
+    /// # Errors
+    ///
+    /// What `opener` fails with, such as `invalid_params`, and `closed`
+    /// once the Connection has ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before `opener` is answered may leave the Run
+    /// started or not; a start under a Run ID of the program's own then
+    /// resumes it (ADR 0102).
     pub fn start_with(
         &self,
         opener: &'static str,

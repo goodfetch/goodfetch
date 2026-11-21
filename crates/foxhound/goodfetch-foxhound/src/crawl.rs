@@ -20,13 +20,14 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
 use goodfetch_collie_client::{BoxError, ClientConnection, Error, HandlerCall, Run};
 use goodfetch_protocol::foxhound::crawl::{
-    ATTEMPT_ENDED, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled, CrawlStartParams,
-    HANDLER_FAILED, HandlerSkip, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration,
-    LabelUnknownDetails, RETRY_REQUESTED, Seeds,
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams,
+    CrawlRequestHandled, CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip,
+    LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration, LabelUnknownDetails,
+    RETRY_REQUESTED, RequestSeed, Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
     CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed, DATASET_DUPLICATE,
-    DatasetDeclaration,
+    DatasetDeclaration, DatasetDuplicateDetails,
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::frontier::{
@@ -34,17 +35,32 @@ use goodfetch_protocol::foxhound::frontier::{
 };
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams, Tags};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize as _, Serialize};
 use serde_json::{Value, json};
 
 use crate::Foxhound;
 use crate::crawl_requests::CrawlRequests;
 use crate::sync::{AtomicU64, Mutex};
 
+#[cfg(test)]
+mod tests;
+
 /// The source of each crawl's own number, which its Labels and Datasets
 /// carry, so a crawl tells its own from another's.
 static NEXT_CRAWL: AtomicU64 = AtomicU64::new(0);
+
+/// A crawl's own number within the process, which its Labels, Datasets
+/// and seeds carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CrawlId(u64);
+
+impl CrawlId {
+    /// A number no other crawl of the process has.
+    fn next() -> Self {
+        Self(NEXT_CRAWL.fetch_add(1, Ordering::Relaxed))
+    }
+}
 
 /// A handler's future, borrowing what the crawl's handlers borrow.
 type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + 'a>>;
@@ -86,7 +102,7 @@ type Handler<'a> = Box<dyn Fn(Arc<Attempt>) -> Result<HandlerFuture<'a>, Error> 
 /// # }
 /// ```
 pub struct Crawl<'a> {
-    id: u64,
+    id: CrawlId,
     /// Each Label in the order declared, with its handler once attached.
     labels: Vec<(Arc<str>, Option<Handler<'a>>)>,
     datasets: Vec<DatasetDeclaration>,
@@ -117,7 +133,7 @@ impl<'a> Crawl<'a> {
     /// A crawl that declares nothing yet.
     pub fn new() -> Self {
         Self {
-            id: NEXT_CRAWL.fetch_add(1, Ordering::Relaxed),
+            id: CrawlId::next(),
             labels: Vec::new(),
             datasets: Vec::new(),
         }
@@ -183,14 +199,9 @@ impl<'a> Crawl<'a> {
             ));
         }
         *slot = Some(Box::new(move |attempt: Arc<Attempt>| {
-            let payload = attempt
-                .params
-                .crawl_request
-                .payload
-                .clone()
-                .unwrap_or(Value::Null);
-            let payload: P = serde_json::from_value(payload)
-                .map_err(|error| Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID))?;
+            let payload = attempt.params.crawl_request.payload.as_ref();
+            let payload =
+                P::deserialize(payload.unwrap_or(&Value::Null)).map_err(payload_invalid)?;
             let handler = handler.clone();
             let future: HandlerFuture<'a> = Box::pin(handler(CrawlContext { attempt, payload }));
             Ok(future)
@@ -211,7 +222,9 @@ impl<'a> Crawl<'a> {
                 &DATASET_DUPLICATE,
                 &format!("the crawl already declares the Dataset `{name}`"),
                 "Declare each Dataset once, and use the Dataset the first `crawl.dataset` returned.",
-                &json!({ "dataset": name }),
+                &DatasetDuplicateDetails {
+                    dataset: name.to_owned(),
+                },
             ));
         }
         self.datasets.push(DatasetDeclaration {
@@ -239,11 +252,18 @@ impl<'a> Crawl<'a> {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future stops the serve: each attempt it was running
-    /// is given back to the engine, which delivers it again, uncounted, to
-    /// the next serve of the Run.
+    /// Dropping the future stops the serve: each attempt it was running,
+    /// and each request of the Run the connection kept aside for it, is
+    /// given back to the engine, which delivers it again, uncounted, to
+    /// the Run's next serve, on this connection or on one that resumes the
+    /// Run.
     pub async fn serve(&self, run: &CrawlRun) -> Result<CrawlRunReport, Error> {
         let run_id = run.id().clone();
+        let _forget = Forget {
+            requests: &run.requests,
+            run_id: &run_id,
+        };
+        let declared: Arc<[String]> = self.declared().into();
         let report = run
             .connection
             .call::<CrawlRunReport>(
@@ -262,21 +282,25 @@ impl<'a> Crawl<'a> {
                 ended = &mut report => break ended,
                 Some(()) = attempts.next(), if !attempts.is_empty() => {}
                 call = run.requests.next(&run_id), if reading => match call {
-                    Some(call) => attempts.push(self.attempt(call, &run.connection)),
+                    Some(call) => attempts.push(self.attempt(call, &run.connection, &declared)),
                     None => reading = false,
                 },
             }
         };
         drop(attempts);
-        run.requests.forget(&run_id);
         ended
     }
 
     /// Runs one attempt with its Label's handler and answers the engine:
     /// a `ctx.skip` or `ctx.retry` the handler called ends the attempt as
     /// it asked, whatever the handler then returned (ADR 0109).
-    async fn attempt(&self, call: HandlerCall, connection: &ClientConnection) {
-        let (outcome, ending) = match self.handler_of(&call, connection) {
+    async fn attempt(
+        &self,
+        call: HandlerCall,
+        connection: &ClientConnection,
+        declared: &Arc<[String]>,
+    ) {
+        let (outcome, ending) = match self.handler_of(&call, connection, declared) {
             Ok((label, handler, attempt)) => {
                 let held = Arc::clone(&attempt);
                 let outcome = AssertUnwindSafe(async move { handler(attempt)?.await })
@@ -320,19 +344,25 @@ impl<'a> Crawl<'a> {
         &self,
         call: &HandlerCall,
         connection: &ClientConnection,
+        declared: &Arc<[String]>,
     ) -> Result<(Arc<str>, &Handler<'a>, Arc<Attempt>), Error> {
-        let params: CrawlRequestHandleParams = serde_json::from_value(call.params().clone())
-            .map_err(|error| Error::of_program(Box::new(error), error_code::HANDLER_FAILED))?;
-        let label = params.crawl_request.label.clone();
+        let params = CrawlRequestHandleParams::deserialize(call.params()).map_err(|error| {
+            Error::refused(
+                CRAWL_REQUEST_HANDLE.name,
+                &format!("its params do not read as this SDK's: {error}"),
+                "Use an engine of this SDK's own version.",
+            )
+        })?;
+        let label = params.crawl_request.label.as_str();
         let Some((name, Some(handler))) = self.labels.iter().find(|(name, _)| **name == *label)
         else {
-            return Err(self.label_unknown(&label));
+            return Err(label_unknown(label, declared.to_vec()));
         };
         let attempt = Arc::new(Attempt {
             connection: connection.clone(),
             params,
             crawl: self.id,
-            declared: self.declared(),
+            declared: Arc::clone(declared),
             ended: Mutex::new(None),
         });
         Ok((Arc::clone(name), handler, attempt))
@@ -366,21 +396,24 @@ impl<'a> Crawl<'a> {
             if seed.crawl != self.id {
                 return Err(self.label_unknown(&seed.label));
             }
-            requests.push(json!({
-                "url": seed.url,
-                "label": &*seed.label,
-                "payload": seed.payload?,
+            requests.push(SeedRequest::Request(RequestSeed {
+                url: seed.url,
+                label: seed.label.to_string(),
+                payload: Some(seed.payload?),
+                priority: 0,
+                forefront: false,
+                method: HttpMethod::default(),
+                body: None,
+                key: None,
             }));
         }
-        if requests.is_empty() {
+        let Some(seeds) = Seeds::new(requests) else {
             return Err(Error::refused(
                 CRAWL_START.name,
                 "a crawl starts from at least one seed",
                 "Give `start_crawl` one seed or more.",
             ));
-        }
-        let seeds: Seeds = serde_json::from_value(Value::Array(requests))
-            .map_err(|error| Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID))?;
+        };
         Ok(CrawlStartParams {
             run_id: None,
             tags: Tags::default(),
@@ -412,6 +445,26 @@ fn label_unknown(label: &str, declared: Vec<String>) -> Error {
     )
 }
 
+/// The `payload_invalid` of a Payload that does not serialize, or does not
+/// read as its Label's type.
+fn payload_invalid(error: serde_json::Error) -> Error {
+    Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
+}
+
+/// Gives back, once the serve of a Run ends or is dropped, the Crawl
+/// requests the connection keeps aside for that Run: the engine delivers
+/// them again to the Run's next serve.
+struct Forget<'r> {
+    requests: &'r CrawlRequests,
+    run_id: &'r RunId,
+}
+
+impl Drop for Forget<'_> {
+    fn drop(&mut self) {
+        self.requests.forget(self.run_id);
+    }
+}
+
 /// The `handler_failed` of a handler of the Label `label` that panicked
 /// with `panic` (ADR 0109).
 fn panicked(label: &str, panic: &(dyn Any + Send)) -> Error {
@@ -424,11 +477,11 @@ fn panicked(label: &str, panic: &(dyn Any + Send)) -> Error {
         &HANDLER_FAILED,
         &format!("the handler of the Label `{label}` panicked: {message}"),
         "Fix the handler's panic, or return an error from it instead.",
-        &json!({
-            "exception_type": "panic",
-            "exception_message": message,
-            "exception_stack": "",
-        }),
+        &HandlerFailedDetails {
+            exception_type: "panic".to_owned(),
+            exception_message: message,
+            exception_stack: String::new(),
+        },
     )
 }
 
@@ -471,7 +524,7 @@ enum Ending {
 /// cheap.
 pub struct Label<P> {
     name: Arc<str>,
-    crawl: u64,
+    crawl: CrawlId,
     payload: PhantomData<fn() -> P>,
 }
 
@@ -502,7 +555,7 @@ impl<P> fmt::Debug for Label<P> {
 /// what a handler pushes into. Cloning it is cheap.
 pub struct Dataset<I> {
     name: Arc<str>,
-    crawl: u64,
+    crawl: CrawlId,
     record: PhantomData<fn(I)>,
 }
 
@@ -535,7 +588,7 @@ impl<I> fmt::Debug for Dataset<I> {
 pub struct Seed {
     url: String,
     label: Arc<str>,
-    crawl: u64,
+    crawl: CrawlId,
     /// The Payload's JSON, or why it has none.
     payload: Result<Value, Error>,
 }
@@ -547,8 +600,7 @@ impl Seed {
             url: url.into(),
             label: Arc::clone(&label.name),
             crawl: label.crawl,
-            payload: serde_json::to_value(payload)
-                .map_err(|error| Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)),
+            payload: serde_json::to_value(payload).map_err(payload_invalid),
         }
     }
 }
@@ -573,6 +625,8 @@ impl Foxhound {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Errors
     ///
     /// Awaiting it fails with `label_unhandled` for a Label with no
     /// handler, `label_unknown` for a seed of another crawl's Label,
@@ -667,8 +721,10 @@ impl CrawlRun {
 struct Attempt {
     connection: ClientConnection,
     params: CrawlRequestHandleParams,
-    crawl: u64,
-    declared: Vec<String>,
+    crawl: CrawlId,
+    /// The names of the Labels the crawl declares, in order, which the
+    /// serve reads once for every attempt.
+    declared: Arc<[String]>,
     /// How the handler ended the attempt itself, once it did.
     ended: Mutex<Option<Ending>>,
 }
@@ -824,7 +880,7 @@ impl<P> CrawlContext<P> {
     ) -> impl Future<Output = Result<Enqueued, Error>> + Send + 'static {
         let params = if label.crawl == self.attempt.crawl {
             serde_json::to_value(payload)
-                .map_err(|error| Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID))
+                .map_err(payload_invalid)
                 .map(|payload| CrawlRequestEnqueueParams {
                     run_id: self.attempt.params.run_id.clone(),
                     crawl_request_id: self.attempt.params.crawl_request.id.clone(),
@@ -840,7 +896,7 @@ impl<P> CrawlContext<P> {
                     document: None,
                 })
         } else {
-            Err(label_unknown(&label.name, self.attempt.declared.clone()))
+            Err(label_unknown(&label.name, self.attempt.declared.to_vec()))
         };
         let attempt = Arc::clone(&self.attempt);
         async move {

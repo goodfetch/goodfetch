@@ -251,6 +251,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "start_with"
+entry = "none"
+reason = "The start of a Run with `opener`, a Product's own call that opens one and answers `RunStarted`, such as Foxhound's `crawl.start` (ADR 0102), sending `params`; the Run is held as a start's is."
+words = ["start", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "close"
 entry = "none"
 reason = "Closes the Connection: first every Run it started that is still open, as `crate::Run::close` does, each closed at once even when `timeout.close` runs out before its abort, then every call in flight fails with `closed`, as does every later one; the engine reads the end of its input, and an Attached engine exits."
@@ -543,6 +552,24 @@ entry = "none"
 reason = "The program's own error `error` as the SDK reads it (ADR 0109): a box that holds the SDK's own `Error` keeps it, code and retryable flag included; anything else, an error that wraps a Goodfetch error in its `source()` chain included, is the program's own, failing with `own`, the code the place that called the program gives it, such as a handler's `handler_failed`."
 words = ["of", "program"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "of_sdk"
+entry = "none"
+reason = "A failure a Product crate's SDK raises itself, of the code `defined`, such as Foxhound's `label_duplicate` at a crawl's declaration, with `fix` and `details` (ADR 0079)."
+words = ["of", "sdk"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
+member = "refused"
+entry = "none"
+reason = "A call a Product crate's SDK refuses before it is sent, as the engine would refuse its params: `invalid_params`, with `fix` and the operation."
+words = ["refused"]
+form = "runtime"
 
 [[member]]
 crate = "goodfetch-collie-client"

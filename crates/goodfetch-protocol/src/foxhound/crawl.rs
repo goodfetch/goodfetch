@@ -145,6 +145,12 @@ fn is_zero(priority: &i64) -> bool {
 pub struct Seeds(Vec<Seed>);
 
 impl Seeds {
+    /// The seeds `seeds`, in the order given, or none when `seeds` is
+    /// empty: a crawl starts from at least one.
+    pub fn new(seeds: Vec<Seed>) -> Option<Self> {
+        (!seeds.is_empty()).then_some(Self(seeds))
+    }
+
     /// Each seed, in the order given.
     pub fn iter(&self) -> impl Iterator<Item = &Seed> {
         self.0.iter()
@@ -153,13 +159,8 @@ impl Seeds {
 
 impl<'de> Deserialize<'de> for Seeds {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let seeds = Vec::<Seed>::deserialize(deserializer)?;
-        if seeds.is_empty() {
-            return Err(serde::de::Error::custom(
-                "a crawl starts from at least one seed",
-            ));
-        }
-        Ok(Self(seeds))
+        Self::new(Vec::<Seed>::deserialize(deserializer)?)
+            .ok_or_else(|| serde::de::Error::custom("a crawl starts from at least one seed"))
     }
 }
 
@@ -470,6 +471,22 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `handler_failed` details: the exception the handler failed with
+/// (ADR 0109).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HandlerFailedDetails {
+    /// The exception's type name: `BoxError` or `panic` from Rust (ADR
+    /// 0109).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_type: String,
+    /// The exception's message.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_message: String,
+    /// The frames of the program's code, as one text; empty from Rust.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_stack: String,
+}
 
 /// A handler's own request to retry its attempt: `ctx.retry(message)`
 /// (ADR 0093).

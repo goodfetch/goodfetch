@@ -275,6 +275,52 @@ fn a_skip_and_a_swallowed_retry_end_their_attempts_as_asked() {
     assert_eq!(sighted, ["attempt_ended", "attempt 1", "attempt 2"]);
 }
 
+/// A handler that retries every attempt runs `crawl.retry.max` more
+/// times, 2 by default, then its request ends `failed` with
+/// `retry_requested`.
+///
+/// Covers: error:retry_requested
+#[test]
+fn a_request_retried_past_its_retries_fails_with_retry_requested() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let book = site.url("shop.test", "/book");
+    let (seen, mut attempts) = mpsc::unbounded_channel();
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        crawl
+            .handle(&page, move |ctx: CrawlContext<Visit>| async move {
+                seen.send(ctx.attempt()).unwrap();
+                Err(ctx.retry("the shelf is still empty"))
+            })
+            .unwrap();
+
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
+            .await
+            .unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (
+                requests.failed,
+                count(&requests.by_error_code, "retry_requested")
+            ),
+            (1, 1),
+            "{requests:?}"
+        );
+    });
+    let mut seen_attempts = Vec::new();
+    while let Ok(attempt) = attempts.try_recv() {
+        seen_attempts.push(attempt);
+    }
+    assert_eq!(seen_attempts, [1, 2, 3]);
+}
+
 /// Dropping the `serve` future gives the Crawl requests it was handling
 /// back to the engine, uncounted: the next serve of the Run is handed the
 /// same request again as its first attempt, and the Run finishes with it.

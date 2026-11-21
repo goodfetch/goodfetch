@@ -73,7 +73,7 @@ fn home_of_major_2(env: &TestEnv) -> Home {
 fn the_committed_upgrade_paths_read() {
     let paths = UpgradePaths::committed();
 
-    assert_eq!(paths.sources(), &[] as &[String]);
+    assert_eq!(paths.sources, [] as [String; 0]);
 }
 
 /// A source the committed table does not list is refused before any file
@@ -88,7 +88,7 @@ fn a_source_the_table_does_not_list_is_refused_naming_the_release_to_upgrade_thr
     let home = home_of_major_2(&env);
     std::fs::rename(home.root().join("2"), home.root().join("1")).unwrap();
     let paths = UpgradePaths::committed();
-    assert!(!paths.sources().contains(&"1".to_owned()));
+    assert!(!paths.sources.contains(&"1".to_owned()));
     let before = tree(home.root());
 
     let refused = upgrade_files(&home, &version("3.0.0"), None, &paths);
@@ -124,12 +124,12 @@ fn a_newer_major_is_refused_with_a_message_to_upgrade() {
     );
 
     assert_eq!(
+        (refused, tree(home.root()) == before),
         (
-            refused.as_ref().map_err(ToString::to_string),
-            tree(home.root()) == before
-        ),
-        (
-            Err("the files of major 2 are newer than this Goodfetch's major 1; upgrade Goodfetch to major 2 or newer to use them".to_owned()),
+            Err(UpgradeError::NewerMajor {
+                major: "2".to_owned(),
+                current: "1".to_owned(),
+            }),
             true
         )
     );

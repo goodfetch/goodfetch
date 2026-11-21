@@ -15,7 +15,7 @@ use goodfetch_test_support::TestEnv;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
 
-use super::{Counting, driver, for_the_key, reference};
+use super::{Counting, answering, built_in, driver, for_the_key, reference, run_under};
 use crate::secrets::{
     ConfigProblem, ProviderFailure, Resolving, RunSecrets, SecretError, SecretProvider,
 };
@@ -107,12 +107,14 @@ fn a_value_resolved_once_is_reused_and_its_domain_binding_checked_at_each_use() 
     let domains = ["shop.example".to_owned()];
 
     let (answers, asked) = goodfetch_test_support::runtime().block_on(async {
-        let secrets = driver(&env, &[])
-            .with(
+        let secrets = run_under(
+            &answering(
+                driver(&env, &[]),
                 Provider::Vault,
                 std::sync::Arc::<Counting>::clone(&counting),
-            )
-            .for_run(Duration::from_secs(30));
+            ),
+            &built_in(),
+        );
         let mut answers = Vec::new();
         for domain in ["shop.example", "shop.example", "elsewhere.example"] {
             answers.push(
@@ -146,9 +148,14 @@ fn concurrent_resolutions_of_one_reference_make_one_call() {
     let slow = std::sync::Arc::new(Slow::default());
 
     let asked = goodfetch_test_support::runtime().block_on(async {
-        let secrets = driver(&env, &[])
-            .with(Provider::Vault, std::sync::Arc::<Slow>::clone(&slow))
-            .for_run(Duration::from_secs(30));
+        let secrets = run_under(
+            &answering(
+                driver(&env, &[]),
+                Provider::Vault,
+                std::sync::Arc::<Slow>::clone(&slow),
+            ),
+            &built_in(),
+        );
         let purpose = for_the_key(None, &[]);
         let reference = reference(VAULT);
         let (first, second) = tokio::join!(
@@ -172,9 +179,14 @@ fn through_busy(
     let env = TestEnv::new();
     let provider = std::sync::Arc::new(Busy::new(times, retry_after));
     goodfetch_test_support::runtime().block_on(async {
-        let secrets = driver(&env, &[])
-            .with(Provider::Vault, std::sync::Arc::<Busy>::clone(&provider))
-            .for_run(Duration::from_secs(30));
+        let secrets = run_under(
+            &answering(
+                driver(&env, &[]),
+                Provider::Vault,
+                std::sync::Arc::<Busy>::clone(&provider),
+            ),
+            &built_in(),
+        );
         let answer = secrets
             .resolve(&reference(VAULT), &for_the_key(None, &[]))
             .await
@@ -257,16 +269,14 @@ fn a_reference_listed_to_resolve_at_each_use_asks_its_provider_each_time() {
     .unwrap();
 
     let asked = goodfetch_test_support::runtime().block_on(async {
-        let secrets = driver(&env, &[])
-            .with(
+        let secrets = run_under(
+            &answering(
+                driver(&env, &[]),
                 Provider::Vault,
                 std::sync::Arc::<Counting>::clone(&counting),
-            )
-            .for_run_under(
-                &settings,
-                Duration::from_secs(30),
-                crate::mask::Redaction::On,
-            );
+            ),
+            &settings,
+        );
         for _ in 0..3 {
             secrets
                 .resolve(&reference(VAULT), &for_the_key(None, &[]))

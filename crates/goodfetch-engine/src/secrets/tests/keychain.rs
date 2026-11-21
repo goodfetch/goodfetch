@@ -13,6 +13,7 @@ use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use secrecy::{ExposeSecret as _, SecretString};
 
 use super::{driver_with, for_the_key, reference};
+use crate::mask::Redaction;
 use crate::secrets::{Keychain, SecretError};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -44,7 +45,8 @@ fn a_value_stored_in_the_os_keychain_resolves_through_keychain_and_once_removed_
             )
             .await
             .expect("this host has its OS keychain (TESTING.md: `ci/os-services.sh setup`)");
-        let secrets = driver_with(&env, &[], keychain.clone()).for_run(Duration::from_secs(30));
+        let secrets = driver_with(&env, &[], keychain.clone())
+            .for_run_with(Duration::from_secs(30), Redaction::On);
         let found = secrets
             .resolve(&planted, &for_the_key(None, &[]))
             .await
@@ -52,7 +54,8 @@ fn a_value_stored_in_the_os_keychain_resolves_through_keychain_and_once_removed_
         keychain.remove(&service, "portal", &owner).await.unwrap();
         // A Run reuses the value it resolved (ADR 0014's note of
         // 2026-10-28), so the next Run asks the keychain again.
-        let next = driver_with(&env, &[], keychain.clone()).for_run(Duration::from_secs(30));
+        let next = driver_with(&env, &[], keychain.clone())
+            .for_run_with(Duration::from_secs(30), Redaction::On);
         let after = match next.resolve(&planted, &for_the_key(None, &[])).await {
             Err(SecretError::Unavailable { failure, .. }) => Some(failure),
             _ => None,

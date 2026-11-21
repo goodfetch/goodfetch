@@ -18,6 +18,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{SecretFailure, SecretInputRefusedReason};
 use goodfetch_protocol::settings::SettingsLayer;
@@ -28,12 +29,14 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Value, json};
 
 use super::{
-    Carried, ConfigProblem, Keychain, ProviderFailure, Purpose, Resolving, RunSecrets, SecretError,
-    SecretProvider, Secrets,
+    Carried, ConfigProblem, Keychain, ProviderFailure, ProviderInputs, Purpose, Resolving,
+    RunSecrets, SecretError, SecretProvider, Secrets,
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
 use crate::home::Home;
+use crate::mask::Redaction;
+use crate::settings::{Layers, Resolved, Values, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 const KEY: &str = "run_state.key_reference";
@@ -104,6 +107,30 @@ fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) ->
     )
 }
 
+/// `secrets` with `implementation` answering `provider`'s references in
+/// each Run, as a Product adds a provider.
+fn answering(
+    secrets: Secrets,
+    provider: Provider,
+    implementation: Arc<dyn SecretProvider>,
+) -> Secrets {
+    secrets.with_configured(
+        provider,
+        Arc::new(move |_: &ProviderInputs<'_>| Arc::clone(&implementation)),
+    )
+}
+
+/// The settings a Run resolves with no layer set.
+fn built_in() -> Resolved {
+    resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap()
+}
+
+/// A Run of `secrets` under `settings`, each provider bounded by 30 s, its
+/// values masked.
+fn run_under(secrets: &Secrets, settings: &Resolved) -> RunSecrets {
+    secrets.for_run_under(settings, Duration::from_secs(30), Redaction::On)
+}
+
 fn for_the_key<'a>(domain: Option<&'a str>, domains: &'a [String]) -> Purpose<'a> {
     Purpose {
         placeholder: KEY,
@@ -145,18 +172,38 @@ fn audit_entries(env: &TestEnv) -> Vec<Value> {
         .collect()
 }
 
+/// A reference the Run's settings hold but the Run never resolves, here
+/// one `secrets.resolve_each_use` lists, is never asked of its provider.
 /// Covers: story:4-49
 #[test]
 fn a_reference_the_run_never_uses_reaches_no_provider() {
     let env = TestEnv::new();
     let counting = Arc::new(Counting::default());
+    let settings = resolve(
+        &Layers {
+            user_configuration: Values::read(
+                SettingsLayer::UserConfiguration,
+                json!({ "secrets": { "resolve_each_use": ["caller:unused"] } })
+                    .as_object()
+                    .unwrap(),
+                Product::Collie,
+            )
+            .unwrap(),
+            ..Layers::default()
+        },
+        Product::Collie,
+        Product::Collie,
+    )
+    .unwrap();
     let secrets = goodfetch_test_support::runtime().block_on(async {
-        driver(&env, &[])
-            .with(
+        run_under(
+            &answering(
+                driver(&env, &[]),
                 Provider::Caller,
                 Arc::clone(&counting) as Arc<dyn SecretProvider>,
-            )
-            .for_run(Duration::from_secs(30))
+            ),
+            &settings,
+        )
     });
     resolved(&secrets, "caller:used").unwrap();
 
@@ -171,7 +218,8 @@ fn a_reference_the_run_never_uses_reaches_no_provider() {
 fn a_set_variable_resolves_through_env_and_is_held_for_the_run() {
     let env = TestEnv::new();
     let secrets = goodfetch_test_support::runtime().block_on(async {
-        driver(&env, &[("SHOP_KEY", "s3cr3t-value")]).for_run(Duration::from_secs(30))
+        driver(&env, &[("SHOP_KEY", "s3cr3t-value")])
+            .for_run_with(Duration::from_secs(30), Redaction::On)
     });
 
     let value = resolved(&secrets, "env:SHOP_KEY").unwrap();
@@ -203,7 +251,7 @@ fn a_value_resolved_again_for_its_placeholder_is_held_once() {
             &env,
             &[("SHOP_KEY", "s3cr3t-value"), ("OTHER_KEY", "other-value")],
         )
-        .for_run(Duration::from_secs(30))
+        .for_run_with(Duration::from_secs(30), Redaction::On)
     });
 
     for _ in 0..100 {
@@ -235,8 +283,9 @@ fn a_reference_that_gives_no_value_is_unavailable_naming_its_placeholder_and_fai
     #[case] expected: SecretFailure,
 ) {
     let env = TestEnv::new();
-    let secrets = goodfetch_test_support::runtime()
-        .block_on(async { driver(&env, variables).for_run(Duration::from_secs(30)) });
+    let secrets = goodfetch_test_support::runtime().block_on(async {
+        driver(&env, variables).for_run_with(Duration::from_secs(30), Redaction::On)
+    });
 
     let error = resolved(&secrets, text).unwrap_err();
 
@@ -260,9 +309,10 @@ fn a_reference_that_gives_no_value_is_unavailable_naming_its_placeholder_and_fai
 fn a_provider_that_hangs_ends_at_its_timeout_as_timed_out() {
     let env = TestEnv::new();
     let failure = goodfetch_test_support::runtime().block_on(async {
-        let secrets = driver(&env, &[])
-            .with(Provider::Vault, Arc::new(Hanging))
-            .for_run(Duration::from_secs(30));
+        let secrets = run_under(
+            &answering(driver(&env, &[]), Provider::Vault, Arc::new(Hanging)),
+            &built_in(),
+        );
         let started = tokio::time::Instant::now();
         let error = secrets
             .resolve(
@@ -287,7 +337,8 @@ fn each_resolution_is_recorded_with_its_placeholder_reference_and_domain_never_i
     let mut canaries = Canaries::new(env.seed());
     let value = canaries.plant(SecretKind::TypedPassword).value().to_owned();
     let secrets = goodfetch_test_support::runtime().block_on(async {
-        driver(&env, &[("SHOP_PASSWORD", &value)]).for_run(Duration::from_secs(30))
+        driver(&env, &[("SHOP_PASSWORD", &value)])
+            .for_run_with(Duration::from_secs(30), Redaction::On)
     });
 
     goodfetch_test_support::runtime()
@@ -332,7 +383,8 @@ fn a_value_goes_only_to_a_domain_its_binding_allows(
 ) {
     let env = TestEnv::new();
     let secrets = goodfetch_test_support::runtime().block_on(async {
-        driver(&env, &[("SHOP_PASSWORD", "s3cr3t-value")]).for_run(Duration::from_secs(30))
+        driver(&env, &[("SHOP_PASSWORD", "s3cr3t-value")])
+            .for_run_with(Duration::from_secs(30), Redaction::On)
     });
     let domains = vec!["shop.example".to_owned()];
 
@@ -363,7 +415,7 @@ fn with_an_os_keychain_the_engines_own_key_is_made_once_there() {
     let runtime = goodfetch_test_support::runtime();
     let secrets = runtime.block_on(async { driver_with(&env, &[], keychain) });
     let read = || {
-        let resolving = secrets.for_run(Duration::from_secs(30));
+        let resolving = secrets.for_run_with(Duration::from_secs(30), Redaction::On);
         runtime
             .block_on(resolving.resolve(&key, &for_the_key(None, &[])))
             .unwrap()
@@ -448,7 +500,7 @@ fn the_driver_asks_the_keychain_nothing_until_a_reference_needs_it() {
     let keychain = Keychain::of(Arc::clone(&store) as Arc<keyring_core::CredentialStore>);
     let runtime = goodfetch_test_support::runtime();
     let secrets = runtime.block_on(async { driver_with(&env, &[], keychain) });
-    let resolving = secrets.for_run(Duration::from_secs(30));
+    let resolving = secrets.for_run_with(Duration::from_secs(30), Redaction::On);
     let built = store.reached.load(std::sync::atomic::Ordering::SeqCst);
 
     let _ = runtime.block_on(resolving.resolve(
@@ -507,8 +559,8 @@ fn no_secret_resolves_for_a_host_the_run_reached_through_an_exception() {
     };
 
     let (to_excepted, to_verified) = goodfetch_test_support::runtime().block_on(async {
-        let secrets =
-            driver(&env, &[("PROXY_PASSWORD", "s3cr3t-value")]).for_run(Duration::from_secs(30));
+        let secrets = driver(&env, &[("PROXY_PASSWORD", "s3cr3t-value")])
+            .for_run_with(Duration::from_secs(30), Redaction::On);
         secrets
             .exception_hosts()
             .add(

@@ -696,34 +696,18 @@ fn the_clean_up_reports_the_bytes_each_entry_it_deletes_takes(#[case] dry_run: b
     let env = TestEnv::new();
     let cache = cache_in(&env);
     let old = browser("unpinned-and-unused");
-    let folder = lay_out(&cache, &old, days_before(&env, 31));
-    let bytes = folder_bytes(&folder);
+    lay_out(&cache, &old, days_before(&env, 31));
 
     let report = goodfetch_test_support::runtime()
         .block_on(cache.clean_up(&clean_up_at(&env, BTreeSet::new(), dry_run)))
         .unwrap();
 
+    // 12 bytes of build files (`#!chrome\n` and `é\n`), an empty lock and a
+    // 266-byte entry.json.
     assert_eq!(
         (report.deleted.clone(), report.bytes_of(&old)),
-        (vec![old.clone()], Some(bytes))
+        (vec![old.clone()], Some(278))
     );
-    assert!(bytes > 0);
-}
-
-/// The bytes of every file under `folder`.
-fn folder_bytes(folder: &Path) -> u64 {
-    fs::read_dir(folder)
-        .unwrap()
-        .map(|entry| {
-            let entry = entry.unwrap();
-            let kind = entry.file_type().unwrap();
-            if kind.is_dir() {
-                folder_bytes(&entry.path())
-            } else {
-                entry.metadata().unwrap().len()
-            }
-        })
-        .sum()
 }
 
 /// Covers: story:3-140

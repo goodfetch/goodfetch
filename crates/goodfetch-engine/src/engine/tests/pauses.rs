@@ -60,10 +60,14 @@ fn pauses() -> Contribution {
 
 /// Covers: story:3-163, operation:run.progress
 #[rstest]
-#[case::by_the_program(PauseOrigin::Program)]
-#[case::by_the_engine(PauseOrigin::Engine { step: EngineStep::ChallengeLadder })]
+#[case::by_the_program(PauseOrigin::Program, json!({ "by": "program" }))]
+#[case::by_the_engine(
+    PauseOrigin::Engine { step: EngineStep::ChallengeLadder },
+    json!({ "by": "engine", "step": "challenge_ladder" })
+)]
 fn a_human_pause_beginning_and_ending_each_give_a_new_progress_value(
     #[case] raised_by: PauseOrigin,
+    #[case] shown: Value,
 ) {
     let origin = serde_json::to_value(&raised_by).unwrap();
     let (waiting, ended) = attached(
@@ -115,7 +119,7 @@ fn a_human_pause_beginning_and_ending_each_give_a_new_progress_value(
                 "page": "page-1",
                 "reason": "Solve the puzzle",
                 "until": "the URL matches **/account",
-                "raised_by": serde_json::to_value(&raised_by).unwrap(),
+                "raised_by": shown,
                 "since": "2026-01-05T09:00:00Z",
             }]),
             json!([]),

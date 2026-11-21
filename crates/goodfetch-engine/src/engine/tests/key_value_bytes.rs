@@ -194,13 +194,22 @@ fn reading_a_value_with_the_other_method_fails_with_value_invalid_naming_the_rig
 /// the Run's folder, named by their SHA-256 and referenced from the row,
 /// and come back byte for byte.
 #[rstest]
-#[case::one_mib(MIB, false)]
-#[case::one_byte_over(MIB + 1, true)]
-#[case::five_mib(5 * MIB, true)]
+#[case::one_mib(MIB, false, (true, None))]
+#[case::one_byte_over(
+    MIB + 1,
+    true,
+    (false, Some("5769f52bc3eef28afa39c6fc68cadb7d0bd69812ae3a3d71452f519ec3c7aa56"))
+)]
+#[case::five_mib(
+    5 * MIB,
+    true,
+    (false, Some("16b632f11cf950dda67dc4c184a3f9e0aa1ffa4c18927bb8977e7da97ca25bca"))
+)]
 /// Covers: story:6-30, operation:key_value_store.set_bytes, operation:key_value_store.get_bytes
 fn bytes_over_1_mib_are_kept_as_a_content_addressed_file_referenced_from_the_row(
     #[case] size: usize,
     #[case] in_a_file: bool,
+    #[case] row: (bool, Option<&str>),
 ) {
     let env = TestEnv::new();
     let stored = content(size);
@@ -224,21 +233,14 @@ fn bytes_over_1_mib_are_kept_as_a_content_addressed_file_referenced_from_the_row
 
     let folder = run_folder(&env, "large");
     let file = kept_file(&folder, &stored);
+    let (in_the_row, named) = row_of(&folder, "archive");
     assert_eq!(
         (
             got == bytes_answer(&stored, "application/zip"),
             std::fs::read(&file).ok() == Some(stored.clone()),
-            row_of(&folder, "archive"),
+            (in_the_row, named.as_deref()),
         ),
-        (
-            true,
-            in_a_file,
-            if in_a_file {
-                (false, Some(sha256(&stored)))
-            } else {
-                (true, None)
-            },
-        )
+        (true, in_a_file, row)
     );
 }
 

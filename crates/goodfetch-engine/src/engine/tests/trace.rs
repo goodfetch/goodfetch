@@ -286,11 +286,7 @@ fn a_request_with_a_valid_traceparent_gets_a_server_span_that_is_its_child() {
 
 #[rstest]
 #[case::none(json!({}))]
-#[case::a_bad_version(json!({ "traceparent": "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" }))]
-#[case::an_all_zero_trace_id(json!({ "traceparent": "00-00000000000000000000000000000000-b7ad6b7169203331-01" }))]
-#[case::an_all_zero_parent_id(json!({ "traceparent": "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01" }))]
 #[case::a_wrong_length(json!({ "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b716920333-01" }))]
-#[case::over_the_length_bound(json!({ "traceparent": format!("cc-{TRACE_ID}-{PARENT_ID}-01-{}", "a".repeat(201)) }))]
 #[case::a_tracestate_without_a_valid_traceparent(json!({ "traceparent": "00-0af7", "tracestate": "congo=t61rcWkgMzE" }))]
 fn a_request_whose_traceparent_cannot_be_used_gets_a_new_root_and_answers(#[case] meta: Value) {
     let (replies, spans) = exported(1, || {

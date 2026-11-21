@@ -71,46 +71,76 @@ fn requests_to(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The page's text when the fetch decoded it.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the case table reads `decoded` beside `refused`, both an `Answer`"
+)]
+fn decoded(text: &str) -> Answer<String> {
+    Ok(text.to_owned())
+}
+
+/// `navigation_failed` with `network_error`, as Chrome fails.
+fn refused<T>(network_error: &str) -> Answer<T> {
+    Err((
+        "navigation_failed".to_owned(),
+        Some(network_error.to_owned()),
+    ))
+}
+
+/// What a fetch answered: its page's part under test, or its Error code and
+/// network error.
+type Answer<T> = Result<T, (String, Option<String>)>;
+
+/// The text of a `content-coding` page's `<p class="text">`.
+fn page_text(page: &Fetched) -> String {
+    let body = String::from_utf8(page.body.to_vec()).unwrap();
+    body.split("<p class=\"text\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</p>").next())
+        .unwrap_or(&body)
+        .to_owned()
+}
+
+/// Each `content-coding` page by its ordinal, with what Chrome makes of it.
+///
 /// Covers: story:5-128, story:5-122
 #[rstest]
-#[case::reqwest(Stack::Reqwest)]
-#[case::wreq(Stack::Wreq)]
-fn decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fails(#[case] stack: Stack) {
+#[case::plain_labelled_gzip(1, refused("net::ERR_CONTENT_DECODING_FAILED"))]
+#[case::invalid_gzip_header(2, refused("net::ERR_CONTENT_DECODING_FAILED"))]
+#[case::gzip_then_brotli(3, decoded("Content coding page 3, decoded once and as labelled."))]
+#[case::raw_deflate(4, decoded("Content coding page 4, decoded once and as labelled."))]
+#[case::unknown(5, decoded("Content coding page 5, decoded once and as labelled."))]
+#[case::gzip_twice(6, refused("net::ERR_CONTENT_DECODING_FAILED"))]
+#[case::zstd_twice(7, refused("net::ERR_CONTENT_DECODING_FAILED"))]
+#[case::gzip(8, decoded("Content coding page 8, decoded once and as labelled."))]
+#[case::zlib_deflate(9, decoded("Content coding page 9, decoded once and as labelled."))]
+#[case::brotli(10, decoded("Content coding page 10, decoded once and as labelled."))]
+#[case::zstd(11, decoded("Content coding page 11, decoded once and as labelled."))]
+fn decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fails(
+    #[case] ordinal: u64,
+    #[case] expected: Answer<String>,
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let transport = transport(stack, &proving_ground, None);
 
-    for ordinal in 1..=11 {
-        let host = format!("{ordinal}.content-coding.test");
-        let answer = fetched(
-            &proving_ground,
-            transport.as_ref(),
-            &host,
-            "/page",
-            &deadlines(30_000),
-        );
+    let answer = fetched(
+        &proving_ground,
+        transport.as_ref(),
+        &format!("{ordinal}.content-coding.test"),
+        "/page",
+        &deadlines(30_000),
+    );
 
-        if [1, 2, 6, 7].contains(&ordinal) {
-            let error = answer.expect_err(&host);
-            assert_eq!(
-                code_and_network_error(&error),
-                (
-                    "navigation_failed".to_owned(),
-                    Some("net::ERR_CONTENT_DECODING_FAILED".to_owned())
-                ),
-                "{host}"
-            );
-        } else {
-            let page = answer.unwrap_or_else(|error| panic!("{host}: {error:?}"));
-            let text = String::from_utf8(page.body.to_vec()).unwrap();
-            assert!(
-                text.contains(&format!(
-                    "Content coding page {ordinal}, decoded once and as labelled."
-                )),
-                "{host}: {text}"
-            );
-        }
-    }
+    assert_eq!(
+        answer
+            .as_ref()
+            .map(page_text)
+            .map_err(code_and_network_error),
+        expected
+    );
 }
 
 /// Covers: story:5-128, story:5-122
@@ -204,38 +234,32 @@ fn stops_at_the_engine_s_first_byte_timeout(#[case] stack: Stack) {
 
 /// Covers: story:5-128, story:5-122
 #[rstest]
-#[case::reqwest(Stack::Reqwest)]
-#[case::wreq(Stack::Wreq)]
-fn refuses_a_malformed_head_and_keeps_a_folded_one(#[case] stack: Stack) {
+#[case::a_nul("/nul", refused("net::ERR_INVALID_HTTP_RESPONSE"))]
+#[case::a_bare_cr("/bare-cr", refused("net::ERR_INVALID_HTTP_RESPONSE"))]
+#[case::no_colon("/no-colon", refused("net::ERR_INVALID_HTTP_RESPONSE"))]
+#[case::a_folded_header("/folded", Ok(200))]
+fn refuses_a_malformed_head_and_keeps_a_folded_one(
+    #[case] path: &str,
+    #[case] expected: Answer<u16>,
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let transport = transport(stack, &proving_ground, None);
 
-    for path in ["/nul", "/bare-cr", "/no-colon"] {
-        let error = fetched(
-            &proving_ground,
-            transport.as_ref(),
-            "headers.test",
-            path,
-            &deadlines(30_000),
-        )
-        .expect_err(path);
-        assert_eq!(
-            code_and_network_error(&error),
-            (
-                "navigation_failed".to_owned(),
-                Some("net::ERR_INVALID_HTTP_RESPONSE".to_owned())
-            ),
-            "{path}"
-        );
-    }
-    let folded = fetched(
+    let answer = fetched(
         &proving_ground,
         transport.as_ref(),
         "headers.test",
-        "/folded",
+        path,
         &deadlines(30_000),
-    )
-    .unwrap();
-    assert_eq!(folded.status, 200);
+    );
+
+    assert_eq!(
+        answer
+            .as_ref()
+            .map(|page| page.status)
+            .map_err(code_and_network_error),
+        expected
+    );
 }

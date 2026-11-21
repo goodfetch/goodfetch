@@ -11,7 +11,8 @@
 //! `--links` says which pages the crawl fetches beyond its seeds. A crawl
 //! given neither a format nor a field keeps each page's Markdown. Its help
 //! is its own, and it takes no `--datasets`: a code-free crawl declares
-//! its one Dataset, `pages`, itself.
+//! its one Dataset, `pages`, itself. Nor does it take `--hooks`: no program
+//! on its Connection answers a Hook's call.
 //!
 //! A seeds file whose seeds would pass the engine's message limit
 //! (`MAX_MESSAGE_BYTES`) in `crawl.start` starts the crawl with the URLs
@@ -65,15 +66,20 @@ pub(super) const COMMAND: OwnCommand = OwnCommand {
 /// The operation whose command this is.
 const OPERATION: &str = "crawl.start";
 
-/// The params its own flags give, and `datasets`, which a crawl with an
-/// `extraction` refuses, so its command offers no flag for it.
-const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS];
+/// The params its own flags give, `datasets`, which a crawl with an
+/// `extraction` refuses, and `hooks`, which only a program answering its
+/// Hooks' calls declares (ADR 0104), so its command offers no flag for
+/// either.
+const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS, HOOKS];
 
 /// Its help, in place of `crawl.start`'s, which tells of a handler's crawl.
 const ABOUT: &str = "Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID";
 
 /// The param that declares a crawl's Datasets.
 const DATASETS: &str = "datasets";
+
+/// The param that declares a crawl's Hooks in code.
+const HOOKS: &str = "hooks";
 
 /// How many bytes of the seeds file's seeds `crawl.start` carries at most:
 /// half the engine's message limit, the rest of its params' room.

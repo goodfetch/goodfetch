@@ -1,0 +1,20 @@
+# A library serving both Products, as its author would publish it (story
+# 11-180, ADR 0095): it takes the Collie client package by a range of the
+# Product's line, and an environment holds one copy of a distribution (pip
+# and uv refuse two), so the library's import is the program's. Collie's
+# `tests/unit/test_collie.py` is its program; the root workspace lists it as a
+# member, so uv resolves its range and installs it.
+[project]
+name = "connection-library"
+version = "0.1.0"
+description = "A library goodfetch-collie's tests use."
+requires-python = ">=3.11"
+dependencies = ["goodfetch-collie-client>=0.0,<0.1"]
+classifiers = ["Private :: Do Not Upload"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""

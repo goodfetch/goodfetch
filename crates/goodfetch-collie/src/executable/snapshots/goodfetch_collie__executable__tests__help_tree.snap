@@ -1268,4 +1268,4 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
-Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
+Deprecated. Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.

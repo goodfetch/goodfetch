@@ -12,12 +12,27 @@
 //! - A round trip, a query and a waiter are members; a query declares no
 //!   `timeout`, and a waiter's name starts with `wait_for`. A round trip
 //!   named `new_<value>` opens that value, whose ID its result carries, and
-//!   a handle's own `close` that takes no required parameter closes it. A
-//!   read, a sequence and an event get their forms with their own tickets
-//!   (issue 1233), as does an opener, which opens its own namespace's value.
+//!   a handle's own `close` that takes no required parameter closes it. An
+//!   event named `on` of a namespace in [`LISTENERS`] or
+//!   [`PUBLISHED_LISTENERS`], whose one required parameter is the event
+//!   listened to, is the handle's listener (ADR 0081): each value of that
+//!   parameter names the event `<namespace>.<value>`, whose payload the
+//!   listener gets, or the handle it names when it is what an opener of
+//!   another handle answers. A published event's payload names its handle
+//!   by the handle's ID. A sequence and another event get their forms
+//!   with their own tickets (issue 1233), as does an opener, which opens its
+//!   own namespace's value.
+//! - A read answers a value of the answer that opened its handle, which
+//!   the handle holds, so it sends nothing (issue 2798): it takes nothing
+//!   but the handle's ID, its result's one property is required, and the
+//!   type each opener of its namespace answers holds that property with the
+//!   same type. A handle with reads is built only by its opener, never by
+//!   another handle or a listener. Reads that events update come with
+//!   their own ticket.
 //! - A prefix has one meaning: `new_` starts a round trip or an opener,
-//!   `wait_for` a waiter and every waiter, `is_` a query, `on` an event or
-//!   a sequence, and `get_by_` no operation, since it builds without I/O.
+//!   `wait_for` a waiter and every waiter, `is_` a query or a read, `on` an
+//!   event or a sequence, and `get_by_` no operation, since it builds
+//!   without I/O.
 //! - Required parameters are positional in the catalog's order, but a
 //!   boolean, which is named like every optional one.
 //! - A handle whose ID is a value that holds another handle's ID is built
@@ -28,15 +43,46 @@
 //!   the fields that parameter declares (ADR 0147), so a member types it
 //!   from the fields its caller passes. The parameter is a required one of
 //!   the operation, and a result marks one property at most.
+//! - A round trip, a query or a waiter whose result has exactly one
+//!   property answers that property's value, so `page.goto` answers the
+//!   document's response rather than a wrapper of it (issue 2517); an
+//!   optional property answers the language's none when it is absent. The
+//!   operation's own function, the wire and the result type are unchanged.
+//! - An optional parameter marked `deprecation`, or a value of a
+//!   parameter's choice of strings marked so, is a deprecated form of a
+//!   member that is not deprecated itself: a language with overloads gives
+//!   each its own overload carrying the deprecation, so a type checker
+//!   reports a call that uses it and no other (ADR 0099), and ends with one
+//!   that takes every form, so a call whose value only its type gives, a
+//!   union or an optional one, still resolves. A required
+//!   parameter, which every call passes, or every value of a choice, which
+//!   leaves no call free of it, is refused.
+//!
+//! Size: one concern, the rules that read the catalog's operations into
+//! the handles every generator writes, each refusal naming its entry; the
+//! reads' rules live in a module of their own.
+
+mod reads;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
-use super::layer::{Kind, Layer, Operation};
+pub(super) use self::reads::{Read, Reads};
+use super::layer::{Deprecation, Kind, Layer, Operation, Stability};
+use super::naming;
 
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
 pub(super) const HANDLES: [&str; 4] = ["run", "session", "page", "locator"];
+
+/// The namespaces whose `on` the generators write as a listener (ADR 0081),
+/// which gets its events on its own call.
+pub(super) const LISTENERS: [&str; 1] = ["page"];
+
+/// The namespaces whose `on` the generators write as a listener whose
+/// events the engine publishes on its event stream (ADR 0081), which the
+/// Connection's own Subscription reads; the call only arms it.
+pub(super) const PUBLISHED_LISTENERS: [&str; 1] = ["session"];
 
 /// The parameter that names a handle in its operations' params.
 pub(super) struct HandleId {
@@ -75,6 +121,77 @@ pub(super) enum Form {
     Closes,
 }
 
+/// A handle's `on`, which registers a listener for one of its events (ADR
+/// 0081): its call stays in flight and gets them.
+pub(super) struct Listener<'a> {
+    pub(super) operation: &'a Operation,
+    /// The parameter that names the event listened to, such as `event`.
+    pub(super) param: String,
+    /// Its type in the bundle, such as `PageEventName`.
+    pub(super) event_type: String,
+    /// The events it listens to, in the order its parameter's type lists them.
+    pub(super) events: Vec<Listened>,
+}
+
+/// An event a [`Listener`] gets.
+pub(super) struct Listened {
+    /// The value its call's parameter names it by, such as `page_error`.
+    pub(super) wire: String,
+    /// Its payload's type in the bundle, such as `WebError`.
+    pub(super) payload: String,
+    /// Its description in the catalog.
+    pub(super) description: String,
+    /// The namespace of the handle its listener gets in place of its
+    /// payload, which is what an opener of that handle answers, such as
+    /// `page` for `session.page`'s `PageOpened`.
+    pub(super) builds: Option<&'static str>,
+    /// The value its listener gets in place of its payload when the call
+    /// also carries that value's own events, such as the WebSocket a page's
+    /// `web_socket` opens.
+    pub(super) opens: Option<Opens>,
+    /// Its semver status in the catalog, which its marker warns of.
+    pub(super) stability: Stability,
+    /// Its deprecation in the catalog, which its marker warns of.
+    pub(super) deprecated: Option<Deprecation>,
+}
+
+/// A value an event of a [`Listener`] opens (ADR 0081): the catalog's
+/// events named `<event>.<name>`, such as `web_socket.frame_received` for a
+/// page's `web_socket`, are that value's own, which the listener's call also
+/// carries, and each names the value by `<event>_id`, as the opening
+/// payload does.
+pub(super) struct Opens {
+    /// The namespace of its own events, the opening event's name, such as
+    /// `web_socket`.
+    pub(super) namespace: String,
+    /// The property that names it in the opening payload and in each of its
+    /// own events' payloads, `<namespace>_id`, such as `web_socket_id`.
+    pub(super) id: String,
+    /// What it holds of the opening payload: each property but the
+    /// listening handle's ID, with its description, in the payload's order.
+    pub(super) fields: Vec<(String, String)>,
+    /// Its own events, in the catalog's order, which its own `on` takes.
+    pub(super) events: Vec<Listened>,
+}
+
+impl Listener<'_> {
+    /// Whether one of its events opens a value whose own events its call
+    /// also carries.
+    pub(super) fn opens(&self) -> bool {
+        self.events.iter().any(|listened| listened.opens.is_some())
+    }
+}
+
+impl Listened {
+    /// Its name as `form`'s program listens to it, by the rule the engine
+    /// names it by in its messages (ADR 0099): Playwright's in TypeScript
+    /// and Python, its words joined in lowercase, such as `pageerror` (ADR
+    /// 0081).
+    pub(super) fn spelled(&self, form: goodfetch_protocol::connection::Form) -> String {
+        naming::event(form, &self.wire, &self.payload)
+    }
+}
+
 /// The schema keyword that marks a result property typed by a parameter.
 const TYPED_BY: &str = "typed_by";
 
@@ -91,6 +208,39 @@ pub(super) struct TypedBy {
     pub(super) property: String,
 }
 
+/// The one property of a member's result, which the member answers in
+/// place of the result.
+pub(super) struct Unwrapped {
+    /// The property, as the wire names it, such as `response`.
+    pub(super) property: String,
+    /// Whether the result always carries it; an optional one answers the
+    /// language's none when it is absent.
+    pub(super) required: bool,
+}
+
+/// The schema keyword that marks a deprecated parameter, or a deprecated
+/// value of a choice of strings, with its deprecation (ADR 0099).
+pub(super) const DEPRECATION: &str = "deprecation";
+
+/// A deprecated form of a member's call (ADR 0099): passing an optional
+/// parameter, or one value of a parameter's choice of strings.
+pub(super) struct DeprecatedForm {
+    /// The parameter, as the wire names it.
+    pub(super) param: String,
+    /// The value of its choice that is deprecated; none when passing the
+    /// parameter at all is.
+    pub(super) value: Option<String>,
+    pub(super) deprecation: Deprecation,
+}
+
+impl DeprecatedForm {
+    /// Whether this form is the deprecated value `value` of the parameter
+    /// `param`.
+    pub(super) fn is_value(&self, param: &str, value: &str) -> bool {
+        self.param == param && self.value.as_deref() == Some(value)
+    }
+}
+
 /// An operation as a member of a handle or of one of its sub-objects.
 pub(super) struct Member<'a> {
     pub(super) operation: &'a Operation,
@@ -103,6 +253,58 @@ pub(super) struct Member<'a> {
     /// The Duration setting its own `timeout` sets for the call alone, such
     /// as `timeout.wait`; none when it takes no `timeout`.
     pub(super) timeout_setting: Option<String>,
+    /// The one property of its result, which it answers in place of the
+    /// result; none when the result has no property or several.
+    pub(super) unwrapped: Option<Unwrapped>,
+    /// Its deprecated forms, each an overload of its own; none when the
+    /// member itself is deprecated, which marks every call.
+    pub(super) deprecated_forms: Vec<DeprecatedForm>,
+}
+
+/// Which of a member's signatures a generator declares (ADR 0099): an
+/// overload free of the deprecated forms leaves out a deprecated parameter
+/// and narrows a choice to its current values; a deprecated form's overload
+/// requires that parameter, narrowed to the deprecated value for one. The
+/// last overload takes every form, as the implementation does.
+#[derive(Clone, Copy)]
+pub(super) enum Overload<'f> {
+    /// The implementation, which takes every form.
+    Every,
+    /// The overload free of every deprecated form of the member.
+    Current(&'f [DeprecatedForm]),
+    /// The overload of one deprecated form, which takes the others too.
+    Deprecated(&'f DeprecatedForm),
+}
+
+impl Overload<'_> {
+    /// Whether the parameter `param` takes the value `value` of its choice.
+    pub(super) fn takes(self, param: &str, value: &str) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Current(forms) => !forms.iter().any(|form| form.is_value(param, value)),
+            Self::Deprecated(form) => {
+                form.param != param || form.value.as_deref().is_none_or(|only| only == value)
+            }
+        }
+    }
+
+    /// Whether the parameter `param` is this overload's deprecated form,
+    /// which a call passes to choose it.
+    pub(super) fn chosen_by(self, param: &str) -> bool {
+        matches!(self, Self::Deprecated(form) if form.param == param)
+    }
+
+    /// Whether this overload is the deprecated value of the parameter
+    /// `param`, which it takes alone, without the language's none.
+    pub(super) fn chosen_value_of(self, param: &str) -> bool {
+        matches!(self, Self::Deprecated(form) if form.param == param && form.value.is_some())
+    }
+
+    /// Whether the parameter `param` is left out: passing it is a
+    /// deprecated form, which the current overload never takes.
+    pub(super) fn leaves_out(self, param: &str) -> bool {
+        matches!(self, Self::Current(forms) if forms.iter().any(|form| form.param == param && form.value.is_none()))
+    }
 }
 
 /// A value a handle builds without a call.
@@ -129,9 +331,69 @@ pub(super) struct Handle<'a> {
     pub(super) members: Vec<Member<'a>>,
     pub(super) builders: Vec<Builder>,
     pub(super) sub_objects: Vec<SubObject<'a>>,
+    /// Its `on`, when its namespace is one of [`LISTENERS`].
+    pub(super) listener: Option<Listener<'a>>,
+    /// Its `on`, when its namespace is one of [`PUBLISHED_LISTENERS`].
+    pub(super) published_listener: Option<Listener<'a>>,
+    /// Its reads, when it has any: the handle is then built with the
+    /// answer that opened it.
+    pub(super) reads: Option<Reads<'a>>,
 }
 
-impl Handle<'_> {
+impl<'a> Handle<'a> {
+    /// Adds `member`, to the sub-object `sub_object` names when one does,
+    /// which its first member opens.
+    fn push(&mut self, sub_object: Option<&'a str>, member: Member<'a>) {
+        let Some(sub_object) = sub_object else {
+            self.members.push(member);
+            return;
+        };
+        match self
+            .sub_objects
+            .iter_mut()
+            .find(|held| held.name == sub_object)
+        {
+            Some(held) => held.members.push(member),
+            None => self.sub_objects.push(SubObject {
+                name: sub_object,
+                members: vec![member],
+            }),
+        }
+    }
+
+    /// Adds `read`, of the answer of type `opened`, which its first read
+    /// names.
+    fn push_read(&mut self, opened: String, read: Read<'a>) {
+        self.reads
+            .get_or_insert_with(|| Reads {
+                opened,
+                members: Vec::new(),
+            })
+            .members
+            .push(read);
+    }
+
+    /// The handle of `namespace`, named by `id`, before its members.
+    fn of(namespace: &'static str, id: HandleId) -> Self {
+        Self {
+            namespace,
+            id,
+            members: Vec::new(),
+            builders: Vec::new(),
+            sub_objects: Vec::new(),
+            listener: None,
+            published_listener: None,
+            reads: None,
+        }
+    }
+
+    /// Its reads, none when it has no answer to read from.
+    pub(super) fn reads(&self) -> &[Read<'_>] {
+        self.reads
+            .as_ref()
+            .map_or(&[], |reads| reads.members.as_slice())
+    }
+
     /// Whether a program closes the value: its catalog has a `close` in
     /// the closing form.
     pub(super) fn closes(&self) -> bool {
@@ -192,8 +454,8 @@ fn check_prefix(operation: &Operation, name: &str) -> Result<()> {
         Some("`wait_for` starts the name of a waiter, and of nothing else")
     } else if starts("new") && !matches!(kind, Kind::RoundTrip | Kind::Opener) {
         Some("`new_` opens a value the caller closes, which a round trip or an opener does")
-    } else if starts("is") && kind != Kind::Query {
-        Some("`is_` answers yes or no and never waits, which a query does")
+    } else if starts("is") && !matches!(kind, Kind::Query | Kind::Read) {
+        Some("`is_` answers yes or no and never waits, which a query or a read does")
     } else if starts("on") && !matches!(kind, Kind::Event | Kind::Sequence) {
         Some("`on` observes side activity, which an event or a sequence does")
     } else if starts("get_by") {
@@ -274,6 +536,137 @@ fn typed_by(
     }))
 }
 
+/// The one property of `operation`'s result, which its member in `form`
+/// answers in place of the result: a round trip's, a query's or a waiter's
+/// whose result has exactly one property. A property `typed_by` the call's
+/// fields is refused there, since its values' type is the member's own.
+fn unwrapped(
+    layer: &Layer,
+    operation: &Operation,
+    form: &Form,
+    typed_by: Option<&TypedBy>,
+) -> Result<Option<Unwrapped>> {
+    if !matches!(form, Form::RoundTrip | Form::Query | Form::Waiter) {
+        return Ok(None);
+    }
+    let Some(result) = layer.definitions.get(&operation.result.0) else {
+        return Ok(None);
+    };
+    let Some(properties) = result["properties"].as_object() else {
+        return Ok(None);
+    };
+    let mut only = properties.keys();
+    let (Some(property), None) = (only.next(), only.next()) else {
+        return Ok(None);
+    };
+    if let Some(typed) = typed_by {
+        bail!(
+            "operation `{}`: its result's one property `{}` is `{TYPED_BY}`, which a member answers in place of the result, so the fields' values need a result of two properties or more (ADR 0147)",
+            operation.name,
+            typed.property
+        );
+    }
+    Ok(Some(Unwrapped {
+        required: names(result, "required").contains(property),
+        property: property.clone(),
+    }))
+}
+
+/// The definition `property` takes: a reference, alone or beside `null`.
+fn definition_of<'l>(layer: &'l Layer, property: &Value) -> Option<&'l Value> {
+    let reference = match property["anyOf"].as_array() {
+        Some(variants) => {
+            let mut values = variants.iter().filter(|variant| variant["type"] != "null");
+            let only = values.next()?;
+            values.next().is_none().then_some(only)?
+        }
+        None => property,
+    };
+    layer.definitions.get(referenced(reference)?)
+}
+
+/// `schema`'s deprecation, if it marks one.
+fn deprecation(operation: &Operation, schema: &Value) -> Result<Option<Deprecation>> {
+    schema
+        .get(DEPRECATION)
+        .map(|marked| {
+            serde_json::from_value(marked.clone()).with_context(|| {
+                format!(
+                    "operation `{}`: a `{DEPRECATION}` of its params is no deprecation (ADR 0099)",
+                    operation.name
+                )
+            })
+        })
+        .transpose()
+}
+
+/// The deprecated forms of `operation`'s call, read from its params,
+/// `schema`: each optional parameter marked `deprecation`, and each value
+/// so marked of a parameter's choice of strings. None for a deprecated
+/// operation, whose every call its own marker reports.
+fn deprecated_forms(
+    layer: &Layer,
+    operation: &Operation,
+    schema: &Value,
+    parameters: &Parameters,
+) -> Result<Vec<DeprecatedForm>> {
+    if operation.deprecated.is_some() {
+        return Ok(Vec::new());
+    }
+    let mut forms = Vec::new();
+    let passed = parameters
+        .positional
+        .iter()
+        .chain(&parameters.named)
+        .chain(&parameters.optional);
+    for param in passed {
+        let property = &schema["properties"][param];
+        if let Some(deprecation) = deprecation(operation, property)? {
+            if !parameters.optional.contains(param) {
+                bail!(
+                    "operation `{}`: its required parameter `{param}` is deprecated, which every call passes; make it optional (ADR 0099)",
+                    operation.name
+                );
+            }
+            forms.push(DeprecatedForm {
+                param: param.clone(),
+                value: None,
+                deprecation,
+            });
+        }
+        let variants = definition_of(layer, property)
+            .and_then(|definition| definition["oneOf"].as_array())
+            .into_iter()
+            .flatten();
+        let mut current = false;
+        for variant in variants {
+            let deprecation = deprecation(operation, variant)?;
+            match (variant["const"].as_str(), deprecation) {
+                (Some(value), Some(deprecation)) => forms.push(DeprecatedForm {
+                    param: param.clone(),
+                    value: Some(value.to_owned()),
+                    deprecation,
+                }),
+                (_, None) => current = true,
+                (None, Some(_)) => bail!(
+                    "operation `{}`: its parameter `{param}` takes a deprecated variant that is no string, which only a choice of strings marks (ADR 0099)",
+                    operation.name
+                ),
+            }
+        }
+        let deprecated_values = forms
+            .iter()
+            .any(|form| form.param == *param && form.value.is_some());
+        if deprecated_values && !current {
+            bail!(
+                "operation `{}`: every value of its parameter `{param}` is deprecated, which leaves no call free of it; deprecate the parameter (ADR 0099)",
+                operation.name
+            );
+        }
+    }
+    Ok(forms)
+}
+
 /// The Duration setting `operation`'s own `timeout` sets, which its params
 /// type, `schema`, names with `setting`; none when it takes no `timeout`.
 fn timeout_setting(operation: &Operation, schema: &Value) -> Result<Option<String>> {
@@ -311,6 +704,172 @@ fn form(operation: &Operation, name: &str, schema: &Value) -> Result<Option<Form
     })
 }
 
+/// `operation`, the `on` of `namespace`, as its listener: it gets one
+/// event for each value of its one required parameter but the handle's ID,
+/// the event listened to, which names the event `<namespace>.<value>`.
+fn listener<'a>(
+    layer: &Layer,
+    namespace: &str,
+    operation: &'a Operation,
+    schema: &Value,
+) -> Result<Listener<'a>> {
+    let id = format!("{namespace}_id");
+    let required = names(schema, "required");
+    let [event] = required
+        .iter()
+        .filter(|name| **name != id)
+        .collect::<Vec<_>>()[..]
+    else {
+        bail!(
+            "operation `{}`: a listener's `on` takes one required parameter but its handle's ID, the event listened to (ADR 0081)",
+            operation.name
+        );
+    };
+    let event_type = referenced(&schema["properties"][event]);
+    let values = event_type
+        .and_then(|type_name| layer.definitions.get(type_name))
+        .and_then(|definition| definition["oneOf"].as_array())
+        .and_then(|variants| {
+            variants
+                .iter()
+                .map(|variant| variant["const"].as_str())
+                .collect::<Option<Vec<_>>>()
+        });
+    let (Some(event_type), Some(values)) = (event_type, values.filter(|values| !values.is_empty()))
+    else {
+        bail!(
+            "operation `{}`: its `{event}` is a type of its own whose values name the events listened to (ADR 0081)",
+            operation.name
+        );
+    };
+    let events = values
+        .into_iter()
+        .map(|wire| {
+            let name = format!("{namespace}.{wire}");
+            let Some(found) = layer.events.iter().find(|held| held.name == name) else {
+                bail!(
+                    "operation `{}`: its `{event}` `{wire}` names the event `{name}`, which the catalog lacks (ADR 0081)",
+                    operation.name
+                );
+            };
+            Ok(Listened {
+                wire: wire.to_owned(),
+                payload: found.payload.0.clone(),
+                description: found.description.clone(),
+                builds: opened_by(layer, &found.payload.0),
+                stability: found.stability,
+                deprecated: found.deprecated.clone(),
+                opens: opened_value(layer, namespace, wire, &found.payload.0)
+                    .with_context(|| format!("operation `{}`: its event `{name}`", operation.name))?,
+            })
+        })
+        .collect::<Result<_>>()?;
+    Ok(Listener {
+        operation,
+        param: event.clone(),
+        event_type: event_type.to_owned(),
+        events,
+    })
+}
+
+/// The value the event `wire` of `namespace`'s listener opens, whose
+/// `payload` carries it, if the catalog has events of that value's own,
+/// named `<wire>.<name>` (ADR 0081). Each of those, and `payload`, names
+/// the value by `<wire>_id`; a payload that opens a handle opens no value.
+fn opened_value(
+    layer: &Layer,
+    namespace: &str,
+    wire: &str,
+    payload: &str,
+) -> Result<Option<Opens>> {
+    let prefix = format!("{wire}.");
+    let own = layer
+        .events
+        .iter()
+        .filter_map(|event| Some((event.name.strip_prefix(&prefix)?, event)))
+        .collect::<Vec<_>>();
+    if own.is_empty() || opened_by(layer, payload).is_some() {
+        return Ok(None);
+    }
+    let id = format!("{wire}_id");
+    let properties = |type_name: &str| {
+        layer
+            .definitions
+            .get(type_name)
+            .and_then(|definition| definition["properties"].as_object())
+    };
+    for type_name in
+        std::iter::once(payload).chain(own.iter().map(|(_, event)| event.payload.0.as_str()))
+    {
+        if !properties(type_name).is_some_and(|held| held.contains_key(&id)) {
+            bail!(
+                "`{type_name}` lacks `{id}`, which names the value whose own events are the catalog's `{prefix}*` (ADR 0081)"
+            );
+        }
+    }
+    let handle_id = format!("{namespace}_id");
+    let fields = properties(payload)
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| **name != handle_id)
+        .map(|(name, property)| {
+            let description = property["description"].as_str().unwrap_or_default();
+            (name.clone(), description.to_owned())
+        })
+        .collect();
+    let events = own
+        .into_iter()
+        .map(|(name, event)| Listened {
+            wire: name.to_owned(),
+            payload: event.payload.0.clone(),
+            description: event.description.clone(),
+            builds: None,
+            opens: None,
+            stability: event.stability,
+            deprecated: event.deprecated.clone(),
+        })
+        .collect();
+    Ok(Some(Opens {
+        namespace: wire.to_owned(),
+        id,
+        fields,
+        events,
+    }))
+}
+
+/// The namespace of the handle whose opener answers `payload`, a round trip
+/// named `new_<namespace>` of a namespace in [`HANDLES`], if one does.
+fn opened_by(layer: &Layer, payload: &str) -> Option<&'static str> {
+    layer.operations.iter().find_map(|operation| {
+        let (_, name) = operation.name.rsplit_once('.')?;
+        let opened = name.strip_prefix("new_")?;
+        let namespace = HANDLES.into_iter().find(|handle| *handle == opened)?;
+        (operation.kind == Kind::RoundTrip && operation.result.0 == payload).then_some(namespace)
+    })
+}
+
+/// Fails unless each event of `listener`, whose events the engine
+/// publishes on its event stream, names its handle by `id` in its payload,
+/// which is how a listener tells its own handle's events from another's.
+fn names_its_handle(layer: &Layer, listener: &Listener<'_>, id: &HandleId) -> Result<()> {
+    for listened in &listener.events {
+        let named = layer
+            .definitions
+            .get(&listened.payload)
+            .is_some_and(|payload| payload["properties"].get(&id.param).is_some());
+        if !named {
+            bail!(
+                "operation `{}`: its event `{}`'s payload `{}` names no `{}`, which tells its handle's events on the event stream from another's (ADR 0081)",
+                listener.operation.name,
+                listened.wire,
+                listened.payload,
+                id.param
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The handles of `layer`'s operations, in [`HANDLES`]' order; a namespace
 /// with no member has none.
 pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
@@ -336,6 +895,42 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             let Some(id) = handle_id(namespace, operation, schema)? else {
                 continue;
             };
+            if operation.kind == Kind::Event && sub_object.is_none() && name == "on" {
+                if LISTENERS.contains(&namespace) {
+                    let listener = listener(layer, namespace, operation, schema)?;
+                    if let Some(built) = listener
+                        .events
+                        .iter()
+                        .find(|listened| listened.builds.is_some())
+                    {
+                        bail!(
+                            "operation `{}`: its event `{}` opens a handle, which only a listener whose events the engine publishes builds; add `{namespace}` to `PUBLISHED_LISTENERS` (ADR 0081)",
+                            operation.name,
+                            built.wire
+                        );
+                    }
+                    found
+                        .get_or_insert_with(|| Handle::of(namespace, id))
+                        .listener = Some(listener);
+                    continue;
+                }
+                if PUBLISHED_LISTENERS.contains(&namespace) {
+                    let listener = listener(layer, namespace, operation, schema)?;
+                    names_its_handle(layer, &listener, &id)?;
+                    found
+                        .get_or_insert_with(|| Handle::of(namespace, id))
+                        .published_listener = Some(listener);
+                    continue;
+                }
+            }
+            if operation.kind == Kind::Read {
+                let (opened, read) =
+                    reads::read(layer, namespace, operation, name, sub_object, schema, &id)?;
+                found
+                    .get_or_insert_with(|| Handle::of(namespace, id))
+                    .push_read(opened, read);
+                continue;
+            }
             let Some(form) = form(operation, name, schema)? else {
                 continue;
             };
@@ -350,41 +945,26 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 && !operation.cancellable
                 && parameters.positional.is_empty()
                 && parameters.named.is_empty();
+            let form = if closes { Form::Closes } else { form };
+            let unwrapped = unwrapped(layer, operation, &form, typed_by.as_ref())?;
             let member = Member {
                 operation,
                 name,
-                form: if closes { Form::Closes } else { form },
+                form,
+                deprecated_forms: deprecated_forms(layer, operation, schema, &parameters)?,
                 parameters,
                 typed_by,
                 timeout_setting,
+                unwrapped,
             };
-            let handle = found.get_or_insert_with(|| Handle {
-                namespace,
-                id,
-                members: Vec::new(),
-                builders: Vec::new(),
-                sub_objects: Vec::new(),
-            });
-            match sub_object {
-                None => handle.members.push(member),
-                Some(sub_object) => {
-                    match handle
-                        .sub_objects
-                        .iter_mut()
-                        .find(|held| held.name == sub_object)
-                    {
-                        Some(held) => held.members.push(member),
-                        None => handle.sub_objects.push(SubObject {
-                            name: sub_object,
-                            members: vec![member],
-                        }),
-                    }
-                }
-            }
+            found
+                .get_or_insert_with(|| Handle::of(namespace, id))
+                .push(sub_object, member);
         }
         handles.extend(found);
     }
     check_opened_values(layer, &handles)?;
+    reads::check_opened(&handles)?;
     let builders = builders(layer, &handles)?;
     for (parent, builder) in builders {
         handles[parent].builders.push(builder);

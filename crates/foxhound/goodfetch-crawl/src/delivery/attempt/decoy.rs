@@ -5,8 +5,8 @@
 //! page reached through a suspected trap link was never fetched, so its
 //! status is `null`.
 
-use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::page::{BLOCKED, BlockedDetails};
+use goodfetch_protocol::foxhound::block::{BlockCause, BlockedDetails};
+use goodfetch_protocol::page::BLOCKED;
 use serde_json::Value;
 
 use super::{Answer, AttemptFailure};

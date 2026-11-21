@@ -1,14 +1,19 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{
-    Executables, Options, chromiumoxide_executable, counted_output, crawlberg_executable,
-    crawlee_rs_executable, fastcrw_executable, openspider_executable, order, pagesift_executable,
-    profile_folder, run, set_aside, size_points, spider_executable,
+    Executables, Options, counted_output, instruction_cells, order, profile_folder, run, set_aside,
+    side_executable, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
     CollieScenario, Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
 };
+
+/// The executable Cargo builds at `path`, with the OS's suffix (`.exe` on
+/// Windows).
+fn built(path: &str) -> PathBuf {
+    PathBuf::from(format!("{path}{}", std::env::consts::EXE_SUFFIX))
+}
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -24,11 +29,9 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
             executable(SpiderBuild::Jemalloc),
         ),
         (
-            Path::new("/t/compare-spider/spider/release/goodfetch-compare-spider").to_owned(),
-            Path::new("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider")
-                .to_owned(),
-            Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
-                .to_owned(),
+            built("/t/compare-spider/spider/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider"),
         )
     );
 }
@@ -58,63 +61,32 @@ fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
     );
 }
 
-/// crawlee-rs's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's.
+/// Each other Rust side runs the executable Cargo left in the folder of its
+/// name among the Rust sides' builds, under the profile's, named after its
+/// side's package (#2216, #2217, #2218, issue 2444).
 #[test]
-fn crawlee_rs_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
-    );
-}
+fn each_other_rust_side_runs_the_executable_built_in_its_folder() {
+    let executable = |folder| side_executable(Path::new("/t/compare-spider"), folder, "release");
 
-/// pagesift's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's.
-#[test]
-fn pagesift_runs_the_executable_built_in_its_folder() {
     assert_eq!(
-        pagesift_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
-    );
-}
-
-/// OpenSpider's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's (#2216).
-#[test]
-fn openspider_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        openspider_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/openspider/release/goodfetch-compare-openspider")
-    );
-}
-
-/// fastCRW's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's (#2217).
-#[test]
-fn fastcrw_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        fastcrw_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw")
-    );
-}
-
-/// crawlberg's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's (#2218).
-#[test]
-fn crawlberg_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        crawlberg_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg")
-    );
-}
-
-/// chromiumoxide's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's (issue 2444).
-#[test]
-fn chromiumoxide_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
+        [
+            matrix::CRAWLEE_RS_FOLDER,
+            matrix::PAGESIFT_FOLDER,
+            matrix::OPENSPIDER_FOLDER,
+            matrix::FASTCRW_FOLDER,
+            matrix::CRAWLBERG_FOLDER,
+            matrix::CHROMIUMOXIDE_FOLDER,
+        ]
+        .map(executable),
+        [
+            "/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs",
+            "/t/compare-spider/pagesift/release/goodfetch-compare-pagesift",
+            "/t/compare-spider/openspider/release/goodfetch-compare-openspider",
+            "/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw",
+            "/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg",
+            "/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide",
+        ]
+        .map(built)
     );
 }
 
@@ -384,7 +356,7 @@ fn handed_over(
     let options = Options {
         scenarios,
         ..crate::compare::options(
-            &crate::compare::recipe_arguments(&given),
+            &crate::compare::tests::recipe_arguments(&given),
             &crate::environment::Environment::of(&[]),
         )
         .expect("invariant: the test's cells are the matrix's")
@@ -659,6 +631,32 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
             (Tool::Foxhound, 64, None),
             (Tool::Spider, 16, Some(64)),
             (Tool::Spider, 64, Some(128)),
+        ]
+    );
+}
+
+/// The Callgrind cell counts the cells its ratios read: in scenario 1
+/// Foxhound's first cell, its cell at the catalog's defaults on the row
+/// that does not send from the browser and Spider's main row; in the
+/// extraction scenario both of Foxhound's rows and Spider's (#2175).
+#[test]
+fn the_callgrind_cell_counts_the_cells_its_ratios_read() {
+    let measured: Vec<_> = matrix::measured().collect();
+
+    let cells: Vec<(Scenario, &str)> = instruction_cells(&measured)
+        .into_iter()
+        .map(|(cell, _)| (cell.scenario, cell.name))
+        .collect();
+
+    assert_eq!(
+        cells,
+        vec![
+            (Scenario::Raw, "foxhound"),
+            (Scenario::Raw, "spider"),
+            (Scenario::Raw, "foxhound defaults learned"),
+            (Scenario::Extraction, "foxhound"),
+            (Scenario::Extraction, matrix::FILTER_LISTS_OFF),
+            (Scenario::Extraction, "spider"),
         ]
     );
 }

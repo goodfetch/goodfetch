@@ -160,11 +160,6 @@ impl FilterLists {
         ))
     }
 
-    /// The size of the embedded lists' serialized forms, together.
-    pub fn serialized_size() -> usize {
-        ADS.size + TRACKERS.size + ANNOYANCES.size
-    }
-
     /// Compiles a downloaded version's Filter lists from their texts, each
     /// with the version's unbreak list, as the build compiles the embedded
     /// ones: on the engine's own machine, with its own `adblock` (ADR 0047).

@@ -69,6 +69,7 @@ mod quarantine;
 mod rate;
 mod received_requests;
 mod register;
+mod release;
 mod release_suite;
 mod repeat;
 mod results;
@@ -330,6 +331,12 @@ enum Command {
     /// through `ReceivedRequests`, which says whether a count keeps the
     /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
     ReceivedRequests,
+    /// A release's preparation (spec #130): the Product version in every
+    /// released manifest of both Products.
+    Release {
+        #[command(subcommand)]
+        command: release::Command,
+    },
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -353,8 +360,15 @@ enum Command {
     },
     /// Fails on a member of an SDK's manifest that serves no catalog
     /// operation, or one only a person may call, such as `usage.raise`
-    /// (ADRs 0041, 0080, 0099).
+    /// (ADRs 0041, 0080), two members of one receiver for one entry, a
+    /// member with no entry not spelled from its words and form, a line
+    /// naming a member the generator writes, and a member another SDK lacks
+    /// on a receiver both list unless its line says why (ADR 0099).
     SdkManifests,
+    /// Fails on a public hand-written member an SDK exports that its
+    /// manifest does not list, and on a line naming no hand-written member
+    /// the SDK exports (ADRs 0069, 0099).
+    SdkExports,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -609,12 +623,14 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
+        Command::Release { command } => release::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
+        Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

@@ -8,7 +8,6 @@ use super::at_once;
 /// Once the base's build fails, the head's starts no further command, and
 /// the build fails with the base's failure alone: the head stopped, it did
 /// not fail.
-#[cfg(unix)]
 #[test]
 fn once_one_build_fails_the_other_starts_no_further_command() {
     let result = at_once(

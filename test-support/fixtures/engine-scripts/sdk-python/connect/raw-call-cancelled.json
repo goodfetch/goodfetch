@@ -1,0 +1,45 @@
+{
+  "description": "After an accepted hello, the program cancels the task a raw call to `run.list`, marked raw in its `_meta`, runs in: the cancel reaches the engine as `$/cancel`, and the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.list",
+        "params": {
+          "_meta": { "raw": true },
+          "lifecycle": "running"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 1
+        }
+      }
+    }
+  ]
+}

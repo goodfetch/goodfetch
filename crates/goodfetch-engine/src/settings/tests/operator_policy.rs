@@ -36,7 +36,9 @@ fn crawl_keys() -> Vec<Key> {
 fn other(kind: &ValueKind, than: &Value) -> Value {
     let candidates = match kind {
         ValueKind::Boolean => vec![json!(true), json!(false)],
-        ValueKind::Count | ValueKind::CountUpTo(_) => vec![json!(3), json!(4)],
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::CountFromOne => {
+            vec![json!(3), json!(4)]
+        }
         ValueKind::Duration => vec![json!(1_000), json!(2_000)],
         ValueKind::Text => vec![json!("one"), json!("two")],
         ValueKind::Choice(words) => words.iter().map(|word| json!(word)).collect(),

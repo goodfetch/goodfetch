@@ -12,16 +12,20 @@
 //! many; on an ended Run it returns the Run to `running` first (ADR 0102).
 //! Foxhound's own.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::block::BlockCause;
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::foxhound::block::BlockCause;
 use crate::foxhound::frontier::NotAddedReason;
-use crate::run::{PointInTime, RunId};
+use crate::open_value::{UnknownMember, UnknownValue};
+use crate::run::RunId;
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -31,9 +35,11 @@ pub const OUTCOMES_PAGE: usize = 256;
 
 /// How a crawl request ended (ADR 0079).
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum OutcomeKind {
     /// Its handler returned, and what it staged was committed.
     Succeeded,
@@ -43,23 +49,34 @@ pub enum OutcomeKind {
     Skipped,
     /// The site refused it, with a Block cause.
     Blocked,
+    /// A kind a newer engine gives that this reader does not know, kept as
+    /// received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 impl OutcomeKind {
+    /// The kinds this reader knows, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Succeeded, Self::Failed, Self::Skipped, Self::Blocked];
+
     /// Its name on the wire and in run state.
-    pub const fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &str {
         match self {
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Skipped => "skipped",
             Self::Blocked => "blocked",
+            Self::Unknown(kind) => kind.as_str(),
         }
     }
 }
 
 /// Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum SkipReason {
     /// A redirect left the crawl's scope.
     OutOfScope,
@@ -82,6 +99,11 @@ pub enum SkipReason {
     ModelAllowance,
     /// Its response's content type is not one its Label takes.
     ContentType,
+    /// A reason a newer engine gives that this reader does not know, kept
+    /// as received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 /// The crawl request an outcome ends.
@@ -179,6 +201,8 @@ pub struct NotAddedAtCommit {
 /// How a crawl request ended, with what that ending carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum Ending {
     /// Its handler returned, and what it staged was committed.
     Succeeded {
@@ -218,17 +242,32 @@ pub enum Ending {
         #[schemars(extend("arrived_in" = "0.1"))]
         cause: BlockCause,
     },
+    /// An ending a newer engine gives that this reader does not know, kept
+    /// as received with its tag (ADR 0079).
+    #[serde(untagged, deserialize_with = "Ending::read_unknown")]
+    #[schemars(skip)]
+    Unknown(UnknownMember),
 }
 
 impl Ending {
-    /// Its kind.
-    pub const fn kind(&self) -> OutcomeKind {
+    /// The tags of the endings this reader knows, in declaration order.
+    const KNOWN_TAGS: [&str; 4] = ["succeeded", "failed", "skipped", "blocked"];
+
+    /// Its kind: an unknown ending's is its tag.
+    pub fn kind(&self) -> OutcomeKind {
         match self {
             Self::Succeeded { .. } => OutcomeKind::Succeeded,
             Self::Failed { .. } => OutcomeKind::Failed,
             Self::Skipped { .. } => OutcomeKind::Skipped,
             Self::Blocked { .. } => OutcomeKind::Blocked,
+            Self::Unknown(member) => OutcomeKind::Unknown(member.tag_value()),
         }
+    }
+
+    /// Reads an ending this reader does not know, refusing a known one whose
+    /// fields do not read.
+    fn read_unknown<'de, D: Deserializer<'de>>(deserializer: D) -> Result<UnknownMember, D::Error> {
+        UnknownMember::read_unknown(deserializer, &Self::KNOWN_TAGS)
     }
 }
 
@@ -251,8 +290,9 @@ pub struct CrawlRequestOutcome {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub errors: Vec<AttemptError>,
     /// When it ended.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub ended_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub ended_at: SystemTime,
     /// How it ended.
     #[serde(flatten)]
     pub ending: Ending,
@@ -284,7 +324,11 @@ pub struct RunOutcomesParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
     /// Only outcomes of these kinds; absent, every kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_kinds"
+    )]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub kinds: Option<Vec<OutcomeKind>>,
     /// Only outcomes of requests of these Labels; absent, every Label.
@@ -301,6 +345,27 @@ pub struct RunOutcomesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub after: Option<OutcomesAfter>,
+}
+
+/// Reads an outcome kind filter, refusing a kind this reader does not know:
+/// a filter is a request, which ADR 0079's keeping of a newer engine's
+/// values does not cover, so an engine answers it with an error, not an
+/// empty page.
+fn known_kinds<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<OutcomeKind>>, D::Error> {
+    let kinds = Option::<Vec<OutcomeKind>>::deserialize(deserializer)?;
+    let unknown = kinds.iter().flatten().find_map(|kind| match kind {
+        OutcomeKind::Unknown(kind) => Some(kind),
+        _ => None,
+    });
+    match unknown {
+        Some(kind) => Err(kind.refused(
+            "outcome kind",
+            &OutcomeKind::ALL.each_ref().map(OutcomeKind::as_str),
+        )),
+        None => Ok(kinds),
+    }
 }
 
 /// One page of `run.outcomes`.

@@ -9,13 +9,14 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
+use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitStanding};
 use goodfetch_test_support::{TestEnv, damage_table, wal_of};
 use jiff::Timestamp;
@@ -291,7 +292,7 @@ fn a_new_run_is_refused_once_a_period_limit_has_nothing_left_until_its_next_peri
                 usage_kind: "requests".to_owned(),
                 currency: None,
                 period: Some(paris_day),
-                resets_at: Some(PointInTime::from_rfc3339("2026-03-10T23:00:00Z".to_owned())),
+                resets_at: Some(point_in_time::from_rfc3339("2026-03-10T23:00:00Z").unwrap()),
             }))),
             Ok(())
         )
@@ -428,9 +429,12 @@ fn a_run_syncs_the_ledger_once_to_take_its_slice_and_once_to_give_it_back() {
 /// connection closed, though closing it no longer copies the write-ahead
 /// log into the file: each commit synced it (ADR 0041, #2110).
 #[rstest]
-#[case::taken(false)]
-#[case::given_back(true)]
-fn a_slice_survives_a_power_cut_after_its_connection_closed(#[case] given_back: bool) {
+#[case::taken(false, (0, 10, 990))]
+#[case::given_back(true, (4, 0, 996))]
+fn a_slice_survives_a_power_cut_after_its_connection_closed(
+    #[case] given_back: bool,
+    #[case] expected: (u64, u64, u64),
+) {
     let env = TestEnv::new();
     let name = env.unique_name("ledger-power-cut");
     let vfs = goodfetch_test_support::CrashVfs::register(&name, env.seed()).unwrap();
@@ -456,11 +460,6 @@ fn a_slice_survives_a_power_cut_after_its_connection_closed(#[case] given_back: 
     vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
     goodfetch_test_support::after_crash(&vfs, &ledger.path().to_string_lossy()).unwrap();
 
-    let expected = if given_back {
-        (4, 0, 996)
-    } else {
-        (0, 10, 990)
-    };
     assert_eq!(counted(&ledger), expected);
 }
 

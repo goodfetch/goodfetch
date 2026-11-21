@@ -13,11 +13,14 @@
 //! which only a broken renderer refuses, and an internal error for a
 //! locator action or a page function, which have no generic code.
 
+use futures_util::FutureExt as _;
 use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError, Refusal};
 use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::run::limit_reached;
+use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, INTERNAL, InternalDetails,
     WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
@@ -30,6 +33,7 @@ use goodfetch_protocol::page::{
     TooManyRedirectsDetails,
 };
 
+use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 
@@ -228,12 +232,13 @@ pub(crate) fn browser_crashed(exit: Option<BrowserExit>) -> CallError {
 
 /// `call_cancelled` for a call in flight that `by` stopped by closing
 /// `closed` under it (ADR 0113).
-pub(crate) fn cancelled(by: StoppedBy, closed: ClosedValue) -> CallError {
-    let message = match (by, closed) {
-        (StoppedBy::Browser, ClosedValue::Page) => {
+pub(crate) fn cancelled(by: CancelledBy, closed: ClosedValue) -> CallError {
+    let message = match (&by, &closed) {
+        (CancelledBy::Browser, ClosedValue::Page) => {
             "the page's window was closed in the browser, outside every Client: open a page and act again"
         }
-        (StoppedBy::Browser, _) => "the page's browser quit, and its Session ended with it",
+        (_, ClosedValue::Run) => "the page's Run was stopped while the call was in flight",
+        (CancelledBy::Browser, _) => "the page's browser quit, and its Session ended with it",
         (_, ClosedValue::Session) => "the page's Session was closed while the call was in flight",
         (_, _) => "the page was closed while the call was in flight",
     };
@@ -243,8 +248,21 @@ pub(crate) fn cancelled(by: StoppedBy, closed: ClosedValue) -> CallError {
         &CallCancelledDetails {
             by,
             closed: Some(closed),
+            person: None,
         },
     )
+}
+
+/// What a call in flight raises when `run` stops under it: the Limit the
+/// Run reached, as the charge that reached it raised (ADR 0041), and
+/// otherwise `call_cancelled` closing the Run (ADR 0113), by whoever
+/// aborted it, or by the program for any other stop, such as a pause.
+pub(crate) fn run_stopped(run: &Run) -> CallError {
+    match run.stopping().now_or_never() {
+        Some(StopReason::Limit(reached)) => limit_reached(&reached),
+        Some(StopReason::Abort { by }) => cancelled(by.into(), ClosedValue::Run),
+        _ => cancelled(CancelledBy::Program, ClosedValue::Run),
+    }
 }
 
 /// `internal` for an event the table of `object` refused in a state that

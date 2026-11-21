@@ -23,7 +23,6 @@ from goodfetch_collie_client.generated.models import (
     PageResponse,
     PlanReport,
     PluginRun,
-    PointInTime,
     ProjectSettings,
     RecordingReport,
     RunId,
@@ -35,8 +34,16 @@ from goodfetch_collie_client.generated.models import (
     Tags,
     UncertainEffect,
     UnreadField,
-    Verdict,
     WeakenedSetting,
+)
+from goodfetch_collie_client.generated.open_values import Verdict
+from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_collie_client.unknown_member import UnknownMember
+from goodfetch_foxhound.generated.open_values import (
+    BlockCause,
+    CrawlHookStage,
+    OutcomeKind,
+    SkipReason,
 )
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -67,28 +74,6 @@ class AttemptError(BaseModel):
     """
     message: str
     """What it said."""
-
-
-class BlockCause(StrEnum):
-    """Why a site refused a page (ADR 0035), on the wire as written."""
-
-    challenge = "challenge"
-    """A page that checks the browser before it lets it through."""
-    captcha = "captcha"
-    """A page that asks a person to prove they are human."""
-    rate_limit = "rate_limit"
-    """The site refused because too many requests came too fast."""
-    ip_block = "ip_block"
-    """The site refused the address the request came from."""
-    decoy = "decoy"
-    """
-    A trap page a person would never reach, such as a labyrinth of
-    hidden links; only Foxhound's Frontier produces it (ADR 0095).
-    """
-    payment_required = "payment_required"
-    """The site asked to be paid for the page (ADR 0045)."""
-    consent_required = "consent_required"
-    """A wall that asks for consent before it shows the page (ADR 0048)."""
 
 
 class CertificateExceptionKind(StrEnum):
@@ -128,6 +113,41 @@ class CountOf(BaseModel):
     """How many."""
     name: str
     """The reason, code or cause."""
+
+
+class CrawlHookDeclaration(BaseModel):
+    """
+    One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which
+    list them in the order declared: per stage, they run in that order,
+    after the Hooks named in settings (ADR 0104).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    datasets: list[str] | None = None
+    """
+    At `before_record_commit`, the Datasets whose Records it runs for;
+    absent for every Dataset.
+    """
+    labels: list[str] | None = None
+    """The Labels whose requests it runs for; absent for every Label."""
+    name: str
+    """Its name, which `crawl_hook.handle` and `hook_failed` carry."""
+    stage: CrawlHookStage
+    """The stage it runs at."""
+
+
+class CrawlHookHandled(BaseModel):
+    """
+    What a Hook answers once it returned: nothing yet, the work going on
+    unchanged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -673,10 +693,11 @@ class LabelDeclaration(BaseModel):
     """
     settings: dict[str, Any] | None = None
     """
-    Its settings, nested by key: today `fetch.tier`, `session.page_check`,
-    which judges its pages in place of the Run's, and `session.source`,
-    which gives the Label a Session pool of its own (ADR 0093), any other
-    key refused with `setting_not_applicable`.
+    Its settings, nested by key: those whose scopes include `label`
+    (ADR 0093), such as `fetch.tier`, `session.page_check`, which judges
+    its pages in place of the Run's, and `session.source`, which gives
+    the Label a Session pool of its own; any other key is refused with
+    `setting_not_applicable`.
     """
 
 
@@ -819,19 +840,6 @@ class Now(StrEnum):
 
     now = "now"
     """From the next commit on."""
-
-
-class OutcomeKind(StrEnum):
-    """How a crawl request ended (ADR 0079)."""
-
-    succeeded = "succeeded"
-    """Its handler returned, and what it staged was committed."""
-    failed = "failed"
-    """Its last attempt failed, and no retry is left."""
-    skipped = "skipped"
-    """A decision ended it: a skip is never retried."""
-    blocked = "blocked"
-    """The site refused it, with a Block cause."""
 
 
 class OutcomeRequest(BaseModel):
@@ -1501,34 +1509,6 @@ class SitemapSeed(BaseModel):
     """The URL of the sitemap, or of the site's robots.txt."""
 
 
-class SkipReason(StrEnum):
-    """Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119)."""
-
-    out_of_scope = "out_of_scope"
-    """A redirect left the crawl's scope."""
-    domain_policy = "domain_policy"
-    """
-    A redirect or a Hook's rewrite reached a host the domain policy
-    refuses.
-    """
-    duplicate = "duplicate"
-    """A URL rule merged it with a request already admitted."""
-    robots_txt = "robots_txt"
-    """The site's robots.txt refuses it."""
-    crawl_delay = "crawl_delay"
-    """The site's Crawl-delay could not be kept."""
-    use_signals = "use_signals"
-    """An AI-use signal refuses the Run's Purpose."""
-    hook = "hook"
-    """A before-request Hook skipped it."""
-    handler = "handler"
-    """Its handler skipped it."""
-    model_allowance = "model_allowance"
-    """The Run's Model allowance was reached."""
-    content_type = "content_type"
-    """Its response's content type is not one its Label takes."""
-
-
 class SortDirection(StrEnum):
     """A sort's direction."""
 
@@ -1893,6 +1873,31 @@ class CrawlRequestOutcome4(BaseModel):
     kind: Literal["blocked"]
 
 
+class CrawlRequestOutcome5(UnknownMember):
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["unknown"]
+    tag: str
+    """The tag the engine sent."""
+
+
 class DatasetList(BaseModel):
     """What `dataset.list` answers."""
 
@@ -2191,6 +2196,35 @@ class TransformProvenance(BaseModel):
     """The transform."""
 
 
+class CrawlHookHandleParams(BaseModel):
+    """
+    What `crawl_hook.handle` gives the program: one call of one Hook, for
+    one attempt of a work item, under its lease.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempt: Annotated[int, Field(ge=0)]
+    """Which attempt this is, from 1."""
+    crawl_request: CrawlRequest
+    """The work item."""
+    hook: str
+    """The Hook's name, as the crawl declared it."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The lease's epoch, which only goes up (ADR 0003)."""
+    record: PushedRecord | None = None
+    """
+    At `before_record_commit`, the Record about to commit and its
+    Dataset.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    stage: CrawlHookStage
+    """The stage it runs at."""
+
+
 class CrawlRequestOutcome1(BaseModel):
     """Its handler returned, and what it staged was committed."""
 
@@ -2232,6 +2266,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome2
         | CrawlRequestOutcome3
         | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
     ]
 ):
     root: (
@@ -2239,6 +2274,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome2
         | CrawlRequestOutcome3
         | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
     )
     """
     How one crawl request ended (ADRs 0079 and 0102). A request that
@@ -2369,6 +2405,12 @@ class CrawlStartParams(BaseModel):
     declares no Dataset of its own, else it fails with
     `invalid_params`. None for a crawl whose program handles its
     requests.
+    """
+    hooks: list[CrawlHookDeclaration] | None = None
+    """
+    The crawl's Hooks in code, in the order declared (ADR 0104). Never
+    kept in the Run's state: a start that resumes the Run declares them
+    again.
     """
     labels: dict[str, LabelDeclaration] | None = None
     """

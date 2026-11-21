@@ -6,10 +6,29 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+#[cfg(unix)]
+mod attached;
+mod call_cancelled;
+mod cancellation;
+mod cdp_url_errors;
+mod closing;
+mod compile_fail;
 mod connection;
 #[cfg(unix)]
 mod daemon;
-mod duration;
+mod errors_and_outcomes;
+mod events;
 mod file_saving;
-mod forms;
 mod handler_requests;
+mod limits;
+mod logging;
+mod navigations;
+mod partial_results;
+mod points_in_time;
+mod product_and_provisioning;
+mod results;
+mod scripted_daemon;
+mod session_events;
+mod settings;
+mod start;
+mod web_socket;

@@ -8,6 +8,8 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -100,11 +102,13 @@ pub struct BrowserCacheEntry {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub digest: String,
     /// When it was installed, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub installed_at: jiff::Timestamp,
+    pub installed_at: SystemTime,
     /// When it was last launched or installed, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub used_at: jiff::Timestamp,
+    pub used_at: SystemTime,
 }
 
 /// A build the engine needs and cannot fetch (ADR 0115).
@@ -296,6 +300,7 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

@@ -13,7 +13,12 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+# The program's OpenTelemetry context, read from its current `tracing` span
+# through `tracing-opentelemetry`, in each request it sends (ADR 0132);
+# without it, a request carries none. The engine, which the SDK links,
+# already takes both crates, so the feature adds none.
+opentelemetry = []
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,
@@ -45,7 +50,7 @@ serde_json.workspace = true
 # The Browser cache's write check before a Daemon's copy goes in it.
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 # A linked engine's task, and the foreground Daemon's drain (ADR 0049).
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
@@ -72,6 +77,11 @@ goodfetch-workspace-hack.workspace = true
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
 libc = { workspace = true, optional = true }
 
+[target.'cfg(windows)'.dependencies]
+# `daemon start` keeps its own standard handles from the Daemon it starts,
+# which would otherwise inherit them and hold its caller's pipes open.
+windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation", "Win32_System_Console"] }
+
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 # The static musl executables have one allocator (#2208): Collie's, and
 # Foxhound's, which turns on this crate's `executable` feature. `override`
@@ -84,11 +94,15 @@ mimalloc = { workspace = true, optional = true, features = ["override"] }
 
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
-# (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062).
-goodfetch-collie = { path = ".", features = ["executable"] }
+# (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace
+# context its requests carry (tests/it/sdk/trace_context.rs).
+goodfetch-collie = { path = ".", features = ["executable", "opentelemetry"] }
 # The embedded Clean-up rules' digest and manifest, which a Run holds to by
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
+# The Rust runner's case-log writer, which the SDK tests that run a client
+# conformance case append their entries through (ADR 0069).
+goodfetch-conformance.workspace = true
 goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
@@ -114,7 +128,10 @@ jsonschema.workspace = true
 # The settings flags' duration reader, over generated durations.
 proptest.workspace = true
 rstest.workspace = true
-# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
+# The program's type a page's fields are read into (tests/it/sdk/page.rs).
+serde.workspace = true
+# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs), and a
+# test report part's signature (src/linked/tests.rs).
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
@@ -139,6 +156,11 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 # engine's own keychain, whose values are `SecretString`s.
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+# The `connection-used-after-fork` case forks the test and waits for its
+# child (tests/it/sdk/fork.rs).
+libc.workspace = true
 
 # `cargo binstall goodfetch-collie` installs the executable from its
 # archive on the GitHub Release of the same version (ADRs 0090 and 0094).

@@ -24,13 +24,11 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_INDEX;
-use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, Presence, RunId, RunIndexRow, Verdict,
-};
+use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
 use rusqlite::{Connection, OptionalExtension as _, Row};
 
 use crate::lowest_minor::{self, Opener};
@@ -38,6 +36,7 @@ use crate::run_state::RunStateError;
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, KeptStore, Opening, StoreFile, Wait,
 };
+use crate::stored_time::StoredTime;
 use crate::tasks::{ActorStopped, TaskOwner};
 
 /// How long a write waits for another engine's.
@@ -274,7 +273,7 @@ impl RunIndex {
     /// # Errors
     ///
     /// As [`Self::write`].
-    pub(crate) async fn dismiss(&self, item: String, at: PointInTime) -> Result<(), RunStateError> {
+    pub(crate) async fn dismiss(&self, item: String, at: SystemTime) -> Result<(), RunStateError> {
         self.store
             .write(None, move |file, connection| {
                 file.in_transaction(connection, true, |connection| {
@@ -283,7 +282,7 @@ impl RunIndex {
                             "INSERT INTO needs_you_dismissed (item, dismissed_at) VALUES (?1, ?2)
                              ON CONFLICT (item) DO NOTHING",
                         )?
-                        .execute((item.as_str(), at.as_str()))
+                        .execute((item.as_str(), StoredTime(at)))
                         .map(drop)
                 })
             })
@@ -320,7 +319,7 @@ impl RunIndex {
         &self,
         domain: String,
         run_id: RunId,
-        at: PointInTime,
+        at: SystemTime,
     ) -> Result<(), RunStateError> {
         self.store
             .write(None, move |file, connection| {
@@ -330,7 +329,7 @@ impl RunIndex {
                             "INSERT INTO consent_walls (domain, run_id, seen_at) VALUES (?1, ?2, ?3)
                              ON CONFLICT (domain, run_id) DO NOTHING",
                         )?
-                        .execute((domain.as_str(), run_id.as_str(), at.as_str()))
+                        .execute((domain.as_str(), run_id.as_str(), StoredTime(at)))
                         .map(drop)
                 })
             })
@@ -361,7 +360,7 @@ impl RunIndex {
     pub(crate) async fn record_refetch_stop(
         &self,
         stop: RefetchStopped,
-        at: PointInTime,
+        at: SystemTime,
     ) -> Result<(), RunStateError> {
         self.store
             .write(None, move |file, connection| {
@@ -377,7 +376,7 @@ impl RunIndex {
                             stop.last_run.as_str(),
                             stop.cause.as_str(),
                             stop.project_file.as_deref(),
-                            at.as_str(),
+                            StoredTime(at),
                         ))
                         .map(drop)
                 })
@@ -679,10 +678,10 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
         text(&row.needs),
         serde_json::to_string(&row.tags).expect("invariant: tags encode"),
         row.lifecycle.as_str(),
-        row.verdict.map(Verdict::as_str),
+        row.verdict.as_ref().map(Verdict::as_str),
         row.completeness.map(Completeness::as_str),
-        row.started_at.as_str(),
-        row.ended_at.as_ref().map(PointInTime::as_str),
+        StoredTime(row.started_at),
+        row.ended_at.map(StoredTime),
         row.owner
             .as_ref()
             .map(|owner| serde_json::to_string(owner).expect("invariant: an endpoint encodes")),
@@ -716,10 +715,8 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
             .as_deref()
             .map(parsed)
             .transpose()?,
-        started_at: PointInTime::from_rfc3339(row.get(8)?),
-        ended_at: row
-            .get::<_, Option<String>>(9)?
-            .map(PointInTime::from_rfc3339),
+        started_at: row.get::<_, StoredTime>(8)?.0,
+        ended_at: row.get::<_, Option<StoredTime>>(9)?.map(|at| at.0),
         owner: owner
             .map(|owner| {
                 serde_json::from_str(&owner)
@@ -764,7 +761,7 @@ pub(crate) struct ConsentWallSeen {
     /// The registrable domain.
     pub(crate) domain: String,
     /// When a Run first met it.
-    pub(crate) first_seen: PointInTime,
+    pub(crate) first_seen: SystemTime,
     /// The last Run that met it.
     pub(crate) last_run: RunId,
 }
@@ -785,7 +782,7 @@ fn consent_walls_in(connection: &Connection) -> rusqlite::Result<Vec<ConsentWall
             let run: String = row.get(2)?;
             Ok(ConsentWallSeen {
                 domain: row.get(0)?,
-                first_seen: PointInTime::from_rfc3339(row.get::<_, String>(1)?),
+                first_seen: row.get::<_, StoredTime>(1)?.0,
                 last_run: RunId::parse(&run).map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
                         2,
@@ -805,7 +802,7 @@ pub(crate) struct RefetchStopped {
     /// The registrable domain.
     pub(crate) domain: String,
     /// When a Run's refetch first stopped there.
-    pub(crate) first_stopped: PointInTime,
+    pub(crate) first_stopped: SystemTime,
     /// The last Run whose refetch stopped there.
     pub(crate) last_run: RunId,
     /// What stopped that Run's refetch: the Block cause, the `401` or `403`
@@ -835,7 +832,7 @@ fn refetch_stops_in(connection: &Connection) -> rusqlite::Result<Vec<RefetchStop
             let run: String = row.get(2)?;
             Ok(RefetchStopped {
                 domain: row.get(0)?,
-                first_stopped: PointInTime::from_rfc3339(row.get::<_, String>(1)?),
+                first_stopped: row.get::<_, StoredTime>(1)?.0,
                 last_run: RunId::parse(&run).map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
                         2,

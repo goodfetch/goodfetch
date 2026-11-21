@@ -1,8 +1,11 @@
 //! The handles of Collie's Rust client crate (ADR 0099), generated into
 //! its `src/generated/` folder: `handles.rs`, one async handle a namespace,
 //! with its members in the form their kind gives them, the values it builds
-//! without a call and its sub-objects, and `blocking.rs`, its twin, which
-//! repeats it under the same type and method names.
+//! without a call and its sub-objects, `blocking.rs`, its twin, which
+//! repeats it under the same type and method names, and `events.rs`, the
+//! marker types a handle's `events` reads its events by (ADR 0081), and
+//! `settings.rs`, the typed keys of the crate's `Settings` (`settings`),
+//! with Foxhound's crate's own keys in its `src/generated/settings.rs`.
 //!
 //! - A round trip and a waiter return a `Call<T, P>` builder, a query a
 //!   `Query<T, P>`, which has no `timeout`; `P` is the operation's params
@@ -16,14 +19,29 @@
 //! - A `new_<value>` member answers the handle it opens, a value built
 //!   without a call is a plain method, and so is a sub-object.
 //! - A result typed by the fields its call declares (ADR 0147) is the
-//!   result type: the crate's `Map` of values by field name.
+//!   result type: the crate's `Map` of values by field name, which the
+//!   crate's hand-written `typed()` reads into a type of the program's.
+//! - A result of one property answers that property's value, its field's
+//!   type in the protocol crate, `Option` for an optional one (issue 2517).
+//! - A page's member whose answer is a `PageResponse`, or an optional one,
+//!   answers the crate's hand-written `Response` instead, which holds the
+//!   page and reads the response's body (ADR 0085).
 //!
 //! Each params type's fields are read from the protocol crate's source
 //! (`index`), so a member sets each by name; a type or field the handles
 //! cannot spell fails `xtask codegen` with the operation named, and rustc
 //! checks every member against the crate's own types.
+//!
+//! Size: one concern, the handles' Rust text: the models a namespace's
+//! handle, members and builders are read into, and the `Module` that
+//! writes both twins from them; the index, listeners, raw call and
+//! settings live in modules of their own.
 
 mod index;
+mod listeners;
+mod raw_call;
+mod reads;
+mod settings;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -32,6 +50,9 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 use self::index::{Field, Index};
+use self::listeners::ListenerModel;
+use self::reads::ReadsModel;
+pub(super) use self::settings::{FOXHOUND_FOLDER, generate_foxhound};
 use super::cdp::rustfmt;
 use super::handles::{self, Builder, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};
@@ -50,11 +71,11 @@ const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (A
 
 /// The `# Errors` section of a member that answers through a call
 /// (STYLE.md, Documentation in code).
-const CALL_ERRORS: &str = "# Errors\n\nOnce sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.";
+const CALL_ERRORS: &str = "# Errors\n\nOnce sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.";
 
 /// The `# Errors` section of a member that answers through a query, which
 /// takes no timeout.
-const QUERY_ERRORS: &str = "# Errors\n\nOnce sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.";
+const QUERY_ERRORS: &str = "# Errors\n\nOnce sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.";
 
 /// The parameter a call sends its own timeout in (ADR 0080).
 const TIMEOUT: &str = "timeout";
@@ -65,7 +86,7 @@ const HANDLE_NAMES: [&str; 4] = ["host", "id", "inner", "new"];
 
 /// The methods `Call` and `Query` already have, which no option may
 /// shadow.
-const BUILDER_NAMES: [&str; 8] = [
+const BUILDER_NAMES: [&str; 10] = [
     "edit",
     "into_future",
     "map",
@@ -73,11 +94,25 @@ const BUILDER_NAMES: [&str; 8] = [
     "no_timeout",
     "send",
     TIMEOUT,
+    "try_map",
+    "typed",
     "wire_timeout",
 ];
 
-/// Collie's Rust handles, `handles.rs` and `blocking.rs` under [`FOLDER`],
-/// or nothing when the workspace has no Rust client.
+/// The protocol's response to a page's request, which a member answers as
+/// the crate's `Response` (ADR 0085).
+const PAGE_RESPONSE: &str = "::goodfetch_protocol::page::PageResponse";
+
+/// The protocol's request a page sent and the response it got, which a
+/// member answers as the crate's `Exchange`, its response a `Response`.
+const PAGE_EXCHANGE: &str = "::goodfetch_protocol::page::events::PageExchange";
+
+/// The ID of the page a `Response` reads its body through.
+const PAGE_ID: &str = "::goodfetch_protocol::page::PageId";
+
+/// Collie's Rust handles, `handles.rs`, `blocking.rs`, `events.rs` and
+/// `settings.rs` under [`FOLDER`], or nothing when the workspace has no
+/// Rust client.
 pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Vec<u8>>> {
     if !root.join(MANIFEST).is_file() {
         return Ok(BTreeMap::new());
@@ -88,10 +123,12 @@ pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Ve
     let handles = handles::handles(layer)?;
     let mut asynchronous = Module::new(Twin::Async);
     let mut blocking = Module::new(Twin::Blocking);
+    let mut listeners = Vec::new();
     for handle in &handles {
         let model = HandleModel::new(&index, layer, handle)?;
         asynchronous.handle(&model);
         blocking.handle(&model);
+        listeners.extend(model.listener);
     }
     let mut files = BTreeMap::new();
     files.insert(
@@ -101,6 +138,16 @@ pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Ve
     files.insert(
         format!("{FOLDER}/blocking.rs"),
         rustfmt(&blocking.text()).context("formatting the blocking Rust handles")?,
+    );
+    files.insert(
+        format!("{FOLDER}/events.rs"),
+        rustfmt(&listeners::module(HEADER, &listeners))
+            .context("formatting the Rust events' markers")?,
+    );
+    files.insert(
+        format!("{FOLDER}/settings.rs"),
+        rustfmt(&settings::module(HEADER, &layer.settings)?)
+            .context("formatting the Rust settings' keys")?,
     );
     Ok(files)
 }
@@ -129,6 +176,9 @@ struct Setter {
     declared: String,
     /// The value the field takes, from the argument named `ident`.
     set: String,
+    /// The scope whose settings the member opens, which a `settings` option
+    /// checks its keys against: the variant of `SettingScope`.
+    scope: Option<String>,
 }
 
 /// Which builder a member returns.
@@ -162,6 +212,8 @@ struct MemberModel {
     ident: String,
     doc: String,
     deprecated: Option<String>,
+    /// ADR 0030's run-time warning of its markers, which it opens with.
+    warning: Option<String>,
     form: Form,
     method: String,
     params: String,
@@ -171,8 +223,87 @@ struct MemberModel {
     literal: String,
     /// Whether the builder sends its timeout in the params (ADR 0080).
     wire_timeout: bool,
-    /// For an opener: the handle it opens and the result field of its ID.
-    opens: Option<(String, String)>,
+    /// What it answers of its result.
+    answers: Answers,
+    /// Whether what it answers is a page's response, which it wraps.
+    responds: Responds,
+}
+
+/// Whether a member answers a page's response, which it answers as the
+/// crate's `Response`, or a request with its response, which it answers
+/// as the crate's `Exchange`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Responds {
+    /// It answers something else.
+    No,
+    /// It answers a `PageResponse`.
+    Always,
+    /// It answers an optional `PageResponse`.
+    Optionally,
+    /// It answers a `PageExchange`.
+    Exchanged,
+}
+
+impl Responds {
+    /// Whether `answered`, the type a member answers, is a page's
+    /// response.
+    fn of(answered: &str) -> Self {
+        if answered == PAGE_RESPONSE {
+            Self::Always
+        } else if answered == format!("Option<{PAGE_RESPONSE}>") {
+            Self::Optionally
+        } else if answered == PAGE_EXCHANGE {
+            Self::Exchanged
+        } else {
+            Self::No
+        }
+    }
+
+    /// The type a member answers once a response is wrapped, as `twin`
+    /// spells it: `answered` itself when it is not one.
+    fn answered(self, answered: String, twin: Twin) -> String {
+        match self {
+            Self::No => answered,
+            Self::Always => format!("{}::Response", twin.builders()),
+            Self::Optionally => format!("Option<{}::Response>", twin.builders()),
+            Self::Exchanged => format!("{}::Exchange", twin.builders()),
+        }
+    }
+
+    /// An async member's answer, `value`, wrapped: each response with the
+    /// page's `host`.
+    fn wrapped(self, value: &str) -> String {
+        match self {
+            Self::No => value.to_owned(),
+            Self::Always => format!("crate::Response::new(host, {value})"),
+            Self::Optionally => {
+                format!("{value}.map(|response| crate::Response::new(host, response))")
+            }
+            Self::Exchanged => format!("crate::Exchange::new(host, {value})"),
+        }
+    }
+
+    /// The function from an async member's answer to its blocking twin's.
+    fn blocking(self) -> &'static str {
+        match self {
+            Self::No => "",
+            Self::Always => "crate::blocking::Response::new",
+            Self::Optionally => "|answered| answered.map(crate::blocking::Response::new)",
+            Self::Exchanged => "crate::blocking::Exchange::new",
+        }
+    }
+}
+
+/// What a member answers of its operation's result.
+enum Answers {
+    /// The result itself.
+    Result,
+    /// For an opener: the handle it opens, and the result field of its ID
+    /// that the handle carries.
+    Opened { handle: String, carried: String },
+    /// For a result of one property (issue 2517): that field's type and
+    /// ident, its value answered in place of the result.
+    Field { ty: String, ident: String },
 }
 
 impl MemberModel {
@@ -182,11 +313,18 @@ impl MemberModel {
 
     /// Its return type, as `twin` spells it.
     fn returns(&self, twin: Twin) -> String {
-        let answered = match (&self.form, &self.opens) {
+        let answered = match (&self.form, &self.answers) {
             (Form::Closes, _) => "()".to_owned(),
-            (_, Some((opened, _))) => opened.clone(),
-            _ => self.result.clone(),
+            (_, Answers::Opened { handle, .. }) => handle.clone(),
+            (_, Answers::Field { ty, .. }) => ty.clone(),
+            // A whole result keeps the JSON it came from, the fields this
+            // SDK does not know included, readable through `raw()` (ADR 0082).
+            (_, Answers::Result) if self.responds == Responds::No => {
+                format!("crate::Answer<{}>", self.result)
+            }
+            (_, Answers::Result) => self.result.clone(),
         };
+        let answered = self.responds.answered(answered, twin);
         format!(
             "{}::{}<{answered}, {}>",
             twin.builders(),
@@ -227,9 +365,15 @@ struct HandleModel {
     namespace: &'static str,
     type_name: String,
     id: String,
+    /// The parameter its ID fills, such as `page_id`.
+    param: String,
     members: Vec<MemberModel>,
     builders: Vec<BuilderModel>,
     sub_objects: Vec<SubObjectModel>,
+    /// Its `events`, when it has a listener.
+    listener: Option<ListenerModel>,
+    /// Its reads, when it has any.
+    reads: Option<ReadsModel>,
     /// The setters each builder of each params type gains.
     setters: BTreeMap<(Builds, String), BTreeMap<String, Setter>>,
 }
@@ -278,9 +422,12 @@ impl HandleModel {
             namespace: handle.namespace,
             type_name,
             id,
+            param: handle.id.param.clone(),
             members,
             builders,
             sub_objects,
+            listener: ListenerModel::new(index, handle)?,
+            reads: ReadsModel::new(index, handle)?,
             setters,
         })
     }
@@ -298,25 +445,49 @@ fn ident(name: &str, what: &str) -> Result<String> {
 }
 
 /// The doc comment of an entry: its description, a paragraph for each
-/// marker it carries, then its `errors` section.
+/// marker it carries, then its `errors` section, which a read, sending
+/// nothing, has none of.
 fn doc(
     description: &str,
     stability: Stability,
     deprecated: Option<&Deprecation>,
-    errors: &str,
+    errors: Option<&str>,
 ) -> String {
     let mut paragraphs = vec![description.trim().to_owned()];
     if stability == Stability::Experimental {
         paragraphs.push(EXPERIMENTAL.to_owned());
     }
     if let Some(deprecated) = deprecated {
-        paragraphs.push(format!(
-            "Deprecated since {}: {}",
-            deprecated.since, deprecated.note
-        ));
+        paragraphs.push(format!("Deprecated. {}", deprecated.message()));
     }
-    paragraphs.push(errors.to_owned());
+    paragraphs.extend(errors.map(str::to_owned));
     comment(&paragraphs.join("\n\n"))
+}
+
+/// The statement a member of the entry `name` opens with: ADR 0030's
+/// run-time warning of each marker it carries, once per process, or `None`
+/// for a stable entry that is not deprecated.
+fn warning(name: &str, stability: Stability, deprecated: Option<&Deprecation>) -> Option<String> {
+    let experimental = stability == Stability::Experimental;
+    if !experimental && deprecated.is_none() {
+        return None;
+    }
+    let deprecation = deprecated.map_or_else(
+        || "None".to_owned(),
+        |deprecated| format!("Some({:?})", deprecated.message()),
+    );
+    Some(format!(
+        "crate::markers::warn({name:?}, {experimental}, {deprecation});"
+    ))
+}
+
+/// The `#[deprecated]` attribute of a deprecated member, on its own line.
+fn deprecated_attribute(deprecated: &Deprecation) -> String {
+    format!(
+        "#[deprecated(since = {:?}, note = {:?})]\n",
+        deprecated.since.to_string(),
+        deprecated.message()
+    )
 }
 
 /// `text` as `///` lines.
@@ -419,7 +590,12 @@ fn setter(field: &Field, doc: String) -> Setter {
     } else {
         (ty.to_owned(), ident.clone())
     };
-    Setter { doc, declared, set }
+    Setter {
+        doc,
+        declared,
+        set,
+        scope: None,
+    }
 }
 
 fn member_model(
@@ -465,34 +641,47 @@ fn member_model(
         let description = schema
             .and_then(|schema| schema["properties"][name.as_str()]["description"].as_str())
             .map_or_else(|| format!("Sets `{name}`."), str::to_owned);
-        own.entry(field.ident.clone())
-            .or_insert_with(|| setter(field, comment(&description)));
+        let made = settings::setter(member, name, &description, &owner)?
+            .unwrap_or_else(|| setter(field, comment(&description)));
+        own.entry(field.ident.clone()).or_insert(made);
     }
-    let opens = match &member.form {
-        Form::Opens(opened) => {
+    let answers = match (&member.form, &member.unwrapped) {
+        (Form::Opens(opened), _) => {
             let results = index.fields(&operation.result.0)?;
             let carried = field(&results, &format!("{opened}_id"), &owner)?;
-            Some((type_name(opened)?, carried.ident.clone()))
+            Answers::Opened {
+                handle: type_name(opened)?,
+                carried: carried.ident.clone(),
+            }
         }
-        _ => None,
+        (_, Some(unwrapped)) => {
+            let results = index.fields(&operation.result.0)?;
+            let answered = field(&results, &unwrapped.property, &owner)?;
+            Answers::Field {
+                ty: answered.ty.clone(),
+                ident: answered.ident.clone(),
+            }
+        }
+        (_, None) => Answers::Result,
     };
+    let responds = responds(index, member, id, &answers, &result, &owner)?;
     Ok(MemberModel {
         ident: ident(member.name, &owner)?,
         doc: doc(
             &operation.description,
             operation.stability,
             operation.deprecated.as_ref(),
-            match builds {
+            Some(match builds {
                 Builds::Call => CALL_ERRORS,
                 Builds::Query => QUERY_ERRORS,
-            },
+            }),
         ),
-        deprecated: operation.deprecated.as_ref().map(|deprecated| {
-            format!(
-                "#[deprecated(since = {:?}, note = {:?})]\n",
-                deprecated.since, deprecated.note
-            )
-        }),
+        warning: warning(
+            &operation.name,
+            operation.stability,
+            operation.deprecated.as_ref(),
+        ),
+        deprecated: operation.deprecated.as_ref().map(deprecated_attribute),
         form: match &member.form {
             Form::RoundTrip => Form::RoundTrip,
             Form::Query => Form::Query,
@@ -506,8 +695,38 @@ fn member_model(
         positional,
         literal,
         wire_timeout,
-        opens,
+        answers,
+        responds,
     })
+}
+
+/// Whether `member` of the handle `id`, whose answer is `answers` of the
+/// result type `result`, answers a page's response, which its Rust form
+/// wraps in the `Response` that reads its body.
+fn responds(
+    index: &Index,
+    member: &Member<'_>,
+    id: &HandleId,
+    answers: &Answers,
+    result: &str,
+    owner: &str,
+) -> Result<Responds> {
+    let responds = Responds::of(match answers {
+        Answers::Field { ty, .. } => ty,
+        Answers::Opened { .. } => "",
+        Answers::Result => result,
+    });
+    if responds != Responds::No {
+        if member.form == Form::Query {
+            bail!("{owner}: a query answers no page's response, which a call reads the body of");
+        }
+        if index.type_path(&id.type_name)? != PAGE_ID {
+            bail!(
+                "{owner}: only a page's member answers a response, which reads its body through the page"
+            );
+        }
+    }
+    Ok(responds)
 }
 
 fn builder_model(index: &Index, built: &Builder, id: &HandleId) -> Result<BuilderModel> {
@@ -588,16 +807,19 @@ impl Module {
         text
     }
 
-    /// The struct of a handle or sub-object, whose ID is `id`, and the
-    /// head of its `impl`.
-    fn open(&mut self, doc: &str, type_name: &str, id: &str) {
+    /// The struct of a handle or sub-object, whose ID is `id`, with the
+    /// field of its reads' answer if any, and the head of its `impl`.
+    fn open(&mut self, doc: &str, type_name: &str, id: &str, reads: Option<&ReadsModel>) {
         let held = match self.twin {
             Twin::Async => format!("host: crate::host::Host<{id}>"),
             Twin::Blocking => format!("inner: crate::generated::handles::{type_name}"),
         };
+        let opened = reads
+            .and_then(|reads| reads.field(self.twin))
+            .map_or_else(String::new, |field| format!("    {field},\n"));
         let _ = write!(
             self.body,
-            "\n{doc}#[derive(Clone, Debug)]\npub struct {type_name} {{\n    pub(crate) {held},\n}}\n\nimpl {type_name} {{\n"
+            "\n{doc}#[derive(Clone, Debug)]\npub struct {type_name} {{\n    pub(crate) {held},\n{opened}}}\n\nimpl {type_name} {{\n"
         );
     }
 
@@ -606,11 +828,17 @@ impl Module {
             let own = self.setters.entry((*builds, params.clone())).or_default();
             for (name, setter) in setters {
                 own.entry(name.clone()).or_insert_with(|| {
+                    let body = match &setter.scope {
+                        Some(scope) => format!(
+                            "self.try_edit(move |params| {{\n            params.{name} = {}.within(::goodfetch_protocol::catalog::SettingScope::{scope})?;\n            Ok(())\n        }})",
+                            setter.set
+                        ),
+                        None => format!("self.edit(move |params| params.{name} = {})", setter.set),
+                    };
                     format!(
-                        "{}    pub fn {name}(self, {name}: {}) -> Self {{\n        self.edit(move |params| params.{name} = {})\n    }}\n",
+                        "{}    pub fn {name}(self, {name}: {}) -> Self {{\n        {body}\n    }}\n",
                         indent(&setter.doc),
                         setter.declared,
-                        setter.set
                     )
                 });
             }
@@ -623,6 +851,7 @@ impl Module {
                 )),
                 &sub_object.type_name,
                 &model.id,
+                None,
             );
             for member in &sub_object.members {
                 self.member(member);
@@ -636,6 +865,7 @@ impl Module {
             )),
             &model.type_name,
             &model.id,
+            model.reads.as_ref(),
         );
         let id = match self.twin {
             Twin::Async => "self.host.id()",
@@ -646,6 +876,8 @@ impl Module {
             "    /// Its ID, which names it to the engine.\n    #[must_use]\n    pub fn id(&self) -> &{} {{\n        {id}\n    }}\n",
             model.id
         );
+        self.body
+            .push_str(&raw_call::member(self.twin, model.namespace, &model.param));
         for sub_object in &model.sub_objects {
             let held = match self.twin {
                 Twin::Async => "host: self.host.clone()",
@@ -660,10 +892,19 @@ impl Module {
         for member in &model.members {
             self.member(member);
         }
+        if let Some(reads) = &model.reads {
+            self.body.push_str(&reads.members(self.twin));
+        }
+        if let Some(listener) = &model.listener {
+            self.body.push_str(&listener.member(self.twin));
+        }
         for built in &model.builders {
             self.builder(built);
         }
         self.body.push_str("}\n");
+        if let Some(listener) = &model.listener {
+            self.body.push_str(&listener.values(self.twin));
+        }
     }
 
     fn member(&mut self, member: &MemberModel) {
@@ -691,20 +932,45 @@ impl Module {
                 } else {
                     ""
                 };
-                match (&member.form, &member.opens) {
+                match (&member.form, &member.answers) {
                     (Form::Closes, _) => format!("self.host.close({sent})"),
-                    (Form::Query, _) => format!("self.host.query({sent})"),
-                    (_, Some((opened, carried))) => format!(
-                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {opened} {{ host: host.child(opened.{carried}) }})",
+                    (Form::Query, Answers::Field { ident, .. }) => format!(
+                        "let query: crate::Query<{}, {}> = self.host.query({sent});\n        query.map(|result| result.{ident})",
                         member.result, member.params
                     ),
-                    _ => format!("self.host.call({sent}){wire}"),
+                    (Form::Query, _) => format!("self.host.query({sent})"),
+                    (_, Answers::Opened { handle, carried }) => format!(
+                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {handle} {{ host: host.child(opened.{carried}) }})",
+                        member.result, member.params
+                    ),
+                    (_, Answers::Field { ident, .. }) if member.responds != Responds::No => {
+                        format!(
+                            "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |result| {})",
+                            member.result,
+                            member.params,
+                            member.responds.wrapped(&format!("result.{ident}"))
+                        )
+                    }
+                    (_, Answers::Field { ident, .. }) => format!(
+                        "let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(|result| result.{ident})",
+                        member.result, member.params
+                    ),
+                    (_, Answers::Result) if member.responds != Responds::No => format!(
+                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |result| {})",
+                        member.result,
+                        member.params,
+                        member.responds.wrapped("result")
+                    ),
+                    (_, Answers::Result) => format!("self.host.call({sent}){wire}"),
                 }
             }
             Twin::Blocking => {
                 let mut built = format!("self.inner.{}({})", member.ident, member.forwarded());
-                if let Some((opened, _)) = &member.opens {
-                    let _ = write!(built, ".map(|inner| {opened} {{ inner }})");
+                if let Answers::Opened { handle, .. } = &member.answers {
+                    let _ = write!(built, ".map(|inner| {handle} {{ inner }})");
+                }
+                if member.responds != Responds::No {
+                    let _ = write!(built, ".map({})", member.responds.blocking());
                 }
                 format!(
                     "crate::blocking::{}::new({built}, self.inner.host.connection())",
@@ -712,6 +978,9 @@ impl Module {
                 )
             }
         };
+        if let (Twin::Async, Some(warning)) = (self.twin, &member.warning) {
+            let _ = writeln!(self.body, "        {warning}");
+        }
         let _ = writeln!(self.body, "        {body}\n    }}");
     }
 

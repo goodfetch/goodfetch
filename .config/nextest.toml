@@ -89,6 +89,14 @@ and not (
 # with the user's own service manager, which the whole user shares: one at
 # a time, each named by its test's Goodfetch home (TESTING.md, Isolation).
 #
+# A crate's compile-fail tests (`compile_fail::`) build their cases with
+# trybuild, which writes each test's cases into the one project it generates
+# for the crate, `target/tests/trybuild/<crate>/`. Its lock between processes
+# is a file it holds by touching it every 500 ms and others take over once
+# 1.5 s pass without a touch, so on a loaded host one test rewrote the
+# project's `Cargo.toml` while another built it (issue 3069): one at a time
+# (TESTING.md, Isolation).
+#
 # Timing-sensitive tests (TESTING.md, Time) wait on real time against a
 # figure of their own: a lease, a navigation timeout, a domain delay or
 # rate, an idle timer, a race's delay, a kill's deadline, the protocol
@@ -116,6 +124,7 @@ and not (
 # test.
 [test-groups]
 browser-fleet = { max-threads = 2 }
+compile-fail = { max-threads = 1 }
 fixture-builds = { max-threads = 4 }
 service-manager = { max-threads = 1 }
 timing-sensitive = { max-threads = 4 }
@@ -145,12 +154,16 @@ filter = "kind(test) & test(/^service_manager::/)"
 test-group = "service-manager"
 
 [[profile.default.overrides]]
+filter = "kind(test) & test(/^compile_fail::/)"
+test-group = "compile-fail"
+
+[[profile.default.overrides]]
 filter = "binary_id(goodfetch-collie::it) & (test(/^navigation_egress::every_.*_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium$/) | test(/^request_kinds::every_address_case_of_the_ssrf_table_/))"
 test-group = "browser-fleet"
 
 [[profile.default.overrides]]
 filter = """
-(binary_id(goodfetch-collie::it) & test(/^(browser_pool|page_ends|request_kinds|shedding|storage)::/))
+(binary_id(goodfetch-collie::it) & test(/^(browser_pool|page_ends|request_kinds|sdk::fork|sdk::refused_by_the_daemon|shedding|storage)::/))
 | (binary_id(goodfetch-conformance::it) & test(/^protocol::/))
 | (binary_id(goodfetch-engine) & test(/^(engine::tests::(events|governor|settings_edits|usage)|politeness::tests)::/))
 | (binary_id(goodfetch-engine::it) & test(/^downloads::/))

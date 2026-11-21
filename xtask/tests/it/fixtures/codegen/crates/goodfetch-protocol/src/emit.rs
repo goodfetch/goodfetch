@@ -9,13 +9,19 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::catalog::sections::Sections;
-use crate::catalog::{Entries, PROTOCOL_VERSION};
+use crate::catalog::{Entries, PROTOCOL_VERSION, Setting, SettingScope};
 use crate::journey::Journey;
 use crate::result_document::{CaseLogEntry, ResultDocument};
 use crate::{foxhound, sample};
 
 /// Every module that defines entries.
 const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];
+
+/// The scopes a program's code sets each of this crate's settings at: the
+/// connection and a Run.
+fn scopes_of(_setting: &Setting) -> &'static [SettingScope] {
+    &[SettingScope::Connection, SettingScope::Run]
+}
 
 /// The two committed files, as JSON values.
 pub struct Emitted {
@@ -28,7 +34,7 @@ pub struct Emitted {
 /// Emits the bundle and catalog of every entry this crate defines.
 pub fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::default();
+    let mut sections = Sections::new(scopes_of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
@@ -58,6 +64,6 @@ pub fn emit() -> Emitted {
             },
             "$defs": definitions,
         }),
-        catalog: sections.into_catalog(&[]),
+        catalog: sections.into_catalog(&[], &[]),
     }
 }

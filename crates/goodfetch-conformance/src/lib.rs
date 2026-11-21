@@ -16,6 +16,7 @@
 
 mod canaries;
 mod case_list;
+mod client_case;
 mod host;
 mod protocol;
 mod proving_ground;
@@ -23,6 +24,7 @@ mod self_test;
 mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
+pub use client_case::{ClientCaseError, ClientCaseRun, RustMode};
 pub use protocol::{
     EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, GatewayAddress,
     GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget, PROXY_PASSWORD_VARIABLE,

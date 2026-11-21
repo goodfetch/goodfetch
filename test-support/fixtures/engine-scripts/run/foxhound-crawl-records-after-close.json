@@ -7,8 +7,10 @@
         "params": {
           "protocol_version": "0.1",
           "surface": "sdk_typescript",
+          "form": "typescript",
           "needs": "foxhound",
-          "product_version": "0.0.0"
+          "product_version": "0.0.0",
+          "log_level": "off"
         }
       }
     },

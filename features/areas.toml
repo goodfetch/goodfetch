@@ -205,6 +205,25 @@ number = 3
 kind = "error"
 prefix = "label_"
 
+# The Error codes of Hooks: a crawl's Hooks in code and a Collie Run's
+# Script Hooks (ADRs 0051, 0104 and 0105, issue 2339).
+[[area]]
+number = 7
+kind = "error"
+prefix = "hook_"
+
+# A process Plugin that crashed, and one the host cannot confine (ADR 0033,
+# spec #596).
+[[area]]
+number = 7
+kind = "error"
+prefix = "plugin_crashed"
+
+[[area]]
+number = 7
+kind = "error"
+prefix = "confinement_unavailable"
+
 [[area]]
 number = 3
 kind = "operation"
@@ -439,6 +458,11 @@ number = 3
 kind = "format"
 prefix = "usage-ledger"
 
+[[area]]
+number = 3
+kind = "setting"
+prefix = "usage."
+
 # Area 3's person-only marker (#232): the refusal of a person's answer
 # asked by any surface but a person's, such as the CLI's interactive prompt.
 [[area]]
@@ -587,6 +611,23 @@ prefix = "egress_"
 number = 4
 kind = "error"
 prefix = "cdp_url_not_allowed"
+
+# Area 5's `cdp_url` probe (#743, ADR 0115): nothing answered, something
+# that is not a browser answered, or the credentials sent were refused.
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_unreachable"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_not_browser"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "cdp_url_unauthorized"
 
 # Area 4's local addresses (#637, ADR 0044): a value that yields no address.
 [[area]]
@@ -1215,6 +1256,11 @@ prefix = "closed"
 [[area]]
 number = 11
 kind = "error"
+prefix = "connection_forked"
+
+[[area]]
+number = 11
+kind = "error"
 prefix = "engine_exited"
 
 [[area]]
@@ -1227,11 +1273,46 @@ number = 11
 kind = "error"
 prefix = "engine_output_invalid"
 
+# The Error code an SDK raises for a listener that threw (ADR 0081; issue
+# 1277).
+[[area]]
+number = 11
+kind = "error"
+prefix = "listener_failed"
+
+# The Error code an SDK raises when a program asks AI work for an output its
+# Verdict does not prove (ADR 0079; issue 1243).
+[[area]]
+number = 11
+kind = "error"
+prefix = "not_verified"
+
+# The Error code an SDK raises for a listener of published events that fell
+# too far behind its own queue (ADR 0081; issue 2986).
+[[area]]
+number = 11
+kind = "error"
+prefix = "listener_events_lost"
+
 # The Error code a Connection's own bounds refuse a call with (issue 2332).
 [[area]]
 number = 11
 kind = "error"
 prefix = "connection_overloaded"
+
+# A Client's own bounds on its transport, set in `connect()`'s own
+# `settings` (issue 2518).
+[[area]]
+number = 11
+kind = "setting"
+prefix = "connection.max_"
+
+# The Error code an SDK's `json()` raises itself for a body that is not
+# the JSON asked for (ADR 0085; issue 2803).
+[[area]]
+number = 11
+kind = "error"
+prefix = "response_not_json"
 
 # Area 11, the Client surfaces (spec #608): ADR 0069's exit-code table,
 # every row of which is a CLI exit code (#1188).
@@ -1265,6 +1346,12 @@ prefix = "page_memory_exceeded"
 number = 5
 kind = "error"
 prefix = "browser_host_outdated"
+
+# A hosted Browser host whose link is lost (spec #594, decision 4; #756).
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_host_unreachable"
 
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
@@ -1400,6 +1487,12 @@ prefix = "signing_key."
 number = 8
 kind = "command"
 prefix = "signing-key."
+
+# A Challenge the ladder ended without passing (spec #598, ADR 0088).
+[[area]]
+number = 8
+kind = "error"
+prefix = "challenge_unsolved"
 
 # Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
 # answers each seed and a handler's enqueue (#828), and the call on an

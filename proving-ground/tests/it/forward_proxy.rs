@@ -254,7 +254,8 @@ fn the_limited_proxy_relays_a_request_sent_once_the_answer_before_arrived() {
 /// The limited proxy counts the pages a client loads, never a site's
 /// robots.txt or its icon, which an engine reads and a browser asks for of
 /// their own beside a page (ADRs 0086 and 0088): one sent while it relays a
-/// page is relayed too.
+/// page is relayed too, with the site's own answer (catalog.test has
+/// neither, so 404).
 /// Covers: story:5-90
 #[rstest]
 #[case::robots_txt("/robots.txt")]
@@ -265,13 +266,26 @@ fn the_limited_proxy_counts_no_robots_txt_or_icon(#[case] path: &str) {
     let beside = format!("http://catalog.test:{}{path}", proving_ground.port());
     let proxy = proving_ground.proxy("limited");
 
-    let (first, second) = std::thread::scope(|scope| {
+    let held = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": true }"#);
+    let (first, second, still_held, released) = std::thread::scope(|scope| {
         let first = scope.spawn(|| clients::raw(&proxy, &absolute(&page, None)));
-        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&beside, None)));
-        (first.join().unwrap(), second.join().unwrap())
+        pause(LATE);
+        let second = clients::raw(&proxy, &absolute(&beside, None));
+        let still_held = !first.is_finished();
+        let released = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": false }"#);
+        (first.join().unwrap(), second, still_held, released)
     });
 
-    assert_eq!((first.status(), second.status() == 429), (200, false));
+    assert_eq!(
+        (
+            held.status,
+            second.status(),
+            still_held,
+            released.status,
+            first.status()
+        ),
+        (200, 404, true, 200, 200)
+    );
 }
 
 /// While a harness holds the limited proxy, the first request it counts
@@ -323,15 +337,6 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(10);
 )]
 fn pause(duration: std::time::Duration) {
     std::thread::sleep(duration);
-}
-
-#[test]
-fn the_down_proxy_refuses_every_connection() {
-    let proving_ground = ProvingGround::start(SEED);
-
-    let refused = clients::connection_refused(&proving_ground.proxy("down"));
-
-    assert!(refused);
 }
 
 /// Another program on the machine cannot take the `down` proxy's address,

@@ -93,7 +93,7 @@ rows! {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses => "F1.parses", "page_analysis", "parses";
     /// `F1.selector_compilations`: a selector, glob or regular expression
-    /// compiled for a fetched page.
+    /// compiled, or an `XPath` locator parsed, for a fetched page.
     PageSelectorCompilations => "F1.selector_compilations", "page_analysis", "selector_compilations";
     /// `F1.readability_runs`: a run of the main-content step on a fetched page.
     PageReadabilityRuns => "F1.readability_runs", "page_analysis", "readability_runs";
@@ -365,9 +365,19 @@ rows! {
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";
-    /// `E6.transactions`: a transaction on a Politeness file, as its commit
-    /// hook sees it.
+    /// `E6.transactions`: a transaction on a Politeness file that takes or
+    /// gives back a Permit, or changes a key's state, outside a Delegation,
+    /// as its commit hook sees it.
     PolitenessTransactions => "E6.transactions", "politeness_permit", "transactions";
+    /// `E6.delegations`: a key's Delegation taken by an engine (#2172).
+    PolitenessDelegations => "E6.delegations", "politeness_permit", "delegations";
+    /// `E6.delegation_transactions`: a transaction on a Politeness file
+    /// that takes Delegations, every key a group of jobs asks for together.
+    PolitenessDelegationTransactions => "E6.delegation_transactions", "politeness_permit", "delegation_transactions";
+    /// `E6.other_transactions`: any other transaction on a Politeness file:
+    /// its open, the robots.txt copy, a site's ask read or written when
+    /// learned, a Delegation given back, waiters withdrawn.
+    PolitenessOtherTransactions => "E6.other_transactions", "politeness_permit", "other_transactions";
     /// `E6.opens`: a Politeness file opened. Its statement preparations are
     /// the benchmark's, read from Callgrind, as no wrapper sees them.
     PolitenessOpens => "E6.opens", "politeness_permit", "opens";

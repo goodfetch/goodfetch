@@ -9,6 +9,16 @@ dependencies = ["anyio>=4.15.1,<5", "pydantic>=2.14.1,<3", "typing-extensions>=4
 # Nothing is published before the first release (AGENTS.md, Release status).
 classifiers = ["Private :: Do Not Upload"]
 
+# mutmut's full run, weekly once the nightly tier is on (ADR 0072; TESTING.md,
+# Feature coverage), started here by `just mutants-sdks python`: the
+# hand-written runtime, never what `xtask codegen` writes (ADR 0099). pytest
+# runs in mutmut's copy, `mutants/`, so the case list is named from there.
+[tool.mutmut]
+source_paths = ["src"]
+do_not_mutate = ["src/goodfetch_collie_client/generated/*"]
+pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
+
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10"]
 build-backend = "uv_build"

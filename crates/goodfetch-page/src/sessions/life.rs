@@ -23,7 +23,7 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
-use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
+use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
 use goodfetch_protocol::page::{BrowserExit, PAGE_CRASHED, PageId, SessionId};
 use goodfetch_protocol::settings::SettingLimit;
@@ -474,7 +474,7 @@ impl PageLife {
         };
         let raised = match (effect, ending) {
             (PageEffect::Close, Ending::Closed(closed)) => {
-                Some(cancelled(StoppedBy::Program, *closed))
+                Some(cancelled(CancelledBy::Program, closed.clone()))
             }
             (PageEffect::Close, Ending::LeaseEnded(withheld) | Ending::RunStopped(withheld)) => {
                 Some(withheld.clone())
@@ -482,11 +482,11 @@ impl PageLife {
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),
-            (PageEffect::Close, _) => Some(cancelled(StoppedBy::Program, ClosedValue::Page)),
+            (PageEffect::Close, _) => Some(cancelled(CancelledBy::Program, ClosedValue::Page)),
             (PageEffect::ClosedInBrowser, _) => {
-                Some(cancelled(StoppedBy::Browser, ClosedValue::Page))
+                Some(cancelled(CancelledBy::Browser, ClosedValue::Page))
             }
-            (PageEffect::Quit, _) => Some(cancelled(StoppedBy::Browser, ClosedValue::Browser)),
+            (PageEffect::Quit, _) => Some(cancelled(CancelledBy::Browser, ClosedValue::Browser)),
             (PageEffect::RendererCrash, _) => Some(renderer_crashed()),
             (PageEffect::BrowserCrash, Ending::BrowserCrash(exit)) => {
                 Some(browser_crashed(exit.clone()))
@@ -762,7 +762,7 @@ impl SessionLife {
                     let _ = self
                         .shared
                         .failed
-                        .set(cancelled(StoppedBy::Program, ClosedValue::Session));
+                        .set(cancelled(CancelledBy::Program, ClosedValue::Session));
                 }
                 Ok((_, SessionEffect::Crash)) => {
                     let _ = self.shared.crashed.set(browser_crashed(exit.take()));

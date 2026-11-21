@@ -1,13 +1,15 @@
-use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
+use super::{
+    AtDefaults, CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool,
+};
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
 /// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
 /// on a host (#2216), and fastCRW on the long site, past its 1,000 pages a
 /// crawl, and at 64 and 256, beyond the one page a crawl job of its fetches
-/// at a time (#2217), and the cell at the catalog's defaults (#2175) stands at each
-/// of the sweep's three points, 16, 64 and 256 in flight, pending until
-/// #2175 brings it.
+/// at a time (#2217), and the cell at the catalog's defaults (#2175) runs at each
+/// of the sweep's three points, 16, 64 and 256 in flight, its `fetch.tier`
+/// left at `auto`.
 #[test]
 fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
     let added = [
@@ -21,7 +23,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             .iter()
             .filter(|cell| {
                 cell.scenario == scenario
-                    && cell.row == Row::Main
+                    && cell.counted_criteria()
                     && matches!(cell.status, Status::Measured(_))
                     && !cell.mapping.is_empty()
             })
@@ -37,7 +39,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             (
                 cell.scenario,
                 cell.scenario.concurrency(),
-                matches!(cell.status, Status::Pending(reason) if reason.contains("#2175")),
+                matches!(cell.status, Status::Measured(config) if config.samples()),
             )
         })
         .collect();
@@ -474,17 +476,30 @@ fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
     );
 }
 
-/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
+/// `just compare` builds each Rust side other than Spider's and fastCRW's,
+/// locked, at the run's profile, into the folder the run reads its
+/// executable from (`run::side_executable`); fastCRW's, which also installs
+/// its server, has its own test.
 #[test]
-fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+fn just_compare_builds_each_other_rust_side_into_its_folder() {
     let recipes = include_str!("../../../../justfile");
+    let missing: Vec<&str> = [
+        super::CRAWLEE_RS_FOLDER,
+        super::PAGESIFT_FOLDER,
+        super::OPENSPIDER_FOLDER,
+        super::CRAWLBERG_FOLDER,
+        super::CHROMIUMOXIDE_FOLDER,
+    ]
+    .into_iter()
+    .filter(|folder| {
+        !recipes.contains(&format!(
+            "cargo build --quiet --locked --manifest-path xtask/compare-{folder}/Cargo.toml \
+             --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}\n"
+        ))
+    })
+    .collect();
 
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLEE_RS_FOLDER
-    )));
+    assert_eq!(missing, Vec::<&str>::new());
 }
 
 /// Every scenario but the auto cell's, which maps Foxhound, Spider and
@@ -522,19 +537,6 @@ fn pagesift_runs_every_scenario_on_its_side() {
     );
 }
 
-/// `just compare` builds pagesift's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_pagesifts_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::PAGESIFT_FOLDER
-    )));
-}
-
 /// OpenSpider runs on its side in every scenario but four, each its main
 /// row (#2216): its durable cell is not supported, since its crawl file
 /// holds nothing yet when the harness kills it halfway, nor is its polite
@@ -570,19 +572,6 @@ fn openspider_runs_every_scenario_on_its_side_but_durable_polite_raw_64_and_raw_
             ))
             .collect::<Vec<_>>()
     );
-}
-
-/// `just compare` builds OpenSpider's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_openspiders_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::OPENSPIDER_FOLDER
-    )));
 }
 
 /// fastCRW runs on its side, which starts its server, in every scenario
@@ -691,19 +680,6 @@ fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
         .map(|(scenario, status)| (scenario, "crawlberg", Row::Main, status))
         .to_vec()
     );
-}
-
-/// `just compare` builds crawlberg's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_crawlbergs_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLBERG_FOLDER
-    )));
 }
 
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,
@@ -854,7 +830,7 @@ fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
 /// page's twenty fields, pushes one Record and enqueues the page's links:
 /// Foxhound as a TypeScript program on its SDK, at the default tier choice,
 /// against Spider, Crawlee, Scrapy and crawlee-rs doing the same work, each
-/// with its mapping. Foxhound's Rust arm waits on #1469 and its getters arm
+/// with its mapping. Foxhound's Rust arm waits on #2804 and its getters arm
 /// on #724 and #1296; every page's Record is held to the Proving ground's
 /// answers, and the cell carries no bar.
 #[test]
@@ -938,5 +914,118 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
             ),
             true,
         )
+    );
+}
+
+/// Foxhound's rows in `scenario`: each one's name, row, run and row of the
+/// cell at the catalog's defaults.
+fn foxhound_rows(
+    scenario: Scenario,
+) -> Vec<(&'static str, Row, Option<Config>, Option<AtDefaults>)> {
+    CELLS
+        .iter()
+        .filter(|cell| cell.scenario == scenario && cell.tool == Tool::Foxhound)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.name, cell.row, config, cell.at_defaults())
+        })
+        .collect()
+}
+
+/// A Foxhound run at `durability`, its Records not read for its tiers.
+const fn durable(durability: &'static str, commit_interval: Option<u64>) -> Config {
+    Config::Foxhound {
+        durability,
+        commit_interval,
+        auto: false,
+    }
+}
+
+/// Scenario 1's first cell runs the default `batch` (#2175), and its cell
+/// at the catalog's defaults prints two labelled rows: the default
+/// `fetch.http_from` in force and `learned`.
+#[test]
+fn scenario_1_runs_batch_and_the_catalog_defaults_in_two_rows() {
+    let at_defaults = Some(Config::Foxhound {
+        durability: "batch",
+        commit_interval: None,
+        auto: true,
+    });
+
+    assert_eq!(
+        foxhound_rows(Scenario::Raw),
+        vec![
+            ("foxhound", Row::Main, Some(durable("batch", None)), None),
+            (
+                "foxhound defaults",
+                Row::Main,
+                at_defaults,
+                Some(AtDefaults::InForce)
+            ),
+            (
+                "foxhound defaults learned",
+                Row::Sensitivity,
+                at_defaults,
+                Some(AtDefaults::Learned)
+            ),
+        ]
+    );
+}
+
+/// Scenario 2 keeps its `full` and `periodic` 60 s cells and gains a
+/// `batch` one (#2175).
+#[test]
+fn scenario_2_gains_a_batch_cell() {
+    assert_eq!(
+        foxhound_rows(Scenario::Durable),
+        vec![
+            (
+                "foxhound full",
+                Row::Main,
+                Some(durable("full", None)),
+                None
+            ),
+            (
+                "foxhound periodic",
+                Row::Main,
+                Some(durable("periodic", Some(60_000))),
+                None
+            ),
+            (
+                "foxhound batch",
+                Row::Main,
+                Some(durable("batch", None)),
+                None
+            ),
+        ]
+    );
+}
+
+/// Neither row of scenario 1's cell at the catalog's defaults keeps the
+/// counted criteria, which stay with the scenario's first cell (#2175).
+#[test]
+fn the_catalog_defaults_cell_leaves_the_counted_criteria_to_the_first_cell() {
+    let criteria: Vec<&str> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == Scenario::Raw && cell.counted_criteria())
+        .map(|cell| cell.name)
+        .collect();
+
+    assert_eq!(
+        criteria,
+        vec![
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs",
+            "pagesift",
+            "openspider",
+            "fastcrw",
+            "crawlberg"
+        ]
     );
 }

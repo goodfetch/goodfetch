@@ -400,8 +400,9 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
                 engine: tools.path(Tool::Collie)?,
                 driver: absolute(&environment.path(&arguments.collie_driver))?,
                 arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
-                chromiumoxide: absolute(&run::chromiumoxide_executable(
+                chromiumoxide: absolute(&run::side_executable(
                     &spider_builds,
+                    matrix::CHROMIUMOXIDE_FOLDER,
                     profile_folder,
                 ))?,
                 browser: &browser,
@@ -555,19 +556,6 @@ fn parsed(
     let matches = RunArguments::augment_args(clap::Command::new("run"))
         .try_get_matches_from(recipe.into_iter().chain(given.iter().map(AsRef::as_ref)))?;
     Ok(RunArguments::from_arg_matches(&matches)?)
-}
-
-/// `xtask compare run`'s arguments as `just compare` gives them: the
-/// recipe's own, then `given`, as its caller gives them after the profile.
-#[cfg(test)]
-fn recipe_arguments(given: &[&str]) -> RunArguments {
-    parsed(
-        "target/compare/test-tools.json",
-        "target/compare-spider",
-        "release",
-        given,
-    )
-    .expect("invariant: the test's arguments parse")
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {

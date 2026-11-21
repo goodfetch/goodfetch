@@ -122,6 +122,7 @@ impl Engine {
                 log_events: None,
                 masks: Masks::new(),
                 metrics: metrics.clone(),
+                runs_of_calls: composition.runs_of_calls(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),

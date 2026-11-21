@@ -15,12 +15,15 @@ requires-python = ">=3.11"
 # exactly: `xtask codegen`'s committed output depends on its version.
 dev = [
   "anyio>=4.15.1",
+  "connection-library",
   "datamodel-code-generator==0.86.0",
   "goodfetch-collie",
   "goodfetch-collie-client",
   "goodfetch-foxhound",
   "goodfetch-test-support",
+  "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
+  "mutmut>=3.8.1",
   "mypy>=2.4.0",
   "pip-audit>=2.10.1",
   "pyright>=1.1.414",
@@ -43,11 +46,15 @@ required-version = ">=0.9.28"
 members = [
   "sdks/python/collie",
   "sdks/python/collie-client",
+  # The library Collie's tests use (story 11-180), a member so that uv
+  # resolves its range on the Collie client package.
+  "sdks/python/collie/tests/libraries/connection-library",
   "sdks/python/foxhound",
   "test-support/python",
 ]
 
 [tool.uv.sources]
+connection-library = { workspace = true }
 goodfetch-collie = { workspace = true }
 goodfetch-collie-client = { workspace = true }
 goodfetch-foxhound = { workspace = true }
@@ -88,6 +95,14 @@ extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
 ignore = ["D206", "D300"]
 
+# ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
+# gives every SDK call that takes one: the operation's own timeout, sent for
+# the engine to apply, as the generated calls take it.
+[tool.ruff.lint.per-file-ignores]
+"sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
+"sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
+"sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
@@ -101,6 +116,10 @@ convention = "google"
 # its imports; ruff still checks it, as Spider's side is left to rustc.
 [tool.pyright]
 typeCheckingMode = "strict"
+# A `# pyright: ignore[rule]` whose rule no longer fires, or a
+# `# type: ignore[code]` on a line pyright finds clean, fails; mypy's
+# `warn_unused_ignores` (in `strict`) checks each `type: ignore` code.
+reportUnnecessaryTypeIgnoreComment = "error"
 # As pytest's `pythonpath`: the folder of programs both an SDK's unit and
 # integration tests run.
 extraPaths = ["sdks/python/collie/tests/programs"]

@@ -9,19 +9,51 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::path::PathBuf;
 use std::time::Duration;
 
-use goodfetch_collie::{Collie, ConnectOptions, Error, RunId, StartedAs, blocking};
+use goodfetch_collie::{Collie, ConnectOptions, ErrorCode, RunId, StartedAs, blocking};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_protocol::settings::SettingInvalidDetails;
+use goodfetch_test_support::{CASE_LOGS_VARIABLE, TestEnv, Variables, real_time_runtime};
 use serde_json::json;
 
+mod closing;
+mod engine_choice;
+mod engine_exited;
+mod events;
+#[cfg(unix)]
+mod fork;
+#[cfg(unix)]
+mod interrupt;
+mod limits;
+mod logging;
+mod page;
+mod product_and_provisioning;
 mod public_items;
+mod raw_call;
+mod refused_by_the_daemon;
+#[cfg(unix)]
+mod scripted;
+mod settings;
+mod start;
+mod trace_context;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.
 fn options(env: &TestEnv) -> ConnectOptions {
     ConnectOptions::default().environment(env.env_os())
+}
+
+/// Starts running the client conformance `case` in `linked` mode: its entry
+/// joins the case log `just test` names (ADR 0069), which `xtask clients
+/// check` is to read for `sdk-rust` (issue 3158).
+fn linked_case(case: &str) -> ClientCaseRun {
+    let folder = Variables::from_process()
+        .get(CASE_LOGS_VARIABLE)
+        .map(PathBuf::from);
+    ClientCaseRun::start(folder.as_deref(), case, RustMode::Linked).unwrap()
 }
 
 /// Covers: story:11-3, story:11-11, story:11-59
@@ -41,7 +73,10 @@ fn a_program_connects_starts_a_run_finishes_it_and_closes_on_a_single_threaded_r
         assert_eq!(report.run_id, first);
         assert_eq!(report.lifecycle, Lifecycle::Finished);
         let after = collie.start().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -60,7 +95,10 @@ fn a_scope_lends_its_connection_to_the_body_and_closes_it_after() {
 
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = real_time_runtime().block_on(async { kept.start().await });
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// Covers: story:11-3
@@ -77,7 +115,10 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
     assert_eq!(run.id(), &first);
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = collie.start().send();
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// `blocking` inside an async runtime hands each call to the connection's
@@ -130,12 +171,48 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
             (run.id(), Lifecycle::Finished)
         );
         let after = run.report().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
-/// A call's `Duration::ZERO` is refused with `setting_invalid` naming the
-/// setting it would set, given as an argument, and the null form (ADR 0080).
+/// The `call-timeout-three-states` client conformance case, linked, with
+/// the two tests below, which refuse `Duration::ZERO` and send no timeout:
+/// the linked engine takes a call's `timeout` left out or given as a
+/// duration (ADR 0080). What each state sends is
+/// `goodfetch-collie-client`'s
+/// `a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up`.
+/// A `Duration` is never negative nor infinite, so zero is the one value to
+/// refuse.
+/// Covers: story:11-40, setting:timeout.run, operation:run.finish
+#[test]
+fn a_run_finishes_with_its_timeout_left_out_or_given_as_a_duration() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let omitted = collie.start().await.unwrap().finish().await.unwrap();
+        let given = collie
+            .start()
+            .await
+            .unwrap()
+            .finish()
+            .timeout(Duration::from_secs(30))
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+
+        assert_eq!(
+            (omitted.lifecycle, given.lifecycle),
+            (Lifecycle::Finished, Lifecycle::Finished)
+        );
+    });
+}
+
+/// The case's refusal: a call's `Duration::ZERO` is refused with
+/// `setting_invalid` naming the setting it would set, given as an argument,
+/// and the null form (ADR 0080).
 /// Covers: story:11-42, error:setting_invalid, setting:timeout.close, operation:run.stop
 #[test]
 fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
@@ -147,28 +224,30 @@ fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
         let refused = run.stop().timeout(Duration::ZERO).await;
         collie.close().await.unwrap();
 
-        let Err(Error::Failed(failure)) = refused else {
+        let Err(failure) = &refused else {
             panic!("{refused:?}");
         };
+        let details: SettingInvalidDetails = failure.details().unwrap();
         assert_eq!(
             (
-                failure.data.code.as_str(),
-                &failure.data.details["limit"],
-                failure.data.details["fix"]
-                    .as_str()
+                failure.code(),
+                serde_json::to_value(&details.limit).unwrap(),
+                failure
+                    .fix()
                     .is_some_and(|fix| fix.contains("`timeout: null`")),
             ),
             (
-                "setting_invalid",
-                &json!({ "key": "timeout.close", "value": 0, "layer": "run", "origin": "argument" }),
+                ErrorCode::SETTING_INVALID,
+                json!({ "key": "timeout.close", "value": 0, "layer": "run", "origin": "argument" }),
                 true,
             )
         );
     });
 }
 
-/// `.no_timeout()` sends `null`: the call waits with no deadline of its
-/// own, in place of the Run's `timeout.close` (ADR 0080).
+/// The case's null form: `.no_timeout()` sends `null`, so the call waits
+/// with no deadline of its own, in place of the Run's `timeout.close` (ADR
+/// 0080).
 /// Covers: story:11-40, setting:timeout.close, operation:run.stop
 #[test]
 fn no_timeout_waits_for_the_stop_with_no_deadline() {
@@ -181,6 +260,46 @@ fn no_timeout_waits_for_the_stop_with_no_deadline() {
         collie.close().await.unwrap();
 
         assert_eq!(stopped.lifecycle, Lifecycle::Stopped);
+    });
+}
+
+/// The `connect-timeout-three-states` client conformance case, linked:
+/// `connect()` opens with its `timeout` left out, given as a duration or
+/// none, and refuses `Duration::ZERO` with `setting_invalid` before the
+/// engine starts (ADRs 0080 and 0083). A linked engine always answers
+/// `hello`, so the deadline passing is `goodfetch-collie-client`'s
+/// `an_unanswered_hello_fails_the_opening_past_its_timeout_in_its_three_states`.
+/// Covers: story:11-41, story:11-42, setting:timeout.connect
+#[test]
+fn connect_takes_its_timeout_left_out_given_or_none_and_refuses_zero() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        for options in [
+            options(&env),
+            options(&env).timeout(Duration::from_secs(30)),
+            options(&env).no_timeout(),
+        ] {
+            Collie::connect(options).await.unwrap().close().await.unwrap();
+        }
+
+        let refused = Collie::connect(options(&env).timeout(Duration::ZERO)).await;
+        let Err(failure) = refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(
+            (
+                failure.code(),
+                &serde_json::to_value(failure.limit()).unwrap(),
+                failure
+                    .fix()
+                    .is_some_and(|fix| fix.contains("`.no_timeout()`")),
+            ),
+            (
+                ErrorCode::SETTING_INVALID,
+                &json!({ "key": "timeout.connect", "value": 0, "layer": "run", "origin": "argument" }),
+                true,
+            )
+        );
     });
 }
 
@@ -200,5 +319,8 @@ fn blocking_repeats_the_members_generated_from_the_catalog() {
     assert_eq!(progress_set.message, Some(message));
     assert_eq!(finished.lifecycle, Lifecycle::Finished);
     let after = run.report().send();
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }

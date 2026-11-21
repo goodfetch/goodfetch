@@ -95,8 +95,26 @@ fn on_the_daemon(daemon: &Daemon) -> DaemonClient {
     client
 }
 
-fn opened(mut engine: Attached) -> Attached {
-    let opened = engine.open(&Hello::needing(Product::Foxhound).id("hello"));
+fn opened(engine: Attached) -> Attached {
+    opened_by(engine, Hello::needing(Product::Foxhound))
+}
+
+/// [`attached`], on a Connection whose `hello` sets `settings`, its own,
+/// which each crawl it starts takes beneath its own (ADR 0083).
+fn attached_setting(env: &TestEnv, settings: &serde_json::Value) -> Attached {
+    let settings = settings
+        .as_object()
+        .cloned()
+        .expect("a Connection's settings are a map");
+    opened_by(
+        Attached::start_with(env, FOXHOUND, MESSAGE_DEADLINE, |_| {}),
+        Hello::needing(Product::Foxhound).with(|params| params.settings = settings),
+    )
+}
+
+/// [`opened`] by `hello`.
+fn opened_by(mut engine: Attached, hello: Hello) -> Attached {
+    let opened = engine.open(&hello.id("hello"));
     assert_eq!(opened["result"]["product"], "foxhound");
     engine.declaring_by_default(&PUSHED_INTO)
 }
@@ -105,11 +123,9 @@ mod addresses;
 mod admission;
 mod answered_calls;
 mod attached;
-mod audit;
 mod backoff_classes;
 mod body_limits;
 mod bounds;
-mod browser;
 mod browser_fetch;
 mod certificates;
 mod client_conformance;
@@ -159,6 +175,10 @@ mod learned_rules;
 mod light_browser;
 mod limits;
 mod navigation_gate;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_console;
 mod operator_policy;
 mod outcomes;

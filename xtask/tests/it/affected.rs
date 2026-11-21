@@ -73,6 +73,7 @@ fn base_and_head_mode_selects_what_the_head_changed() {
     sinks-touched=
     bench-targets=goodfetch-engine/engine
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -285,6 +286,7 @@ fn local_mode_reads_uncommitted_and_untracked_changes() {
     sinks-touched=
     bench-targets=
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -335,6 +337,7 @@ fn local_mode_without_origin_main_is_an_error() {
     let outcome = workspace.xtask(&["affected", "--local"]);
 
     assert_eq!(outcome.code, 2);
+    assert!(outcome.stderr.contains("origin/main"), "{}", outcome.stderr);
 }
 
 /// The visual job runs when a change reaches a package holding a visual test,

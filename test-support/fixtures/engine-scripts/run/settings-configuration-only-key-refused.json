@@ -1,0 +1,41 @@
+{
+  "description": "A Collie Client's hello passing the configuration-only key `storage.low_free` in code, refused with `setting_not_applicable` naming the user configuration and Operator policy files (ADR 0083), which ends the exchange. The `settings-refusals-say-how-to-fix` client conformance case.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "settings": {
+            "storage": {
+              "low_free": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "`storage.low_free` cannot be set in run: set `storage.low_free` in user configuration, `/home/user/.config/goodfetch/1/configuration.toml`, or an Operator policy, `/home/user/.config/goodfetch/1/operator-policy.toml`",
+          "data": {
+            "code": "setting_not_applicable",
+            "retryable": false,
+            "key": "storage.low_free",
+            "layer": "run",
+            "fix": "set `storage.low_free` in user configuration, `/home/user/.config/goodfetch/1/configuration.toml`, or an Operator policy, `/home/user/.config/goodfetch/1/operator-policy.toml`"
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

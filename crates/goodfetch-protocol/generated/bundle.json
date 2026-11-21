@@ -159,7 +159,7 @@
       "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -514,7 +514,7 @@
       "description": "What `audit.export` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -574,7 +574,7 @@
       "description": "What `audit.verify` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -656,7 +656,8 @@
           "description": "A wall that asks for consent before it shows the page (ADR 0048).",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "BodyHandle": {
       "description": "A page body as a handle: its ID, the file that holds it and its size.",
@@ -1111,7 +1112,7 @@
       "description": "What `certs.accept` takes: the host, and the changed key the person\naccepts, as `certs.list` shows it.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "host": {
@@ -1136,7 +1137,7 @@
       "description": "What `certs.forget` takes: the host.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "host": {
@@ -1175,7 +1176,7 @@
       "description": "What `certs.list` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -1413,7 +1414,7 @@
       "description": "What `locator.click` takes: the locator whose element it clicks.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -1558,7 +1559,7 @@
       "description": "What `config.explain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "keys": {
@@ -1600,6 +1601,14 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration to explain with."
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run ID of a live Run to explain, with the settings it opened\nwith; none explains the Connection's own, the run values given set\nover them (ADR 0083). One that is no Run ID fails with\n`run_id_invalid`, and one given with `settings`, `origin`,\n`project` or `missing_project` with `invalid_params`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "settings": {
           "additionalProperties": true,
@@ -1911,6 +1920,153 @@
       ],
       "type": "object"
     },
+    "CrawlHookDeclaration": {
+      "additionalProperties": false,
+      "description": "One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which\nlist them in the order declared: per stage, they run in that order,\nafter the Hooks named in settings (ADR 0104).",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Datasets whose Records it runs for;\nabsent for every Dataset.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "The Labels whose requests it runs for; absent for every Label.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, which `crawl_hook.handle` and `hook_failed` carry.",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "name",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandleParams": {
+      "description": "What `crawl_hook.handle` gives the program: one call of one Hook, for\none attempt of a work item, under its lease.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Which attempt this is, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "crawl_request": {
+          "$ref": "#/$defs/CrawlRequest",
+          "arrived_in": "0.1",
+          "description": "The work item."
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook's name, as the crawl declared it.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The lease's epoch, which only goes up (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PushedRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Record about to commit and its\nDataset."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "run_id",
+        "hook",
+        "stage",
+        "crawl_request",
+        "attempt",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandled": {
+      "description": "What a Hook answers once it returned: nothing yet, the work going on\nunchanged.",
+      "type": "object"
+    },
+    "CrawlHookStage": {
+      "description": "A stage whose answer changes the work, where a crawl's Hooks in code\nrun (ADR 0104), by the catalog's name. The observe-only stages reach\nPlugins and Script Hooks only.",
+      "oneOf": [
+        {
+          "const": "before_request",
+          "description": "Before each fetch of a request, its retries included.",
+          "type": "string"
+        },
+        {
+          "const": "after_response",
+          "description": "After the request's final response, redirects followed.",
+          "type": "string"
+        },
+        {
+          "const": "before_navigation",
+          "description": "Before a navigation to the request's URL, on the tiers that\nnavigate.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "After that navigation.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "Just before the handler, with its page, on every tier.",
+          "type": "string"
+        },
+        {
+          "const": "before_record_commit",
+          "description": "Before each Record the attempt staged commits.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -1964,7 +2120,7 @@
       "description": "What `crawl_request.enqueue_links` takes: every link a locator matches,\nto add from one attempt under one Label (ADR 0093).",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "crawl_request_id": {
@@ -2055,7 +2211,7 @@
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "body": {
@@ -2153,7 +2309,7 @@
       "description": "What `crawl_request.handle` gives the handler: one attempt of one work\nitem, under its lease.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -2281,7 +2437,7 @@
       "description": "What `crawl_request.links` takes: the locator whose elements an\nattempt's `enqueueLinks` reads before its Payload function runs.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "crawl_request_id": {
@@ -2426,6 +2582,7 @@
           "type": "object"
         }
       ],
+      "open": true,
       "properties": {
         "attempts": {
           "arrived_in": "0.1",
@@ -2505,7 +2662,7 @@
       "description": "What `crawl_request.push` takes: the Records of one push of an\nattempt into one of its crawl's Datasets, one or several (ADR 0147).",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "crawl_request_id": {
@@ -2808,7 +2965,7 @@
       "description": "What `crawl.start` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "datasets": {
@@ -2830,6 +2987,14 @@
           ],
           "arrived_in": "0.1",
           "description": "What a crawl with no handler reads from each page (a code-free\ncrawl, ADR 0103): the engine handles each request itself and\ndeclares the Label and the Dataset it commits into, so such a start\ndeclares no Dataset of its own, else it fails with\n`invalid_params`. None for a crawl whose program handles its\nrequests."
+        },
+        "hooks": {
+          "arrived_in": "0.1",
+          "description": "The crawl's Hooks in code, in the order declared (ADR 0104). Never\nkept in the Run's state: a start that resumes the Run declares them\nagain.",
+          "items": {
+            "$ref": "#/$defs/CrawlHookDeclaration"
+          },
+          "type": "array"
         },
         "labels": {
           "additionalProperties": {
@@ -3002,7 +3167,7 @@
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -3233,7 +3398,7 @@
       "description": "What `dataset.list` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -3287,7 +3452,7 @@
       "description": "What `dataset.page` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -3377,7 +3542,7 @@
       "description": "What `dataset.query` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "limit": {
@@ -3612,7 +3777,7 @@
       "description": "What `dialog.accept` takes: the dialog, and a prompt's text.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog_id": {
@@ -3643,7 +3808,7 @@
       "description": "What `dialog.dismiss` takes: the dialog.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog_id": {
@@ -3661,7 +3826,7 @@
       "description": "What `dialog.handle` gives the handler: the dialog, named by the ID its\nanswer passes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog": {
@@ -3777,7 +3942,7 @@
       "description": "What `download.save_as` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "download_id": {
@@ -3855,7 +4020,7 @@
       "description": "What `effect.close` takes: the entry `effect.open` answered and how its\nbody ended.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "entry": {
@@ -3956,7 +4121,7 @@
       "description": "What `effect.open` takes: the Run, the Effect key and whether its body\nis safe to run again.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -4292,7 +4457,7 @@
       "description": "What `engine.info` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -4673,7 +4838,7 @@
       "description": "What `page.evaluate` takes: the page, the function's source, its\nargument and its world.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -4781,7 +4946,7 @@
       "description": "What `events.subscribe` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -5120,7 +5285,7 @@
       "description": "What `export.save_as` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "export_id": {
@@ -5175,7 +5340,7 @@
       "description": "What `export.stream` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "export_id": {
@@ -5617,7 +5782,7 @@
       "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -5697,7 +5862,7 @@
       "description": "What `page.formats` takes: the page, and the formats it asks for.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "formats": {
@@ -5837,7 +6002,7 @@
       "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -5935,7 +6100,7 @@
       "description": "What a `hello` says.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "client_surface": {
@@ -5960,7 +6125,7 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The form its user writes names in (ADR 0099); none until each\nsurface names its own."
+          "description": "The form its user writes names in (ADR 0099), which every SDK\ndeclares; without one, the engine takes its surface's."
         },
         "keep_daemon_alive": {
           "arrived_in": "0.1",
@@ -6001,6 +6166,12 @@
           "arrived_in": "0.1",
           "description": "The protocol version the sender speaks."
         },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Connection's own settings, nested by key: the run layer at the\nconnection scope, which every Run it starts inherits beneath its\nown (ADR 0083). A key the connection scope does not take is refused\nwith `setting_not_applicable`, and the `hello` with it.",
+          "type": "object"
+        },
         "surface": {
           "$ref": "#/$defs/Surface",
           "arrived_in": "0.1",
@@ -6029,6 +6200,16 @@
           "$ref": "#/$defs/EngineInstance",
           "arrived_in": "0.1",
           "description": "The engine process, new each time an engine starts: the positions\nof its events count within it, so a Client that meets a new one\nresyncs (ADR 0031)."
+        },
+        "max_calls_in_flight": {
+          "arrived_in": "0.1",
+          "description": "How many calls the engine keeps in flight on this Connection: one\nmore is refused with `too_many_calls`, so a Client sends at most\nthis many at once and queues the rest in the order they were made\n(ADR 0038; issue 2529). Absent from an engine that sets no cap, such\nas the Scripted engine.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "private_endpoint": {
           "anyOf": [
@@ -6756,7 +6937,7 @@
       "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -6809,7 +6990,7 @@
       "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "prefix": {
@@ -6840,7 +7021,7 @@
       "description": "What `key_value_store.set_bytes` takes: the Run, the key, and the bytes\nwith their content type.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -6889,7 +7070,7 @@
       "description": "What `key_value_store.set` takes: the Run, the key and its value.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -7020,7 +7201,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its settings, nested by key: today `fetch.tier`, `session.page_check`,\nwhich judges its pages in place of the Run's, and `session.source`,\nwhich gives the Label a Session pool of its own (ADR 0093), any other\nkey refused with `setting_not_applicable`.",
+          "description": "Its settings, nested by key: those whose scopes include `label`\n(ADR 0093), such as `fetch.tier`, `session.page_check`, which judges\nits pages in place of the Run's, and `session.source`, which gives\nthe Label a Session pool of its own; any other key is refused with\n`setting_not_applicable`.",
           "type": "object"
         }
       },
@@ -7463,7 +7644,7 @@
       "description": "What `locator.evaluate_all` takes: the locator, the function's source,\nits argument and its world.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -7504,7 +7685,7 @@
       "description": "What `locator.wait_for_function` takes: the locator, the function's\nsource, its argument, its world, and how often it is checked.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -7566,7 +7747,7 @@
       "description": "What `locator.wait_for` takes: the locator and the state of its element.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -8775,7 +8956,7 @@
       "description": "What `needs_you.allow_consent_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -8843,7 +9024,7 @@
       "description": "What `needs_you.deny_wall_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -8868,7 +9049,7 @@
       "description": "What `needs_you.dismiss` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "item": {
@@ -8993,7 +9174,7 @@
       "description": "What `needs_you.list` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -9038,7 +9219,7 @@
       "description": "What `needs_you.remove_refetch_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -9068,7 +9249,7 @@
       "description": "What `run.new_page` takes: the Run whose default Session opens the page,\nand the page's own settings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -9093,7 +9274,7 @@
       "description": "What `session.new_page` takes: the Session, and the page's own\nsettings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -9118,7 +9299,7 @@
       "description": "What `run.new_session` takes: the Run whose Session it opens, the\nSession's own source and its own settings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -9551,7 +9732,8 @@
           "description": "The site refused it, with a Block cause.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "OutcomeRequest": {
       "description": "The crawl request an outcome ends.",
@@ -9607,7 +9789,7 @@
       "description": "What `page.body` takes: the body to read.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "body": {
@@ -9649,7 +9831,7 @@
       "description": "What `page.close` takes: the page, and whether its `beforeunload`\nhandlers run.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -9908,7 +10090,7 @@
       "description": "What `page.on_dialog` takes: the page whose dialogs its handler\nanswers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -9931,7 +10113,7 @@
       "description": "What `page.on` takes: the page and the event listened to.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "event": {
@@ -9976,7 +10158,7 @@
       "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -10039,7 +10221,7 @@
       "description": "What `page.read` takes: the page and its named fields.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "fields": {
@@ -10157,7 +10339,7 @@
       "description": "What `page.request` takes: the page whose Session sends the request, and\nthe request.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "headers": {
@@ -10277,7 +10459,7 @@
       "description": "What `page.route` takes: the page, and the URLs whose requests its\nhandler answers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -10707,7 +10889,7 @@
       "description": "What `config.policy_read` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -10738,7 +10920,7 @@
       "description": "What `config.policy_write` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "changes": {
@@ -10814,7 +10996,7 @@
       "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "key": {
@@ -11870,6 +12052,34 @@
       ],
       "description": "A request's id, which its reply carries back."
     },
+    "RequestMeta": {
+      "additionalProperties": false,
+      "description": "What a request's `_meta` holds (ADR 0132), which its runtime writes and\nnever a program: its Trace context, with no Baggage, and the raw mark of\na call a program made through the raw `call` (ADR 0099). A closed\nobject: the engine refuses any other key. The schema checks only that\neach Trace context field is a string: a receiver drops a value it cannot\nuse, and never fails the call for it.",
+      "properties": {
+        "raw": {
+          "arrived_in": "0.1",
+          "description": "Whether the program sent the call through the raw `call`, the way\ndown to an operation its SDK does not generate (ADR 0099): an SDK\nsets it on that call alone, and refuses a `_meta` the program writes\ninto its params, so a program neither forges nor removes it. The\nengine validates and enforces a raw call as any other.",
+          "type": "boolean"
+        },
+        "traceparent": {
+          "arrived_in": "0.1",
+          "description": "The caller's span, as W3C Trace Context's `traceparent` header\nholds it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracestate": {
+          "arrived_in": "0.1",
+          "description": "Its vendors' values, as W3C Trace Context's `tracestate` header\nholds them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RequestSeed": {
       "additionalProperties": false,
       "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
@@ -11974,7 +12184,7 @@
       "description": "What `response.body` takes: the page, the request whose response's\nbody it reads, and how long it waits for that request to end.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -12138,7 +12348,7 @@
       "description": "What `route.abort` takes: the request, and the error its page sees.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "error_code": {
@@ -12215,7 +12425,7 @@
       "description": "What `route.fulfill` takes: the request, and the response the program\nanswers it with; nothing reaches the network.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "body": {
@@ -12271,7 +12481,7 @@
       "description": "What `route.handle` gives the handler: the request, named by the ID its\nanswer passes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "id": {
@@ -12322,7 +12532,7 @@
       "description": "What `route.continue`, `route.fallback` and `route.fetch` take: the\nrequest, and what to send instead of what it carries. Each override\nreplaces its part whole; a header value may hold a Secret placeholder\n(ADR 0092).",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "headers": {
@@ -12506,7 +12716,7 @@
       "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "forwarded": {
@@ -12550,7 +12760,7 @@
       "description": "What `run.add_seed` takes: one seed for a running crawl.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -12587,7 +12797,7 @@
       "description": "What `run.add_seeds` takes: the running crawl its Client streams seeds\nto.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -12650,7 +12860,7 @@
       "description": "What `run.checkpoint` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "location": {
@@ -12713,7 +12923,7 @@
       "description": "What `run.export` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "compression": {
@@ -12782,7 +12992,7 @@
       "description": "What `run.failed_requests` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "blocked": {
@@ -12807,7 +13017,7 @@
       "description": "What `run.finish` takes: the Run, and how long the call waits for its\nend.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -12860,6 +13070,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "kind": {
@@ -13020,7 +13231,7 @@
       "description": "What `run.list` takes: which rows of the Run index it answers, each\nfield given narrowing them, and in which order.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "completeness": {
@@ -13215,6 +13426,11 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        },
+        {
+          "const": "registered",
+          "description": "A program's only SDK handler of a kind that one setting chooses,\nregistered on its connection: the lowest of the run layer's origins,\nwhich every other replaces and configuration does not. A lock wins\nover it with no refusal, since the program never wrote the key (ADR\n0104's amendment of ADR 0083).",
+          "type": "string"
         }
       ]
     },
@@ -13223,7 +13439,7 @@
       "description": "What `run.outcomes` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -13315,10 +13531,10 @@
     },
     "RunParams": {
       "additionalProperties": false,
-      "description": "What `run.usage`, `run.pause` and `run.migrate` take: the Run.",
+      "description": "What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:\nthe Run.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -13449,7 +13665,7 @@
       "description": "What `run.progress` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -13478,7 +13694,7 @@
       "description": "What `run.records` takes: a crawl's Run, one of its Datasets, and where\nto start.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -13531,7 +13747,7 @@
       "description": "What `run.rejected_records` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -13762,7 +13978,7 @@
       "description": "What `run.resume` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "checkpoint": {
@@ -13807,7 +14023,7 @@
       "description": "What `run.retry_failed` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "blocked": {
@@ -13891,7 +14107,7 @@
       "description": "What `run.seeds` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -13910,7 +14126,7 @@
       "description": "What `run.set_progress_message` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "message": {
@@ -13995,7 +14211,7 @@
       "description": "What `run.start` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "limits": {
@@ -14073,6 +14289,20 @@
       ],
       "type": "object"
     },
+    "RunStartedAs": {
+      "description": "What `run.started_as` answers: how the start that opened the Run's\nhandle reached it.",
+      "properties": {
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "started_as"
+      ],
+      "type": "object"
+    },
     "RunStateRow": {
       "description": "One row of a Run's run state about itself: its `run` table (ADR 0002).",
       "properties": {
@@ -14114,6 +14344,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "epoch": {
@@ -14231,7 +14462,7 @@
       "description": "What `run.stop` takes: the Run, and how long the call waits for its\nsafe point.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -14522,7 +14753,7 @@
       "description": "What `sample.crawl` starts from.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "echo": {
@@ -14577,7 +14808,7 @@
       "description": "What `sample.echo` repeats.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "text": {
@@ -14620,7 +14851,7 @@
       "description": "What a sample page filter is asked about a page.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "url": {
@@ -14651,7 +14882,7 @@
       "description": "What a sample store keeps.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "key": {
@@ -14851,7 +15082,7 @@
       "description": "What `session.on` takes: the Session and the event listened to.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "event": {
@@ -14907,7 +15138,7 @@
       "description": "What `session.close` takes: the Session.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -14926,7 +15157,7 @@
       "description": "What `session.route` takes: the Session, and the URLs whose requests its\nhandler answers, on every page of the Session.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -15212,7 +15443,7 @@
       "description": "What `connection.set_log_level` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "log_level": {
@@ -15423,7 +15654,7 @@
       "description": "What `signing_key.create` takes: where the key is kept.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "signing_key": {
@@ -15528,7 +15759,7 @@
       "description": "What `signing_key.directory` takes: the keys it publishes and the\norigin that serves it.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "authority": {
@@ -15843,7 +16074,8 @@
           "description": "Its response's content type is not one its Label takes.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "SocialNetwork": {
       "description": "A social network whose profiles the page links to.",
@@ -16234,14 +16466,15 @@
           ],
           "type": "object"
         }
-      ]
+      ],
+      "open": true
     },
     "StoppedBy": {
-      "description": "Who stopped a call (ADR 0113).",
+      "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
       "oneOf": [
         {
           "const": "client",
-          "description": "A Client, such as through `$/cancel`.",
+          "description": "A Client, through `run.abort`.",
           "type": "string"
         },
         {
@@ -16251,7 +16484,7 @@
         },
         {
           "const": "browser",
-          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+          "description": "The browser, outside every Client.",
           "type": "string"
         }
       ]
@@ -16719,29 +16952,6 @@
       ],
       "type": "object"
     },
-    "TraceContext": {
-      "additionalProperties": false,
-      "description": "A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`\nand `tracestate`, which its runtime writes and never a program, with no\nBaggage. The schema checks only that each is a string: a receiver drops\na value it cannot use, and never fails the call for it.",
-      "properties": {
-        "traceparent": {
-          "arrived_in": "0.1",
-          "description": "The caller's span, as W3C Trace Context's `traceparent` header\nholds it.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "tracestate": {
-          "arrived_in": "0.1",
-          "description": "Its vendors' values, as W3C Trace Context's `tracestate` header\nholds them.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
     "TransformProvenance": {
       "description": "How a Value transform gave one field (ADR 0123).",
       "properties": {
@@ -17024,7 +17234,7 @@
       "description": "What `usage.list` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -17052,7 +17262,7 @@
       "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "amount": {
@@ -17113,7 +17323,7 @@
       "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "amount": {
@@ -17211,7 +17421,7 @@
       "description": "What `config.user_write` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "changes": {
@@ -17230,7 +17440,7 @@
     },
     "ValueField": {
       "additionalProperties": false,
-      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator\nladder finds in the page, its locator tried first, then each of its\n`fallbacks` in turn until one finds an element; its text, its runs of\nwhite space read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, with why.",
       "properties": {
         "attribute": {
           "arrived_in": "0.1",
@@ -17239,6 +17449,14 @@
             "string",
             "null"
           ]
+        },
+        "fallbacks": {
+          "arrived_in": "0.1",
+          "description": "Its locator ladder's further rungs: when `locator` finds no\nelement, the first of these, in order, that finds one supplies it;\nin a list, the first that finds any; in rows, the first that finds\none under the row's element. Each is checked as `locator` is when\nthe call or crawl starts.",
+          "items": {
+            "$ref": "#/$defs/FieldLocator"
+          },
+          "type": "array"
         },
         "locator": {
           "$ref": "#/$defs/FieldLocator",
@@ -17334,14 +17552,15 @@
           "description": "Everything else: a person reviews it.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "WaitForCountParams": {
       "additionalProperties": false,
       "description": "What `locator.wait_for_count` takes: the locator and the count its\nmatches must reach.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "count": {
@@ -17377,7 +17596,7 @@
       "description": "What `page.wait_for_request` and `page.wait_for_response` take: the\npage, and the URLs of the requests they wait for; any request when none\nis given.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -17419,7 +17638,7 @@
       "description": "What `page.wait_for_function` takes: the page, the function's source,\nits argument, its world, and how often it is checked.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -17481,7 +17700,7 @@
       "description": "What `page.wait_for_load_state` takes: the page and the state.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -17523,7 +17742,7 @@
       "description": "What `page.wait_for_request_finished` takes: the page, and the URLs of\nthe requests it waits for; any request when none is given.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -17565,7 +17784,7 @@
       "description": "What `page.wait_for_url` takes: the page, the URL it waits for, and the\nstate a new document must reach.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -17911,7 +18130,7 @@
       }
     },
     "meta": {
-      "$ref": "#/$defs/TraceContext"
+      "$ref": "#/$defs/RequestMeta"
     },
     "record": {
       "params": {
@@ -18866,6 +19085,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "dataset_query": {
                     "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -18887,7 +19111,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -18936,6 +19160,17 @@
                   },
                   "wait": {
                     "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_read_interval": {
+                    "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -19112,6 +19347,27 @@
                       }
                     ],
                     "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
+                  }
+                },
+                "type": "object"
+              },
+              "connection": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_listener_queue": {
+                    "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_pending_calls": {
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_queued_write_bytes": {
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -19327,7 +19583,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -19698,7 +19954,7 @@
                     "type": "object"
                   },
                   "http_from": {
-                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` (the default) behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `transport` is a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`; `learned`, the default, and `browser` are not reported weakened.",
                     "enum": [
                       "browser",
                       "learned",
@@ -20284,6 +20540,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "delegation": {
+                    "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+                    "type": "boolean"
                   },
                   "domain": {
                     "additionalProperties": false,
@@ -21713,6 +21973,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "dataset_query": {
                     "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -21734,7 +21999,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -21838,6 +22103,17 @@
                     },
                     "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_read_interval": {
+                    "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -22079,6 +22355,27 @@
                 },
                 "type": "object"
               },
+              "connection": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_listener_queue": {
+                    "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_pending_calls": {
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_queued_write_bytes": {
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "consent": {
                 "additionalProperties": false,
                 "properties": {
@@ -22290,7 +22587,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -22661,7 +22958,7 @@
                     "type": "object"
                   },
                   "http_from": {
-                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` (the default) behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `transport` is a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`; `learned`, the default, and `browser` are not reported weakened.",
                     "enum": [
                       "browser",
                       "learned",
@@ -23247,6 +23544,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "delegation": {
+                    "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+                    "type": "boolean"
                   },
                   "domain": {
                     "additionalProperties": false,
@@ -24676,6 +24977,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "dataset_query": {
                     "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -24697,7 +25003,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -24801,6 +25107,17 @@
                     },
                     "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_read_interval": {
+                    "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -25058,6 +25375,27 @@
                 },
                 "type": "object"
               },
+              "connection": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_listener_queue": {
+                    "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_pending_calls": {
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "max_queued_write_bytes": {
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "consent": {
                 "additionalProperties": false,
                 "properties": {
@@ -25269,7 +25607,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -25640,7 +25978,7 @@
                     "type": "object"
                   },
                   "http_from": {
-                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+                    "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` (the default) behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `transport` is a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`; `learned`, the default, and `browser` are not reported weakened.",
                     "enum": [
                       "browser",
                       "learned",
@@ -26226,6 +26564,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "delegation": {
+                    "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+                    "type": "boolean"
                   },
                   "domain": {
                     "additionalProperties": false,
@@ -27655,6 +27997,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "dataset_query": {
                     "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -27676,7 +28023,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -27780,6 +28127,17 @@
                     },
                     "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_read_interval": {
+                    "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"

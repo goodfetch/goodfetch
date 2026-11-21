@@ -18,6 +18,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Self, cast
 
+import anyio
+
 from goodfetch_test_support.daemon import Daemon
 from goodfetch_test_support.play_script import CORPUS
 from goodfetch_test_support.proving_ground import ProvingGround
@@ -102,6 +104,7 @@ class TestEnv:
         *,
         proving_ground_seed: int | None = None,
         daemon: Product | None = None,
+        browser: bool = False,
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
     ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
@@ -112,6 +115,8 @@ class TestEnv:
             proving_ground_seed: The seed of a Proving ground to start beside
                 the setup, if any.
             daemon: The Product whose Daemon to start in the test's home, if any.
+            browser: Whether to lay out the home's Browser cache and reach the
+                Proving ground's hosts, for an engine that opens a page.
             teardown_deadline: How many seconds teardown waits for
                 `goodfetch-test-env` to end once its stdin closes; 10 unless a
                 test sets a shorter one.
@@ -128,8 +133,16 @@ class TestEnv:
             else ["--proving-ground", str(proving_ground_seed)]
         )
         daemon_flag = [] if daemon is None else [f"--daemon={daemon.value}"]
+        browser_flag = ["--browser"] if browser else []
         process = subprocess.Popen(
-            [executable, "--test-name", test_name, *proving_ground, *daemon_flag],
+            [
+                executable,
+                "--test-name",
+                test_name,
+                *proving_ground,
+                *daemon_flag,
+                *browser_flag,
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=dict(environ),
@@ -209,6 +222,10 @@ class TestEnv:
             raise TestEnvError(message)
 
 
+SCRIPTED_ENGINE_FOLDER = "scripted-engine"
+"""The folder under a home that holds the Scripted engine's script and record."""
+
+
 def scripted_engine_env(
     test_env: TestEnv, product: Product, script: str, home: Path | None = None
 ) -> Mapping[str, str]:
@@ -231,13 +248,54 @@ def scripted_engine_env(
     """
     engine = test_env.tools.path(Tool.SCRIPTED_ENGINE)
     home = test_env.home if home is None else home
-    (home / "scripted-engine").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(CORPUS / script, home / "scripted-engine" / "script.json")
+    (home / SCRIPTED_ENGINE_FOLDER).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(CORPUS / script, home / SCRIPTED_ENGINE_FOLDER / "script.json")
     return {
         **test_env.env,
         "GOODFETCH_HOME": str(home),
         product.engine_path_variable: str(engine),
     }
+
+
+def scripted_engine_record(home: Path) -> Path:
+    """The record `goodfetch-scripted-engine` writes under `home`.
+
+    One flushed JSON line for each message it reads or writes, as it reads
+    or writes it, beside the script `scripted_engine_env` installed there.
+    """
+    return home / SCRIPTED_ENGINE_FOLDER / "record.jsonl"
+
+
+SCRIPTED_ENGINE_READ_DEADLINE_SECONDS = 10.0
+"""How long a test waits for the Scripted engine to read a Client's call."""
+
+
+def scripted_engine_client_methods(home: Path) -> list[object]:
+    """The methods of the Client's messages the Scripted engine under `home` read.
+
+    In their order; empty before the engine writes its record.
+    """
+    record = scripted_engine_record(home)
+    if not record.exists():
+        return []
+    entries = [json.loads(line) for line in record.read_text("utf-8").splitlines()]
+    return [
+        entry["message"].get("method") for entry in entries if entry["from"] == "client"
+    ]
+
+
+async def until_scripted_engine_read(home: Path, method: str, count: int = 1) -> None:
+    """Waits until the Scripted engine under `home` has read `count` calls of `method`.
+
+    The engine records each message as it reads it, one flushed JSON line
+    each, and signals nothing, so the wait polls its record. It fails after
+    `SCRIPTED_ENGINE_READ_DEADLINE_SECONDS`.
+    """
+    with anyio.fail_after(SCRIPTED_ENGINE_READ_DEADLINE_SECONDS):
+        while True:
+            if scripted_engine_client_methods(home).count(method) >= count:
+                return
+            await anyio.sleep(0.01)
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:

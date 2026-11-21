@@ -88,6 +88,7 @@ use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{ClientRequestError, Sent};
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
@@ -101,9 +102,9 @@ use goodfetch_fetch_tier::{
     tier_provenance, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -129,6 +130,7 @@ use tokio::sync::{Mutex, oneshot};
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
+use crate::hooks::Hooks;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::run_state::{Asking, Escalated};
@@ -140,6 +142,7 @@ use crate::work_items::{Fetched, Leased};
 mod decoy;
 mod learning;
 mod race;
+mod record_stage;
 mod site_preferences;
 mod sitemap_fetch;
 
@@ -216,6 +219,11 @@ impl Answer {
         matches!(self, Self::LeaseEnded | Self::ClientGone | Self::Released)
     }
 }
+
+/// What an attempt is handled with beside its tier: what it hands over
+/// with its Run's pages, what a code-free crawl handles it with, none when
+/// the program does, and the Run's Hooks in code.
+pub(super) type Handling = (Arc<HandOver>, Option<Arc<CodeFree>>, Arc<Hooks>);
 
 /// The tier an attempt's request takes and what it is fetched with: the
 /// Run's HTTP tier, the room its hedges take beside it, and the browser's
@@ -391,7 +399,7 @@ pub(super) async fn run_hand_over(
         run: run.clone(),
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
-        shared_politeness: shared,
+        crawl_delays: shared.map(goodfetch_frontier::CrawlDelays::new),
         domain_delay: settings
             .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),
@@ -424,7 +432,8 @@ pub(super) fn handler_lease(
 /// The lease check of an attempt's handler pages: the attempt's lease,
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
-/// timed out meanwhile (ADR 0093). A panic in the renewal ends the
+/// timed out meanwhile (ADR 0093), and the end of the handler call its
+/// pages' calls inherit (ADR 0080). A panic in the renewal ends the
 /// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
 /// rather than holding a clone of its own, which the loop would build and
 /// the page's task drop once a page (#2243).
@@ -450,9 +459,6 @@ impl std::fmt::Debug for HandlerLease {
     }
 }
 
-/// How often a permit's wait renews its lease, as a share of its length.
-const RENEWALS_PER_LENGTH: u32 = 4;
-
 impl LeaseCheck for HandlerLease {
     fn check(&self) -> Result<(), LeaseEnded> {
         self.lease.check()
@@ -463,25 +469,20 @@ impl LeaseCheck for HandlerLease {
     }
 
     fn permit_wait(&self, _url: &str) -> PermitWait {
-        let (stop, mut stopped) = oneshot::channel::<()>();
+        let (stop, stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
         self.of_run.run.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
             let run = &waiting.of_run.run;
             waiting.in_flight.lock().await.permit_wait_began(run, id);
-            let (length, clock) = (waiting.lease.length(), run.clock());
-            loop {
-                waiting.lease.renew(length);
-                tokio::select! {
-                    _ = &mut stopped => break,
-                    () = clock.sleep(length / RENEWALS_PER_LENGTH) => {}
-                }
-            }
-            // The handler's timeout runs again from the wait's end.
-            waiting.lease.renew(length);
+            waiting.lease.held_through_permit_wait(stopped).await;
             waiting.in_flight.lock().await.permit_wait_ended(run, id);
         }));
         PermitWait::holding(stop)
+    }
+
+    fn enclosing(&self) -> Option<Enclosing> {
+        self.lease.enclosing()
     }
 }
 
@@ -564,8 +565,10 @@ fn served_as(choice: &TierChoice) -> &TierChoice {
 /// first answer discarded. On `browser` the engine opens Collie's page
 /// for the handler, navigated to the request's URL through the gate. When
 /// the lease ends first, the request is cancelled and its answer left to
-/// [`late`]. A panic in the attempt, or in a task it started while it
-/// runs, ends it failed with `engine_panicked` ([`Watch`]); what it holds
+/// [`late`]. Once its handler answered, the Records it is about to commit
+/// go through the Run's Record-stage Hooks in code ([`record_stage`]). A
+/// panic in the attempt, or in a task it started while it runs, ends it
+/// failed with `engine_panicked` ([`Watch`]); what it holds
 /// is given back as for any other end.
 pub(super) async fn attempt(
     run: Run,
@@ -573,7 +576,7 @@ pub(super) async fn attempt(
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
     (lease, watch): (WorkItemLease, Watch),
-    (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
+    (tiering, (hand_over, code_free, hooks)): (Tiering, Handling),
     (in_flight, lessons): (SharedInFlight, &Lessons),
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
@@ -636,6 +639,15 @@ pub(super) async fn attempt(
                     | AttemptPlan::Race(_),
                     None,
                 ) => without_http_tier("request"),
+            };
+            // The Record stage runs once, on the answer that counts.
+            let answer = match answer {
+                Answer::Handled(handled)
+                    if handled.skipped.is_none() && hooks.at_record_stage() =>
+                {
+                    record_stage::passed(&on, &hooks, handled).await
+                }
+                answer => answer,
             };
             (answer, sampled, raced)
         }))
@@ -816,7 +828,7 @@ impl On<'_> {
     /// (`escalation`): a move to the browser is noted, for its domain to
     /// learn, and a refusal of its transport, for its Label to be sampled
     /// again.
-    fn on_block(&self, cause: BlockCause, choice: &TierChoice, how: Chosen) -> Action {
+    fn on_block(&self, cause: &BlockCause, choice: &TierChoice, how: Chosen) -> Action {
         let action = escalation::on_block(cause, self.met(choice, how));
         // Set once: a second move or refusal says nothing more.
         match action {
@@ -1078,7 +1090,7 @@ impl On<'_> {
         let browser_staged = self.lease.pushed();
         let weighed = match &browser.answer {
             Answer::Failed(failure)
-                if failure.block_cause() == Some(BlockCause::ConsentRequired) =>
+                if failure.block_cause() == Some(&BlockCause::ConsentRequired) =>
             {
                 Some(Weighed::Walled)
             }
@@ -1374,7 +1386,7 @@ impl On<'_> {
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded.clone(), None, None).await;
-                return Some(match self.on_block(cause, choice, how) {
+                return Some(match self.on_block(&cause, choice, how) {
                     Action::MoveToBrowser => Ok(escalated_unhandled(
                         BLOCKED,
                         "A Challenge met on a tier short of the browser moved the request there.",
@@ -1429,11 +1441,14 @@ impl On<'_> {
         if let Some(call) = facts.escalated {
             return Found::Unreadable(call);
         }
-        if let Some((block, error)) = tiering.tiers.block(page_id).await.filter(|(block, _)| {
-            block.checks_the_browser()
-                || escalation::on_block(block.cause, self.met(choice, how)) == Action::Sample
-        }) {
-            return Found::Blocked(block.cause, error);
+        if let Some((block, error)) = tiering.tiers.block(page_id).await {
+            let checks_the_browser = block.checks_the_browser();
+            let cause = BlockCause::from(block.cause);
+            if checks_the_browser
+                || escalation::on_block(&cause, self.met(choice, how)) == Action::Sample
+            {
+                return Found::Blocked(cause, error);
+            }
         }
         Found::Readable
     }
@@ -1891,7 +1906,9 @@ async fn handled(
     }
     match context
         .client()
-        .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params)
+        .send_noted::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params, |id| {
+            lease.handler_sent(id.clone());
+        })
         .await
     {
         Err(_) => Answer::ClientGone,
@@ -1936,8 +1953,9 @@ fn given_back(code: &str, details: &Map<String, Value>) -> bool {
                 matches!(
                     details,
                     CallCancelledDetails {
-                        by: StoppedBy::Program,
+                        by: CancelledBy::Program,
                         closed: None,
+                        ..
                     }
                 )
             },
@@ -1989,7 +2007,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
         Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
         Answer::Failed(failure) => match failure.why() {
-            Why::Blocked(cause) => Effect::Blocked(*cause),
+            Why::Blocked(cause) => Effect::Blocked(cause.clone()),
             Why::PageCheckFailed { .. } => Effect::PageCheckFailed,
             _ => Effect::Neutral,
         },

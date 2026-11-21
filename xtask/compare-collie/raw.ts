@@ -5,7 +5,6 @@
 // catalog names it, awaited one after another.
 import {
   type CollieOperationTypes,
-  type HelloParams,
   PRODUCT_VERSION,
   PROTOCOL_VERSION,
 } from "@goodfetch/collie-client/generated";
@@ -32,13 +31,16 @@ class Client {
     this.#reading = this.#read(engine.transport.readable);
   }
 
-  /** Calls `method` with `params` and returns its result, or throws the engine's error. */
-  async call<Name extends keyof CollieOperationTypes>(
-    method: Name,
-    params: CollieOperationTypes[Name]["params"],
-  ): Promise<CollieOperationTypes[Name]["result"]>;
-  async call(method: "hello", params: HelloParams): Promise<unknown>;
-  async call(method: string, params: unknown): Promise<unknown> {
+  /**
+   * Calls `method` with `params`, spelled as the wire spells them, and
+   * returns its result as the engine sent it, or throws the engine's error.
+   * The SDK's types name fields in camelCase (ADR 0099), so a raw call
+   * types only the operation's name.
+   */
+  async call(
+    method: keyof CollieOperationTypes | "hello",
+    params: Readonly<Record<string, unknown>>,
+  ): Promise<unknown> {
     if (this.#ended !== undefined) throw this.#ended;
     const id = this.#next;
     this.#next += 1;
@@ -119,6 +121,20 @@ function errorText(error: unknown): string {
   return String(error);
 }
 
+/** The field `name` of `value`, an object the engine sent, or `undefined`. */
+function fieldOf(value: unknown, name: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  const fields: Record<string, unknown> = { ...value };
+  return fields[name];
+}
+
+/** The text field `name` of `value`, which the engine always sends. */
+function textOf(value: unknown, name: string): string {
+  const text = fieldOf(value, name);
+  if (typeof text !== "string") throw new Error(`the engine sent no text \`${name}\``);
+  return text;
+}
+
 /** Collie over raw JSON-RPC to `engine`, its Sessions attached to `cdp`. */
 export async function raw(engine: Engine, cdp: string): Promise<Driver> {
   const client = new Client(engine);
@@ -130,16 +146,17 @@ export async function raw(engine: Engine, cdp: string): Promise<Driver> {
     needs: "collie",
     product_version: PRODUCT_VERSION,
   });
-  const { run_id } = await client.call("run.start", {});
+  const run_id = textOf(await client.call("run.start", {}), "run_id");
   const page = (page_id: string): DriverPage => ({
     async goto(url) {
       const navigated = await client.call("page.goto", { page_id, url });
-      return navigated.response?.status ?? null;
+      const status = fieldOf(fieldOf(navigated, "response"), "status");
+      return typeof status === "number" ? status : null;
     },
     async step(step) {
       if (step.action === "read") {
         const evaluated = await client.call("page.evaluate", { page_id, function: READ });
-        return readText(evaluated.value);
+        return readText(fieldOf(evaluated, "value"));
       }
       const locator = { page_id, selector: step.selector };
       if (step.action === "click") await client.call("locator.click", { locator });
@@ -153,7 +170,8 @@ export async function raw(engine: Engine, cdp: string): Promise<Driver> {
     },
   });
   const session = (session_id: string): DriverSession => ({
-    newPage: async () => page((await client.call("session.new_page", { session_id })).page_id),
+    newPage: async () =>
+      page(textOf(await client.call("session.new_page", { session_id }), "page_id")),
     async close() {
       await client.call("session.close", { session_id });
     },
@@ -164,7 +182,7 @@ export async function raw(engine: Engine, cdp: string): Promise<Driver> {
         run_id,
         source: { kind: "cdp_url", url: cdp },
       });
-      return session(opened.session_id);
+      return session(textOf(opened, "session_id"));
     },
     async close() {
       await client.call("run.finish", { run_id });

@@ -37,7 +37,7 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    checkpoint_interval, resume_run, run_error, run_id, settings_error, start_error,
+    checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
@@ -60,6 +60,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
+use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
@@ -80,7 +81,8 @@ use crate::work_items::{self, CheckedSeed};
 /// run file, the driver a resumed crawl starts again with, and the Audit
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
-/// Foxhound's composition also hands Collie's pages.
+/// Foxhound's composition also hands Collie's pages, and which finds the
+/// Run of a raw call naming a page they serve (ADR 0099).
 pub fn contribution(tiers: FetchTiers) -> Contribution {
     let crawls = Crawls::default();
     let starting = tiers.clone();
@@ -133,14 +135,23 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
+        .with_run_of_call(Arc::new(tiers.clone()))
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, context, settings| {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    redeclared.record(&run).await;
-                    delivery::resume(run, context, settings, crawls, tiers).await;
+                    let hooks = redeclared.record(&run).await;
+                    // Boxed: the resumed delivery's future is large.
+                    Box::pin(delivery::resume(
+                        run,
+                        context,
+                        settings,
+                        (crawls, tiers),
+                        hooks,
+                    ))
+                    .await;
                 })
             }),
             DRIVING,
@@ -213,12 +224,13 @@ async fn start(
             run: Some(Product::Foxhound),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
@@ -244,6 +256,7 @@ async fn start(
     let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
+    let hooks = params.hooks;
     let started = context
         .runs()
         .start(Start {
@@ -285,7 +298,7 @@ async fn start(
                 crawls.open(&run, egress, serving, opening).await,
                 crawls,
                 settings,
-                (tiers, labels, TierChoices::default(), code_free),
+                (tiers, labels, TierChoices::default(), (code_free, hooks)),
             ));
             Ok(started)
         }
@@ -293,12 +306,12 @@ async fn start(
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
             let kept = (opening, serving.payloads().clone(), extraction);
-            redeclared.keep(&run_id, kept, &crawls).await;
+            redeclared.keep(&run_id, kept, hooks, &crawls).await;
             resume_run(&context, run_id, None, settings).await
         }
         Started::Ended(ended) => {
             let kept = (opening, serving.payloads().clone(), extraction);
-            redeclared.keep(&ended.run_id, kept, &crawls).await;
+            redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             Ok(ended)
         }
     }
@@ -378,7 +391,7 @@ async fn schema_unchanged(
     {
         Ok((began, began_with, pending, changed)) => {
             invariants.payloads().resumes(&pending, run_id.as_str())?;
-            invariants.fragments().unchanged(&began, run_id.as_str())?;
+            invariants.fragments().unchanged(&began, run_id)?;
             datasets.resumes(&began_with, run_id.as_str())?;
             changed
         }

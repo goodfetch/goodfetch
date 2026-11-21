@@ -18,7 +18,6 @@ const BLOCK: usize = 64 << 20;
 /// The OS's page.
 const PAGE: usize = 4096;
 
-#[cfg(target_os = "linux")]
 #[test]
 fn a_freed_block_leaves_the_resident_memory_when_it_is_freed() {
     super::purge_at_once();
@@ -41,7 +40,6 @@ fn a_freed_block_leaves_the_resident_memory_when_it_is_freed() {
     );
 }
 
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     /// `<mimalloc.h>`: the value of `option` for the whole process.
     fn mi_option_get(option: std::ffi::c_int) -> std::ffi::c_long;
@@ -49,7 +47,6 @@ unsafe extern "C" {
 
 /// Whether the process has huge pages turned off for it, and whether
 /// mimalloc allows them.
-#[cfg(target_os = "linux")]
 fn huge_pages() -> (bool, bool) {
     // SAFETY: `prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)` takes no pointer and
     // changes nothing; `mi_option_get` takes any option.
@@ -64,7 +61,6 @@ fn huge_pages() -> (bool, bool) {
 /// The test's process links the allocator's constructor, so it starts with
 /// huge pages off and mimalloc not allowing them; turning them on clears
 /// the flag and allows them in mimalloc again.
-#[cfg(target_os = "linux")]
 #[test]
 fn huge_pages_start_off_and_turning_them_on_clears_the_flag_and_allows_them() {
     let before = huge_pages();

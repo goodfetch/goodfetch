@@ -1,10 +1,12 @@
 # The Client conformance case list (ADR 0069; TESTING.md, SDKs): each case,
 # by capability, with the Features it covers (ADR 0072), the surfaces it
 # applies to and, where a mode does not have its capability yet, its
-# `modes`. Every surface a case lists implements it in each of its modes;
-# `xtask clients check` fails on a missing one or an unknown ID. Area 11
-# writes the cases; each joins with the ticket whose code satisfies it.
-# Bump the version whenever a case changes.
+# `modes`: one list for every surface, or a table giving a surface modes of
+# its own, as `modes = { sdk-rust = ["daemon"] }`, where a surface the table
+# leaves out takes every mode it has. Every surface a case lists implements
+# it in each of its modes; `xtask clients check` fails on a missing one or an
+# unknown ID. Area 11 writes the cases; each joins with the ticket whose code
+# satisfies it. Bump the version whenever a case changes.
 #
 # The `sdk-typescript` and `sdk-python` cases below run in the `attached`
 # mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds
@@ -21,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "14"
+version = "44"
 
 [[capability]]
 name = "lifecycle"
@@ -29,26 +31,127 @@ name = "lifecycle"
 [[capability.case]]
 id = "two-connections-at-once"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-after-close"
 covers = ["story:11-17"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
+# A guest program (ADR 0078): importing the SDK reads no variable, import
+# and connect add no handler, hook or global and write nothing to stdout or
+# stderr, and after them the SDK writes only its catalog markers' run-time
+# warnings (ADR 0030), each once, through the host's warning channel, and
+# nothing to stdout (issue 2989).
 [[capability.case]]
 id = "nothing-at-import-or-connect"
 covers = ["story:11-15"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
+
+# Closing the tree Connection, Run, Session, page (ADR 0078; issue 1266):
+# each value closes its children first, a running Run's close aborts it,
+# resumable by its Run ID, while an ended Run's frees only the value, the
+# Connection's close cancels its calls in flight and waits for its Attached
+# engine, and a failed close raises its typed error, a `SuppressedError`
+# under `await using` and an exception chained to the one `async with` or
+# `with` was unwinding from in Python (issue 2927). The Rust SDK joins with
+# issue 2928, linked, where a real engine plays every case but the failed
+# close, which only the Scripted engine plays, reached by Rust as a Daemon:
+# Rust's `daemon` mode, which the other cases' other surfaces do not list
+# yet. In Rust only a Daemon fails a close, so the failed close lists
+# `sdk-rust` in `daemon` mode alone (issue 2974).
+[[capability.case]]
+id = "children-close-with-their-parent"
+covers = ["story:11-16"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "close-stops-a-running-run"
+covers = ["story:11-18"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "connection-close-stops-its-engine"
+covers = ["story:11-19"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "failed-close-raises-a-typed-error"
+covers = ["story:11-20"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# An Attached engine that ends before its Connection's close (ADRs 0078, 0079
+# and 0122; issue 1267): the call in flight fails with `engine_exited`, not
+# retryable, carrying the exit code, the signal and the last 64 KiB of the
+# engine's stderr, cut where a character starts; each stderr line reached
+# the host's logger at warning, and the SDK wrote nothing to its own stdout
+# or stderr. Rust plays it linked, where the evidence holds no exit code,
+# signal or stderr; its client crate's Attached transport plays the Attached
+# part on the Scripted engine, as the Rust surface starts no Attached engine.
+[[capability.case]]
+id = "engine-exited-carries-its-evidence"
+covers = ["story:11-24", "story:11-27", "error:engine_exited"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
+
+# Ctrl+C reaches only the host (ADRs 0078 and 0093; issues 1267 and 3063):
+# the Attached engine runs in a process group of its own, so SIGINT sent to
+# the host's group leaves it running, and the host's unwinding, Python's
+# `KeyboardInterrupt` or the handler a TypeScript or Rust program installs,
+# closes the running Run, which stops with a Checkpoint, then the
+# Connection. `sdk-rust` runs it linked, where the engine inside the host
+# outlives the signal, and through the Rust Client's Attached transport,
+# which `sdk-rust` has no mode for. Its test sends SIGINT; the Windows half,
+# CTRL_C_EVENT, has no test yet.
+[[capability.case]]
+id = "interrupt-reaches-only-the-host"
+covers = ["story:11-22"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
+platforms = ["unix"]
+
+# A Connection, and every value under it, belongs to the process that
+# opened it (ADR 0078; issue 1267): used in a child created by `fork`, it
+# fails with `connection_forked` and the fix "connect in the child process",
+# and writes nothing to the parent's engine, while a Connection the child
+# opens works. Node has no `fork`. `sdk-rust` runs it linked, and through
+# the Rust Client's Attached transport, which `sdk-rust` has no mode for
+# (issue 3062). Windows has no `fork`.
+[[capability.case]]
+id = "connection-used-after-fork"
+covers = ["story:11-23", "error:connection_forked"]
+surfaces = ["sdk-python", "sdk-rust"]
+modes = { sdk-python = ["attached"], sdk-rust = ["linked"] }
+platforms = ["unix"]
+
+# The runtime's own errors read in the caller's form (ADRs 0079 and 0099;
+# issue 3012): a call on a closed Run or Connection, and each call the
+# end of the Connection fails, an Attached engine's exit or a dropped
+# Daemon connection, raise a message headed by the call's operation in the
+# caller's spelling, then what failed, then the fix, never repeating a
+# chained cause's text, while `operation` holds the catalog's name; a
+# secret the engine wrote to its stderr reaches no message. Python plays
+# it attached, an engine's exit ending its Connection; Rust as the Daemon's
+# Client, the Daemon dropping the Connection; TypeScript both ways, its
+# operations in camelCase, such as `run.newPage`.
+[[capability.case]]
+id = "runtime-errors-in-the-callers-form"
+covers = ["story:11-31", "story:11-192"]
+surfaces = ["sdk-python", "sdk-rust", "sdk-typescript"]
+modes = { sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript
@@ -62,47 +165,73 @@ covers = ["story:11-178"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# The raw catalog call (ADR 0099, G8; issue 1254): `call` on the Connection
+# and on each value reaches an operation the SDK does not generate, its
+# params and result the wire's JSON, under the main path's protections.
+# Rust's is a `call` builder (issue 2966), linked, where a real engine
+# plays the case's Collie part, while Foxhound's operation and the
+# deadline only the Scripted engine plays, reached by Rust as a Daemon:
+# Rust's `daemon` mode, which the case's other surfaces do not list yet.
+[[capability.case]]
+id = "raw-call"
+covers = ["story:11-181"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
 # A program's first pages (issue 2400): opened, navigated, acted on through
-# locators, read and closed, on the Proving ground through Collie's
-# executable. TypeScript leads; the Python and Rust SDKs join with their
-# parts of issues 1236 and 1237.
+# locators, read and closed, on the Proving ground: attached through
+# Collie's executable in TypeScript, linked in Rust (issue 2803), each
+# surface taking the modes it has. The Python SDK joins with its part of
+# issues 1236 and 1237.
 [[capability]]
 name = "page"
 
 [[capability.case]]
 id = "page-form-program"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "goto-404-returns-the-response"
 covers = ["story:11-84"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "page-read-fields"
 covers = ["story:11-77", "operation:page.read"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
+# and Python SDKs on an Attached engine, the Rust SDK `linked`. A Rust
+# program reads a page's `EventStream` itself, so no listener of its throws
+# and this case's `listener_failed` has no Rust form (a crawl context's
+# `for_each` raises it, ADR 0111): its test checks the console in order and
+# the page open once its stream is dropped.
+[[capability.case]]
+id = "listeners-in-order-and-a-thrower-raises-listener-failed"
+covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
 # Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python and Rust SDKs join with issue 1469.
+# Python SDK joins with issue 1468 and the Rust SDK with issue 2804.
 [[capability]]
 name = "crawl"
 
@@ -130,6 +259,31 @@ covers = ["story:3-41"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 
+# `connect()` finds the engine (ADRs 0024, 0078 and 0083; issue 1259): with
+# `engine` at `auto`, the Daemon running in the Goodfetch home, else an
+# Attached engine, or in Rust the linked one; `engine()` reports the kind,
+# Product, versions, project file, home, engine path and address, and the
+# choice is logged at info. TypeScript, Python (issue 2962) and Rust
+# (issue 2963) run it.
+[[capability]]
+name = "connecting"
+
+[[capability.case]]
+id = "connect-finds-the-engine"
+covers = ["story:11-2", "story:11-4", "story:11-5", "story:11-8"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A Daemon that refuses `hello` by Product or protocol version and cannot
+# hand over (ADR 0098): under `auto` the Client runs an Attached engine,
+# reports why in `engine().fallback` and warns once; under `daemon` it
+# raises the refusal, whose fix adds the executable's `daemon restart`.
+# Rust links its own engine in place of an Attached one, and its fix names
+# the install of its Product's executable first. All three SDKs run it.
+[[capability.case]]
+id = "connect-falls-back-when-the-daemon-refuses"
+covers = ["story:11-9", "story:11-290", "story:11-293"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
 [[capability]]
 name = "product-conformance"
 
@@ -138,6 +292,140 @@ id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
+
+# What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,
+# 0090, 0095, 0098 and 0115; issue 1263): Foxhound's operation and setting
+# raise `NotInProductError` (`UnavailableError`, not retryable), whose
+# details name the engine's Product and version, the Product needed, what
+# was asked and Foxhound's install command on the engine's channel, which
+# `fix` names; a page whose build is missing raises
+# `BrowserNotInstalledError` (not retryable), `ArtifactUnavailableOfflineError`
+# (a `RefusedError` whose `limit` names `egress.offline`) or
+# `ArtifactDownloadFailedError` (retryable, its `failure` `http_status`,
+# `network` or `digest_mismatch`), each naming the build, the Product
+# version that pins it and, in `fix`, that Product's `browser install`.
+# Played by the Scripted engine attached in TypeScript and Python (asyncio,
+# Trio and the sync API), the engine from npm and PyPI, and as a Daemon in
+# all three, each from another channel: the archive installer for
+# TypeScript, the OCI image for Python, crates.io for Rust's client crate.
+# Rust's `linked` mode plays the case's Collie part, Foxhound's operation
+# and setting, on the real linked engine, from crates.io; its provisioning
+# part joins with the real engine's provisioning errors (issue 3100).
+[[capability.case]]
+id = "product-and-provisioning-errors"
+covers = ["story:11-10", "story:11-13", "story:11-189", "story:11-294"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A `cdp_url` the engine cannot use (ADR 0115; issue 3099): `connect()`
+# and the Run's start succeed, and the call that opens the default Session
+# raises one class per remedy, `CDPURLUnreachableError` (an
+# `UnavailableError`, retryable, naming its `failure`),
+# `CDPURLNotBrowserError` (a `ProgramError` whose `observed` says what
+# answered, naming the browser address `/json/version` lists),
+# `CDPURLUnauthorizedError` (a `RefusedError` naming each header sent and
+# its Secret reference, never its value) and `CDPURLNotAllowedError` (a
+# `RefusedError` naming ADR 0056's rule), each naming the address and the
+# settings layer that gave it, with its `fix`. Played by the Scripted
+# engine: attached in TypeScript and Python (asyncio, Trio and the sync
+# API), and as the Daemon Rust's client crate reaches.
+[[capability.case]]
+id = "cdp-url-errors"
+covers = ["story:11-294"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Errors and outcomes (ADRs 0067 and 0079; issue 2948): a navigation to a
+# missing page returns its 404 response, an outcome, while a failure in each
+# of the seven groups raises its code's class under its group's, carrying
+# its code, whether it is retryable, the operation, call and Run IDs, the
+# fields that apply and its details; a code no catalog has, here a model
+# one, raises its group's class with the code kept. The program fills a
+# field with a Secret's value, the canary, which no rendering of any error
+# (message, string form, debug form, stack) nor any log line holds. Played
+# by the Scripted engine: attached in TypeScript and Python (asyncio, Trio
+# and the sync API), and as the Daemon Rust's client crate reaches.
+[[capability]]
+name = "errors"
+
+[[capability.case]]
+id = "errors-and-outcomes"
+covers = ["story:11-28", "story:11-30", "story:11-187"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Partial results (ADR 0079; issue 3161): a value of a declared type is
+# complete. A navigation into a redirect loop raises `too_many_redirects`,
+# whose details hold what it gathered before it failed: the first URL, the
+# hops it followed and the count it passed. A `page.read` of several fields
+# answers one outcome per field, a value or null with why, never one error
+# for the call. Played by the Scripted engine as `errors-and-outcomes` is.
+[[capability.case]]
+id = "partial-results"
+covers = ["story:11-35"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh
+# ID begins it, an interrupted Run's resumes it, logged at info, and a
+# finished Run's returns it ended, logged at warning, where a call that would
+# give it work raises `run_ended`; `run.id()` sends nothing; and each start
+# the engine refuses raises its generated class with its fields. A Run ID off
+# its pattern is no message the corpus may hold, so its `run_id_invalid`
+# plays on the engine of the same commit. Attached in
+# TypeScript and Python, linked in Rust, each surface taking the modes it
+# has.
+[[capability]]
+name = "start"
+
+[[capability.case]]
+id = "start-reaches-its-run"
+covers = ["story:11-126", "story:11-127"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
+# engine in `hello`, and a Run's own sit over them in three states, a key
+# left out inheriting, `null` clearing and a value setting, as
+# `explainSettings()` (Python's and Rust's `explain_settings()`) on the
+# Connection and on the Run answers. Rust plays it linked, where the engine
+# itself explains what its `hello` and the Run's start carried (issue 3024).
+[[capability]]
+name = "settings"
+
+[[capability.case]]
+id = "settings-three-states"
+covers = ["story:11-70", "story:11-72"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `explainSettings()` (Python's and Rust's `explain_settings()`) on the
+# Connection and on the Run names each key's value, the layer and origin that
+# set it, the Durability level whose preset gave it and the layer that locked
+# it (ADRs 0083 and 0142; issue 1278): under an Operator policy's lock on
+# `run_state.durability`, `run_state.batch.sync` comes from the level's
+# preset and is locked through it, and a key set in code names its origin.
+# Rust plays it linked, where the engine itself resolves the lock.
+[[capability.case]]
+id = "settings-explained-with-their-source"
+covers = ["story:11-74"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# Each setting the engine refuses says how to fix it (ADR 0083; issue 1278):
+# a configuration-only key passed in code is refused at `connect()` with
+# `setting_not_applicable`, its fix naming the user configuration and the
+# Operator policy files, while `explainSettings()` still reports it from its
+# file; a misspelled key's `setting_unknown` names the closest key, a wrong
+# type's `setting_invalid` the type the setting takes, and a locked key's
+# `setting_locked` the layer that locked it, each raising its generated
+# class in its group. Rust plays it linked, where its typed setting
+# constants leave a configuration-only or misspelled key out at compile
+# time, so it checks the explanation and the lock's refusal.
+[[capability.case]]
+id = "settings-refusals-say-how-to-fix"
+covers = ["story:11-71", "story:11-76"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability]]
 name = "time"
@@ -150,6 +438,49 @@ modes = ["attached"]
 # Its test sends SIGINT; the Windows half, CTRL_BREAK_EVENT, has no test yet
 # (spec #326's review, SP-3).
 platforms = ["unix"]
+
+# A call's own `timeout` in its three states (ADR 0080; issue 2827): left
+# out it is not sent, so the setting's default applies, null sends null, no
+# timeout, and a duration sends its milliseconds; one of zero or less is
+# refused with `setting_invalid`, its `limit` given as an argument and its
+# `fix` naming the null form. Attached in TypeScript and Python, linked in
+# Rust, each surface taking the modes it has.
+[[capability.case]]
+id = "call-timeout-three-states"
+covers = ["story:11-40", "story:11-42"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `connect()`'s own `timeout` in its three states (ADR 0083; issue 2931):
+# left out, `timeout.connect`'s 30 s bounds the wait for `hello`'s answer,
+# no timeout waits as long as it takes, and a duration past which `hello`
+# is unanswered fails the connect with `deadline_exceeded`, its `limit`
+# naming `timeout.connect` at the run layer, given as an argument; one of
+# zero or less is refused with `setting_invalid`. The engine of the case
+# never answers `hello`: the Scripted engine in TypeScript and Python, a
+# scripted peer at the Rust client, whose linked engine always answers.
+[[capability.case]]
+id = "connect-timeout-three-states"
+covers = ["story:11-41", "story:11-42"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# Cancellation (ADR 0080; issue 3074): a TypeScript signal's abort, a Python
+# task's cancellation, Ctrl+C's KeyboardInterrupt in the sync API, and a
+# dropped Rust future each send `$/cancel` naming the call, and the Scripted
+# engine's work ends; the call fails with the program's own cancellation,
+# `signal.reason` or `CancelledError`, never `call_cancelled`. With a signal
+# and a timeout both set the first ends the call, and a timeout the client's
+# own timer enforces, Rust's, sends `$/cancel` too. A click already sent is
+# not undone (ADRs 0080 and 0081): nothing is sent again or in its stead,
+# and the next call goes as usual. Attached in TypeScript and Python, three
+# ways in Python, and against the Scripted engine's Daemon in Rust: Rust's
+# linked mode runs the crate's own engine in process, which plays no script.
+[[capability.case]]
+id = "cancellation-reaches-the-engine"
+covers = ["story:11-47"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 [[capability]]
 name = "catalog-mapping"
@@ -168,12 +499,23 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python SDK's Run has no
-# Key-value store yet, so `sdk-python` joins these cases with the ticket that
-# adds it; `xtask clients check` only notes `sdk-rust` until its runner
-# writes a case log (M2).
+# and Rust it fails with `value_invalid`. The Python SDK's Run has only
+# `keys` yet, so `sdk-python` joins these cases with the ticket that adds the
+# rest; `xtask clients check` only notes `sdk-rust` until its runner writes a
+# case log (M2).
 [[capability]]
 name = "key-value-store"
+
+# A sequence read to its end is an iterator (ADR 0081; issue 2973): `keys`
+# read with `async for` on asyncio and Trio and with `for` in the sync API.
+# Leaving the loop, `close()` and `aclose()` cancel its call before the Run's
+# next call, which is answered. Python's sequence is the Key-value store's
+# keys, the first it reads, until events-by-meaning have one.
+[[capability.case]]
+id = "a-sequence-is-an-iterator-that-stops-on-break-and-close"
+covers = ["story:11-61", "story:11-62", "operation:key_value_store.keys"]
+surfaces = ["sdk-python"]
+modes = ["attached"]
 
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
@@ -203,37 +545,109 @@ modes = ["attached", "linked"]
 
 # Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
 # typed Limits, a price as an exact `Money`, which only lower. TypeScript
-# implements them first; Python (#2834) and Rust (#2835) join by adding
-# their surface.
+# implements them first; Rust (issue 2835) joins in `linked`, the one mode of
+# both lists, and Python (#2834) by adding its surface. Rust's `daemon` mode
+# joins with the TypeScript and Python Daemon transport, which takes their
+# `modes` line away; so does `limit-reached-stops-the-run` for Rust, whose
+# Run stops only on a Limit charged mid-run, which a linked engine without a
+# browser never charges: the client crate plays its script as a Daemon.
 [[capability]]
 name = "limits"
 
 [[capability.case]]
 id = "limits-sent-in-millionths"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "money-inexact-refused-before-sending"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-limit-refused-closes"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limits-lowered-never-raised"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limit-reached-stops-the-run"
 covers = ["story:11-52"]
+surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+
+# Typed data (ADR 0082): a value typed by a schema in the language's own
+# types, or a hand-written JSON Schema, round-trips through the Key-value
+# store; results keep unknown fields; a value that is not JSON is refused
+# before sending. Python and Rust join the Key-value cases with their
+# Key-value surface (#1284).
+[[capability]]
+name = "typed-data"
+
+[[capability.case]]
+id = "typed-value-round-trip"
+covers = ["story:11-66", "story:11-69"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
+
+[[capability.case]]
+id = "result-keeps-unknown-fields"
+covers = ["story:11-68"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+[[capability.case]]
+id = "non-json-value-refused"
+covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# The host's logger (ADR 0078; issue 1269): the level of the engine's logs a
+# Connection receives follows what the program's logger records, sent in
+# `hello` and again by `connection.set_log_level` when a Run starts and the
+# level changed, never by polling; and each `$/log` event reaches the logger
+# at its level. TypeScript leads; Python (issue 2903) and Rust (issue 2904)
+# join by adding their surfaces. Rust also plays both cases' scripts as a
+# Daemon's client (`goodfetch-collie-client`'s `logging` tests): Rust's
+# `daemon` mode, which the cases list for `sdk-rust` alone while their other
+# surfaces run `attached` only. In `linked` mode the engine's own events
+# reach the program's subscriber directly, under their own targets, and none
+# is re-emitted.
+[[capability]]
+name = "logging"
+
+[[capability.case]]
+id = "log-level-follows-the-logger"
+covers = ["story:11-26"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
+
+[[capability.case]]
+id = "engine-logs-reach-the-logger"
+covers = ["story:11-25"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
+
+# The program's Trace context (ADR 0132; issue 1558): a call made inside the
+# program's active span sends that span's `traceparent`, and its
+# `tracestate` when set, in `_meta`, never Baggage, and a call made outside
+# any span sends no `_meta`; against the Scripted engine. Rust leads, behind
+# its `opentelemetry` feature, played as a Daemon's client: its `daemon`
+# mode. TypeScript, Python (asyncio, Trio and the sync API) and Rust's
+# `linked` mode join with issue 1558's follow-up.
+[[capability]]
+name = "trace-context"
+
+[[capability.case]]
+id = "trace-context"
+covers = ["story:11-138"]
+surfaces = ["sdk-rust"]
+modes = ["daemon"]

@@ -20,6 +20,7 @@ use bytes::Bytes;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_encoding::Kind;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_limits::Limits;
@@ -28,7 +29,7 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::charset::{Kind, Read, Source, Text};
+use crate::charset::{Read, Source, Text};
 use crate::content_types::Accepts;
 use crate::driver::{
     Body, FetchBounds, Hop, OwnDocument, Reuse, Sending, Sent, Transport, fetch, fetch_accepting,

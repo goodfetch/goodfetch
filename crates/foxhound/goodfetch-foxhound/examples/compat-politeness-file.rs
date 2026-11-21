@@ -9,15 +9,17 @@
 //! the backoff ended, its second page meeting a 503 that backs it off again
 //! (the backoff's last wait kept), each start taking a token of its rate of
 //! 30 requests a minute; then a crawl of `hold.test` with one request in flight
-//! at a time leaves its first request unanswered, so its second waits for a
-//! wake. A Collie Run's navigation through a proxy then has met the proxy's
+//! at a time, at `politeness.delegation: false`, leaves its first request
+//! unanswered, so its Permit stays in the file and its second waits for a
+//! wake, and a crawl of `lend.test` alike, at the default, holds that key's
+//! Delegation (ADR 0142). A Collie Run's navigation through a proxy then has met the proxy's
 //! own 429, which halved that proxy's learned ceiling under its key. The
 //! crawls' shared robots.txt copy then keeps `shop.test`'s file, whose
 //! Crawl-delay is kept for its domain key, beside a response's latency, a
 //! rated send's token of the key's sends and its last send, and
 //! `hold.test`'s 404 read as no rules, and a later 500 for `shop.test`
-//! leaves its file in place. A copy of the file taken then, its Run folder and wake endpoint
-//! written relative to the home, goes as SQL text into the folder given as
+//! leaves its file in place. A copy of the file taken then, its Run folders and wake
+//! endpoints written relative to the home, goes as SQL text into the folder given as
 //! the only argument: `politeness-file.sql`. `xtask compat write` runs it.
 #![expect(
     clippy::disallowed_methods,
@@ -66,11 +68,11 @@ fn call(id: i64, method: &str, params: &Value) -> Value {
 
 /// The handler's answer to one handler request: a 429 for `shop.test`'s
 /// first page, a 503 for its second, Records for every other, and none for
-/// `hold.test`'s first, which stays in flight.
+/// `hold.test`'s first and `lend.test`'s, which stay in flight.
 fn handle(request: &Value) -> Option<Value> {
     let id = &request["id"];
     match request["params"]["crawl_request"]["url"].as_str() {
-        Some("https://hold.test/1") => None,
+        Some("https://hold.test/1" | "https://lend.test/1") => None,
         Some("https://shop.test/1") => Some(json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -247,14 +249,17 @@ fn copy_of(home: &Path, copy: &Path) -> Result<(), Box<dyn std::error::Error>> {
         [&prefix],
     )?;
     copy.execute("UPDATE waiters SET endpoint = 'wake.sock'", [])?;
+    copy.execute(
+        "UPDATE delegations SET run_folder = replace(run_folder, ?1, ''), endpoint = 'wake.sock'",
+        [&prefix],
+    )?;
     Ok(())
 }
 
 /// The `crawl.start` params of the Run `run_id`: two pages of `host`, on the
-/// site served from memory, under the `politeness.domain` settings
-/// `domain`.
-fn crawl(run_id: &str, host: &str, domain: &Value) -> Value {
-    let (fetch, network) = site::settings(&["shop.test", "hold.test"]);
+/// site served from memory, under the `politeness` settings `politeness`.
+fn crawl(run_id: &str, host: &str, politeness: &Value) -> Value {
+    let (fetch, network) = site::settings(&["shop.test", "hold.test", "lend.test"]);
     json!({
         "run_id": run_id,
         "seeds": [
@@ -265,7 +270,7 @@ fn crawl(run_id: &str, host: &str, domain: &Value) -> Value {
         "settings": {
             "fetch": fetch,
             "network": network,
-            "politeness": { "domain": domain },
+            "politeness": politeness,
         },
     })
 }
@@ -297,52 +302,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let client = async {
             let (reader, mut writer) = dialer.connect().await?.split();
             let mut messages = BufReader::new(reader).lines();
-            exchange(
-                &mut writer,
-                &mut messages,
-                &call(0, "hello", &hello_params()),
-            )
-            .await?;
-            exchange(
-                &mut writer,
-                &mut messages,
-                &call(
+            let opening = [
+                call(0, "hello", &hello_params()),
+                call(
                     1,
                     "crawl.start",
                     &crawl(
                         "throttled",
                         "shop.test",
-                        &json!({ "concurrency": 2, "delay": 1_000, "rate": 30 }),
+                        &json!({ "domain": { "concurrency": 2, "delay": 1_000, "rate": 30 } }),
                     ),
                 ),
-            )
-            .await?;
-            exchange(
-                &mut writer,
-                &mut messages,
-                &call(2, "run.finish", &json!({ "run_id": "throttled" })),
-            )
-            .await?;
-            exchange(
-                &mut writer,
-                &mut messages,
-                &call(
+                call(2, "run.finish", &json!({ "run_id": "throttled" })),
+                call(
                     3,
                     "crawl.start",
-                    &crawl("holding", "hold.test", &json!({ "concurrency": 1 })),
+                    &crawl(
+                        "holding",
+                        "hold.test",
+                        &json!({ "delegation": false, "domain": { "concurrency": 1 } }),
+                    ),
                 ),
-            )
-            .await?;
+                call(
+                    4,
+                    "crawl.start",
+                    &crawl(
+                        "lending",
+                        "lend.test",
+                        &json!({ "domain": { "concurrency": 1 } }),
+                    ),
+                ),
+            ];
+            for message in &opening {
+                exchange(&mut writer, &mut messages, message).await?;
+            }
             tokio::time::sleep(Duration::from_secs(1)).await;
             proxy_refusal(home.path())?;
             robots_txt_copies(home.path()).await?;
             copy_of(home.path(), &copy)?;
-            exchange(
-                &mut writer,
-                &mut messages,
-                &call(4, "run.abort", &json!({ "run_id": "holding" })),
-            )
-            .await?;
+            for (id, run_id) in [(5, "holding"), (6, "lending")] {
+                let abort = call(id, "run.abort", &json!({ "run_id": run_id }));
+                exchange(&mut writer, &mut messages, &abort).await?;
+            }
             writer.shutdown().await?;
             while messages.next_line().await?.is_some() {}
             Ok::<_, Box<dyn std::error::Error>>(())

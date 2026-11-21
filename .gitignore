@@ -19,6 +19,11 @@ target/
 # The folders test support's own tests copy a runner's configuration into
 # (test-support/typescript/tests/runner-project.ts)
 .runner-projects/
+# mutmut's copy of a Python SDK package, mutated in place of its sources
+# (`just mutants-sdks python`)
+/sdks/python/*/mutants/
+# StrykerJS's Vitest setup files, left by a run that stops (`just mutants-sdks`)
+/stryker-setup-*.js
 __pycache__/
 .venv/
 .pytest_cache/

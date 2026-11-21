@@ -159,7 +159,7 @@
       "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -352,7 +352,7 @@
       "description": "What `audit.export` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -412,7 +412,7 @@
       "description": "What `audit.verify` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -585,7 +585,7 @@
       "description": "What `certs.accept` takes: the host, and the changed key the person\naccepts, as `certs.list` shows it.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "host": {
@@ -610,7 +610,7 @@
       "description": "What `certs.forget` takes: the host.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "host": {
@@ -649,7 +649,7 @@
       "description": "What `certs.list` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -733,7 +733,7 @@
       "description": "What `locator.click` takes: the locator whose element it clicks.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -798,7 +798,7 @@
       "description": "What `config.explain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "keys": {
@@ -840,6 +840,14 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration to explain with."
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run ID of a live Run to explain, with the settings it opened\nwith; none explains the Connection's own, the run values given set\nover them (ADR 0083). One that is no Run ID fails with\n`run_id_invalid`, and one given with `settings`, `origin`,\n`project` or `missing_project` with `invalid_params`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "settings": {
           "additionalProperties": true,
@@ -1120,7 +1128,7 @@
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -1247,7 +1255,7 @@
       "description": "What `dialog.accept` takes: the dialog, and a prompt's text.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog_id": {
@@ -1278,7 +1286,7 @@
       "description": "What `dialog.dismiss` takes: the dialog.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog_id": {
@@ -1296,7 +1304,7 @@
       "description": "What `dialog.handle` gives the handler: the dialog, named by the ID its\nanswer passes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "dialog": {
@@ -1412,7 +1420,7 @@
       "description": "What `download.save_as` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "download_id": {
@@ -1490,7 +1498,7 @@
       "description": "What `effect.close` takes: the entry `effect.open` answered and how its\nbody ended.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "entry": {
@@ -1591,7 +1599,7 @@
       "description": "What `effect.open` takes: the Run, the Effect key and whether its body\nis safe to run again.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -1866,7 +1874,7 @@
       "description": "What `engine.info` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -1916,7 +1924,7 @@
       "description": "What `page.evaluate` takes: the page, the function's source, its\nargument and its world.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -1967,7 +1975,7 @@
       "description": "What `events.subscribe` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -2344,7 +2352,7 @@
       "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -2369,7 +2377,7 @@
       "description": "What `page.formats` takes: the page, and the formats it asks for.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "formats": {
@@ -2509,7 +2517,7 @@
       "description": "What `page.goto` takes: the page, the URL it goes to, and when it\nanswers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -2800,7 +2808,7 @@
       "description": "What `key_value_store.get` and `key_value_store.delete` take: the Run\nand the key.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -2853,7 +2861,7 @@
       "description": "What `key_value_store.keys` takes: the Run, and the prefix every key it\nsends starts with.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "prefix": {
@@ -2884,7 +2892,7 @@
       "description": "What `key_value_store.set_bytes` takes: the Run, the key, and the bytes\nwith their content type.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -2933,7 +2941,7 @@
       "description": "What `key_value_store.set` takes: the Run, the key and its value.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "attempt": {
@@ -3394,7 +3402,7 @@
       "description": "What `locator.evaluate_all` takes: the locator, the function's source,\nits argument and its world.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -3435,7 +3443,7 @@
       "description": "What `locator.wait_for_function` takes: the locator, the function's\nsource, its argument, its world, and how often it is checked.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -3497,7 +3505,7 @@
       "description": "What `locator.wait_for` takes: the locator and the state of its element.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "locator": {
@@ -4128,7 +4136,7 @@
       "description": "What `needs_you.allow_consent_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -4196,7 +4204,7 @@
       "description": "What `needs_you.deny_wall_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -4221,7 +4229,7 @@
       "description": "What `needs_you.dismiss` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "item": {
@@ -4346,7 +4354,7 @@
       "description": "What `needs_you.list` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -4391,7 +4399,7 @@
       "description": "What `needs_you.remove_refetch_domain` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "domain": {
@@ -4421,7 +4429,7 @@
       "description": "What `run.new_page` takes: the Run whose default Session opens the page,\nand the page's own settings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -4446,7 +4454,7 @@
       "description": "What `session.new_page` takes: the Session, and the page's own\nsettings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -4471,7 +4479,7 @@
       "description": "What `run.new_session` takes: the Run whose Session it opens, the\nSession's own source and its own settings.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -4641,7 +4649,7 @@
       "description": "What `page.body` takes: the body to read.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "body": {
@@ -4683,7 +4691,7 @@
       "description": "What `page.close` takes: the page, and whether its `beforeunload`\nhandlers run.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -4942,7 +4950,7 @@
       "description": "What `page.on_dialog` takes: the page whose dialogs its handler\nanswers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -4965,7 +4973,7 @@
       "description": "What `page.on` takes: the page and the event listened to.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "event": {
@@ -5010,7 +5018,7 @@
       "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -5073,7 +5081,7 @@
       "description": "What `page.read` takes: the page and its named fields.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "fields": {
@@ -5191,7 +5199,7 @@
       "description": "What `page.request` takes: the page whose Session sends the request, and\nthe request.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "headers": {
@@ -5311,7 +5319,7 @@
       "description": "What `page.route` takes: the page, and the URLs whose requests its\nhandler answers.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -5617,7 +5625,7 @@
       "description": "What `config.policy_read` takes: nothing.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -5648,7 +5656,7 @@
       "description": "What `config.policy_write` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "changes": {
@@ -5724,7 +5732,7 @@
       "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "key": {
@@ -6101,6 +6109,34 @@
       ],
       "description": "A request's id, which its reply carries back."
     },
+    "RequestMeta": {
+      "additionalProperties": false,
+      "description": "What a request's `_meta` holds (ADR 0132), which its runtime writes and\nnever a program: its Trace context, with no Baggage, and the raw mark of\na call a program made through the raw `call` (ADR 0099). A closed\nobject: the engine refuses any other key. The schema checks only that\neach Trace context field is a string: a receiver drops a value it cannot\nuse, and never fails the call for it.",
+      "properties": {
+        "raw": {
+          "arrived_in": "0.1",
+          "description": "Whether the program sent the call through the raw `call`, the way\ndown to an operation its SDK does not generate (ADR 0099): an SDK\nsets it on that call alone, and refuses a `_meta` the program writes\ninto its params, so a program neither forges nor removes it. The\nengine validates and enforces a raw call as any other.",
+          "type": "boolean"
+        },
+        "traceparent": {
+          "arrived_in": "0.1",
+          "description": "The caller's span, as W3C Trace Context's `traceparent` header\nholds it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracestate": {
+          "arrived_in": "0.1",
+          "description": "Its vendors' values, as W3C Trace Context's `tracestate` header\nholds them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Resource": {
       "description": "A resource the governor can run out of (ADR 0122).",
       "oneOf": [
@@ -6121,7 +6157,7 @@
       "description": "What `response.body` takes: the page, the request whose response's\nbody it reads, and how long it waits for that request to end.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -6183,7 +6219,7 @@
       "description": "What `route.abort` takes: the request, and the error its page sees.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "error_code": {
@@ -6260,7 +6296,7 @@
       "description": "What `route.fulfill` takes: the request, and the response the program\nanswers it with; nothing reaches the network.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "body": {
@@ -6316,7 +6352,7 @@
       "description": "What `route.handle` gives the handler: the request, named by the ID its\nanswer passes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "id": {
@@ -6367,7 +6403,7 @@
       "description": "What `route.continue`, `route.fallback` and `route.fetch` take: the\nrequest, and what to send instead of what it carries. Each override\nreplaces its part whole; a header value may hold a Secret placeholder\n(ADR 0092).",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "headers": {
@@ -6494,7 +6530,7 @@
       "description": "What `run.abort` takes: the Run, and whether the abort was forwarded.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "forwarded": {
@@ -6582,7 +6618,7 @@
       "description": "What `run.checkpoint` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "location": {
@@ -6645,7 +6681,7 @@
       "description": "What `run.finish` takes: the Run, and how long the call waits for its\nend.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -6698,6 +6734,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "kind": {
@@ -6858,7 +6895,7 @@
       "description": "What `run.list` takes: which rows of the Run index it answers, each\nfield given narrowing them, and in which order.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "completeness": {
@@ -7053,6 +7090,11 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        },
+        {
+          "const": "registered",
+          "description": "A program's only SDK handler of a kind that one setting chooses,\nregistered on its connection: the lowest of the run layer's origins,\nwhich every other replaces and configuration does not. A lock wins\nover it with no refusal, since the program never wrote the key (ADR\n0104's amendment of ADR 0083).",
+          "type": "string"
         }
       ]
     },
@@ -7089,10 +7131,10 @@
     },
     "RunParams": {
       "additionalProperties": false,
-      "description": "What `run.usage`, `run.pause` and `run.migrate` take: the Run.",
+      "description": "What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:\nthe Run.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -7223,7 +7265,7 @@
       "description": "What `run.progress` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "after": {
@@ -7448,7 +7490,7 @@
       "description": "What `run.resume` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "checkpoint": {
@@ -7493,7 +7535,7 @@
       "description": "What `run.set_progress_message` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "message": {
@@ -7578,7 +7620,7 @@
       "description": "What `run.start` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "limits": {
@@ -7656,12 +7698,26 @@
       ],
       "type": "object"
     },
+    "RunStartedAs": {
+      "description": "What `run.started_as` answers: how the start that opened the Run's\nhandle reached it.",
+      "properties": {
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "started_as"
+      ],
+      "type": "object"
+    },
     "RunStopParams": {
       "additionalProperties": false,
       "description": "What `run.stop` takes: the Run, and how long the call waits for its\nsafe point.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "run_id": {
@@ -7914,7 +7970,7 @@
       "description": "What `sample.echo` repeats.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "text": {
@@ -7957,7 +8013,7 @@
       "description": "What a sample store keeps.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "key": {
@@ -8038,7 +8094,7 @@
       "description": "What `session.on` takes: the Session and the event listened to.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "event": {
@@ -8094,7 +8150,7 @@
       "description": "What `session.close` takes: the Session.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -8113,7 +8169,7 @@
       "description": "What `session.route` takes: the Session, and the URLs whose requests its\nhandler answers, on every page of the Session.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "session_id": {
@@ -8399,7 +8455,7 @@
       "description": "What `connection.set_log_level` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "log_level": {
@@ -8605,7 +8661,7 @@
       "description": "What `signing_key.create` takes: where the key is kept.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "signing_key": {
@@ -8710,7 +8766,7 @@
       "description": "What `signing_key.directory` takes: the keys it publishes and the\norigin that serves it.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "authority": {
@@ -9033,14 +9089,15 @@
           ],
           "type": "object"
         }
-      ]
+      ],
+      "open": true
     },
     "StoppedBy": {
-      "description": "Who stopped a call (ADR 0113).",
+      "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
       "oneOf": [
         {
           "const": "client",
-          "description": "A Client, such as through `$/cancel`.",
+          "description": "A Client, through `run.abort`.",
           "type": "string"
         },
         {
@@ -9050,7 +9107,7 @@
         },
         {
           "const": "browser",
-          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+          "description": "The browser, outside every Client.",
           "type": "string"
         }
       ]
@@ -9260,29 +9317,6 @@
           ],
           "arrived_in": "0.1",
           "description": "The point it ends before, excluded."
-        }
-      },
-      "type": "object"
-    },
-    "TraceContext": {
-      "additionalProperties": false,
-      "description": "A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`\nand `tracestate`, which its runtime writes and never a program, with no\nBaggage. The schema checks only that each is a string: a receiver drops\na value it cannot use, and never fails the call for it.",
-      "properties": {
-        "traceparent": {
-          "arrived_in": "0.1",
-          "description": "The caller's span, as W3C Trace Context's `traceparent` header\nholds it.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "tracestate": {
-          "arrived_in": "0.1",
-          "description": "Its vendors' values, as W3C Trace Context's `tracestate` header\nholds them.",
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "type": "object"
@@ -9507,7 +9541,7 @@
       "description": "What `usage.list` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         }
       },
@@ -9535,7 +9569,7 @@
       "description": "What `usage.raise` takes: a Limit a person sets, which replaces every\nLimit of its scope, Usage kind, currency and period that is not a\nmanaged Operator policy's, keeping the Usage counted against them.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "amount": {
@@ -9596,7 +9630,7 @@
       "description": "What `usage.set` takes: a Limit of the caller's own, which holds beside\nthe others, so the tightest one holds.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "amount": {
@@ -9694,7 +9728,7 @@
       "description": "What `config.user_write` takes.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "changes": {
@@ -9713,7 +9747,7 @@
     },
     "ValueField": {
       "additionalProperties": false,
-      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator\nladder finds in the page, its locator tried first, then each of its\n`fallbacks` in turn until one finds an element; its text, its runs of\nwhite space read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, with why.",
       "properties": {
         "attribute": {
           "arrived_in": "0.1",
@@ -9722,6 +9756,14 @@
             "string",
             "null"
           ]
+        },
+        "fallbacks": {
+          "arrived_in": "0.1",
+          "description": "Its locator ladder's further rungs: when `locator` finds no\nelement, the first of these, in order, that finds one supplies it;\nin a list, the first that finds any; in rows, the first that finds\none under the row's element. Each is checked as `locator` is when\nthe call or crawl starts.",
+          "items": {
+            "$ref": "#/$defs/FieldLocator"
+          },
+          "type": "array"
         },
         "locator": {
           "$ref": "#/$defs/FieldLocator",
@@ -9772,14 +9814,15 @@
           "description": "Everything else: a person reviews it.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "WaitForCountParams": {
       "additionalProperties": false,
       "description": "What `locator.wait_for_count` takes: the locator and the count its\nmatches must reach.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "count": {
@@ -9815,7 +9858,7 @@
       "description": "What `page.wait_for_request` and `page.wait_for_response` take: the\npage, and the URLs of the requests they wait for; any request when none\nis given.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -9857,7 +9900,7 @@
       "description": "What `page.wait_for_function` takes: the page, the function's source,\nits argument, its world, and how often it is checked.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "arg": {
@@ -9919,7 +9962,7 @@
       "description": "What `page.wait_for_load_state` takes: the page and the state.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -9961,7 +10004,7 @@
       "description": "What `page.wait_for_request_finished` takes: the page, and the URLs of\nthe requests it waits for; any request when none is given.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -10003,7 +10046,7 @@
       "description": "What `page.wait_for_url` takes: the page, the URL it waits for, and the\nstate a new document must reach.",
       "properties": {
         "_meta": {
-          "$ref": "#/$defs/TraceContext",
+          "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
         "page_id": {
@@ -10316,6 +10359,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_host_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
       "exit_code": null,
       "group": "unavailable",
@@ -10376,6 +10429,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Something answered at a `cdp_url` Session source's address, but no browser speaks CDP there: an HTTP status and content type, a WebSocket that refused the upgrade, a CDP target that is not a browser (`page`, `node`, `worker`), or a product the engine does not drive, which `observed` says. The details name the address without its query or credentials, the settings layer that gave it and the fix: give the browser's endpoint, `http://host:port` or `ws://…/devtools/browser/<id>`, and when the same host serves `/json/version`, the browser address found there, which `browser_url` holds.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "cdp_url_not_browser",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A `cdp_url` Session source's address answered 401 or 403 to the HTTP request or the WebSocket upgrade. The details name the address without its query or credentials, the settings layer that gave it, the status, each header name sent with its Secret reference, never its value, and the fix: check the Secret references in `headers`.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "cdp_url_unauthorized",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Nothing answered at a `cdp_url` Session source's address when the call that opens the Session connected to it: its name did not resolve, the connection was refused or reset, or TLS failed. It fails at once, never waiting for the address. The details name the address without its query or credentials, the settings layer that gave it, the failure and the fix: start the browser with remote debugging on that port, or correct the address.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "cdp_url_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.",
       "exit_code": null,
       "group": "refused",
@@ -10396,11 +10479,41 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "challenge_unsolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
       "name": "closed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "confinement_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call was made in another process than the one that opened its Connection, such as a child created by `fork`: a Connection and every Run, Session or Page under it belong to the process that opened them. Connect in the child process.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "connection_forked",
       "product": "collie",
       "retryable": false
     },
@@ -10416,7 +10529,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.",
+      "description": "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -10516,7 +10629,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
+      "description": "The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -10596,6 +10709,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
       "exit_code": null,
       "group": "internal",
@@ -10631,6 +10754,26 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the bound set where the Connection opens, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "listener_events_lost",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listener the program registered with `on` threw, or its awaitable failed, so the SDK removed it. Raised once, by the next call on the value it listened to, which is not sent and leaves the value open, or by the `close()` that closes that value, its own or one above it, after closing it; when the value is released first, the SDK logs it at error instead. Its details name the event, and its cause is the listener's exception: fix the listener and listen again.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "listener_failed",
       "product": "collie",
       "retryable": false
     },
@@ -10711,6 +10854,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "not_in_product",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "not_verified",
       "product": "collie",
       "retryable": false
     },
@@ -10826,6 +10979,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_crashed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
       "exit_code": null,
       "group": "refused",
@@ -10901,6 +11064,16 @@
       "group": "page",
       "json_rpc_class": -32003,
       "name": "response_limit_exceeded",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The response's body is not JSON, or not the JSON the program reads it as: `json()` reads the body as UTF-8 whatever its charset, a leading BOM ignored. The SDK raises it itself, naming the response's URL; the body is the same on every read, so read it with `text()` or `body()` instead.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_not_json",
       "product": "collie",
       "retryable": false
     },
@@ -11186,7 +11359,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The SDK refuses a value that is not JSON before sending it, and a value the call's Standard Schema rejects, sent or read; a JSON Schema written by hand types the value as JSON and checks nothing. The details name the key, say which was refused and, for a value's content, its path as a JSON Pointer.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -11873,6 +12046,8 @@
             "declaration_reads",
             "decodes",
             "deep_copies",
+            "delegation_transactions",
+            "delegations",
             "detection_reads",
             "document_encodes",
             "document_loads",
@@ -11901,6 +12076,7 @@
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "other_transactions",
             "page_learning",
             "page_waits",
             "parses",
@@ -12316,7 +12492,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.",
       "events": [],
       "kind": "round_trip",
       "name": "config.explain",
@@ -13743,6 +13919,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.",
+      "events": [],
+      "kind": "read",
+      "name": "run.started_as",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunStartedAs"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -13784,7 +13979,9 @@
       "cancellable": true,
       "class": "read",
       "deprecated": {
+        "earliest_removal": "1.0",
         "note": "A sample entry, which the real catalog replaces.",
+        "replacement": null,
         "since": "0.1"
       },
       "description": "Repeats a text back to the caller.",
@@ -14017,6 +14214,50 @@
       "stability": "experimental"
     }
   ],
+  "protocol_failures": [
+    {
+      "group": "internal",
+      "json_rpc_code": -32603,
+      "name": "internal_error",
+      "product": "collie"
+    },
+    {
+      "group": "program",
+      "json_rpc_code": -32602,
+      "name": "invalid_params",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "invalid_request",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "message_too_deep",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "message_too_large",
+      "product": "collie"
+    },
+    {
+      "group": "program",
+      "json_rpc_code": -32601,
+      "name": "method_not_found",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32700,
+      "name": "parse_error",
+      "product": "collie"
+    }
+  ],
   "protocol_version": "0.1",
   "settings": [
     {
@@ -14024,12 +14265,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset.",
+      "fixed_for_run": false,
       "name": "admission.max_requests_per_minute",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14042,13 +14289,16 @@
       "authority": "machine",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.otlp",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14059,13 +14309,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 10,
+      "deprecated": null,
       "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.refusals_per_minute",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -14077,13 +14330,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.retention",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14096,12 +14352,19 @@
       "authority": "every",
       "clearable": false,
       "default": "standard",
+      "deprecated": null,
       "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "browser.access_mode",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -14117,12 +14380,19 @@
       "authority": "every",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+      "fixed_for_run": false,
       "name": "browser.block_resources",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -14142,12 +14412,18 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+      "fixed_for_run": false,
       "name": "browser.cdp_command_log",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14159,12 +14435,18 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "fixed_for_run": false,
       "name": "browser.headless",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14176,12 +14458,19 @@
       "authority": "every",
       "clearable": false,
       "default": "allow",
+      "deprecated": null,
       "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+      "fixed_for_run": false,
       "name": "browser.service_workers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -14196,13 +14485,16 @@
       "authority": "machine",
       "clearable": true,
       "default": 2592000000,
+      "deprecated": null,
       "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "browser_cache.max_unused_age",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14215,12 +14507,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.",
+      "fixed_for_run": false,
       "name": "checkpoint.interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -14234,13 +14532,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": "ghcr.io/goodfetch/clean-up-rules",
+      "deprecated": null,
       "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+      "fixed_for_run": false,
       "name": "clean_up.channel",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -14251,12 +14552,18 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
       "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+      "fixed_for_run": false,
       "name": "clean_up.fetch_timeout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -14275,13 +14582,16 @@
         "trackers": "https://easylist.to/easylist/easyprivacy.txt",
         "unbreak": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt"
       },
+      "deprecated": null,
       "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+      "fixed_for_run": false,
       "name": "clean_up.lists",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "type": "string"
@@ -14295,12 +14605,18 @@
       "authority": "every",
       "clearable": false,
       "default": "release",
+      "deprecated": null,
       "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "clean_up.update",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14316,12 +14632,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
+      "fixed_for_run": false,
       "name": "clean_up.version",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "string"
@@ -14330,15 +14652,90 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "connection_alone",
+      "clearable": false,
+      "default": 1024,
+      "deprecated": null,
+      "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+      "fixed_for_run": false,
+      "name": "connection.max_listener_queue",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection"
+      ],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "connection_alone",
+      "clearable": false,
+      "default": 10000,
+      "deprecated": null,
+      "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+      "fixed_for_run": false,
+      "name": "connection.max_pending_calls",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection"
+      ],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "connection_alone",
+      "clearable": false,
+      "default": 67108864,
+      "deprecated": null,
+      "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+      "fixed_for_run": false,
+      "name": "connection.max_queued_write_bytes",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection"
+      ],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "narrowed",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.",
+      "fixed_for_run": false,
       "name": "consent.domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14353,12 +14750,18 @@
       "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": "answer",
+      "deprecated": null,
       "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+      "fixed_for_run": false,
       "name": "consent.handling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14374,12 +14777,18 @@
       "authority": "every",
       "clearable": false,
       "default": "report",
+      "deprecated": null,
       "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
+      "fixed_for_run": false,
       "name": "consent.on_wall",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14394,12 +14803,21 @@
       "authority": "every",
       "clearable": false,
       "default": "dom_smoothie",
+      "deprecated": null,
       "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "fixed_for_run": false,
       "name": "content.extractor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label",
+        "session",
+        "page"
       ],
       "value": {
         "enum": [
@@ -14414,13 +14832,16 @@
       "authority": "machine",
       "clearable": false,
       "default": "127.0.0.1:7600",
+      "deprecated": null,
       "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -14431,13 +14852,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 110000,
+      "deprecated": null,
       "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "fixed_for_run": false,
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14450,13 +14874,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 600000,
+      "deprecated": null,
       "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "daemon.idle_timeout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14469,12 +14896,18 @@
       "authority": "every",
       "clearable": false,
       "default": 65536,
+      "deprecated": null,
       "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+      "fixed_for_run": false,
       "name": "effect.output.max_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14489,12 +14922,18 @@
       "default": [
         "*"
       ],
+      "deprecated": null,
       "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
+      "fixed_for_run": false,
       "name": "egress.allowed_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14509,12 +14948,18 @@
       "authority": "hosts_narrowed_by_recipe_or_model",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
+      "fixed_for_run": false,
       "name": "egress.blocked_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14529,12 +14974,18 @@
       "authority": "not_by_recipe",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
+      "fixed_for_run": false,
       "name": "egress.local_addresses",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -14560,13 +15011,16 @@
       "authority": "operator_policy",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+      "fixed_for_run": false,
       "name": "egress.no_private_endpoints",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14577,12 +15031,18 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "egress.offline",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14594,12 +15054,18 @@
       "authority": "not_by_model_recipe_allowed_by_operator_policy",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+      "fixed_for_run": false,
       "name": "egress.private_ranges",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14615,13 +15081,16 @@
       "authority": "operator_policy",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
+      "fixed_for_run": false,
       "name": "egress.recipe_private_ranges",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14632,12 +15101,18 @@
       "authority": "every",
       "clearable": false,
       "default": 24,
+      "deprecated": null,
       "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+      "fixed_for_run": false,
       "name": "egress.rotation_block.ipv4",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 32,
@@ -14651,12 +15126,18 @@
       "authority": "every",
       "clearable": false,
       "default": 64,
+      "deprecated": null,
       "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+      "fixed_for_run": false,
       "name": "egress.rotation_block.ipv6",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 128,
@@ -14670,12 +15151,18 @@
       "authority": "every",
       "clearable": false,
       "default": "retry",
+      "deprecated": null,
       "description": "How many times the main-content step may try a page. `retry` (the default) tries up to four times while it finds under 500 characters, keeping the best. `single_attempt` tries once, which is faster and may keep less text on short pages. The trafilatura Extractor always tries once.",
+      "fixed_for_run": false,
       "name": "extraction.readability",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14690,12 +15177,18 @@
       "authority": "every",
       "clearable": false,
       "default": "estimate",
+      "deprecated": null,
       "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+      "fixed_for_run": false,
       "name": "extraction.removal_share",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14710,12 +15203,19 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "fixed_for_run": false,
       "name": "filter_lists.ads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14727,12 +15227,19 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+      "fixed_for_run": false,
       "name": "filter_lists.annoyances",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14744,12 +15251,18 @@
       "authority": "every",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+      "fixed_for_run": false,
       "name": "filter_lists.extra",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14764,12 +15277,19 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+      "fixed_for_run": false,
       "name": "filter_lists.first_party_scripts",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14781,12 +15301,18 @@
       "authority": "every",
       "clearable": false,
       "default": 1024,
+      "deprecated": null,
       "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+      "fixed_for_run": false,
       "name": "filter_lists.host_cache",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14799,12 +15325,18 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+      "fixed_for_run": false,
       "name": "filter_lists.page_scriptlets",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14816,12 +15348,19 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "fixed_for_run": false,
       "name": "filter_lists.trackers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14833,13 +15372,16 @@
       "authority": "machine",
       "clearable": false,
       "default": "per_core",
+      "deprecated": null,
       "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+      "fixed_for_run": false,
       "name": "governor.blocking_threads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "oneOf": [
           {
@@ -14860,12 +15402,18 @@
       "authority": "every",
       "clearable": false,
       "default": 8,
+      "deprecated": null,
       "description": "How many of a Run's Sessions share one browser process, each in a browser context of its own: 8. The Run's next Session past it gets a process of its own; Sessions of different Runs never share one.",
+      "fixed_for_run": false,
       "name": "governor.browser.contexts_per_process",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14878,12 +15426,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page.",
+      "fixed_for_run": false,
       "name": "governor.browser.memory_cap",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14896,12 +15450,18 @@
       "authority": "every",
       "clearable": false,
       "default": 1073741824,
+      "deprecated": null,
       "description": "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+      "fixed_for_run": false,
       "name": "governor.browser.page_memory_cap",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14914,12 +15474,18 @@
       "authority": "every",
       "clearable": false,
       "default": 300000,
+      "deprecated": null,
       "description": "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",
+      "fixed_for_run": false,
       "name": "governor.browser.recycle_idle",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -14933,12 +15499,18 @@
       "authority": "every",
       "clearable": false,
       "default": 100,
+      "deprecated": null,
       "description": "How many pages a browser opens before it is recycled: 100. Recycled, it opens no new page, closes once its pages are done and is replaced, each of its Sessions keeping its cookies and storage.",
+      "fixed_for_run": false,
       "name": "governor.browser.recycle_pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14951,13 +15523,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 32,
+      "deprecated": null,
       "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+      "fixed_for_run": false,
       "name": "governor.browser_page.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -14969,13 +15544,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 1,
+      "deprecated": null,
       "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.browser_page.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -14987,13 +15565,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 95,
+      "deprecated": null,
       "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+      "fixed_for_run": false,
       "name": "governor.critical",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15005,13 +15586,16 @@
       "authority": "machine",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether the engine's Resource governor also judges the host's own memory, its memory in use against `governor.pressure` and `governor.critical` and the operating system's memory-pressure signal, and treats its pressure as the engine's: on. Off, the engine's own memory against its Memory allowance alone sets the level, as on a host whose other workloads are not the engine's to answer for.",
+      "fixed_for_run": false,
       "name": "governor.host_memory",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -15022,13 +15606,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 200,
+      "deprecated": null,
       "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+      "fixed_for_run": false,
       "name": "governor.http.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15040,13 +15627,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 1,
+      "deprecated": null,
       "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.http.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15058,13 +15648,16 @@
       "authority": "machine",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
+      "fixed_for_run": false,
       "name": "governor.huge_pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -15075,13 +15668,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 60000,
+      "deprecated": null,
       "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+      "fixed_for_run": false,
       "name": "governor.last_resort_after",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -15094,13 +15690,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Each sample reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest.",
+      "fixed_for_run": false,
       "name": "governor.memory_allowance",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15112,13 +15711,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 16,
+      "deprecated": null,
       "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+      "fixed_for_run": false,
       "name": "governor.model_call.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15130,13 +15732,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 1,
+      "deprecated": null,
       "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.model_call.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15148,13 +15753,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 85,
+      "deprecated": null,
       "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+      "fixed_for_run": false,
       "name": "governor.pressure",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15166,12 +15774,18 @@
       "authority": "every",
       "clearable": false,
       "default": 100,
+      "deprecated": null,
       "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+      "fixed_for_run": false,
       "name": "governor.run_share",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15184,13 +15798,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 1000,
+      "deprecated": null,
       "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+      "fixed_for_run": false,
       "name": "governor.sample_interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -15203,13 +15820,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 2,
+      "deprecated": null,
       "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+      "fixed_for_run": false,
       "name": "governor.worker_threads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "oneOf": [
           {
@@ -15230,12 +15850,19 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "identified.signature_agent",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
@@ -15250,12 +15877,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "identified.signing_key",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
@@ -15269,12 +15903,19 @@
       "authority": "every",
       "clearable": false,
       "default": "auto",
+      "deprecated": null,
       "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+      "fixed_for_run": false,
       "name": "live_view.hiding",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -15290,13 +15931,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 5,
+      "deprecated": null,
       "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.file.max_files",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15308,13 +15952,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 10485760,
+      "deprecated": null,
       "description": "The size, in bytes, at which an engine process's log file rotates where `log.output` is `file`: 10 MiB. A file holds at most this much and one line more. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.file.max_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15326,13 +15973,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.format",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "text",
@@ -15346,13 +15996,16 @@
       "authority": "machine",
       "clearable": false,
       "default": "info",
+      "deprecated": null,
       "description": "Which of its logs an engine process writes: `info`, the default, which logs state changes only (a Run started, resumed or stopped, a domain backing off, a storage level changing, a Daemon draining) and never one line per request, or any `tracing` filter directive, such as `warn` or `info,goodfetch::rpc=debug`. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.level",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15363,13 +16016,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "Where an engine process writes its logs beside stderr: `stdout`, JSON lines for the platform to collect and rotate, `file`, JSON lines in its own files of the Goodfetch home's log folder, rotated at `log.file.max_size` and kept to `log.file.max_files`, or `none`. Unset, it is `stdout` under `daemon run`, `file` for every other Daemon and `none` for an Attached engine, whose logs go to its Client as log events; `stdout` on an Attached engine, whose stdout is its protocol, fails with `setting_not_applicable`. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.output",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "stdout",
@@ -15384,12 +16040,18 @@
       "authority": "every",
       "clearable": false,
       "default": 67108864,
+      "deprecated": null,
       "description": "The most decoded bytes of one body the engine itself reads: a page `request`'s response, a kept response, an Operator-configured endpoint's reply. Never a download, which the disk governor bounds. 64 MiB (67108864) by default; set for a connection or a Run. A longer body fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_body_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15402,12 +16064,18 @@
       "authority": "every",
       "clearable": false,
       "default": 100,
+      "deprecated": null,
       "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_decompression_ratio",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15420,13 +16088,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 65536,
+      "deprecated": null,
       "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "network.max_hello_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "maximum": 16777216,
         "minimum": 0,
@@ -15439,12 +16110,18 @@
       "authority": "every",
       "clearable": false,
       "default": 128,
+      "deprecated": null,
       "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_json_depth",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 1024,
@@ -15458,12 +16135,18 @@
       "authority": "every",
       "clearable": false,
       "default": {},
+      "deprecated": null,
       "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "network.resolve",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -15482,13 +16165,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
+      "fixed_for_run": false,
       "name": "ops.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15499,13 +16185,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start.",
+      "fixed_for_run": false,
       "name": "ops.attached_address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15516,13 +16205,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "otlp.logs_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15533,13 +16225,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043).",
+      "fixed_for_run": false,
       "name": "otlp.metrics_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15550,13 +16245,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "otlp.traces_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15565,14 +16263,43 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+      "fixed_for_run": false,
+      "name": "politeness.delegation",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
+      "fixed_for_run": false,
       "name": "politeness.proxy.concurrency",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15585,12 +16312,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
+      "fixed_for_run": false,
       "name": "politeness.proxy.rate",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15603,12 +16336,18 @@
       "authority": "every",
       "clearable": false,
       "default": "shared",
+      "deprecated": null,
       "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "fixed_for_run": false,
       "name": "politeness.sharing",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -15624,12 +16363,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The hosts the Session reaches without its proxy, as Playwright's `bypass`: a comma-separated list such as `.example.com, chromium.org`, a leading dot naming a domain's subdomains. None by default: every request goes through `proxy.server`. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.bypass",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15641,12 +16387,19 @@
       "authority": "not_by_recipe",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The country, an ISO 3166-1 alpha-2 code such as `US`, a Session's proxy exit is in. None by default: any country the provider offers. A country the provider does not offer for the Session's proxy kind is refused with `setting_invalid` when the Session opens. A Recipe never sets it (`setting_locked`).",
+      "fixed_for_run": false,
       "name": "proxy.country",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "An ISO 3166-1 alpha-2 country code, such as `US`.",
@@ -15660,12 +16413,19 @@
       "authority": "not_by_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays.",
+      "fixed_for_run": false,
       "name": "proxy.kind",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -15682,12 +16442,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The Secret reference of the password the Session gives `proxy.server` with `proxy.username`, such as `env:PROXY_PASSWORD`: never a value, resolved when the Session opens and never written to a log, a trace, a process's arguments or a file. None by default. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.password",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
@@ -15701,12 +16468,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+      "fixed_for_run": false,
       "name": "proxy.provider",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15718,13 +16492,16 @@
       "authority": "configuration_project_limited",
       "clearable": false,
       "default": {},
+      "deprecated": null,
       "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
+      "fixed_for_run": false,
       "name": "proxy.providers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "additionalProperties": false,
@@ -15805,12 +16582,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The proxy every request of the Session goes through, as Playwright's `server`: an `http://`, `https://`, `socks5://` or `socks5h://` URL with a host and a port, such as `http://proxy.example:3128`. None by default: the machine's own address. Set on a Run, every Session of it takes it; set in `run.new_session`'s `settings`, that Session alone; a page or a request has no proxy of its own, so the address a site sees never changes under the same cookies. A URL carrying credentials and `socks4` are refused with `setting_invalid`: give the credentials as `proxy.username` and `proxy.password`. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`, since whoever sets it receives `proxy.password`. On Chromium, a SOCKS5 proxy's credentials go through a loopback relay the engine opens for the Session.",
+      "fixed_for_run": false,
       "name": "proxy.server",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A proxy URL, `http://`, `https://`, `socks5://` or `socks5h://`, with a host and an optional port and never credentials, such as `http://proxy.example:3128`.",
@@ -15824,12 +16608,19 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How long, in milliseconds, a Session asks its provider to keep its proxy exit: the provider's longest when unset. A Session that outlives it is named by the Run report's `proxy_exit_may_change` warning; the engine never looks the exit up. A `list` server's exit never changes.",
+      "fixed_for_run": false,
       "name": "proxy.sticky_lifetime",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15843,12 +16634,19 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The username the Session gives `proxy.server`, as Playwright's `username`. None by default. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.username",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15860,12 +16658,18 @@
       "authority": "every",
       "clearable": false,
       "default": 250,
+      "deprecated": null,
       "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+      "fixed_for_run": false,
       "name": "resolver.attempt_delay",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15879,12 +16683,18 @@
       "authority": "every",
       "clearable": false,
       "default": 50,
+      "deprecated": null,
       "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+      "fixed_for_run": false,
       "name": "resolver.resolution_delay",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15898,39 +16708,18 @@
       "authority": "every",
       "clearable": false,
       "default": 8388608,
+      "deprecated": null,
       "description": "Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.",
+      "fixed_for_run": false,
       "name": "run_state.batch.bytes",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
-      "value": {
-        "oneOf": [
-          {
-            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
-            "minimum": 1,
-            "type": "integer"
-          },
-          {
-            "const": "none",
-            "description": "No batch is sealed by this threshold."
-          }
-        ]
-      },
-      "weakens": true
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "every",
-      "clearable": false,
-      "default": 1000,
-      "description": "Write the Run's changes at least this often. A crash loses at most about this much work.",
-      "name": "run_state.batch.interval",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -15952,12 +16741,51 @@
       "authority": "every",
       "clearable": false,
       "default": 1000,
+      "deprecated": null,
+      "description": "Write the Run's changes at least this often. A crash loses at most about this much work.",
+      "fixed_for_run": false,
+      "name": "run_state.batch.interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "deprecated": null,
       "description": "Write the Run's changes once this many attempts have ended since the last batch. Lower loses less to a crash and writes more often.",
+      "fixed_for_run": false,
       "name": "run_state.batch.pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -15979,12 +16807,18 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Write each attempt's claim before its fetch and its outcome before anything is told outside, as its own batch. Slowest, and a crash then loses only the attempts in flight.",
+      "fixed_for_run": false,
       "name": "run_state.batch.per_attempt",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -15996,12 +16830,18 @@
       "authority": "every",
       "clearable": false,
       "default": "each",
+      "deprecated": null,
       "description": "Which batches reach the disk before the next one starts. `each` survives a power cut; `interval` syncs one batch per `run_state.commit_interval`; `never` survives a process crash only; `off` syncs nothing, so a crash discards the run file and the Run starts again.",
+      "fixed_for_run": false,
       "name": "run_state.batch.sync",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -16018,12 +16858,18 @@
       "authority": "every",
       "clearable": false,
       "default": 5000,
+      "deprecated": null,
       "description": "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
+      "fixed_for_run": false,
       "name": "run_state.commit_interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -16037,12 +16883,18 @@
       "authority": "every",
       "clearable": false,
       "default": "batch",
+      "deprecated": null,
       "description": "How a Run's state reaches the disk, its Durability level, each value a preset of `run_state.batch.*` and `run_state.commit_interval`: `batch`, the default, writes the Run's changes in Run-state batches, of 1,000 attempts, 1 s or 8 MiB, whichever comes first, each synced, so a crash or a power cut loses at most the last batch; `full` writes each attempt's claim and outcome as a synced batch of its own (`synchronous=FULL`, with `fullfsync` on macOS), so only the attempts in flight are lost; `fast` is `full` unsynced (`synchronous=NORMAL`): it survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced batch every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` writes as `batch` does and syncs nothing (`synchronous=OFF`), and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. A level unfolds into its preset's keys at the layer that set it: a key set at that layer or a higher one overrides the preset's value, and a lock on the level locks every key of its preset. At every level a clean stop writes and syncs everything, so a paused Run resumes. The run report's `weakened` names `off`, and each preset key whose value weakens the Run.",
+      "fixed_for_run": false,
       "name": "run_state.durability",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -16060,13 +16912,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": "keychain:goodfetch/run-state-key",
+      "deprecated": null,
       "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
+      "fixed_for_run": false,
       "name": "run_state.key_reference",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
@@ -16079,13 +16934,16 @@
       "authority": "machine",
       "clearable": false,
       "default": "per_run",
+      "deprecated": null,
       "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "fixed_for_run": false,
       "name": "run_state.layout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "per_run",
@@ -16099,12 +16957,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+      "fixed_for_run": false,
       "name": "run_state.location",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "string"
@@ -16116,12 +16980,18 @@
       "authority": "every",
       "clearable": false,
       "default": 67108864,
+      "deprecated": null,
       "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+      "fixed_for_run": false,
       "name": "run_state.memory.budget",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -16134,12 +17004,23 @@
       "authority": "every",
       "clearable": false,
       "default": 1,
+      "deprecated": {
+        "earliest_removal": "1.0",
+        "note": "A sample setting, which the real catalog replaces.",
+        "replacement": null,
+        "since": "0.1"
+      },
       "description": "How many times the sample operation repeats a text.",
+      "fixed_for_run": false,
       "name": "sample.echo_repeats",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -16152,13 +17033,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The URL of the Secrets Manager endpoint that answers `aws-sm:` Secret references, such as a VPC endpoint's: unset, the default, the Region's public endpoint, `https://secretsmanager.<region>.amazonaws.com`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.aws_sm.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16169,13 +17053,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16186,13 +17073,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": "https://login.microsoftonline.com",
+      "deprecated": null,
       "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16203,13 +17093,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
+      "deprecated": null,
       "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16220,13 +17113,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.bw.command",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16237,13 +17133,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
+      "deprecated": null,
       "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16254,13 +17153,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The absolute path of the 1Password CLI, `op`, that answers `op://vault/item/field` Secret references: the engine runs `op read` with its own environment, so `OP_SERVICE_ACCOUNT_TOKEN` or the desktop app's integration signs it in. Unset, the default, an `op://` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.op.command",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16271,13 +17173,16 @@
       "authority": "configuration",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The URL of the HashiCorp Vault or OpenBao server that answers `vault:mount/path#field` Secret references, such as `https://vault.example.com:8200`: the engine reads `field` of the KV version 2 secret `path` in the secrets engine mounted at `mount`, with the token in its environment's `VAULT_TOKEN`, or `BAO_TOKEN`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address, as a development server's. Unset, the default, a `vault:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.vault.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16288,13 +17193,16 @@
       "authority": "fixed",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+      "fixed_for_run": false,
       "name": "secrets.by_reference",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -16305,12 +17213,18 @@
       "authority": "every",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+      "fixed_for_run": false,
       "name": "secrets.resolve_each_use",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -16327,12 +17241,18 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+      "fixed_for_run": false,
       "name": "security.audit_chain",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16344,13 +17264,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.browser_sandbox",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -16361,13 +17284,19 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
       "value": {
         "type": "boolean"
       },
@@ -16378,13 +17307,19 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+      "fixed_for_run": false,
       "name": "security.raw_cdp_egress_proxy",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
       "value": {
         "type": "boolean"
       },
@@ -16395,29 +17330,18 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.redaction",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
-      "value": {
-        "type": "boolean"
-      },
-      "weakens": true
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "every",
-      "clearable": false,
-      "default": true,
-      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
-      "name": "security.resolved_ip_check",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16429,12 +17353,41 @@
       "authority": "every",
       "clearable": false,
       "default": true,
+      "deprecated": null,
+      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
+      "name": "security.resolved_ip_check",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
       "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16446,12 +17399,20 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.",
+      "fixed_for_run": false,
       "name": "session.page_check",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label",
+        "session"
       ],
       "value": {
         "additionalProperties": false,
@@ -16695,12 +17656,19 @@
       "authority": "not_by_recipe",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.",
+      "fixed_for_run": false,
       "name": "session.source",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
       ],
       "value": {
         "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
@@ -17085,12 +18053,18 @@
       "authority": "every",
       "clearable": false,
       "default": "search",
+      "deprecated": null,
       "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+      "fixed_for_run": false,
       "name": "site_preferences.purpose",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -17107,12 +18081,18 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+      "fixed_for_run": false,
       "name": "site_preferences.respect_use_signals",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -17124,13 +18104,16 @@
       "authority": "operator_policy_alone",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.allowed_builds",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "items": {
           "type": "string"
@@ -17144,12 +18127,19 @@
       "authority": "every",
       "clearable": false,
       "default": "goodfetch",
+      "deprecated": null,
       "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.chromium_build",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -17165,12 +18155,19 @@
       "authority": "every",
       "clearable": false,
       "default": "none",
+      "deprecated": null,
       "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.fingerprint_method",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -17187,12 +18184,19 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.generated_identity",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -17204,12 +18208,19 @@
       "authority": "every",
       "clearable": false,
       "default": false,
+      "deprecated": null,
       "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.human_input",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -17221,32 +18232,19 @@
       "authority": "every",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.identity.brand",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
-      "value": {
-        "items": {
-          "type": "string"
-        },
-        "type": "array"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "every",
-      "clearable": false,
-      "default": [],
-      "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
-      "name": "stealth.identity.device",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -17261,12 +18259,46 @@
       "authority": "every",
       "clearable": false,
       "default": [],
+      "deprecated": null,
+      "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "stealth.identity.device",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "deprecated": null,
       "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.identity.os",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -17281,13 +18313,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "storage.critical_free",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -17299,13 +18334,16 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "storage.low_free",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -17317,12 +18355,18 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
       "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.action",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17336,12 +18380,18 @@
       "authority": "every",
       "clearable": false,
       "default": 600000,
+      "deprecated": null,
       "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+      "fixed_for_run": false,
       "name": "timeout.agent",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17355,31 +18405,18 @@
       "authority": "every",
       "clearable": false,
       "default": 120000,
+      "deprecated": null,
       "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+      "fixed_for_run": false,
       "name": "timeout.ai",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
-      "value": {
-        "description": "A duration in milliseconds.",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "every",
-      "clearable": false,
-      "default": 30000,
-      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
-      "name": "timeout.close",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17393,12 +18430,65 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
+      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "fixed_for_run": false,
+      "name": "timeout.close",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "project_file_alone",
+      "clearable": false,
+      "default": 30000,
+      "deprecated": null,
+      "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+      "fixed_for_run": false,
+      "name": "timeout.connect",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "deprecated": null,
       "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.first_byte",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17412,13 +18502,16 @@
       "authority": "machine",
       "clearable": false,
       "default": 5000,
+      "deprecated": null,
       "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "timeout.hello",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -17431,12 +18524,19 @@
       "authority": "every",
       "clearable": false,
       "default": 10000,
-      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "deprecated": null,
+      "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
+      "fixed_for_run": false,
       "name": "timeout.hook",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17450,12 +18550,18 @@
       "authority": "every",
       "clearable": false,
       "default": 86400000,
+      "deprecated": null,
       "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+      "fixed_for_run": false,
       "name": "timeout.human_pause",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17469,12 +18575,18 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
       "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "fixed_for_run": false,
       "name": "timeout.launch",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17488,12 +18600,18 @@
       "authority": "every",
       "clearable": false,
       "default": 60000,
+      "deprecated": null,
       "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+      "fixed_for_run": false,
       "name": "timeout.model",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17507,12 +18625,18 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
       "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "fixed_for_run": false,
       "name": "timeout.navigation",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17526,13 +18650,18 @@
       "authority": "every",
       "clearable": true,
       "default": null,
+      "deprecated": null,
       "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
+      "fixed_for_run": false,
       "name": "timeout.run",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [
+        "connection"
+      ],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -17545,31 +18674,18 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
       "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+      "fixed_for_run": false,
       "name": "timeout.secret",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
-      "value": {
-        "description": "A duration in milliseconds.",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "every",
-      "clearable": false,
-      "default": 30000,
-      "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
-      "name": "timeout.sink_write",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17583,12 +18699,43 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
+      "deprecated": null,
+      "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
+      "name": "timeout.sink_write",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "deprecated": null,
       "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.wait",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17602,12 +18749,18 @@
       "authority": "configuration_except",
       "clearable": false,
       "default": {},
+      "deprecated": null,
       "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+      "fixed_for_run": false,
       "name": "tls.accept_invalid_certs",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -17629,12 +18782,18 @@
       "authority": "every",
       "clearable": false,
       "default": {},
+      "deprecated": null,
       "description": "Client certificates for mutual TLS by domain: a host or a registrable domain with its subdomains, mapped to a table of `certificate`, the file of the certificate and its chain (PEM or DER), and `key`, the Secret reference of its private key, such as `env:CLIENT_KEY`, resolved only when a handshake with a host of that domain starts; a key given as a value is refused with `setting_invalid`. The certificate goes to the domain's hosts and nowhere else, and never to a host reached through an exception of `tls.accept_invalid_certs`. Set from every layer, a Recipe and a run included; nothing is installed on the machine.",
+      "fixed_for_run": false,
       "name": "tls.client_certificates",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -17665,13 +18824,16 @@
       "authority": "configuration",
       "clearable": false,
       "default": {},
+      "deprecated": null,
       "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
+      "fixed_for_run": false,
       "name": "tls.trusted_cas",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "items": {
@@ -17687,14 +18849,39 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
+      "default": 1000,
+      "deprecated": null,
+      "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "usage.ledger_read_interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "version.age_notice",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -17705,13 +18892,16 @@
       "authority": "operator_policy",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+      "fixed_for_run": false,
       "name": "wall.denied_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "items": {
           "type": "string"
@@ -17725,12 +18915,18 @@
       "authority": "narrowed",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "fixed_for_run": false,
       "name": "wall.domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -17745,12 +18941,18 @@
       "authority": "narrowed",
       "clearable": false,
       "default": [],
+      "deprecated": null,
       "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+      "fixed_for_run": false,
       "name": "wall.refetch_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -17765,13 +18967,16 @@
       "authority": "fixed",
       "clearable": false,
       "default": true,
+      "deprecated": null,
       "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+      "fixed_for_run": false,
       "name": "webhook.signing",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },

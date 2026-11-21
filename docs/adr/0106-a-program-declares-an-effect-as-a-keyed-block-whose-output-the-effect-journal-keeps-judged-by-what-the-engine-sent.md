@@ -128,7 +128,7 @@ ADR 0100 left to this ticket whether an Agent tool takes a function that tells w
   - Area 3 (Engine runtime) builds the Effect journal's entries, the window and the sent mark written before a command goes out, the namespaces, the wait across attempts, the staging refusal inside a body, the idempotency key's secret in run state, the marks after a resume from a Checkpoint, and the exclusion from hedging and coalescing.
   - Area 6 (Collection) keeps requests sent inside a body out of the Response cache.
   - Area 9 (AI and agent) keeps an AI action inside a body journaled as ADR 0010 says, and builds Agent tools' `repeatable` and `idempotencyKey`.
-  - Area 11 (Client surfaces) builds `run.effect` and its types in each SDK, `effect.open` and `effect.close`, the testing kit's `effects` and `reconcile`, and the conformance cases in [TESTING.md](../../TESTING.md#sdks).
+  - Area 11 (Client surfaces) builds `run.effect` and its types in each SDK, `effect.open` and `effect.close`, the testing kit's `effects` and `reconcile`, and the conformance cases in [TESTING.md](../testing/sdk-and-cli-tests.md#sdks).
   - Area 12 (Console) shows declared Effects in the Run trace and "Needs you" by key, for reconciliation.
     > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **ADR 0037's matrix.** SA-04, CO-03, CO-06, RT-04, RT-20 and pain 24 cite this ADR, and areas 3, 6, 9, 11 and 12 list it.

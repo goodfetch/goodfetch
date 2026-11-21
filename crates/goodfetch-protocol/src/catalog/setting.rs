@@ -22,6 +22,10 @@ pub enum ValueKind {
     /// which the engine could not apply past its ceiling; a larger value is
     /// `setting_invalid`. It caps and narrows as a count does.
     CountUpTo(u64),
+    /// A whole number from 1, as `connection.max_pending_calls`, where 0
+    /// would refuse every call (issue 2518). A Client applies it to its own
+    /// transport, so no layer caps or narrows it.
+    CountFromOne,
     /// A duration in whole milliseconds, the one unit of every surface's
     /// wire (ADR 0080).
     Duration,
@@ -88,6 +92,10 @@ impl ValueKind {
             Self::CountUpTo(most) => match value.as_u64() {
                 Some(count) if count <= *most => Ok(()),
                 _ => wrong(&format!("a whole number from 0 to {most}")),
+            },
+            Self::CountFromOne => match value.as_u64() {
+                Some(1..) => Ok(()),
+                _ => wrong("a whole number from 1"),
             },
             Self::Duration => wrong("a whole number of milliseconds"),
             Self::Text if value.is_string() => Ok(()),
@@ -171,6 +179,7 @@ impl ValueKind {
             Self::Boolean => json!({ "type": "boolean" }),
             Self::Count => json!({ "type": "integer", "minimum": 0 }),
             Self::CountUpTo(most) => json!({ "type": "integer", "minimum": 0, "maximum": most }),
+            Self::CountFromOne => json!({ "type": "integer", "minimum": 1 }),
             Self::Duration => json!({
                 "type": "integer",
                 "minimum": 0,
@@ -305,6 +314,16 @@ pub enum Authority {
     /// layers, as `browser_cache.max_unused_age` (ADR 0098); anywhere else
     /// it is `setting_not_applicable`.
     Machine,
+    /// Only project configuration, the project file, as `timeout.connect`,
+    /// which `connect()` and the CLI read before they connect and apply
+    /// themselves (ADR 0083); anywhere else it is `setting_not_applicable`,
+    /// since only the engine reads the other layers, once reached.
+    ProjectFileAlone,
+    /// Only `connect()`'s own `settings`, as `connection.max_pending_calls`,
+    /// which the Client applies to its own transport from its first call
+    /// (issue 2518); anywhere else it is `setting_not_applicable`, since
+    /// no other layer reaches that transport.
+    ConnectionAlone,
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
@@ -352,6 +371,8 @@ impl Authority {
             Self::OperatorPolicy => "operator_policy",
             Self::OperatorPolicyAlone => "operator_policy_alone",
             Self::Machine => "machine",
+            Self::ProjectFileAlone => "project_file_alone",
+            Self::ConnectionAlone => "connection_alone",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::NotByModel => "not_by_model",
@@ -373,6 +394,125 @@ pub enum HostList {
     /// It blocks them: a value narrows by covering every host the value
     /// below lists, as `egress.blocked_domains`.
     Blocks,
+}
+
+/// A scope a program's code opens with its own `settings` (ADR 0083): the
+/// connection, a Run, a crawl's Label, a Session or a page. A setting
+/// applies within the scopes that may set it, and everything opened beneath
+/// them inherits it: a Label's, its requests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SettingScope {
+    /// `connect()`, whose settings are its Runs' defaults.
+    Connection,
+    /// Starting a Run.
+    Run,
+    /// Declaring a crawl's Label, whose own settings its requests take over
+    /// their Run's (ADR 0093).
+    Label,
+    /// Opening a Session.
+    Session,
+    /// Opening a page.
+    Page,
+}
+
+impl SettingScope {
+    /// Its name in the catalog.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connection => "connection",
+            Self::Run => "run",
+            Self::Label => "label",
+            Self::Session => "session",
+            Self::Page => "page",
+        }
+    }
+}
+
+/// A value of a Setting as the wire carries it (ADR 0083): what each type
+/// the SDKs' typed keys take implements, here for the values of every
+/// [`ValueKind`] and the types of the shapes this crate defines, and in a
+/// Product's client crate through [`SettingWord`] for its choices of words.
+pub trait SettingJson {
+    /// The value's JSON.
+    fn into_setting_json(self) -> Value;
+}
+
+/// A choice of words a Setting takes, which goes on the wire as its word:
+/// what each generated choice enum of a Product's client crate implements.
+pub trait SettingWord {
+    /// The word, as the catalog spells it.
+    fn word(&self) -> &'static str;
+}
+
+/// `duration` in whole milliseconds, rounded up, so that no duration but
+/// zero sends 0: how a duration Setting and a call's timeout are sent.
+#[must_use]
+pub fn wire_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX)
+}
+
+/// The JSON of a value of a shape's type, which its own `Serialize` gives.
+pub(crate) fn shape_json(value: impl serde::Serialize) -> Value {
+    serde_json::to_value(value).expect("invariant: a value of the protocol's shapes is JSON")
+}
+
+/// Its word.
+impl<T: SettingWord> SettingJson for T {
+    fn into_setting_json(self) -> Value {
+        Value::from(self.word())
+    }
+}
+
+impl SettingJson for bool {
+    fn into_setting_json(self) -> Value {
+        Value::Bool(self)
+    }
+}
+
+impl SettingJson for u64 {
+    fn into_setting_json(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl SettingJson for String {
+    fn into_setting_json(self) -> Value {
+        Value::String(self)
+    }
+}
+
+/// Its [`wire_millis`].
+impl SettingJson for std::time::Duration {
+    fn into_setting_json(self) -> Value {
+        Value::from(wire_millis(self))
+    }
+}
+
+/// Null for `None`.
+impl<T: SettingJson> SettingJson for Option<T> {
+    fn into_setting_json(self) -> Value {
+        self.map_or(Value::Null, SettingJson::into_setting_json)
+    }
+}
+
+impl<T: SettingJson> SettingJson for Vec<T> {
+    fn into_setting_json(self) -> Value {
+        Value::Array(
+            self.into_iter()
+                .map(SettingJson::into_setting_json)
+                .collect(),
+        )
+    }
+}
+
+impl<T: SettingJson> SettingJson for std::collections::BTreeMap<String, T> {
+    fn into_setting_json(self) -> Value {
+        Value::Object(
+            self.into_iter()
+                .map(|(name, entry)| (name, entry.into_setting_json()))
+                .collect(),
+        )
+    }
 }
 
 #[cfg(test)]

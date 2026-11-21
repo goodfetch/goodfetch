@@ -1,0 +1,51 @@
+{
+  "description": "A Collie Client connects with a Limit in code that this engine, an older one, refuses: its `usage.set` on the Client connection is answered `invalid_params` for a Usage kind it does not know, and the Client ends the connection.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "usage.set",
+        "params": {
+          "scope": "connection",
+          "usage_kind": "paid_solves",
+          "currency": "USD",
+          "amount": 2000000
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32602,
+          "message": "`paid_solves` is no Usage kind this engine knows.",
+          "data": {
+            "code": "invalid_params",
+            "retryable": false
+          }
+        }
+      }
+    }
+  ]
+}

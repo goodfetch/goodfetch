@@ -19,11 +19,16 @@ const PROGRAMS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/it/browser.mj
 
 /// Where Playwright keeps its browsers: `PLAYWRIGHT_BROWSERS_PATH` when the
 /// test's process has it (as the CI image does), else Playwright's own
-/// default under the user's home, which the test's cleared environment
-/// replaces.
+/// default under the user's home, or on Windows under its local
+/// application data, which sets no `HOME`; the test's cleared environment
+/// replaces both.
 fn browsers() -> PathBuf {
     if let Some(path) = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH") {
         return PathBuf::from(path);
+    }
+    if cfg!(windows) {
+        let local = std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA is set");
+        return PathBuf::from(local).join("ms-playwright");
     }
     let home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
     if cfg!(target_os = "macos") {

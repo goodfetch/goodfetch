@@ -295,9 +295,14 @@ fn a_foxhound_setting_key_or_shared_type_value_tells_a_person_to_install_foxhoun
     "cargo install goodfetch-foxhound --locked --features executable"
 )]
 #[case::homebrew(Some("homebrew"), "brew install goodfetch/tap/goodfetch-foxhound")]
+// The installer is a PowerShell script on Windows, a shell script elsewhere.
 #[case::archive(
     Some("installer"),
-    "curl -fsSL https://goodfetch.dev/install/foxhound.sh | sh"
+    if cfg!(windows) {
+        "irm https://goodfetch.dev/install/foxhound.ps1 | iex"
+    } else {
+        "curl -fsSL https://goodfetch.dev/install/foxhound.sh | sh"
+    }
 )]
 #[case::image(Some("oci"), "docker pull ghcr.io/goodfetch/foxhound")]
 fn the_fix_names_the_install_command_of_the_executables_channel(

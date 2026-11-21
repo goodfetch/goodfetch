@@ -107,3 +107,4 @@ def test_proving_ground_without_a_seed_fails_the_fixture(
     outcome = sample_run.run(UNSEEDED_TEST)
 
     assert outcome.results == {"test_pages": "error"}, outcome.output
+    assert "ProvingGroundUnseeded" in outcome.output

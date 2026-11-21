@@ -11,3 +11,4 @@ export * from "./operations.ts";
 export * from "./events.ts";
 export * from "./errors.ts";
 export * from "./plugins.ts";
+export type { PageSettings, RunSettings, SessionSettings, Settings } from "./settings.ts";

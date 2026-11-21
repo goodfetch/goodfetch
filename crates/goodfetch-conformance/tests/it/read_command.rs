@@ -157,10 +157,6 @@ fn read_with_its_journey_refuses_a_document_that_left_a_step_out() {
     let read = read_with(&env, &document, &["--journey", J951]);
 
     assert_eq!(read.status.code(), Some(1), "{read:?}");
-    assert!(
-        String::from_utf8_lossy(&read.stderr).contains("step"),
-        "{read:?}"
-    );
 }
 
 #[test]

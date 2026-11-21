@@ -73,6 +73,15 @@ fn text(contents: &[u8]) -> String {
     }
 }
 
+/// A definition's path, which the plan joins under the fixture home with
+/// the host's separator, written with `/`, so one snapshot serves every
+/// host.
+fn slashed(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 /// Covers: story:3-21
 #[rstest]
 #[case::launchd(ServiceManager::Launchd)]
@@ -88,7 +97,7 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
     let files: Vec<String> = planned
         .files
         .iter()
-        .map(|file| format!("--- {}\n{}", file.path.display(), text(&file.contents)))
+        .map(|file| format!("--- {}\n{}", slashed(&file.path), text(&file.contents)))
         .collect();
     let commands: Vec<String> = planned
         .register
@@ -97,7 +106,13 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
             let arguments: Vec<String> = command
                 .arguments
                 .iter()
-                .map(|argument| argument.to_string_lossy().into_owned())
+                .map(|argument| {
+                    if planned.files.iter().any(|file| file.path == *argument) {
+                        slashed(Path::new(argument))
+                    } else {
+                        argument.to_string_lossy().into_owned()
+                    }
+                })
                 .collect();
             format!("$ {} {}", command.program, arguments.join(" | "))
         })
@@ -106,6 +121,28 @@ fn each_service_manager_gets_its_definition_of_the_service(#[case] manager: Serv
         format!("{manager:?}").to_lowercase(),
         format!("{}\n{}", files.join("\n"), commands.join("\n"))
     );
+}
+
+/// With no GUI session, the agent registers in `user/<uid>`, a `Background`
+/// session, where launchd loads only an agent limited to that session type:
+/// without the limit, `launchctl bootstrap` fails with `5: Input/output
+/// error` (#3142).
+///
+/// Covers: story:3-21
+#[test]
+fn an_agent_registered_in_the_user_domain_is_limited_to_its_background_session() {
+    let home = Home::new(PathBuf::from(HOME));
+    let version = version();
+    let environment = fixture_environment();
+    let mut request = request(ServiceManager::Launchd, &home, &version, &environment);
+    request.launchd_domain = Some("user/501");
+
+    let planned = plan(&request).unwrap();
+
+    let [file] = planned.files.as_slice() else {
+        panic!("one LaunchAgent plist: {:?}", planned.files);
+    };
+    insta::assert_snapshot!(text(&file.contents));
 }
 
 /// The token a Client's `hello` carries never reaches a service's

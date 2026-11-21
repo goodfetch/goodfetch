@@ -6,23 +6,78 @@
 # engine's requests to the program's streams and writes their answers, `host`
 # is what every handle reaches its engine through, `generated` holds the
 # handles `xtask codegen` writes from the catalog (ADR 0099), `run` starts and
-# closes the Runs a Connection drives, and `blocking` gives them all a face
-# that blocks, with the twins of the generated handles as its own submodule.
+# closes the Runs a Connection drives and explains the settings a Connection
+# and a Run run with (ADR 0083), through `call`'s query, and `blocking` gives
+# them all a face that blocks, with the twins of the generated handles as its
+# own submodule.
 # `file_saving` writes a file to the program's path whole or not at all (ADR
-# 0116), which `connection` drives. `sync` names the crate's locks. Credits,
-# cancellation, event resumption and bodies join as their own modules with
-# the tickets that add them.
+# 0116), which `connection` drives. `sync` names the crate's locks. `limits`
+# types the Limits a connection and a Run's start take, a price as an exact
+# `Money` (ADR 0080). `response` is the Response a page's request got, whose
+# body it reads and decodes (ADRs 0085 and 0119), and `field_values` reads a
+# page's fields into a program's type (ADR 0147). `connection_type` declares
+# the Connection both Products' connections implement (ADRs 0095 and 0099),
+# and `blocking` its blocking twin. `markers` warns once per process of a
+# deprecated or Experimental entry `generated` calls, or `run` serves by
+# hand, and of a deprecated setting `settings` sets (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
+# Connection and on every handle (ADR 0099, G8), which refuses what the
+# engine would before it sends it through `call`'s builder.
+# `connect_timeout` types how long `connection` waits for `hello`'s answer,
+# `timeout.connect` in its three states (ADR 0080). `logging` names the
+# crate's `tracing` targets, reads the level a Connection tells its engine,
+# and re-emits the engine's `$/log` events (ADR 0078).
+# `event_stream` is the stream of a listener's events, read by meaning
+# (ADR 0081), with the credits it grants and the cancel its drop sends,
+# and the values a call opens, such as a page's WebSockets, whose own
+# events the same call carries to each value's own stream (ADR 0085).
+# `settings` is the one `Settings` type every scope's opening takes, with
+# the typed keys `xtask codegen` writes from the catalog, and refuses a key
+# the scope does not set (ADR 0083).
+# `published` is the Connection's own Subscription, which the streams of
+# the events the engine publishes on its event stream share (ADR 0081),
+# such as a Session's. `listener_queue` types how many unread events each
+# of those streams holds, the bound a Product crate's `max_listener_queue`
+# sets (ADR 0081).
+# `answer` is a top-level result's typed view with the JSON it came from,
+# unknown fields kept (ADR 0082), which `generated`'s members answer;
+# `schema` is the Schema a program's own types cross the wire through.
+# `opening_process` is the process that opened a Connection, the only one
+# whose uses reach its engine (ADR 0078), which `rpc` and `handler` check.
+# `trace_context` is the seam the program's Trace context is read through
+# and how a request's params carry it in `_meta` (ADR 0132), which `rpc`
+# holds and `call`, `connection` and `event_stream` write.
+# `ai_work` is the result of AI work that can claim success, how it ended,
+# its Verdict and its model's claim apart, and `require_verified()`, which
+# fails with `error`'s `not_verified` (ADRs 0079 and 0117).
+# Event resumption joins as its own module with the ticket that adds it.
 [modules]
-blocking = ["call", "connection", "error", "generated", "run"]
-call = ["error", "rpc"]
-connection = ["call", "error", "file_saving", "handler", "rpc", "sync", "transport"]
+ai_work = ["error"]
+answer = []
+blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
+call = ["error", "rpc", "trace_context"]
+connect_timeout = ["call", "error"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
+connection_type = ["call", "error", "raw_call", "run"]
 error = []
+event_stream = ["error", "published", "rpc", "sync", "trace_context"]
+field_values = ["answer", "call", "error"]
 file_saving = ["error"]
-generated = ["call", "host"]
-handler = ["error", "line", "sync"]
-host = ["call", "connection", "error", "sync"]
+generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
+handler = ["error", "line", "opening_process", "sync"]
+host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
+limits = []
 line = []
-rpc = ["error", "handler", "line", "transport"]
-run = ["connection", "error", "generated", "host"]
+listener_queue = ["error"]
+logging = ["sync"]
+markers = ["logging", "sync"]
+opening_process = ["error"]
+published = ["error", "listener_queue", "rpc", "sync"]
+raw_call = ["call", "error", "rpc"]
+response = ["call", "connection", "error", "host"]
+rpc = ["error", "handler", "line", "logging", "opening_process", "trace_context", "transport"]
+run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
+schema = []
+settings = ["call", "error", "markers"]
 sync = []
+trace_context = []
 transport = []

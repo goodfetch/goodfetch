@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use super::{CellReport, CellStatus, Figure, ROWS, ScenarioReport, cell_text, output_differs};
-use crate::compare::matrix::{self, Row, Scenario, Tool};
+use crate::compare::matrix::{self, Scenario, Tool};
 
 /// The Product's standing against a competitor on one metric.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -40,7 +40,7 @@ pub(crate) struct Standings {
 /// The metrics where more is better: every other metric of `ROWS` is a
 /// cost, where less is, so a metric added there where more is better is
 /// named here too.
-const MORE_IS_BETTER: &[&str] = &["pages_per_second", "pages"];
+const MORE_IS_BETTER: &[&str] = &["pages_per_second", "steady_pages_per_second", "pages"];
 
 /// The standing on `metric` from the Product's figure and the competitor's,
 /// none unless both were measured.
@@ -75,10 +75,12 @@ fn judge(metric: &str, product: &Figure, competitor: &Figure) -> Option<Standing
 }
 
 /// A cell's metrics, when it is a main row whose figures a standing may
-/// read.
-fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
+/// read: not Foxhound's cell at the catalog's defaults, which carries its
+/// own target and leaves the counted criteria to the other (#2175).
+fn judged(scenario: Scenario, cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
+    let counted = matrix::cell(scenario, cell.cell).is_some_and(matrix::Cell::counted_criteria);
     match &cell.status {
-        CellStatus::Measured { metrics, .. } if cell.row == Row::Main => Some(metrics),
+        CellStatus::Measured { metrics, .. } if counted => Some(metrics),
         CellStatus::Measured { .. }
         | CellStatus::NotSupported { .. }
         | CellStatus::NotMeasured { .. }
@@ -104,12 +106,12 @@ pub(super) fn of(scenario: Scenario, cells: &[CellReport]) -> Vec<Standings> {
     for (product_cell, product_metrics) in cells
         .iter()
         .filter(|cell| cell.tool == product)
-        .filter_map(|cell| Some((cell, judged(cell)?)))
+        .filter_map(|cell| Some((cell, judged(scenario, cell)?)))
     {
         for (competitor_cell, competitor_metrics) in cells
             .iter()
             .filter(|cell| cell.tool != product)
-            .filter_map(|cell| Some((cell, judged(cell)?)))
+            .filter_map(|cell| Some((cell, judged(scenario, cell)?)))
         {
             let metrics = product_metrics
                 .iter()

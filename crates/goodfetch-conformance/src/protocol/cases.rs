@@ -734,7 +734,7 @@ impl Case {
             Self::CleanUp(case) => case.run(connection, target, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
             Self::Reset(case) => case.run(connection, target, site, checks),
-            Self::RunStart(case) => case.run(connection, target, checks),
+            Self::RunStart(case) => case.run(connection, target, site, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

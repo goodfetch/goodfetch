@@ -226,10 +226,10 @@ fn a_run_uses_the_script_of_the_commit_it_tests() {
 }
 
 /// Cron's lines start from `origin/main`'s script, not the checkout's, which on
-/// the day this came in may predate it.
+/// the day this came in may predate it. The constrained run left the cron on
+/// 2026-11-19 (ADR 0135), so the mutation run's is the file's one line.
 #[rstest]
 #[case::mutants(0, "mutants")]
-#[case::constrained(1, "constrained")]
 fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] run: &str) {
     let crontab = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health.crontab"),
@@ -240,7 +240,7 @@ fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] r
         .filter_map(|line| line.split_once(" bash -lc '"))
         .filter_map(|(_, line)| line.strip_suffix('\''))
         .collect();
-    assert_eq!(lines.len(), 2, "{crontab}");
+    assert_eq!(lines.len(), 1, "{crontab}");
     let line = lines[index];
     assert!(
         line.ends_with(&format!(" scheduled {run} origin/main")),

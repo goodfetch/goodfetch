@@ -7,20 +7,22 @@
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::point_in_time;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags, Verdict,
+    Completeness, Lifecycle, Presence, RunId, RunIndexRow, RunKind, Tags, Verdict,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
+use std::time::SystemTime;
 
 use super::run::call;
 use super::{attached_on, engine, hello};
 use crate::run_index::IndexFile;
 use crate::sqlite_store::StoreFile as _;
 
-fn at(text: &str) -> PointInTime {
-    PointInTime::from_rfc3339(text.to_owned())
+fn at(text: &str) -> SystemTime {
+    point_in_time::from_rfc3339(text).unwrap()
 }
 
 fn tags(tags: &[&str]) -> Tags {

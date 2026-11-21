@@ -1,11 +1,10 @@
 //! Run-state batches through the writer's interface (ADR 0142): a sealed
-//! batch written all or nothing, one sealed batch waiting at a time, and a
-//! barrier, which commits the batch in progress before it answers.
+//! batch written all or nothing, and one sealed batch waiting at a time.
 
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use rusqlite::Connection;
 
-use super::{ITEMS, insert, items, with_counted_writer, with_writer, with_writer_options};
+use super::{ITEMS, insert, items, with_writer, with_writer_options};
 use crate::run_state::{
     BatchRows, BatchWriter, Durability, RunState, RunStateError, RunStateOptions, SealedBatch,
     Syncing,
@@ -185,61 +184,4 @@ fn a_second_sealed_batch_waits_while_the_first_is_written() {
     });
 
     assert_eq!((waited, order), (true, vec![1, 9, 2]));
-}
-
-/// A barrier commits the batch in progress before it answers (ADR 0142):
-/// whoever holds that batch seals it when asked, the barrier's own write
-/// finds its rows in the file, and the barrier is synced as the level says,
-/// once at `full` (`run_state.batch.sync: each`) and never at `fast`
-/// (`never`).
-///
-/// Covers: story:3-25, story:3-27, setting:run_state.durability
-#[rstest::rstest]
-#[case::each(Durability::FULL, 1)]
-#[case::never(Durability::FAST, 0)]
-fn a_barrier_commits_the_batch_in_progress_before_it_answers_synced_as_the_level_says(
-    #[case] durability: Durability,
-    #[case] syncs: u64,
-) {
-    let (found, added, committed) = with_counted_writer(durability, async |state, vfs| {
-        let mut seals = state.seals().unwrap();
-        let before = vfs.syncs();
-        let sealing = async {
-            let request = seals.next().await.unwrap();
-            sealed(state, &[1, 2]).await.unwrap();
-            request.sealed();
-        };
-        let barrier = state.barrier(|connection| {
-            let found = in_order(connection)?;
-            insert(3)(connection)?;
-            Ok(found)
-        });
-        let (found, ()) = tokio::join!(barrier, sealing);
-        let added = vfs.syncs() - before;
-        (found.unwrap(), added, state.read(in_order).await.unwrap())
-    });
-
-    assert_eq!(
-        (found, added, committed),
-        (vec![1, 2], syncs, vec![1, 2, 3])
-    );
-}
-
-/// A barrier waits for no one when no batch is in progress: on a run file
-/// whose batches no one seals, and once whoever sealed them is gone, it
-/// commits its write as any other.
-#[test]
-fn a_barrier_with_no_batch_in_progress_commits_its_write() {
-    let env = TestEnv::new();
-
-    let committed = with_writer(&env, 1, async |state| {
-        state.barrier(insert(1)).await.unwrap();
-        let seals = state.seals().unwrap();
-        let taken = state.seals().is_none();
-        drop(seals);
-        state.barrier(insert(2)).await.unwrap();
-        (taken, state.read(items).await.unwrap())
-    });
-
-    assert_eq!(committed, (true, vec![1, 2]));
 }

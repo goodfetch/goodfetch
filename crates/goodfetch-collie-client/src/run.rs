@@ -1,44 +1,81 @@
 //! The Run a program drives (ADRs 0078 and 0102): a Connection starts it,
 //! the program finishes it for its Run report, and closing it stops it if
 //! it still runs. Its members are the ones the catalog gives a Run, which
-//! `xtask codegen` writes (ADR 0099); this module adds its start and its
-//! close. Its handles are cheap clones of one Run, `Send + Sync +
+//! `xtask codegen` writes (ADR 0099); this module adds its start, its
+//! close, and the explanation of the settings it runs with, as of the
+//! Connection's (ADR 0083). Its handles are cheap clones of one Run, `Send + Sync +
 //! 'static`, and closing any of them closes it for all.
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
+use std::sync::Arc;
 
-use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs};
+use goodfetch_protocol::catalog::SettingScope;
+use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
+use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 
-use crate::connection::Connection;
+use crate::call::Query;
+use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::host::{HeldRun, Host};
+use crate::limits::Limits;
+use crate::logging::{self, engine_log_level};
+use crate::settings::Settings;
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.
 #[must_use = "a start is sent only when it is awaited"]
 #[derive(Debug)]
 pub struct Start {
-    connection: Connection,
+    connection: ClientConnection,
     params: RunStartParams,
+    /// The Run's own settings, which its params carry once checked.
+    settings: Settings,
 }
 
 impl Start {
     /// The start of a Run on `connection`, with no Run ID: the engine
     /// names it.
-    pub(crate) fn new(connection: Connection) -> Self {
+    pub(crate) fn new(connection: ClientConnection) -> Self {
         Self {
             connection,
             params: RunStartParams::default(),
+            settings: Settings::new(),
         }
     }
 
-    /// Names the Run `run_id`: a start with the ID of a Run started before
-    /// with the same inputs goes on with it when it was interrupted, and
-    /// returns it as it ended when it finished (ADR 0102).
+    /// Names the Run for good: a start with an existing Run ID resumes the
+    /// Run if it was interrupted, or returns it as it ended (ADR 0102),
+    /// which [`Run::started_as`] says; the engine names it when none is
+    /// given. A Run another engine writes fails with `run_in_use`, one
+    /// begun with other inputs with `run_conflict`.
     pub fn run_id(mut self, run_id: &RunId) -> Self {
         self.params.run_id = Some(run_id.as_str().to_owned());
+        self
+    }
+
+    /// Tags the Run, in place of any tags given before (ADR 0036).
+    pub fn tags(mut self, tags: Tags) -> Self {
+        self.params.tags = tags;
+        self
+    }
+
+    /// Sets the Run's own `limits`, in place of any given before: each only
+    /// lowers what covers the Run, and a start that names the Run again
+    /// lowers its Limits and never raises them (ADRs 0080 and 0102).
+    pub fn limits(mut self, limits: Limits) -> Self {
+        self.params.limits = limits.into();
+        self
+    }
+
+    /// Sets the Run's own settings, in place of any given before: what
+    /// they leave out the connection's settings give, and the Run's
+    /// Sessions and pages inherit them (ADR 0083). A key a Run's start does
+    /// not set, as `timeout.run`, fails the start with
+    /// `setting_not_applicable` before anything is sent.
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
         self
     }
 }
@@ -47,57 +84,125 @@ impl IntoFuture for Start {
     type Output = Result<Run, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Result<Run, Error>> + Send + 'static>>;
 
-    fn into_future(self) -> Self::IntoFuture {
+    /// Reads the level the program's subscriber records for the engine
+    /// on the calling thread, which the start tells the engine first when
+    /// it changed (ADR 0078).
+    fn into_future(mut self) -> Self::IntoFuture {
+        let log_level = engine_log_level();
         Box::pin(async move {
+            self.params.settings = self.settings.within(SettingScope::Run)?;
+            self.connection.follow_log_level(log_level).await?;
             let started: RunStarted = self
                 .connection
                 .call(RUN_START.name, &self.params)
                 .no_timeout()
                 .await?;
-            let held = HeldRun::new(
-                self.connection,
-                started.run_id,
-                started.started_as,
-                started.lifecycle,
-            );
+            log_start(&started);
+            let held = HeldRun::new(self.connection, started.run_id.clone(), started.lifecycle);
             Ok(Run {
                 host: Host::run(held),
+                opened: Arc::new(started),
             })
         })
     }
 }
 
-impl Run {
-    /// Whether the start began the Run, went on with it, or found it ended.
-    pub fn started_as(&self) -> StartedAs {
-        self.host.held_run().started_as()
+/// Tells the host how a start with an existing Run ID reached its Run:
+/// resumed at info, ended at warning, since the Run then takes no new work
+/// (ADR 0102). A new Run is not logged.
+fn log_start(started: &RunStarted) {
+    let run_id = &started.run_id;
+    match started.started_as {
+        StartedAs::New => {}
+        StartedAs::Resumed => tracing::info!(
+            target: logging::RUN,
+            %run_id,
+            started_as = "resumed",
+            "The start resumed the Run `{run_id}` from its committed state."
+        ),
+        StartedAs::Ended => tracing::warn!(
+            target: logging::RUN,
+            %run_id,
+            started_as = "ended",
+            "The start found the Run `{run_id}` ended: it is returned as it ended and takes no new work."
+        ),
     }
+}
 
+impl Run {
     /// Closes the Run for every clone: a Run that still runs stops at its
     /// next safe point, `stopped` and `incomplete`, as an abort by its
     /// program (`run.abort`), resumable by its Run ID; an ended one stays
     /// as it is. Any later call on it, or on a handle it opened, fails
-    /// with [`Error::Closed`]. Closing again does nothing.
+    /// with `closed`. Closing again does nothing.
     ///
     /// # Errors
     ///
     /// What `run.abort` fails with, unless the Connection is closed: its
-    /// engine then stops the Run itself.
+    /// engine then stops the Run itself. `deadline_exceeded` once
+    /// `timeout.close` has run out, the value closed all the same.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after its first poll leaves the value closed
     /// and the abort sent.
     pub async fn close(&self) -> Result<(), Error> {
+        crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
+    }
+
+    /// What the Run runs with (ADR 0083), as `config explain` shows it
+    /// (`config.explain`), which awaiting asks: each setting, or those
+    /// [`Query::keys`] names, with the effective value the Run opened
+    /// with, the layer and origin that set it and the layer that locked
+    /// it, its own settings over its Connection's. A Run that is no longer
+    /// live fails with `run_not_found`, and a closed Run's value with
+    /// `closed`.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        crate::markers::warn_operation(CONFIG_EXPLAIN.name);
+        self.host.query(
+            CONFIG_EXPLAIN.name,
+            ConfigExplainParams {
+                run_id: Some(self.host.id().as_str().to_owned()),
+                ..ConfigExplainParams::default()
+            },
+        )
     }
 }
 
-impl Connection {
-    /// The start of a Run this Connection drives (`run.start`), which
-    /// awaiting sends.
+impl<T> Query<T, ConfigExplainParams> {
+    /// Explains only `keys`, each a key, such as `timeout.wait`, or a
+    /// prefix of keys, such as `timeout`, in place of any given before;
+    /// left out, every key is explained.
+    pub fn keys(self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+        self.edit(|params| params.keys = keys)
+    }
+}
+
+impl ClientConnection {
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run this Connection drives
+    /// (`run.start`), which awaiting sends.
     pub fn start(&self) -> Start {
+        crate::markers::warn_operation("run.start");
         Start::new(self.clone())
+    }
+
+    /// What the Connection runs with (ADR 0083), as `config explain` shows
+    /// it (`config.explain`), which awaiting asks: each setting, or those
+    /// [`Query::keys`] names, with its effective value, the layer and
+    /// origin that set it and the layer that locked it, the Connection's
+    /// own settings over configuration and the Operator policy, which each
+    /// Run it starts inherits. Once the Connection is closed it fails with
+    /// `closed`.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        crate::markers::warn_operation(CONFIG_EXPLAIN.name);
+        Query::new(
+            self.sender(),
+            CONFIG_EXPLAIN.name,
+            Ok(ConfigExplainParams::default()),
+        )
     }
 }
 

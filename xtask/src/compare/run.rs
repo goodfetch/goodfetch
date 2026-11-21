@@ -26,15 +26,15 @@ use self::preflight::{Probe, Under};
 use self::redo::{asks, merge, merge_counted, merge_growth, merge_sizes};
 use self::watch::{Retried, Watch, retried, watched};
 use super::auto::Judged;
-use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
+use super::matrix::{self, Cell, Config, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     AUTO_RUNS, AutoRun, CONCURRENCY, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
     CollieScenario, Comparison, CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES,
-    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
-    OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone,
-    RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZES,
-    SPIDER_VERSION, STATISTIC, STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial,
+    GrowthCell, INSTRUCTION_RUNS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
+    PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone, RuledRun, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZES, SPIDER_VERSION, STATISTIC,
+    STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial, instruction_counted,
     size_not_run, size_tools,
 };
 
@@ -209,89 +209,16 @@ pub(crate) fn spider_executable(
         ))
 }
 
-/// crawlee-rs's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CRAWLEE_RS_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn crawlee_rs_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CRAWLEE_RS_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-crawlee-rs{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// pagesift's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn pagesift_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::PAGESIFT_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-pagesift{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// OpenSpider's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::OPENSPIDER_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn openspider_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::OPENSPIDER_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-openspider{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// fastCRW's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::FASTCRW_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`, and installs fastCRW's server into that folder (see
-/// [`trial::fastcrw_server`]).
-pub(crate) fn fastcrw_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::FASTCRW_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-fastcrw{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// crawlberg's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CRAWLBERG_FOLDER`] names, where Cargo puts it under
-/// `profile_folder`.
-pub(crate) fn crawlberg_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CRAWLBERG_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-crawlberg{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// chromiumoxide's side's executable in `builds`, beside Spider's builds:
-/// `just compare` builds it into the target folder
-/// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
-/// `profile_folder` (issue 2444).
-pub(crate) fn chromiumoxide_executable(builds: &Path, profile_folder: &str) -> PathBuf {
-    builds
-        .join(matrix::CHROMIUMOXIDE_FOLDER)
-        .join(profile_folder)
-        .join(format!(
-            "goodfetch-compare-chromiumoxide{}",
-            std::env::consts::EXE_SUFFIX
-        ))
+/// The executable of a Rust side other than Spider's in `builds`, beside
+/// Spider's builds: `just compare` builds each into the target folder of its
+/// name ([`matrix::CRAWLEE_RS_FOLDER`] and the others), where Cargo puts it
+/// under `profile_folder` as `goodfetch-compare-<folder>`. fastCRW's folder
+/// also holds the server its side starts (see [`trial::fastcrw_server`]).
+pub(crate) fn side_executable(builds: &Path, folder: &str, profile_folder: &str) -> PathBuf {
+    builds.join(folder).join(profile_folder).join(format!(
+        "goodfetch-compare-{folder}{}",
+        std::env::consts::EXE_SUFFIX
+    ))
 }
 
 /// Where a trial crawls: the site's pages and the requests it has in
@@ -321,6 +248,13 @@ impl Crawl {
 /// starts, or Foxhound's executable, which Foxhound's program's SDK
 /// starts.
 fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf> {
+    let side = |folder| {
+        side_executable(
+            executables.spider_builds,
+            folder,
+            executables.profile_folder,
+        )
+    };
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound.to_owned(),
         Config::Spider { build, .. } => {
@@ -329,21 +263,11 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::FoxhoundProgram => executables.foxhound_program.to_owned(),
-        Config::CrawleeRs => {
-            crawlee_rs_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::Pagesift => {
-            pagesift_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::OpenSpider => {
-            openspider_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::FastCrw => {
-            fastcrw_executable(executables.spider_builds, executables.profile_folder)
-        }
-        Config::Crawlberg => {
-            crawlberg_executable(executables.spider_builds, executables.profile_folder)
-        }
+        Config::CrawleeRs => side(matrix::CRAWLEE_RS_FOLDER),
+        Config::Pagesift => side(matrix::PAGESIFT_FOLDER),
+        Config::OpenSpider => side(matrix::OPENSPIDER_FOLDER),
+        Config::FastCrw => side(matrix::FASTCRW_FOLDER),
+        Config::Crawlberg => side(matrix::CRAWLBERG_FOLDER),
     };
     let program = trial::invocation(config, &executable).program;
     let beside = match config {
@@ -510,7 +434,7 @@ fn main_points(cells: &[(&'static Cell, Config)], options: &Options, pages: u64)
 fn size_points(options: &Options) -> Vec<Point> {
     let cells: Vec<_> = measured(options)
         .into_iter()
-        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.row == Row::Main)
+        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.counted_criteria())
         .collect();
     SIZES
         .iter()
@@ -1043,18 +967,14 @@ fn auto(
     Ok(runs)
 }
 
-/// The cells of `measured` the Callgrind cell runs: ADR 0140's rows compare
-/// Foxhound's instructions with Spider's, each on its main rows, in
-/// scenario 1 and in the extraction scenario.
+/// The cells of `measured` the Callgrind cell runs: those ADR 0140's rows
+/// read, Foxhound's instructions over Spider's, in scenario 1 and in the
+/// extraction scenario (see [`instruction_counted`]).
 fn instruction_cells(measured: &[(&'static Cell, Config)]) -> Vec<(&'static Cell, Config)> {
     measured
         .iter()
         .copied()
-        .filter(|(cell, config)| {
-            INSTRUCTION_SCENARIOS.contains(&cell.scenario)
-                && cell.row == Row::Main
-                && INSTRUCTION_TOOLS.contains(&config.tool())
-        })
+        .filter(|(cell, _)| instruction_counted(cell))
         .collect()
 }
 

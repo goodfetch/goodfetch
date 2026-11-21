@@ -1052,6 +1052,17 @@
       ]
     },
     {
+      "id": "error:browser_host_unreachable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:browser_launch_failed",
       "kind": "error",
       "area": 5,
@@ -1128,6 +1139,39 @@
       ]
     },
     {
+      "id": "error:cdp_url_not_browser",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:cdp_url_unauthorized",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:cdp_url_unreachable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:certificate_changed",
       "kind": "error",
       "area": 4,
@@ -1150,6 +1194,17 @@
       ]
     },
     {
+      "id": "error:challenge_unsolved",
+      "kind": "error",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:client_gone",
       "kind": "error",
       "area": 3,
@@ -1161,6 +1216,28 @@
     },
     {
       "id": "error:closed",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:confinement_unavailable",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:connection_forked",
       "kind": "error",
       "area": 11,
       "milestone": null,
@@ -1440,6 +1517,47 @@
       ]
     },
     {
+      "id": "error:hook_duplicate",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:hook_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:hook_ineffective",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:hook_unknown",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:internal",
       "kind": "error",
       "area": 3,
@@ -1516,6 +1634,28 @@
       "id": "error:limit_reached",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:listener_events_lost",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:listener_failed",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1604,6 +1744,17 @@
       "id": "error:not_in_product",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:not_verified",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1753,6 +1904,17 @@
       ]
     },
     {
+      "id": "error:plugin_crashed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:policy_conflict",
       "kind": "error",
       "area": 12,
@@ -1887,6 +2049,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:response_not_json",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -3990,6 +4163,17 @@
     },
     {
       "id": "operation:run.start",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.started_as",
       "kind": "operation",
       "area": 3,
       "milestone": null,
@@ -8146,6 +8330,39 @@
       ]
     },
     {
+      "id": "setting:connection.max_listener_queue",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:connection.max_pending_calls",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:connection.max_queued_write_bytes",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:consent.domains",
       "kind": "setting",
       "area": 5,
@@ -9481,6 +9698,17 @@
       ]
     },
     {
+      "id": "setting:politeness.delegation",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.domain.adaptive_delay",
       "kind": "setting",
       "area": 3,
@@ -10302,6 +10530,17 @@
       ]
     },
     {
+      "id": "setting:timeout.connect",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:timeout.dataset_query",
       "kind": "setting",
       "area": 3,
@@ -10468,6 +10707,17 @@
       "id": "setting:tls.trusted_cas",
       "kind": "setting",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:usage.ledger_read_interval",
+      "kind": "setting",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18040,7 +18290,62 @@
       ]
     },
     {
+      "id": "story:3-168",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-169",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:3-17",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-170",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-171",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-172",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",
@@ -19844,7 +20149,7 @@
       "id": "story:4-57",
       "kind": "story",
       "area": 4,
-      "milestone": "M1 Core",
+      "milestone": "M3 Browser automation",
       "status": "active",
       "products": [
         "collie",

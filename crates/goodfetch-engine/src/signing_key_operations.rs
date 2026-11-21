@@ -7,7 +7,7 @@
 //! providers, recorded in the Audit log as `identified.signing_key`'s use,
 //! and neither answers nor quotes a private key.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
@@ -16,7 +16,6 @@ use goodfetch_protocol::page::signing_key::{
     SIGNING_KEY_CREATE, SIGNING_KEY_DIRECTORY, SigningKeyCreateParams, SigningKeyCreated,
     SigningKeyDirectory, SigningKeyDirectoryParams,
 };
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_protocol::secret_reference::SecretReference;
 use secrecy::{ExposeSecret as _, SecretString};
 
@@ -117,7 +116,7 @@ async fn directory(
         signature_input: exported.signature_input,
         signature: exported.signature,
         key_ids: exported.key_ids,
-        expires: PointInTime::from_rfc3339(expires.to_string()),
+        expires: SystemTime::from(expires),
     })
 }
 

@@ -326,12 +326,16 @@ fn a_code_free_start_that_declares_a_dataset_is_refused() {
     );
 }
 
+/// A CSS locator in its JSON form.
+fn css(selector: &str) -> Value {
+    json!({ "kind": "css", "selector": selector })
+}
+
 /// The fields of the value page, in German: a name, a SKU picked from its
 /// sentence by a `match`, a price, a release date and two date-times, one
 /// stating no offset and one stating its own, a relative link, and a
 /// discount the page does not show.
 fn value_fields() -> Value {
-    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
     json!({
         "name": { "locator": css("h1") },
         "sku": { "locator": css(".sku"), "match": { "pattern": "Artikelnummer: (\\S+)" } },
@@ -548,8 +552,155 @@ fn a_crawls_fields_take_a_list_and_rows_alike_on_every_tier(#[case] tier: &str) 
     );
 }
 
+/// A field's locator ladder reads the first rung that finds an element
+/// (issue 1972), alike on the `http` tier and in the browser: the value
+/// page's name, whose `locator` and first `fallbacks` rung find nothing
+/// before its second finds it, and its manual, whose `locator` finds
+/// nothing before its one `fallbacks` rung does, read the values,
+/// Provenance and nulls of the crawl whose fields have one locator each.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_fields_later_rung_supplies_its_value_when_the_earlier_ones_find_nothing(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let page = proving_ground.url("extraction.test", "/values");
+    let origin = proving_ground.url("extraction.test", "");
+    let mut fields = value_fields();
+    fields["name"]["locator"] = json!({ "kind": "css", "selector": ".product-title" });
+    fields["name"]["fallbacks"] = json!([
+        { "kind": "xpath", "selector": "//header/h2" },
+        { "kind": "css", "selector": "h1" },
+    ]);
+    fields["manual"]["locator"] = json!({ "kind": "xpath", "selector": "//a[@rel='manual']" });
+    fields["manual"]["fallbacks"] = json!([{ "kind": "css", "selector": "a.manual" }]);
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladder", &[json!({ "url": page, "label": "page" })]),
+        &json!({ "formats": {}, "follow": "none", "fields": fields }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(
+        (
+            fields_of(&records),
+            records[0]["provenance"]["tier"]["tier"].clone()
+        ),
+        (value_record(&origin), json!(tier))
+    );
+}
+
+/// A list's and a row field's locator ladders read their first rung that
+/// finds an element (issue 1972), alike on the `http` tier and in the
+/// browser: the catalog listing's names, and each row's price, read past
+/// a first rung that finds nothing, and a row field none of whose rungs
+/// finds an element is null with the reason it has today.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_lists_and_a_row_fields_later_rung_supplies_their_values(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let listing = proving_ground.start_url("catalog/1").unwrap();
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("ladders", &[json!({ "url": listing, "label": "page" })]),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": {
+                "names": { "list": { "locator": css("li.product h3"), "fallbacks": [css("li.product a")] } },
+                "products": {
+                    "rows": css("li.product"),
+                    "fields": {
+                        "name": { "locator": css("a") },
+                        "price": {
+                            "locator": css(".cost"),
+                            "fallbacks": [{ "kind": "xpath", "selector": "./span[@class='price']" }],
+                        },
+                        "blurb": { "locator": css(".blurb"), "fallbacks": [css(".summary")] },
+                    },
+                },
+            },
+        }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    let [record] = records.as_slice() else {
+        panic!("one Record of the listing page, not {records:?}");
+    };
+    let value = &record["value"];
+    assert_eq!(
+        (
+            json!({ "names": value["names"], "products": value["products"] }),
+            &record["provenance"]["unread_fields"],
+        ),
+        (
+            json!({
+                "names": [
+                "Dusky Mirror",
+                "Amber Anchor",
+                "Hazel Hammock",
+                "Olive Kettle",
+                "Hazel Easel",
+                "Ember Basket",
+                "Frosted Pitcher",
+                "Olive Lamp",
+                "Cedar Inkwell",
+                "Hazel Desk",
+                ],
+                "products": [
+                { "name": "Dusky Mirror", "price": "$430.94", "blurb": null },
+                { "name": "Amber Anchor", "price": "$117.07", "blurb": null },
+                { "name": "Hazel Hammock", "price": "$513.11", "blurb": null },
+                { "name": "Olive Kettle", "price": "$574.09", "blurb": null },
+                { "name": "Hazel Easel", "price": "$904.76", "blurb": null },
+                { "name": "Ember Basket", "price": "$964.58", "blurb": null },
+                { "name": "Frosted Pitcher", "price": "$998.37", "blurb": null },
+                { "name": "Olive Lamp", "price": "$63.33", "blurb": null },
+                { "name": "Cedar Inkwell", "price": "$151.02", "blurb": null },
+                { "name": "Hazel Desk", "price": "$411.83", "blurb": null },
+                ],
+            }),
+            &json!([
+            { "field": "/products/0/blurb", "reason": "no_element" },
+            { "field": "/products/1/blurb", "reason": "no_element" },
+            { "field": "/products/2/blurb", "reason": "no_element" },
+            { "field": "/products/3/blurb", "reason": "no_element" },
+            { "field": "/products/4/blurb", "reason": "no_element" },
+            { "field": "/products/5/blurb", "reason": "no_element" },
+            { "field": "/products/6/blurb", "reason": "no_element" },
+            { "field": "/products/7/blurb", "reason": "no_element" },
+            { "field": "/products/8/blurb", "reason": "no_element" },
+            { "field": "/products/9/blurb", "reason": "no_element" },
+            ]),
+        )
+    );
+}
+
 /// Provenance names the tier that sent a document, whoever chose it
-/// (issue 2409): under `auto`, in an engine with browser pages, a Label's
+/// (issue 2409): under `auto` and `fetch.http_from: browser`, in an engine
+/// with browser pages, a Label's
 /// samples send their cheaper run from inside the Session's browser, and
 /// so does each request once the Label is learned onto the document tier;
 /// every such run is recorded on `browser_fetch`, none on `http`, and how
@@ -581,7 +732,10 @@ fn a_document_sent_from_the_sessions_browser_under_auto_is_recorded_on_browser_f
             "follow": "none",
             "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
         }),
-        &json!({ "fetch": { "tier": "auto" }, "politeness": { "domain": { "concurrency": 1 } } }),
+        &json!({
+            "fetch": { "tier": "auto", "http_from": "browser" },
+            "politeness": { "domain": { "concurrency": 1 } },
+        }),
     );
     assert!(engine.finished());
 
@@ -727,7 +881,7 @@ fn sampled_then_learned(cheaper: &str) -> Vec<Value> {
 /// nothing carried between them: no browser run carries the cookie its
 /// sample's `http` run was answered, and every run of the cheaper tier is
 /// recorded on `http`. The Run lists the setting in `weakened` and the
-/// Audit log records it. Under the default, `browser`, each sample's
+/// Audit log records it. Under `browser`, each sample's
 /// cheaper run is sent from inside the Session's browser as before, so the
 /// browser run carries the cookie it set, every cheaper run is recorded on
 /// `browser_fetch`, and nothing is weakened.
@@ -755,7 +909,7 @@ fn under_transport_a_samples_browser_run_carries_nothing_of_its_http_run() {
     let from_the_browser = marked_run(
         (&mut engine, &proving_ground),
         ("from-the-browser", &origin, "/storage", "b"),
-        &json!({ "tier": "auto" }),
+        &json!({ "tier": "auto", "http_from": "browser" }),
     );
     let weakened = ["from-the-transport", "from-the-browser"]
         .map(|run_id| weakened(&mut engine, run_id).contains("fetch.http_from"));
@@ -1289,8 +1443,10 @@ fn rung_runs_by_http_from(
 /// transport's jar, one Session's, came back with that fingerprint only
 /// and never from a browser, and the Run file holds Sessions of both
 /// clients under `learned`. The Run report lists
-/// `fetch.http_from` in `weakened` under `learned` and `transport` only,
-/// and the further runs of a sample add nothing to Usage.
+/// `fetch.http_from` in `weakened` under `transport` only, since
+/// `learned`, the default, keeps browser-fetch where a site minds (ADR
+/// 0023's note of 2026-11-21), and the further runs of a sample add
+/// nothing to Usage.
 ///
 /// Covers: setting:fetch.http_from, setting:fetch.tier, story:5-116
 #[test]
@@ -1387,7 +1543,7 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
             true,
             (rungs_learned("browser"), false, &manifest),
             (0, &manifest),
-            vec![true, true, false],
+            vec![false, true, false],
         ),
         "{jars:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}",
         learned.served_on,
@@ -1399,9 +1555,9 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
     );
 }
 
-/// `config explain` lists `fetch.http_from`, `browser` by default, which
-/// weakens nothing; a Run that sends from the transport, `learned` or
-/// `transport`, weakens it.
+/// `config explain` lists `fetch.http_from`, `learned` by default (issue
+/// 3106), and a default is not a weakening: neither `learned` nor `browser`
+/// is weakened; only `transport` is.
 ///
 /// Covers: setting:fetch.http_from, command:config.explain
 #[expect(
@@ -1409,8 +1565,9 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 #[rstest]
-#[case::by_default(&[], json!(["browser", "default", false]))]
-#[case::learned(&["--set", "fetch.http_from=learned"], json!(["learned", "run", true]))]
+#[case::by_default(&[], json!(["learned", "default", false]))]
+#[case::learned(&["--set", "fetch.http_from=learned"], json!(["learned", "run", false]))]
+#[case::browser(&["--set", "fetch.http_from=browser"], json!(["browser", "run", false]))]
 #[case::transport(&["--set", "fetch.http_from=transport"], json!(["transport", "run", true]))]
 fn config_explain_lists_where_a_labels_http_leaves_from(
     #[case] set: &[&str],
@@ -1588,8 +1745,10 @@ fn every_site_file_leaves_from_a_sessions_own_transport(
 
 /// A site file a code-free crawl reads after a document, the RSL license
 /// the document's `Link` header names, leaves from a Session of its own,
-/// at the default as on a forced `browser`: the site receives it once,
-/// without the cookie the document set in the browser's Session.
+/// under `fetch.http_from: browser` as on a forced `browser`: the site
+/// receives it once, without the cookie the document set in the browser's
+/// Session. Under the `learned` default, the sample's transport Session
+/// reads it, with that Session's own jar.
 ///
 /// Covers: setting:fetch.http_from, setting:fetch.tier, setting:site_preferences.respect_use_signals
 #[expect(
@@ -1597,7 +1756,7 @@ fn every_site_file_leaves_from_a_sessions_own_transport(
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 #[rstest]
-#[case::at_the_default(json!({}))]
+#[case::from_the_browser(json!({ "http_from": "browser" }))]
 #[case::on_a_forced_browser(json!({ "tier": "browser" }))]
 fn a_site_file_read_after_a_document_carries_no_cookie_of_the_browsers(#[case] fetch: Value) {
     const MARKUP_HOST: &str = "markup.access-policy.test";

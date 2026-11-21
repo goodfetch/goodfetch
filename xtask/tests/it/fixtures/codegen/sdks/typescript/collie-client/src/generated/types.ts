@@ -16,7 +16,7 @@ export interface HelloParams {
   /**
    * The protocol version the sender speaks.
    */
-  protocol_version: string;
+  protocolVersion: string;
 }
 /**
  * What `sample.echo` repeats.

@@ -359,13 +359,9 @@ fn record_the_page(params: &Value) -> Value {
     json!({ "result": { "records": [{ "dataset": "pages", "data": { "url": params["crawl_request"]["url"] } }] } })
 }
 
-/// Starts the keep-alive crawl `run_id` of one seed with `timeout.run`
-/// when given.
-fn start_keep_alive(engine: &mut Attached, site: &Site, run_id: &str, timeout: Option<u64>) {
-    let mut settings = json!({ "crawl": { "keep_alive": true } });
-    if let Some(timeout) = timeout {
-        settings["timeout"] = json!({ "run": timeout });
-    }
+/// Starts the keep-alive crawl `run_id` of one seed.
+fn start_keep_alive(engine: &mut Attached, site: &Site, run_id: &str) {
+    let settings = json!({ "crawl": { "keep_alive": true } });
     engine.call(
         "start",
         "crawl.start",
@@ -381,16 +377,17 @@ fn start_keep_alive(engine: &mut Attached, site: &Site, run_id: &str, timeout: O
 
 /// A keep-alive crawl on Foxhound's executable (RT-12): once its one seed
 /// is handled, it waits for new work. `crawl.serve` waits for its end
-/// without letting it finish, so its short `timeout.run` stops it; a crawl
-/// without `crawl.keep_alive` would have finished at once.
+/// without letting it finish, so the short `timeout.run` its Connection
+/// sets stops it; a crawl without `crawl.keep_alive` would have finished
+/// at once.
 ///
 /// Covers: story:3-128, setting:crawl.keep_alive, operation:crawl.serve
 #[test]
 fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_timeout() {
     let env = TestEnv::new();
     let site = Site::start(&env);
-    let mut engine = site.engine(&env);
-    start_keep_alive(&mut engine, &site, "waiting", Some(1_000));
+    let mut engine = site.engine_setting(&env, &json!({ "timeout": { "run": 1_000 } }));
+    start_keep_alive(&mut engine, &site, "waiting");
 
     let report = engine.call(
         "serve",
@@ -425,7 +422,7 @@ fn run_finish_ends_a_keep_alive_crawl_on_foxhounds_executable_once_drained() {
     let env = TestEnv::new();
     let site = Site::start(&env);
     let mut engine = site.engine(&env);
-    start_keep_alive(&mut engine, &site, "served", None);
+    start_keep_alive(&mut engine, &site, "served");
     let outcomes = engine.call(
         "outcomes",
         "run.outcomes",

@@ -25,9 +25,10 @@ use crate::daemon_run::{ANY_PORT, Foreground, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// Snapshots a command's `stderr`, this executable's path as `[COLLIE]`.
-fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
-    let values = SnapshotValues::of(env).with_path(COLLIE, "[COLLIE]");
+/// Snapshots a command's `stderr` under `values`, this executable's path as
+/// `[COLLIE]`.
+fn stderr_snapshot(values: SnapshotValues, name: &str, stderr: &str) {
+    let values = values.with_path(COLLIE, "[COLLIE]");
     snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
@@ -141,31 +142,6 @@ fn a_command_with_no_lasting_value_runs_attached_unless_a_daemon_runs() {
     );
 }
 
-/// Under `--daemon`, a Daemon that refuses the command's protocol version
-/// and cannot hand over ends the command with exit `11` and a `fix` naming
-/// this executable's `daemon restart` by its path (ADR 0098), read from the
-/// Scripted engine playing the Daemon (ADR 0069).
-///
-/// Covers: story:11-213, command:run.start, error:protocol_version_unsupported
-#[test]
-fn under_daemon_a_daemon_refusing_the_version_fails_with_exit_11_and_its_daemon_restart() {
-    let env = TestEnv::new();
-    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
-
-    let output = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first", "--daemon"])
-        .run()
-        .unwrap();
-    scripted.child().wait().unwrap();
-
-    assert_eq!(
-        (output.exit, output.stdout.as_str()),
-        (Some(11), ""),
-        "{output}"
-    );
-    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
-}
-
 /// With neither flag, a Daemon that refuses the protocol version of a
 /// command with no value outliving it, and cannot hand over, leaves it to
 /// an Attached engine, after a warning that names the refusal and its fix,
@@ -228,7 +204,11 @@ fn by_default_a_daemon_refusing_the_version_ends_a_lasting_command_with_exit_11(
         (Some(11), "", false),
         "{output}"
     );
-    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
+    stderr_snapshot(
+        SnapshotValues::of(&env),
+        "run_start_refused_version",
+        &output.stderr,
+    );
 }
 
 /// A runtime file whose Daemon died is replaced: a command whose value
@@ -270,6 +250,9 @@ fn a_dead_pid_in_the_runtime_file_is_replaced_by_the_daemon_a_command_starts() {
 fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
     let env = TestEnv::new();
     let scripted = scripted_daemon(&env, "daemon/cli-run-start-dropped.json");
+    // A Unix socket in the test's folder on Unix, loopback TCP on Windows
+    // (ADR 0024): one snapshot names either as `[DAEMON]`.
+    let endpoint = RuntimeFile::read(&runtime_file(&env)).unwrap().endpoint;
 
     let output = cli(&env, COLLIE)
         .args(["run", "start", "--run-id", "first", "--daemon"])
@@ -282,7 +265,11 @@ fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
         (Some(8), ""),
         "{output}"
     );
-    stderr_snapshot(&env, "run_start_connection_dropped", &output.stderr);
+    stderr_snapshot(
+        SnapshotValues::of(&env).with_path(&endpoint.to_string(), "[DAEMON]"),
+        "run_start_connection_dropped",
+        &output.stderr,
+    );
 }
 
 /// No command takes the Daemon's token as a flag, so a token never sits in

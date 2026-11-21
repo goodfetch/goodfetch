@@ -8,9 +8,8 @@ import {
   LimitRaiseRefusedError,
   LimitReachedError,
   SettingInvalidError,
-  type Logger,
 } from "@goodfetch/collie";
-import { failure, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
 describe("Limits in code on the Scripted engine as the Attached engine", () => {
@@ -38,7 +37,7 @@ describe("Limits in code on the Scripted engine as the Attached engine", () => {
       await collie.close();
 
       await clientCase.check("the Run started and finished under its Limits", () =>
-        expect(report).toMatchObject({ run_id: "capped", lifecycle: "finished" }),
+        expect(report).toMatchObject({ runId: "capped", lifecycle: "finished" }),
       );
       await clientCase.check(
         "the engine read each Limit as the script expects, so it wrote no failure",
@@ -181,10 +180,10 @@ describe("Limits in code on the Scripted engine as the Attached engine", () => {
         expect(report).toMatchObject({
           lifecycle: "stopped",
           completeness: "incomplete",
-          stop_reason: {
+          stopReason: {
             kind: "limit",
             scope: { kind: "run", id: "capped" },
-            usage_kind: "proxy_bytes",
+            usageKind: "proxy_bytes",
             currency: "USD",
           },
         }),
@@ -222,17 +221,3 @@ describe("Limits in code on an Attached engine", () => {
     },
   );
 });
-
-/** A host logger that keeps each warning, where the engine's stderr lines go. */
-function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
-  const warned: string[] = [];
-  const logger: Logger = {
-    debug: () => {},
-    info: () => {},
-    warn: (message) => {
-      warned.push(message);
-    },
-    error: () => {},
-  };
-  return { logger, warned };
-}

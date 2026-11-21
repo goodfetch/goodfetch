@@ -14,6 +14,9 @@ packages:
   # The handled scenario's Foxhound program (issue 2317), on Foxhound's own
   # SDK.
   - xtask/compare-foxhound
+  # The library Foxhound's tests use (story 11-180), a package of its own so
+  # that pnpm reads its peer dependency on the Collie client package.
+  - sdks/typescript/foxhound/tests/libraries/*
 
 overrides:
   # The Allure report (`allure`, its `@allurereport/core` and `ci`) takes
@@ -21,6 +24,14 @@ overrides:
   # fixed in 14.0.2; it has no release that takes glob 14 (#1785). Remove
   # once its range resolves to 14.0.2 or later.
   "glob@>=9.0.0 <14.0.2": 14.0.3
+  # StrykerJS 10.1.1 (`@stryker-mutator/core`, its newest) takes minimatch
+  # ~10.2.4, and no 10.x fixes GHSA-g3hv-75wg-m249 (fixed in 11.0.1, whose
+  # `minimatch` and `Minimatch` it calls are unchanged). Through
+  # typed-rest-client ~2.3.0 it takes qs 6.15.1, which has GHSA-4mjr-xmp4-gh2g
+  # and three others, fixed in 6.16.1. Remove each once StrykerJS's range
+  # resolves to a fixed version.
+  "@stryker-mutator/core>minimatch": 11.0.3
+  "typed-rest-client>qs": 6.17.1
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).

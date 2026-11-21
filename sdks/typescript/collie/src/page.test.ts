@@ -2,7 +2,7 @@
 // of the shared corpus over the in-memory transport. The script fails the
 // test on a message it does not expect and on a step left unused, so a
 // member that sent a second request, or none, fails here.
-import type { Page, PageField } from "@goodfetch/collie-client";
+import type { Page, PageField, PageResponse } from "@goodfetch/collie-client";
 import { failure, playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, expectTypeOf } from "vitest";
 import { fillTheForm } from "../tests/programs/form.ts";
@@ -58,6 +58,31 @@ describe("a Run's page", () => {
   );
 
   test(
+    "answers a navigation's Response, or null when it has none, and an evaluation's value",
+    { tags: ["story:11-84"] },
+    async () => {
+      const { collie, played } = await collieOn("page/navigations.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const missing = await page.goto("https://shop.test/missing");
+      const reloaded = await page.reload();
+      const answered = await page.evaluate("6 * 7");
+      const undefinedAnswer = await page.evaluate("undefined");
+
+      expect(missing).toMatchObject({ status: 404, url: "https://shop.test/missing" });
+      expect(reloaded).toBeNull();
+      expect(answered).toBe(42);
+      expect(undefinedAnswer).toBeNull();
+      expectTypeOf<Awaited<ReturnType<Page["goto"]>>>().toEqualTypeOf<PageResponse | null>();
+      await page.close();
+      await run.finish();
+      await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "refuses a call on a closed page with closed, sending nothing",
     { tags: ["story:11-77", "error:closed"] },
     async () => {
@@ -108,11 +133,8 @@ describe("a Run's page", () => {
         code: "setting_invalid",
         group: "program",
         fix: expect.stringContaining("`timeout: null`"),
-        details: {
-          key: "timeout.navigation",
-          layer: "run",
-          limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
-        },
+        limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
+        details: { key: "timeout.navigation", layer: "run" },
       });
       await page.close();
       await run.finish();
@@ -170,17 +192,17 @@ describe("a Session's Access mode", () => {
       const { collie, played } = await collieOn("page/access-mode-refused.json");
       const run = await collie.start();
 
-      const item = await failure(run.newSession({ settings: { stealth: { human_input: true } } }));
+      const item = await failure(run.newSession({ settings: { stealth: { humanInput: true } } }));
       const beside = await failure(
         run.newSession({
           settings: {
-            browser: { access_mode: "standard" },
-            stealth: { fingerprint_method: "basic" },
+            browser: { accessMode: "standard" },
+            stealth: { fingerprintMethod: "basic" },
           },
         }),
       );
       const unbuilt = await failure(
-        run.newSession({ settings: { stealth: { fingerprint_method: "engine" } } }),
+        run.newSession({ settings: { stealth: { fingerprintMethod: "engine" } } }),
       );
 
       expect(item).toMatchObject({
@@ -228,7 +250,7 @@ async function readTwentyFields(page: Page) {
     released: { locator: css("time.released"), transform: { kind: "date", locale: "en" } },
     updated: {
       locator: css("time.updated"),
-      transform: { kind: "date_time", locale: "en", time_zone: "Europe/Paris" },
+      transform: { kind: "date_time", locale: "en", timeZone: "Europe/Paris" },
     },
     image: { locator: css("img.main"), attribute: "src" },
     canonical: { locator: css("link[rel=canonical]"), attribute: "href" },

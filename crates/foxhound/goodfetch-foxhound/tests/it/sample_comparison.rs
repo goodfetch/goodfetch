@@ -16,7 +16,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::fetch_tiers::{engine, settings, tiers};
+use crate::fetch_tiers::{engine, on_auto_from_the_browser, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -121,7 +121,7 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
             ],
         ),
         &json!({ "listing": {}, "leaf": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut |inside, handle| {
             if handle["crawl_request"]["label"] == "listing" {
                 let html = raw_html(inside, handle);
@@ -159,9 +159,9 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
                 .collect::<Vec<_>>(),
             chosen(&env, "sample-listing", &["listing"]),
             chosen(&env, "sample-listing", &["leaf"])
-                .iter()
+                .into_iter()
                 .filter(|line| line.ends_with("compared"))
-                .all(|line| line == "leaf browser_fetch compared"),
+                .collect::<Vec<_>>(),
         ),
         (
             &json!("finished"),
@@ -177,7 +177,9 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
             ]
             .map(str::to_owned)
             .to_vec(),
-            true,
+            // Twelve leaves, three links from each listing's browser run;
+            // the first three are the samples, the nine after are compared.
+            vec!["leaf browser_fetch compared".to_owned(); 9],
         )
     );
 }
@@ -209,7 +211,7 @@ fn a_samples_discarded_http_run_teaches_the_frontier_nothing() {
             ],
         ),
         &json!({ "list": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut |inside, handle| {
             let items = raw_html(inside, handle)
                 .matches("<li class=\"item\">")
@@ -299,7 +301,7 @@ fn records_that_differ_only_in_whitespace_match_and_the_browsers_run_commits_eit
             ],
         ),
         &json!({ "spaced": {}, "tiered": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut |inside, handle| {
             let path = path_of(handle["crawl_request"]["url"].as_str().unwrap());
             let on_http = handle["tier"] == "http";
@@ -370,7 +372,7 @@ fn a_script_redirect_keeps_the_label_on_the_browser() {
             ],
         ),
         &json!({ "moving": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut |inside, handle| {
             let waited = inside.call(
                 "page.wait_for_load_state",
@@ -425,7 +427,7 @@ fn a_sample_count_below_three_is_a_weakened_control() {
         &json!({ "page": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "sample": { "count": 1 } } }),
+            &json!({ "fetch": { "tier": "auto", "http_from": "browser", "sample": { "count": 1 } } }),
         ),
         &mut |_, _| json!({ "result": { "records": [] } }),
     );
@@ -489,6 +491,7 @@ fn a_choice_that_served_its_requests_is_sampled_again() {
             &proving_ground,
             &json!({ "fetch": {
                 "tier": "auto",
+                "http_from": "browser",
                 "sample": { "refresh_after": { "requests": 1, "after": 86_400_000 } },
             } }),
         ),

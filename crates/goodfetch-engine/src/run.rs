@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::Operation;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
     FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
@@ -49,6 +49,7 @@ use goodfetch_protocol::usage::{
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
@@ -64,16 +65,18 @@ use goodfetch_protocol::settings::{
     TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    EndedBy, Forwarded, ListError, Resume, Resumed, RunError, Start, StartError, Started,
-    StorageExhausted,
+    EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
+    StartError, Started, StorageExhausted,
 };
 use crate::secrets::SecretError;
-use crate::settings::{Opening, Resolved, RunSettings, SettingsError};
+use crate::settings::{
+    self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
+};
 
 /// The `run.*` handlers.
 pub(crate) fn handlers() -> [Handler; 14] {
@@ -239,6 +242,7 @@ pub fn start_error(error: StartError) -> CallError {
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
         StartError::Refused(refused) => *refused,
+        StartError::FixedSetting(changed) => changed.into(),
     }
 }
 
@@ -350,6 +354,27 @@ pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError
     translated(error, context.identity(), context.behind_gateway())
 }
 
+/// The run layer of a Run that `context`'s Connection starts or resumes,
+/// from `own`, the settings its call gives: refused when one sets a key
+/// the Run scope does not take, such as `timeout.run`, which only the
+/// Connection sets; otherwise `own` over the Connection's own settings, key
+/// by key (ADR 0083).
+///
+/// # Errors
+///
+/// `setting_not_applicable` for a key outside the Run scope, and
+/// `setting_unknown`, `setting_invalid` or `not_in_product` as reading
+/// `own` refuses it.
+pub fn run_layer(
+    own: &Map<String, Value>,
+    context: &CallContext,
+) -> Result<Map<String, Value>, CallError> {
+    let engine = context.identity().product;
+    let refused = |error: SettingsError| settings_error(&error, context);
+    check_scope(own, SettingScope::Run, engine).map_err(refused)?;
+    beneath_connection(context.connection_settings(), own, engine).map_err(refused)
+}
+
 /// The failure a command of the executable itself answers with for a
 /// refused setting, outside any Connection: no gateway relays it, so a
 /// setting the engine's Product lacks names the install that carries it.
@@ -377,10 +402,54 @@ fn unbuilt(
     )
 }
 
-/// [`settings_error`]'s translation, for the engine `identity` names,
-/// behind Goodfetch Cloud's gateway or not.
-fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
+/// `error`'s message with the setting keys the Client set marked, which the
+/// Client reads in its own form (ADR 0099): the key refused at the Run's
+/// layer where the message first names it, and the closest one an unknown
+/// key gets. A key read from a file or the environment reads as written
+/// there, canonically, as does a key a `fix` names in a file to edit, and
+/// one the catalog lacks, as a Client may write one, as written.
+fn keys_marked(error: &SettingsError) -> String {
     let message = error.to_string();
+    let (layer, keys) = match error {
+        SettingsError::Unknown {
+            key,
+            layer,
+            closest,
+        } => (*layer, [Some(key.as_str()), closest.as_deref()]),
+        SettingsError::Invalid { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
+        SettingsError::NotApplicable { key, layer, .. }
+        | SettingsError::Locked { key, layer, .. }
+        | SettingsError::Unavailable { key, layer, .. } => {
+            (Some(*layer), [Some(key.as_str()), None])
+        }
+        SettingsError::NotInProduct { .. }
+        | SettingsError::Format { .. }
+        | SettingsError::OlderMajorPolicy { .. } => (None, [None, None]),
+    };
+    if layer != Some(SettingsLayer::Run) {
+        return message;
+    }
+    keys.into_iter()
+        .flatten()
+        .filter(|key| settings::setting(key).is_some())
+        .fold(message, |message, key| {
+            message.replacen(
+                &format!("`{key}`"),
+                &format!("`{}`", named::setting(key)),
+                1,
+            )
+        })
+}
+
+/// [`settings_error`]'s translation, for the engine `identity` names,
+/// behind Goodfetch Cloud's gateway or not: the setting its message names,
+/// and the closest one an unknown key gets, in its Client's form (ADR 0099).
+pub(crate) fn translated(
+    error: &SettingsError,
+    identity: &Identity,
+    behind_gateway: bool,
+) -> CallError {
+    let message = keys_marked(error);
     match error {
         SettingsError::Unknown {
             key,
@@ -475,6 +544,26 @@ fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) 
                 fix: "Run `upgrade-files` with this Goodfetch, then try again.".to_owned(),
             },
         ),
+    }
+}
+
+/// `setting_not_applicable` for a start or a resume that changes a key
+/// fixed for the Run's life (ADRs 0102 and 0120): only a new Run takes the
+/// value.
+impl From<FixedSettingChanged> for CallError {
+    fn from(changed: FixedSettingChanged) -> Self {
+        let FixedSettingChanged { run_id, key, layer } = changed;
+        Self::new(
+            &SETTING_NOT_APPLICABLE,
+            format!(
+                "The Run `{run_id}` began with another `{key}`, which is fixed for a Run's life: give the value it began with, or start a new Run under another Run ID to use this one."
+            ),
+            &SettingNotApplicableDetails {
+                key: key.to_owned(),
+                layer,
+                fix: "a new Run".to_owned(),
+            },
+        )
     }
 }
 
@@ -629,6 +718,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::Interrupted(run_id) => interrupted(run_id),
         RunError::Discarding { run_id, folder } => discarding(run_id, &folder),
         RunError::Forwarded(failure) => forwarded(*failure),
+        RunError::FixedSetting(changed) => changed.into(),
         RunError::Stopped => stopped(),
     }
 }
@@ -833,7 +923,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             run: Some(Product::Collie),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
@@ -1021,7 +1111,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run: None,
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
@@ -1105,3 +1195,6 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         .await
         .map_err(|error| run_error(error, &context))
 }
+
+#[cfg(test)]
+mod tests;

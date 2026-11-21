@@ -13,8 +13,9 @@
 //! Which crate holds which type (ADR 0117): this crate holds [`Foxhound`]
 //! and its composition; `goodfetch-collie-client` holds every value a
 //! connection hands out, [`Run`], [`Session`], [`Page`], [`Locator`],
-//! [`Error`] and [`Connection`], the type a helper written for either
-//! Product takes (ADR 0095), which this crate re-exports.
+//! [`Error`] and [`Connection`], the trait both Products' connections
+//! implement, which a helper written for either Product takes (ADRs 0095
+//! and 0099), which this crate re-exports.
 //!
 //! ```
 //! use goodfetch_foxhound::{ConnectOptions, Foxhound};
@@ -42,11 +43,28 @@ mod composition;
 pub mod executable;
 mod foxhound;
 mod sample;
+pub mod settings;
 
 pub use composition::{composition, composition_with};
-pub use foxhound::Foxhound;
-pub use goodfetch_collie::ConnectOptions;
+pub use foxhound::{Foxhound, PAID_FETCHES};
+pub use goodfetch_collie::{
+    ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
+};
 pub use goodfetch_collie_client::{
-    Call, Connection, Error, Locator, Page, Query, Run, Session, Start,
+    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
+    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
+    SchemaError, Session, Start, UsageKind, events, schemars,
+};
+/// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
+/// `error_code::HANDLER_FAILED` equals the code of an error read from the
+/// engine.
+pub use goodfetch_protocol::foxhound::error_code;
+pub use goodfetch_protocol::page::events::PageRequest;
+pub use goodfetch_protocol::page::read::{
+    FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
+    UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
+};

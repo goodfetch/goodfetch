@@ -11,25 +11,27 @@ not expect, `hello` included, and on a step left unused. TypeScript's
 import threading
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import cast
 
 import anyio
 import pytest
 import trio.testing
 from collie_tracer import start_and_finish
+from connection_library import finish_one_run
 from goodfetch_collie import (
     AsyncCollie,
-    CallCancelledError,
-    ClosedError,
+    AsyncConnection,
     Collie,
+    Connection,
     DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
-    EngineOutputInvalidError,
     GoodfetchError,
     NotInProductError,
     Product,
     ProtocolVersionUnsupportedError,
+    SettingInvalidError,
     StartedAs,
 )
 from goodfetch_collie.testing import async_connect_over, connect_over
@@ -55,7 +57,59 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
     return collie, played
 
 
-@pytest.mark.covers("story:11-54")
+@pytest.mark.covers("story:11-179")
+@pytest.mark.parametrize(
+    ("base", "product", "listed"),
+    [
+        pytest.param(
+            AsyncConnection,
+            AsyncCollie,
+            {
+                "call",
+                "close",
+                "engine",
+                "explain_settings",
+                "start",
+                "__aenter__",
+                "__aexit__",
+            },
+            id="async",
+        ),
+        pytest.param(
+            Connection,
+            Collie,
+            {
+                "call",
+                "close",
+                "engine",
+                "explain_settings",
+                "start",
+                "__enter__",
+                "__exit__",
+            },
+            id="sync",
+        ),
+    ],
+)
+def test_extends_the_connection_both_products_share_with_each_of_its_members(
+    base: type[object], product: type[object], listed: set[str]
+) -> None:
+    """Collie's Connection extends the client package's, carrying each member.
+
+    `listed` is what both Products' Connections share, the scoped form's two
+    members included, as TypeScript's `Symbol.asyncDispose` is.
+    """
+    declared = {
+        name
+        for name, member in vars(base).items()
+        if callable(member) or isinstance(member, property)
+    }
+    carried = {name for name in listed if hasattr(product, name)}
+
+    assert (issubclass(product, base), declared, carried) == (True, listed, listed)
+
+
+@pytest.mark.covers("story:11-54", "story:11-179")
 @three_ways
 async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> None:
     """The tracer program runs the same on asyncio, on Trio and through the sync API."""
@@ -94,18 +148,90 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> 
     assert played.done() == Finished()
 
 
+@pytest.mark.covers("story:11-180")
 @three_ways
-async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
+async def test_a_library_on_the_client_package_range_takes_the_programs_connection(
     way: Way,
 ) -> None:
-    """`None` is a value, no timeout; a parameter left out is not sent (ADR 0080).
+    """A library that takes the client package by a range runs on its copy.
 
-    `run/started-and-finished.json` expects `run.finish` with no `timeout`.
+    `connection_library`'s helper, typed for the client package's
+    `AsyncConnection`, finishes a Run on the program's Connection.
     """
-    collie, played = await collie_on(way, "run/finished-with-no-timeout.json")
+    collie, played = await collie_on(way, "run/started-and-finished.json")
+
+    report = await finish_one_run(collie)
+
+    assert not isinstance(report, str)
+    assert report.lifecycle == "finished"
+    await collie.close()
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-180")
+@three_ways
+async def test_a_library_on_the_client_package_range_catches_its_closed_error(
+    way: Way,
+) -> None:
+    """The library's own `except ClosedError` catches what a closed Connection raises.
+
+    It holds only while the program and the library share one copy of the
+    client package.
+    """
+    collie, played = await collie_on(way, "connect/accepted-by-foxhound.json")
+    await collie.close()
+
+    answer = await finish_one_run(collie)
+
+    assert answer == "closed"
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-28", "story:11-40", "story:11-42")
+@three_ways
+async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
+    """`timeout=30_000` is a type error, and refused before it is sent (ADR 0080).
+
+    mypy's `warn_unused_ignores` fails the check once the ignore below
+    silences nothing, so the line is the type test.
+    """
+    collie, played = await collie_on(way, "run/started-and-finished.json")
     run = await collie.start()
 
-    await run.finish(timeout=None)
+    refused = await failure(run.finish(timeout=30_000))  # type: ignore[arg-type]
+    await run.finish()
+    await collie.close()
+
+    assert (
+        type(refused),
+        refused.limit and refused.limit.model_dump(mode="json", exclude_none=True),
+        "`timeout=None`" in (refused.fix or ""),
+    ) == (
+        SettingInvalidError,
+        {"key": "timeout.run", "value": 30_000, "layer": "run", "origin": "argument"},
+        True,
+    )
+    assert played.done() == Finished()
+
+
+@three_ways
+async def test_sends_each_scopes_settings_by_segment_durations_in_milliseconds(
+    way: Way,
+) -> None:
+    """Starting a Run, a Session and a page each send their own settings (ADR 0083).
+
+    A `timedelta` goes in whole milliseconds and `None` as null, which
+    clears; `run/settings-sent-by-scope.json` expects each.
+    """
+    collie, played = await collie_on(way, "run/settings-sent-by-scope.json")
+    run = await collie.start(
+        settings={
+            "timeout": {"navigation": timedelta(seconds=30)},
+            "checkpoint": {"interval": None},
+        }
+    )
+    session = await run.new_session(settings={"browser": {"access_mode": "stealth"}})
+    await session.new_page(settings={"content": {"extractor": "trafilatura"}})
     await collie.close()
 
     assert played.done() == Finished()
@@ -168,7 +294,11 @@ async def test_reports_the_engine_it_reached_of_either_product(way: Way) -> None
         product=Product.foxhound,
         version="0.0.0",
         protocol_version="0.1",
+        project_file=None,
+        home=None,
         engine_path=None,
+        url=None,
+        fallback=None,
     )
     assert played.done() == Finished()
 
@@ -264,24 +394,38 @@ async def test_aborts_a_run_once_when_two_closes_run_at_once(way: Way) -> None:
     assert played.done() == Finished()
 
 
-@three_ways
-async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
-    way: Way,
-) -> None:
-    """Closing is idempotent; a call on a closed Run or Connection fails `closed`."""
-    collie, played = await collie_on(way, "run/closed-while-running.json")
-    run = await collie.start(run_id="nightly", tags=["shop"])
+@pytest.mark.covers(
+    "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
+)
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "anyio_backend",
+    # Trio's clock jumps ahead whenever every task waits; the sync way's
+    # private loop keeps real time.
+    [
+        pytest.param(
+            ("trio", {"clock": trio.testing.MockClock(autojump_threshold=0)}), id="trio"
+        )
+    ],
+)
+async def test_fails_the_connect_once_timeout_connects_default_passes() -> None:
+    """With `timeout` left out, an unanswered `hello` fails it after 30 s."""
+    played = play_script("sdk-python/connect/hello-never-answered.json")
 
-    await run.close()
-    await run.close()
-    await collie.close()
-    await collie.close()
+    error = await failure(async_connect_over(played.transport))
 
-    finished = await failure(run.finish())
-    started = await failure(collie.start())
-    assert isinstance(finished, ClosedError)
-    assert isinstance(started, ClosedError)
-    assert (finished.group, started.group) == ("program", "program")
+    assert isinstance(error, DeadlineExceededError)
+    assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.connect",
+        "value": 30_000,
+        "layer": "default",
+    }
+    assert error.details == {
+        "elapsed": 30_000,
+        "waited_for": "hello",
+    }
     assert played.done() == Finished()
 
 
@@ -306,81 +450,16 @@ async def test_gives_up_on_a_runs_abort_once_timeout_close_passes() -> None:
 
     assert isinstance(error, DeadlineExceededError)
     assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.close",
+        "value": 30_000,
+        "layer": "default",
+    }
     assert error.details == {
-        "limit": {"key": "timeout.close", "value": 30_000, "layer": "default"},
         "elapsed": 30_000,
         "waited_for": "close",
     }
-    assert played.done() == Finished()
-
-
-@three_ways
-async def test_fails_a_call_in_flight_when_it_closes_as_cancelled_by_its_client(
-    way: Way,
-) -> None:
-    """The close cancels the call in flight, which fails with `call_cancelled`."""
-    collie, played = await collie_on(way, "connect/closed-during-a-call.json")
-    errors: list[GoodfetchError] = []
-
-    async def start() -> None:
-        errors.append(await failure(collie.start()))
-
-    async with anyio.create_task_group() as calls:
-        calls.start_soon(start)
-        await until_sent(played, "run.start")
-        await collie.close()
-
-    [error] = errors
-    assert isinstance(error, CallCancelledError)
-    assert (error.code, error.group) == ("call_cancelled", "unavailable")
-    assert error.details == {"by": "client"}
-    assert played.done() == Finished()
-
-
-@three_ways
-async def test_runs_beside_another_connection_in_the_same_process(way: Way) -> None:
-    """Two Connections are independent: each runs the tracer to its end."""
-    first, first_played = await collie_on(way, "run/started-and-finished.json")
-    second, second_played = await collie_on(way, "run/started-and-finished.json")
-    lifecycles: list[str] = []
-
-    async def trace(collie: AsyncCollie) -> None:
-        lifecycles.append((await start_and_finish(collie)).report.lifecycle)
-
-    async with anyio.create_task_group() as tracers:
-        tracers.start_soon(trace, first)
-        tracers.start_soon(trace, second)
-
-    assert lifecycles == ["finished", "finished"]
-    assert (first_played.done(), second_played.done()) == (Finished(), Finished())
-
-
-@three_ways
-async def test_connects_again_after_a_close(way: Way) -> None:
-    """A closed Connection never reopens, and a new one opens beside it."""
-    first, first_played = await collie_on(way, "connect/accepted-by-foxhound.json")
-    await first.close()
-
-    second, second_played = await collie_on(way, "run/started-and-finished.json")
-    traced = await start_and_finish(second)
-
-    assert traced.report.lifecycle == "finished"
-    assert (first_played.done(), second_played.done()) == (Finished(), Finished())
-
-
-@three_ways
-async def test_ends_when_the_engine_writes_a_line_that_is_not_json_rpc(
-    way: Way,
-) -> None:
-    """The call fails with `engine_output_invalid`, quoting the line."""
-    collie, played = await collie_on(way, "connect/garbage-during-a-call.json")
-
-    error = await failure(collie.start())
-    await collie.close()
-
-    assert isinstance(error, EngineOutputInvalidError)
-    assert (error.code, error.group) == ("engine_output_invalid", "internal")
-    assert error.details == {"line": "INFO engine started"}
     assert played.done() == Finished()
 
 
@@ -421,9 +500,13 @@ async def test_the_sync_collie_runs_inside_a_running_event_loop() -> None:
 def test_threads_share_one_collie_and_its_runs() -> None:
     """A Collie and its Run serve any thread, and the close joins its private thread."""
     played = play_script("sdk-python/run/started-and-finished.json")
+    # Only this Collie's thread: one an earlier test left open is not its own.
+    earlier = set(threading.enumerate())
     collie = connect_over(played.transport)
     private = {
-        thread for thread in threading.enumerate() if thread.name == "goodfetch-collie"
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "goodfetch-collie" and thread not in earlier
     }
 
     with ThreadPoolExecutor(4) as pool:
@@ -496,24 +579,107 @@ async def test_fails_connect_when_no_platform_wheel_is_installed_naming_it(
     )
 
 
-@pytest.mark.covers("story:11-2", "error:setting_invalid")
+@pytest.mark.covers("story:11-2", "story:11-73", "error:setting_invalid")
+@pytest.mark.parametrize("variable", ["GOODFETCH_COLLIE_ENGINE_PATH", "GOODFETCH_URL"])
 @three_ways
-async def test_fails_connect_when_its_engine_path_is_set_but_empty(
-    way: Way,
+async def test_fails_connect_when_a_deployment_variable_is_set_but_empty(
+    way: Way, variable: str
 ) -> None:
     """An empty value is never taken for unset (ADR 0083)."""
-    error = await connect_failure(way, {"GOODFETCH_COLLIE_ENGINE_PATH": ""})
+    error = await connect_failure(way, {variable: ""})
+
+    assert summary(error) == {
+        "code": "setting_invalid",
+        "group": "program",
+        "fix": f"Set {variable} to a non-empty Unicode value, or unset it.",
+        "details": {"key": variable, "reason": "it is empty; unset it instead"},
+    }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_invalid")
+@three_ways
+async def test_fails_connect_when_a_deployment_variable_is_no_unicode(
+    way: Way,
+) -> None:
+    """A byte `os.environ` could not decode is refused, not passed on."""
+    error = await connect_failure(way, {"GOODFETCH_HOME": "/home/\udcff"})
+
+    assert summary(error)["details"] == {
+        "key": "GOODFETCH_HOME",
+        "reason": "it is not Unicode",
+    }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_unknown")
+@three_ways
+async def test_fails_connect_on_a_goodfetch_variable_off_the_list(
+    way: Way,
+) -> None:
+    """The `GOODFETCH_` prefix is reserved: the closest variable is named."""
+    error = await connect_failure(way, {"GOODFETCH_HOEM": "/home/goodfetch"})
+
+    assert str(error) == (
+        "`GOODFETCH_HOEM` in the environment is no deployment variable; "
+        "did you mean `GOODFETCH_HOME`?"
+    )
+    assert summary(error) == {
+        "code": "setting_unknown",
+        "group": "program",
+        "fix": "Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.",
+        "details": {"key": "GOODFETCH_HOEM", "closest": "GOODFETCH_HOME"},
+    }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_unknown")
+@three_ways
+async def test_fails_connect_on_a_goodfetch_variable_close_to_none_naming_none(
+    way: Way,
+) -> None:
+    """A name far from every deployment variable gets no `closest`."""
+    error = await connect_failure(way, {"GOODFETCH_TELEMETRY": "1"})
+
+    assert error.code == "setting_unknown"
+    assert error.details == {"key": "GOODFETCH_TELEMETRY"}
+
+
+@pytest.mark.covers("story:11-2", "error:setting_invalid")
+@three_ways
+async def test_fails_connect_when_its_listener_queue_takes_no_event(
+    way: Way,
+) -> None:
+    """A bound under 1 fails before any engine starts, naming the option."""
+    error = await failure(
+        way.open(
+            lambda: AsyncCollie.connect(env={}, max_listener_queue=0),
+            lambda: Collie.connect(env={}, max_listener_queue=0),
+        )
+    )
 
     assert summary(error) == {
         "code": "setting_invalid",
         "group": "program",
         "fix": (
-            "Set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable, "
-            "goodfetch-collie, or leave it unset to use the one goodfetch-collie "
-            "installed."
+            "Pass max_listener_queue a whole number of 1 or more, or leave it "
+            "out for its default of 1024."
         ),
         "details": {
-            "key": "GOODFETCH_COLLIE_ENGINE_PATH",
-            "reason": "an empty value names no executable",
+            "key": "max_listener_queue",
+            "reason": "0 is no whole number of 1 or more",
         },
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.covers("story:11-181")
+async def test_cancels_a_raw_call_with_the_task_it_runs_in() -> None:
+    """Cancelling its task cancels the raw call: `$/cancel` reaches the engine."""
+    played = play_script("sdk-python/connect/raw-call-cancelled.json")
+    collie = await async_connect_over(played.transport)
+
+    async with anyio.create_task_group() as calls:
+        calls.start_soon(collie.call, "run.list", {"lifecycle": "running"})
+        await until_sent(played, "run.list")
+        calls.cancel_scope.cancel()
+    await collie.close()
+
+    assert played.done() == Finished()

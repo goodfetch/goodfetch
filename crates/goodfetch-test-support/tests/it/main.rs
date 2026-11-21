@@ -216,13 +216,31 @@ fn probe(env: &TestEnv, name: &str) -> std::process::Command {
     command
 }
 
-/// Starts the OS's own shell on a script: `sh` on Unix, `cmd` on Windows.
-fn shell(env: &TestEnv, unix: &str, windows: &str) -> Process {
-    let mut command = if cfg!(windows) {
+/// Starts the OS's own shell on a script: `sh` on Unix, `cmd` on Windows,
+/// which reads its command line as it is: an argument quoted the C runtime's
+/// way would reach it with its quotes escaped.
+fn shell(
+    env: &TestEnv,
+    #[cfg_attr(
+        windows,
+        expect(unused_variables, reason = "`cmd` runs the Windows script")
+    )]
+    unix: &str,
+    #[cfg_attr(
+        not(windows),
+        expect(unused_variables, reason = "`sh` runs the Unix script")
+    )]
+    windows: &str,
+) -> Process {
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt as _;
         let mut command = env.process_command(&env.env()["ComSpec"]);
-        command.args(["/C", windows]);
+        command.arg("/C").raw_arg(windows);
         command
-    } else {
+    };
+    #[cfg(not(windows))]
+    let mut command = {
         let mut command = env.process_command("/bin/sh");
         command.args(["-c", unix]);
         command

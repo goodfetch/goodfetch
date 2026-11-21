@@ -7,13 +7,13 @@
 //! group left as it was.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_frontier::sitemap;
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Changes;
 use rusqlite::Connection;
 
@@ -34,7 +34,7 @@ pub(crate) enum Ending {
         work_item: String,
         lease_epoch: u64,
         unsuccessful: Unsuccessful,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     },
     /// Its sitemap's `document` is read, its entries admitted under the
     /// Run's domain policy `egress` and within its `invariants` (ADR 0093),
@@ -113,7 +113,7 @@ impl Outcome {
         let ended = match ending {
             Ending::Commit { commit, refused } => {
                 let (work_item, lease_epoch) = commit.attempt();
-                let (work_item, ended_at) = (work_item.to_owned(), commit.ended_at().clone());
+                let (work_item, ended_at) = (work_item.to_owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => Ended::Committed(committed),
                     Some(Err(refusal)) => end(
@@ -175,7 +175,7 @@ pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<Ended> {
     let (recorded, again) = match &unsuccessful {

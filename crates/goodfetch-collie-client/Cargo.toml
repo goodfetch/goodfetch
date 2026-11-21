@@ -13,7 +13,17 @@ publish.workspace = true
 [dependencies]
 # The Base64 of the `$/chunk` notifications a Daemon streams a file in.
 data-encoding.workspace = true
+# The encodings a Response's `text()` decodes a body in (ADR 0119).
+encoding_rs.workspace = true
+# The Encoding a body declares in its own bytes, read as Chrome reads it,
+# as the fetch tiers read it (ADR 0119).
+goodfetch-encoding.workspace = true
+# The Stream trait an EventStream implements (ADR 0081).
+futures-core.workspace = true
 goodfetch-protocol.workspace = true
+# The schemas of a program's own types, re-exported so that its derive's
+# version is the SDK's (ADR 0082).
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # The hidden temporary file a saved file is written to (ADR 0116).
@@ -22,7 +32,15 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
+# The callsites an engine's `$/log` events are re-emitted through, under
+# targets known only when they arrive (ADR 0078).
+tracing-core.workspace = true
 goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The name of the signal that ended an Attached engine, which
+# `engine_exited` carries (ADR 0078).
+libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The hidden attribute of a saved file's temporary file (ADR 0116).
@@ -33,7 +51,12 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 # in-memory network (ADR 0060).
 goodfetch-engine.workspace = true
 goodfetch-runtime.workspace = true
+# The Rust runner's case-log writer, which the `daemon` plays of the client
+# conformance cases append their entries through (ADR 0069).
+goodfetch-conformance.workspace = true
 goodfetch-test-support.workspace = true
+proptest.workspace = true
+rstest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 trybuild.workspace = true

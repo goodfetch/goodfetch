@@ -5,13 +5,13 @@
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
-    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
-    needs_you, ops, page, politeness, response_limits, run, sample, secrets, security, settings,
-    site_preferences, storage, tls, usage, versions,
+    engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
+    needs_you, ops, page, plugin, politeness, response_limits, run, sample, secrets, security,
+    settings, site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 52] = [
+pub const MODULES: [&Entries; 56] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -31,6 +31,7 @@ pub const MODULES: [&Entries; 52] = [
     &page::proxy::ENTRIES,
     &page::access_mode::ENTRIES,
     &page::signing_key::ENTRIES,
+    &page::cdp_url::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
@@ -49,10 +50,13 @@ pub const MODULES: [&Entries; 52] = [
     &politeness::ENTRIES,
     &site_preferences::ENTRIES,
     &block::ENTRIES,
+    &hook::ENTRIES,
+    &plugin::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
+    &foxhound::hook::ENTRIES,
     &foxhound::dataset::ENTRIES,
     &foxhound::dataset_view::ENTRIES,
     &foxhound::export::ENTRIES,
@@ -231,7 +235,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 91] = [
+    const COLLIE: [&str; 92] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -291,6 +295,7 @@ mod tests {
         "signing_key.create",
         "signing_key.directory",
         "run.start",
+        "run.started_as",
         "run.finish",
         "run.stop",
         "run.abort",

@@ -76,7 +76,7 @@ mod readers;
 pub mod run_row;
 mod wal_checkpointer;
 
-pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
+pub use batch::{BatchRows, BatchStatement, BatchWriter, SealedBatch};
 pub use batch_end::BatchEnd;
 pub(crate) use readers::RunStateReaders;
 
@@ -119,6 +119,7 @@ const SCHEMA: &[&str] = &[
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
+        fixed_settings TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,

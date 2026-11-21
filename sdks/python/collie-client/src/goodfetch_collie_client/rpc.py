@@ -9,18 +9,20 @@ while it waits sends `$/cancel` with its id. When the engine's side ends,
 the owner says which error every call still waiting fails with, and every
 later call fails with it too. A stream is a call whose notifications, such
 as `$/chunk`, name its id: the reader hands each to the stream's listener,
-and the caller grants credits with `notify`. TypeScript's `rpc.ts` is its
-twin; served requests and the channel's bounds come with the tickets that
-use them.
+and the caller grants credits with `notify`; a notification that names no
+call, such as the engine's `$/log`, goes to the owner. TypeScript's `rpc.ts`
+is its twin; served requests and the channel's bounds come with the tickets
+that use them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, cast
 
 import anyio
 
+from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.framing import (
     Failure,
     Invalid,
@@ -33,8 +35,11 @@ from goodfetch_collie_client.framing import (
 )
 from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
+    ERROR_GROUP_OF_PROTOCOL_FAILURE,
     ERROR_GROUP_OF_WIRE_CLASS,
 )
+from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
+from goodfetch_collie_client.goodfetch_error import GoodfetchError, in_call
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -42,7 +47,13 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
 
     from goodfetch_collie_client.generated.errors import ErrorGroup
-    from goodfetch_collie_client.goodfetch_error import ErrorClass, GoodfetchError
+    from goodfetch_collie_client.goodfetch_error import (
+        BaseGoodfetchError,
+        ErrorClass,
+        ErrorFields,
+    )
+
+_Field = TypeVar("_Field")
 
 METHOD_NOT_FOUND = -32601
 """JSON-RPC's code for a method the receiver does not serve."""
@@ -85,6 +96,13 @@ class ChannelOwner(Protocol):
         """The error each call still waiting, and every later one, fails with."""
         ...
 
+    def notified(self, method: str, params: object) -> None:
+        """Hears a notification that names no call, such as the engine's `$/log`.
+
+        It runs on the reading task, so it must not block.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class _Answered:
@@ -93,7 +111,9 @@ class _Answered:
 
 @dataclass(frozen=True)
 class _Raised:
-    error: GoodfetchError
+    error: BaseGoodfetchError
+    answered: bool = False
+    """Whether the engine answered with it, rather than the runtime raising it."""
 
 
 @dataclass(eq=False)
@@ -143,6 +163,9 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
+                answered `attempt_ended`, whose class is outside `Exception`
+                (ADR 0093).
         """
         return await self.stream(method, params, None)
 
@@ -163,9 +186,12 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
+                answered `attempt_ended`, whose class is outside `Exception`
+                (ADR 0093).
         """
         if self._failure is not None:
-            raise self._failure
+            raise in_call(self._failure, method)
         message_id = self._next_id
         self._next_id += 1
         waiter = _Waiter()
@@ -187,7 +213,7 @@ class Channel:
         finally:
             self._listeners.pop(message_id, None)
         if isinstance(outcome, _Raised):
-            raise outcome.error
+            raise outcome.error if outcome.answered else in_call(outcome.error, method)
         return outcome.result
 
     async def notify(self, method: str, params: object) -> None:
@@ -244,7 +270,9 @@ class Channel:
             outcome = await self._wait_for(drainer)
         finally:
             self._drainers.remove(drainer)
-        if not isinstance(outcome, _Raised):
+        if not isinstance(outcome, _Raised) or not isinstance(
+            outcome.error, GoodfetchError
+        ):
             message = "invariant: a channel ends with the error later calls fail with"
             raise TypeError(message)
         return outcome.error
@@ -314,6 +342,7 @@ class Channel:
         members = object_members(notification.params)
         stream_id = None if members is None else members.get("id")
         if not isinstance(stream_id, int) or isinstance(stream_id, bool):
+            self._owner.notified(notification.method, notification.params)
             return
         listener = self._listeners.get(stream_id)
         if listener is not None:
@@ -329,7 +358,8 @@ class Channel:
         if isinstance(reply, Result):
             waiter.settle(_Answered(reply.result))
         else:
-            waiter.settle(_Raised(error_of_reply(reply.error, self._error_classes)))
+            error = error_of_reply(reply.error, self._error_classes)
+            waiter.settle(_Raised(error, answered=True))
 
     async def _write(self, message: Mapping[str, object]) -> None:
         data = encode_message(message)
@@ -365,30 +395,92 @@ class Channel:
 
 def error_of_reply(
     error: Mapping[str, object], classes: Mapping[str, ErrorClass]
-) -> GoodfetchError:
+) -> BaseGoodfetchError:
     """The exception an engine's error reply stands for.
 
-    A known Error code gets its class; an unknown one gets its group's class,
-    named by the reply's wire class, or `internal`'s.
+    A known Error code gets its class, a `GoodfetchError` but for
+    `attempt_ended`'s (ADR 0093); an unknown one gets its group's class,
+    named by the reply's wire class or, for a failure of the protocol
+    itself, the code JSON-RPC predefines that it takes (ADR 0079), or
+    `internal`'s.
     """
     message = error.get("message")
     text = message if isinstance(message, str) else "the engine failed the call"
     details = object_members(error.get("data")) or {}
     code = details.pop("code", None)
     retryable = details.pop("retryable", None)
-    fix_value = details.pop("fix", None)
-    fix = fix_value if isinstance(fix_value, str) else None
+    fields = _fields_of_data(details)
     if isinstance(code, str) and code in classes:
-        return classes[code](text, fix=fix, details=details)
+        return classes[code](text, **fields)
     wire = error.get("code")
     group: ErrorGroup = "internal"
     if isinstance(wire, int) and not isinstance(wire, bool):
-        group = ERROR_GROUP_OF_WIRE_CLASS.get(wire, "internal")
+        group = ERROR_GROUP_OF_WIRE_CLASS.get(
+            wire, ERROR_GROUP_OF_PROTOCOL_FAILURE.get(wire, "internal")
+        )
     return ERROR_GROUP_CLASSES[group](
         text,
         code=code if isinstance(code, str) else "internal",
         group=group,
         retryable=retryable is True,
-        fix=fix,
-        details=details,
+        **fields,
     )
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _lines(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    lines = [line for line in cast("list[object]", value) if isinstance(line, str)]
+    return lines if len(lines) == len(cast("list[object]", value)) else None
+
+
+def _setting_limit(value: object) -> SettingLimit | None:
+    members = object_members(value)
+    if members is None or not (
+        isinstance(members.get("key"), str) and isinstance(members.get("layer"), str)
+    ):
+        return None
+    return result_of(SettingLimit, members)
+
+
+def _model_usage(value: object) -> ModelUsage | None:
+    members = object_members(value)
+    return None if members is None else result_of(ModelUsage, members)
+
+
+def _take(
+    data: dict[str, object], key: str, read: Callable[[object], _Field | None]
+) -> _Field | None:
+    """`data[key]` read as its field, taken out of `data` when it has the shape."""
+    field = read(data.get(key))
+    if field is not None:
+        del data[key]
+    return field
+
+
+def _fields_of_data(data: dict[str, object]) -> ErrorFields:
+    """The fields every error carries, taken out of a reply's `data`.
+
+    What stays in `data` is the code's own details. A code's details may use
+    a field's name for something else, such as `response_limit_exceeded`'s
+    byte count as `limit`: a value without the field's shape stays in them.
+    `limit` and `usage` are built unvalidated, as every result is.
+    """
+    return {
+        "fix": _take(data, "fix", _text),
+        "operation": _take(data, "operation", _text),
+        "call_id": _take(data, "call_id", _text),
+        "run_id": _take(data, "run_id", _text),
+        "target": _take(data, "target", _text),
+        "url": _take(data, "url", _text),
+        "observed": _take(data, "observed", _text),
+        "limit": _take(data, "limit", _setting_limit),
+        "call_log": _take(data, "call_log", _lines) or [],
+        "usage": _take(data, "usage", _model_usage),
+        "agent_task": _take(data, "agent_task", object_members),
+        "details": data,
+    }

@@ -57,6 +57,14 @@ pub(crate) struct Entry {
 /// lint.
 const LINT_DOCUMENTS: &str = "lint-documents";
 
+/// xtask's codegen tests, `tests/` tests the Quick suite never runs, when
+/// the change reaches what only they check (`xtask affected`'s
+/// `codegen-tests=true`): the quick form's last entry, so a change to the
+/// emitter or to the protocol files their fixture copies cannot merge on the
+/// quick gate with them red (issue 2892). The full form's Pre-merge suite
+/// runs them with every other test.
+const CODEGEN_TESTS: &str = "codegen-tests";
+
 /// The entries `form` runs, in their order.
 pub(crate) fn entries(form: Form) -> Vec<Entry> {
     let command = |name| Entry {
@@ -76,8 +84,10 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
             just: just(step, form),
         });
     }
-    if form == Form::Docs {
-        entries.push(command(LINT_DOCUMENTS));
+    match form {
+        Form::Docs => entries.push(command(LINT_DOCUMENTS)),
+        Form::Quick => entries.push(command(CODEGEN_TESTS)),
+        Form::All | Form::Changed => {}
     }
     entries
 }

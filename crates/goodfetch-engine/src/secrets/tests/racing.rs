@@ -25,6 +25,7 @@ use keyring_core::{CredentialStore, Entry, Error};
 use secrecy::ExposeSecret as _;
 
 use super::{driver_with, for_the_key, reference};
+use crate::mask::Redaction;
 use crate::secrets::Keychain;
 
 /// How long a reader that found the item missing waits for the other
@@ -155,7 +156,7 @@ fn two_engines_that_make_the_default_key_at_once_both_use_the_one_key_stored() {
         move || {
             let runtime = goodfetch_test_support::runtime();
             runtime.block_on(secrets.make_key(key)).unwrap();
-            let resolving = secrets.for_run(Duration::from_secs(30));
+            let resolving = secrets.for_run_with(Duration::from_secs(30), Redaction::On);
             runtime
                 .block_on(resolving.resolve(key, &for_the_key(None, &[])))
                 .unwrap()

@@ -16,6 +16,9 @@ autobenches = false
 # Its own commands, which take the command line's and the Export's
 # dependencies.
 executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "dep:serde", "dep:serde_json", "goodfetch-collie/executable"]
+# The program's OpenTelemetry context in each request it sends (ADR 0132),
+# read as Collie's SDK reads it, whose connection Foxhound's opens.
+opentelemetry = ["goodfetch-collie/opentelemetry"]
 
 [dependencies]
 # Its own commands' flags (`crawl start`, `run export`).
@@ -45,6 +48,9 @@ goodfetch-workspace-hack.workspace = true
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
+# A library that takes the Collie client crate by a semver range, as a
+# library serving both Products does (tests/it/sdk.rs, story 11-180).
+connection-library = { path = "tests/libraries/connection-library" }
 goodfetch-test-client.workspace = true
 goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true

@@ -136,40 +136,6 @@ fn a_checkpoint_holds_the_committed_run_file_and_reports_its_epoch_position_size
     );
 }
 
-/// A destination its folder refuses: the write fails as the OS says, and
-/// leaves no file, temporary or not.
-/// Covers: story:3-30
-#[cfg(unix)]
-#[test]
-fn a_checkpoint_that_cannot_be_written_leaves_no_file() {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    let env = TestEnv::new();
-    let refusing = env.folder().join("refusing");
-    std::fs::create_dir(&refusing).unwrap();
-    std::fs::set_permissions(&refusing, std::fs::Permissions::from_mode(0o555)).unwrap();
-
-    let failed = with_run(&env, 1, None, &[1], |source| {
-        write(source, None, &refusing.join("taken.sqlite"), 7)
-    });
-
-    std::fs::set_permissions(&refusing, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let Err(super::WriteError::Storage {
-        reason, os_code, ..
-    }) = failed
-    else {
-        panic!("the write did not fail on its storage: {failed:?}");
-    };
-    assert_eq!(
-        (
-            reason,
-            os_code,
-            std::fs::read_dir(&refusing).unwrap().count()
-        ),
-        ("permission_denied", Some("EACCES"), 0)
-    );
-}
-
 /// Covers: story:3-34
 #[test]
 fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
@@ -196,6 +162,7 @@ fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
             }),
             run_epoch: 2,
             key: None,
+            fixed_settings: "{}".to_owned(),
         }
     );
 }

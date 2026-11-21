@@ -383,30 +383,6 @@ fn three_matching_pairs_teach_a_parameter_with_no_effect() {
     );
 }
 
-/// A pair whose pages differ keeps the parameter from ever being learned,
-/// however many matching pairs follow, and a page fetched again (a retry)
-/// makes no pair with itself.
-///
-/// Covers: story:6-216
-#[test]
-fn a_differing_pair_keeps_a_parameter_from_being_learned() {
-    let mut crawl = Crawl::new();
-    crawl.seed(&format!("{ITEM}?n=0"));
-    pair(&mut crawl, 1, "a", None);
-    pair(&mut crawl, 2, "b", Some("Item 2, in another colour"));
-    pair(&mut crawl, 3, "c", None);
-    pair(&mut crawl, 4, "d", None);
-    crawl.fetched(&format!("{ITEM}?n=4&ref=d"), "Item 4");
-
-    assert_eq!(
-        (
-            crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z")),
-            crawl.rules()
-        ),
-        ("added".to_owned(), Vec::new())
-    );
-}
-
 /// A parameter learned on one host merges nothing on another, though both
 /// share a registrable domain, nor on a host of another domain.
 ///

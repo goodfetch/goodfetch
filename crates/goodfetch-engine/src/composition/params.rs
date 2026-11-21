@@ -76,7 +76,7 @@ impl<'a> Arrived<'a> {
     /// # Errors
     ///
     /// `invalid_params` when their `_meta` holds a key other than
-    /// `traceparent` and `tracestate` or a value that is no string.
+    /// `traceparent`, `tracestate` and `raw`, or a value of another type.
     pub(crate) fn preamble(&self) -> Result<Preamble<'a>, CallError> {
         self.check()?;
         Ok(self.preamble.take().unwrap_or_default())

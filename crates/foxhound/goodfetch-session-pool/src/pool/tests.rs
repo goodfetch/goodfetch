@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::local_addresses::{BlockSizes, Host, Ipv6Prefix, LocalAddresses, Rotation};
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rstest::rstest;
@@ -908,7 +908,7 @@ fn with_every_block_blocked_a_replacement_rotates_within_a_block_and_says_so() {
     let ip_block = Effect::Blocked(BlockCause::IpBlock);
 
     let addresses = [
-        served(&mut pool, "shop.test", ip_block),
+        served(&mut pool, "shop.test", ip_block.clone()),
         served(&mut pool, "shop.test", ip_block),
         served(&mut pool, "shop.test", Effect::Success),
     ];

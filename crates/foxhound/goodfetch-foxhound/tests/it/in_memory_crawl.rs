@@ -247,6 +247,51 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     );
 }
 
+/// The crawl's fallback reads an `XPath` list field on each page, as the
+/// untouched page's readers read no list: its expression is parsed once for
+/// the engine, as the crawl starts and checks its fields, and no page parses
+/// it again (issue 2713).
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "two crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn an_xpath_list_fields_expression_is_parsed_once_a_crawl() {
+    let links = Map::from_iter([(
+        "links".to_owned(),
+        json!({ "list": { "locator": { "kind": "xpath", "selector": "//nav//a" } } }),
+    )]);
+    let compilations = Row::PageSelectorCompilations;
+
+    let (default, (crawled, listed)) = std::thread::scope(|scope| {
+        let default = scope.spawn(|| counted(compilations, Options::default()));
+        let listed = scope.spawn(|| {
+            let env = TestEnv::new();
+            let metrics = Metrics::none();
+            let work = metrics.counted_work().clone();
+            let options = Options {
+                metrics,
+                fields: links,
+                ..Options::default()
+            };
+            let crawled = crawl_with(env.home(), env.start_time(), env.seed(), options);
+            (crawled, work.read(compilations))
+        });
+        (default.join().unwrap(), listed.join().unwrap())
+    });
+    let read = crawled
+        .records
+        .iter()
+        .filter(|record| {
+            record["links"]
+                .as_array()
+                .is_some_and(|links| !links.is_empty())
+        })
+        .count();
+
+    assert_eq!((read, listed), (PAGES.len() + 1, default + 1));
+}
+
 /// A handler on a document tier waits on each page, which the tier answers from
 /// the page's kept tree: the page is parsed once for its attempt, its Page
 /// signature reads a copy, and the wait's selector comes from the engine's
@@ -938,9 +983,10 @@ fn politeness_counts(settings: &Value, planted: Option<&str>) -> (CountedWork, u
     (work, crawled.requests)
 }
 
-/// B1's counts cell (ADR 0140): the crawl takes a Permit per request in
-/// transactions of the Politeness file it opened, and reads and parses the
-/// robots.txt copy its user's runs share, which its site serves.
+/// B1's counts cell (ADR 0140): the crawl's engine takes its site's key's
+/// Delegation in one transaction of the Politeness file it opened and
+/// serves each Permit from memory (ADR 0142, #2172), and reads and parses
+/// the robots.txt copy its user's runs share, which its site serves.
 #[test]
 fn the_crawl_does_the_politeness_work_its_rows_count() {
     let (work, requests) = politeness_counts(&json!({}), None);
@@ -950,10 +996,19 @@ fn the_crawl_does_the_politeness_work_its_rows_count() {
         requests > pages,
         "{requests} requests: no robots.txt was sent"
     );
+    assert_eq!(
+        work.read(Row::PolitenessTransactions),
+        0,
+        "a delegated key's Permits take no transaction"
+    );
+    assert_eq!(work.read(Row::PolitenessDelegations), 1);
+    assert_eq!(work.read(Row::PolitenessDelegationTransactions), 1);
+    // Each request reads the robots.txt's Crawl-delay again; one that did
+    // not change is no ask to write to the file.
     assert!(
-        work.read(Row::PolitenessTransactions) >= requests,
-        "{} Politeness transactions for {requests} requests",
-        work.read(Row::PolitenessTransactions)
+        work.read(Row::PolitenessOtherTransactions) < requests / 2,
+        "{} other Politeness transactions for {requests} requests",
+        work.read(Row::PolitenessOtherTransactions)
     );
     assert_eq!(work.read(Row::PolitenessOpens), 1, "the file opens once");
     assert!(
@@ -965,6 +1020,20 @@ fn the_crawl_does_the_politeness_work_its_rows_count() {
         "the crawl parsed no robots.txt"
     );
     assert_eq!(work.read(Row::PolitenessScriptSends), 0);
+}
+
+/// With `politeness.delegation: false` the crawl takes each Permit in a
+/// transaction of the Politeness file and no Delegation (#2172).
+#[test]
+fn an_undelegated_crawl_takes_each_permit_in_a_transaction() {
+    let (work, requests) = politeness_counts(&json!({"politeness": {"delegation": false}}), None);
+
+    assert!(
+        work.read(Row::PolitenessTransactions) >= requests,
+        "{} Politeness transactions for {requests} requests",
+        work.read(Row::PolitenessTransactions)
+    );
+    assert_eq!(work.read(Row::PolitenessDelegations), 0);
 }
 
 /// B1's counts cell (ADR 0140): each counter of the Politeness permit sees one

@@ -21,7 +21,10 @@ members = [
 # `rs-trafilatura` and the two crates rs-trafilatura reads trees with, which
 # `[patch.crates-io]` below carries: crates of their own, not members. The
 # Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
+# The library Foxhound's tests use stays outside the workspace, as a library
+# serving both Products is (story 11-180).
 exclude = [
+  "crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library",
   "kennel",
   "vendor/dom_smoothie",
   "vendor/html-cleaning",
@@ -169,6 +172,9 @@ goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
+# The Encoding a document's own bytes declare, read as Chrome reads it (ADR
+# 0119), which the fetch tiers and Collie's client crate both read.
+goodfetch-encoding = { path = "crates/goodfetch-encoding" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -388,6 +394,9 @@ tower-service = { version = "0.3.3", default-features = false }
 # Tokio in the engine, and blocking in the endpoint table's runner.
 # futures-util drives its stream of messages and its sink.
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
+# The Rust SDK's EventStream implements its Stream trait, so a program
+# combines it with any async library (ADR 0081).
+futures-core = { version = "0.3.34", default-features = false }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 # The settings files, which a rewrite keeps byte for byte but for the
@@ -398,6 +407,9 @@ toml = { version = "1.1.8", default-features = false, features = ["std", "parse"
 # (ADR 0099): a boolean as a positional argument, a timeout on a query.
 trybuild = { version = "1.0.125", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+# The callsites the client crate re-emits an engine's `$/log` events
+# through, whose target is known only when the event arrives (ADR 0078).
+tracing-core = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the

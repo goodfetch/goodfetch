@@ -6,14 +6,17 @@
 //! reads its Recipe, Schedule, occurrence, trigger and role; a Watch run,
 //! role `watch`, is left out unless the filter asks for Watch runs.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
 };
 
-use super::{Completeness, Lifecycle, PointInTime, RunIndexRow, Tag, Tags, Verdict};
+use super::{Completeness, Lifecycle, RunIndexRow, Tag, Tags, Verdict};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -88,13 +91,21 @@ impl RunTrigger {
 #[serde(deny_unknown_fields)]
 pub struct TimeRange {
     /// Its first point, included.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub from: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub from: Option<SystemTime>,
     /// The point it ends before, excluded.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub until: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub until: Option<SystemTime>,
 }
 
 /// What `run.list` sorts its rows by.
@@ -173,7 +184,11 @@ pub struct RunListParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lifecycle: Option<Lifecycle>,
     /// Their Verdict: only Runs that ended have one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_verdict"
+    )]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub verdict: Option<Verdict>,
     /// Their Completeness: only Runs that ended have one.
@@ -207,6 +222,18 @@ pub struct RunListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub order: Option<SortOrder>,
+}
+
+/// Reads a Verdict filter, refusing a Verdict this reader does not know: a
+/// filter is a request, which ADR 0079's keeping of a newer engine's values
+/// does not cover, so an engine answers it with an error, not an empty list.
+fn known_verdict<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Verdict>, D::Error> {
+    match Option::<Verdict>::deserialize(deserializer)? {
+        Some(Verdict::Unknown(value)) => {
+            Err(value.refused("Verdict", &crate::wire_name::all(&Verdict::ALL)))
+        }
+        known => Ok(known),
+    }
 }
 
 /// What `run.list` answers: the rows of its filter, in its order.

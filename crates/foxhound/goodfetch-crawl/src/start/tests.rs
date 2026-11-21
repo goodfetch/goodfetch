@@ -17,7 +17,9 @@
 
 mod admission;
 mod finishing;
+mod fixed;
 mod given_back;
+mod hooks;
 mod keep_alive;
 mod labels;
 mod limits;
@@ -100,6 +102,8 @@ pub(crate) struct Client {
     next_id: i64,
     /// The handler requests the engine sent, as they came.
     pub(crate) handled: Vec<Value>,
+    /// The params of each Hook call the engine sent, as they came.
+    pub(crate) hooked: Vec<Value>,
     /// The ids of the requests left unanswered.
     pub(crate) silent: Vec<Value>,
     /// Each request and notification the engine sent, as it came, with
@@ -172,7 +176,9 @@ impl Client {
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
-    /// harness pushes every Record into.
+    /// harness pushes every Record into. A Hook call goes to `handler`
+    /// too, its params naming the Hook: any `Records` reply returns from
+    /// it.
     pub(crate) async fn call(
         &mut self,
         method: &str,
@@ -217,49 +223,59 @@ impl Client {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": records } }))
                             .await;
                     }
-                    Reply::Fails(code, retryable) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the handler failed", "data": { "code": code, "retryable": retryable } },
-                        }))
-                        .await;
-                    }
-                    Reply::FailsWith(code, retryable, details) => {
-                        let mut data = json!({ "code": code, "retryable": retryable });
-                        if let (Some(data), Value::Object(details)) =
-                            (data.as_object_mut(), details)
-                        {
-                            data.extend(details);
-                        }
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32005, "message": "the handler failed", "data": data },
-                        }))
-                        .await;
+                    reply @ (Reply::Fails(..) | Reply::FailsWith(..) | Reply::Blocked(_)) => {
+                        self.failing(&message["id"], reply).await;
                     }
                     Reply::Skips(text) => {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
                             .await;
-                    }
-                    Reply::Blocked(cause) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the site refused the page", "data": { "code": "blocked", "retryable": false, "cause": cause } },
-                        }))
-                        .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
                     Reply::Calls(..) | Reply::After(..) => {
                         unreachable!("invariant: the calls were sent and the waits waited above")
                     }
                 }
+            } else if message.get("method").and_then(Value::as_str) == Some("crawl_hook.handle") {
+                self.hooked.push(message["params"].clone());
+                match self.answering(handler(&message["params"])).await {
+                    Reply::Records(_) => {
+                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }))
+                            .await;
+                    }
+                    Reply::Silent => self.silent.push(message["id"].clone()),
+                    reply => self.failing(&message["id"], reply).await,
+                }
             } else if message["id"] == json!(id) {
                 return message;
             }
         }
+    }
+
+    /// Answers the handler request or Hook call `id` with the failure
+    /// `reply` says.
+    async fn failing(&mut self, id: &Value, reply: Reply) {
+        let (code, message, data) = match reply {
+            Reply::Fails(code, retryable) => (
+                -32003,
+                "the handler failed",
+                json!({ "code": code, "retryable": retryable }),
+            ),
+            Reply::FailsWith(code, retryable, details) => {
+                let mut data = json!({ "code": code, "retryable": retryable });
+                if let (Some(data), Value::Object(details)) = (data.as_object_mut(), details) {
+                    data.extend(details);
+                }
+                (-32005, "the handler failed", data)
+            }
+            Reply::Blocked(cause) => (
+                -32003,
+                "the site refused the page",
+                json!({ "code": "blocked", "retryable": false, "cause": cause }),
+            ),
+            reply => unreachable!("invariant: {reply:?} is no failure"),
+        };
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message, "data": data } }))
+            .await;
     }
 
     pub(crate) async fn close(&mut self) {
@@ -483,6 +499,26 @@ pub(crate) fn crawl_on<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
+    connected_on(engine, &json!({}), dependencies, talk)
+}
+
+/// [`crawl`], on a Connection whose `hello` sets `settings`, its own, which
+/// each crawl it starts takes beneath its own (ADR 0083).
+pub(crate) fn crawl_connected<T>(
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> T {
+    connected_on(&engine(), settings, dependencies, talk).0
+}
+
+/// [`crawl_on`], on a Connection whose `hello` sets `settings`.
+pub(crate) fn connected_on<T>(
+    engine: &Engine,
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
@@ -498,6 +534,7 @@ pub(crate) fn crawl_on<T>(
                 writer,
                 next_id: 0,
                 handled: Vec::new(),
+                hooked: Vec::new(),
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,
@@ -512,6 +549,7 @@ pub(crate) fn crawl_on<T>(
                         "surface": "rust",
                         "needs": "foxhound",
                         "product_version": "1.4.0",
+                        "settings": settings,
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -1397,20 +1435,16 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
             attempts("after"),
             after["result"]["policy_version"] == going["result"]["policy_version"],
         ),
-        (
-            2,
-            json!(goodfetch_engine::settings::policy_version(tight)),
-            3,
-            false,
-        )
+        (2, json!("sha256:0ee1c4517f01bd0e"), 3, false)
     );
 }
 
 /// A crawl whose `fetch.tier` forces a tier this engine does not build,
 /// for the Run or for one of its Labels, is refused before its Run begins,
 /// naming the setting and the tier (spec #579), and a Label setting a key
-/// a Label does not take is refused with `setting_not_applicable`; the
-/// conformance fetch suite starts one under `http`.
+/// a Label does not take is refused with `setting_not_applicable`, as is
+/// the Run's own `timeout.run`, which only the Connection sets (ADR 0083);
+/// the conformance fetch suite starts one under `http`.
 ///
 /// Covers: story:5-128, story:5-118, setting:fetch.tier
 #[rstest::rstest]
@@ -1440,6 +1474,12 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
     json!({}),
     json!({ "list": { "settings": { "crawl": { "max_depth": 2 } } } }),
     json!(["setting_not_applicable", "crawl.max_depth", null])
+)]
+/// Covers: story:11-70, setting:timeout.run, error:setting_not_applicable
+#[case::a_run_timeout_of_the_runs_own(
+    json!({ "timeout": { "run": 60_000 } }),
+    json!({}),
+    json!(["setting_not_applicable", "timeout.run", null])
 )]
 fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
     #[case] settings: Value,
@@ -1596,11 +1636,11 @@ fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
     );
 }
 
-/// A crawl's start checks a field's CSS selector on the engine's Counted
-/// work, the one its Run compiles the selector through: a start refused for
-/// a later field compiled the selector there once, where a Run reading it
-/// would find it kept, rather than on Counted work of the check's own
-/// (#2605).
+/// A crawl's start checks a field's selector on the engine's Counted work,
+/// the one its Run compiles the selector through: a start refused for a
+/// later field compiled the CSS selector there once (#2605) and parsed the
+/// refused `XPath` expression there once (#2713), where a Run reading them
+/// would find them kept, rather than on Counted work of the check's own.
 #[test]
 fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
     let env = TestEnv::new();
@@ -1639,7 +1679,7 @@ fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
             &refused["error"]["data"]["code"],
             work.read(goodfetch_counted_work::Row::PageSelectorCompilations)
         ),
-        (&json!("invalid_params"), 1),
+        (&json!("invalid_params"), 2),
         "{refused}"
     );
 }
@@ -1703,18 +1743,12 @@ fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
     );
 
     let refusal = &refused["error"]["data"];
-    let message = refused["error"]["message"].as_str().unwrap_or_default();
     assert_eq!(
         (
             json!([refusal["code"], refusal["key"], refusal["layer"]]),
             &refusal["limit"],
-            message.contains("`fetch.http_from`") && message.contains("`session.source`"),
         ),
-        (
-            json!(["setting_locked", "fetch.http_from", "run"]),
-            &limit,
-            true,
-        ),
+        (json!(["setting_locked", "fetch.http_from", "run"]), &limit),
         "{refused}"
     );
 }

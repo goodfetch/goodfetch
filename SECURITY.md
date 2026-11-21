@@ -18,7 +18,7 @@ We fix the flaw and publish an advisory within 90 days of your report, coordinat
 
 ## What counts as a vulnerability
 
-- **Anything that crosses a trust boundary** of the table in [`TESTING.md`](TESTING.md#trust-boundaries): untrusted decoders, the Script sandbox, Plugin confinement, Chromium's sandbox, egress, the endpoints and the peer link, secrets, file outputs, the audit log, the reset gate, unsafe code, and the supply chain and workflows.
+- **Anything that crosses a trust boundary** of the table in [`TESTING.md`](docs/testing/security.md#trust-boundaries): untrusted decoders, the Script sandbox, Plugin confinement, Chromium's sandbox, egress, the endpoints and the peer link, secrets, file outputs, the audit log, the reset gate, unsafe code, and the supply chain and workflows.
 - **Any memory unsafety**, in Goodfetch's own code or in what it links.
 - **A limit that never fires**: a configured limit on resources, time, cost, egress or outputs that the engine lets a run pass.
 

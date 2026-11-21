@@ -42,6 +42,26 @@ pub const POLITENESS_SHARING: Setting = Setting {
     weakens: Some(not_shared),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn yes() -> Value {
+    Value::Bool(true)
+}
+
+/// `politeness.delegation` (ADR 0142).
+pub const POLITENESS_DELEGATION: Setting = Setting {
+    name: "politeness.delegation",
+    description: "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -56,6 +76,7 @@ pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -70,6 +91,7 @@ pub const POLITENESS_PROXY_RATE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -113,6 +135,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         POLITENESS_SHARING,
+        POLITENESS_DELEGATION,
         POLITENESS_PROXY_CONCURRENCY,
         POLITENESS_PROXY_RATE,
     ],

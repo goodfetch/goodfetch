@@ -36,7 +36,8 @@
 //! `stopped`, and under its `--require-verified` `21` for a Verdict other
 //! than `verified`. An interrupt exits with [`exit_codes::INTERRUPTED`],
 //! `SIGTERM` with [`exit_codes::TERMINATED`]. A deprecated command warns on
-//! stderr with ADR 0030's text, which its `--help` shows too.
+//! stderr with its deprecation's one text (ADR 0099), which its `--help`
+//! shows too.
 //!
 //! Size: one concern, a catalog entry turned into a command and its call:
 //! the schema readers that give each command its flags, its offer and its
@@ -52,9 +53,7 @@ use std::sync::{Arc, OnceLock};
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches, Subcommand};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::catalog::{
-    Deprecation, Operation, OperationKind, Product, Reach, SDK_ONLY,
-};
+use goodfetch_protocol::catalog::{Operation, OperationKind, Product, Reach, SDK_ONLY};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::events::EVENTS;
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -430,31 +429,32 @@ pub enum Offer {
 }
 
 /// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
-/// query, read and opener is a command, a round trip that answers pages
+/// query and opener is a command, a round trip that answers pages
 /// ([`Offer::Pages`]) one that follows them under `--follow`, and every
 /// sequence one with `--follow`, a sequence the catalog gives a bound, which
 /// reads what a Run committed, printing it once it ends without one
 /// ([`Offer::Committed`]), and one taking a stream reading it from stdin
 /// ([`Offer::Input`]), unless the catalog keeps it off the CLI, to the
-/// SDKs or to a person; a waiter or an event is none. An operation the catalog's
-/// [`SDK_ONLY`] list names is none whatever its marker, so an entry added
-/// without one never becomes a command.
+/// SDKs or to a person; a waiter, an event or a read is none, a read since
+/// an SDK's handle answers it from the answer that opened it without a
+/// message (issue 2798). An operation the catalog's [`SDK_ONLY`] list names
+/// is none whatever its marker, so an entry added without one never becomes
+/// a command.
 pub fn offer(operation: &Operation) -> Option<Offer> {
     if operation.reach != Reach::AllSurfaces || SDK_ONLY.contains(&operation.name) {
         return None;
     }
     match operation.kind {
         OperationKind::RoundTrip if answers_pages(operation) => Some(Offer::Pages),
-        OperationKind::RoundTrip
-        | OperationKind::Query
-        | OperationKind::Read
-        | OperationKind::Opener => Some(Offer::Command),
+        OperationKind::RoundTrip | OperationKind::Query | OperationKind::Opener => {
+            Some(Offer::Command)
+        }
         OperationKind::Sequence if operation.input.is_some() => Some(Offer::Input),
         // A sequence the catalog gives a bound reads what a Run committed,
         // so it ends once it sent the Records of a Run that ended.
         OperationKind::Sequence if operation.bound.is_some() => Some(Offer::Committed),
         OperationKind::Sequence => Some(Offer::Follow),
-        OperationKind::Waiter | OperationKind::Event => None,
+        OperationKind::Waiter | OperationKind::Event | OperationKind::Read => None,
     }
 }
 
@@ -611,18 +611,9 @@ fn command(operation: &'static Operation, own: Option<&'static OwnCommand>) -> C
         // of their own.
         .about(about);
     match operation.deprecated {
-        Some(deprecated) => command.after_help(deprecation(deprecated)),
+        Some(deprecated) => command.after_help(format!("Deprecated. {}", deprecated.message())),
         None => command,
     }
-}
-
-/// ADR 0030's text for a deprecation, which the warning and `--help` share:
-/// since when, the earliest removal, and the note naming the replacement.
-fn deprecation(deprecated: Deprecation) -> String {
-    format!(
-        "Deprecated since protocol {}, and removed no earlier than the next major: {}",
-        deprecated.since, deprecated.note
-    )
 }
 
 /// A call's timeout as the command line gives it (ADR 0080): `none` for no
@@ -1025,7 +1016,10 @@ impl Call {
     ) -> ExitCode {
         let words = command_words(self.operation.name);
         if let Some(deprecated) = self.operation.deprecated {
-            human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
+            human.warning(&format!(
+                "`{words}` is deprecated. {}",
+                deprecated.message()
+            ));
         }
         if let Some(own) = self.own.take() {
             return own.run(&self, engine, dependencies, machine, human);

@@ -5,12 +5,14 @@
 //! Nothing here enters a runtime, so it works inside one too, where it
 //! blocks only the thread that calls it.
 
-use goodfetch_collie::ConnectOptions;
-use goodfetch_collie::linked::LinkedConnection;
-use goodfetch_collie_client::Error;
+use goodfetch_collie::linked::ProductConnection;
+use goodfetch_collie::{ConnectOptions, EngineInfo};
+use goodfetch_collie_client::{Error, blocking};
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, Locator, Page, Query, Run, Session, Start,
+    Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
+    Start,
 };
 
 use crate::foxhound::ENGINE;
@@ -37,8 +39,8 @@ use crate::foxhound::ENGINE;
 /// ```
 #[derive(Clone, Debug)]
 pub struct Foxhound {
-    linked: LinkedConnection,
-    connection: Connection,
+    linked: ProductConnection,
+    connection: blocking::ClientConnection,
 }
 
 impl Foxhound {
@@ -50,17 +52,35 @@ impl Foxhound {
     ///
     /// As [`crate::Foxhound::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect_blocking(ENGINE, options)?;
+        let linked = ProductConnection::connect_blocking(ENGINE, options)?;
         Ok(Self {
-            connection: Connection::from(linked.connection().clone()),
+            connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
+    }
+
+    /// The engine the connection reached, as [`crate::Foxhound::engine`]
+    /// reports it.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
+    }
+
+    /// The raw call of `operation`, as [`crate::Foxhound::call`]'s, which
+    /// `send()` sends.
+    pub fn call(&self, operation: &str) -> RawCall {
+        self.connection.raw_call(operation)
     }
 
     /// The start of a Run the program drives (`run.start`), which `send()`
     /// sends.
     pub fn start(&self) -> Start {
         self.connection.start()
+    }
+
+    /// What the connection runs with, as
+    /// [`crate::Foxhound::explain_settings`] says, which `send()` asks.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        self.connection.explain_settings()
     }
 
     /// Closes the connection for every clone, as
@@ -75,11 +95,31 @@ impl Foxhound {
     }
 }
 
-/// The blocking Connection, the type a helper written for either Product
-/// takes (ADR 0095): `helper(foxhound.as_ref())`, until
-/// ADR 0099's `Connection` trait lands (#1257).
-impl AsRef<Connection> for Foxhound {
-    fn as_ref(&self) -> &Connection {
+/// The blocking Connection both Products' blocking connections implement
+/// (ADRs 0095 and 0099), so a helper taking `&impl blocking::Connection`
+/// takes a `Foxhound`; its members are the inherent ones above.
+impl Connection for Foxhound {
+    fn start(&self) -> Start {
+        Foxhound::start(self)
+    }
+
+    fn call(&self, operation: &str) -> RawCall {
+        Foxhound::call(self, operation)
+    }
+
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Foxhound::explain_settings(self)
+    }
+
+    fn close(&self) -> Result<(), Error> {
+        Foxhound::close(self)
+    }
+}
+
+/// The client crate's connection, the way down to its typed `call` of a
+/// runtime method, which the raw `call` (ADR 0099) does not type.
+impl AsRef<blocking::ClientConnection> for Foxhound {
+    fn as_ref(&self) -> &blocking::ClientConnection {
         &self.connection
     }
 }

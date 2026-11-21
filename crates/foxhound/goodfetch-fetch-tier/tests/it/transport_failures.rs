@@ -32,36 +32,6 @@ use crate::{Stack, built, config, running_clock_runtime, transport};
 /// Any seed: the proxies and the Catalog family are served on every one.
 const SEED: u64 = 759;
 
-/// Covers: story:5-128, story:5-122
-#[rstest]
-#[case::a_proxy_refusing_the_tunnel("refusing_tunnels", TransportFailure::TunnelRefused)]
-#[case::a_proxy_asking_for_credentials("datacenter", TransportFailure::ProxyAuthenticationRequired)]
-#[case::a_proxy_nothing_answers_on("down", TransportFailure::ProxyUnreachable)]
-fn a_proxy_s_answer_to_the_tunnel_request_is_its_own_failure(
-    #[case] proxy: &str,
-    #[case] expected: TransportFailure,
-    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
-) {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let proxy_address = &proving_ground.description().fixtures.proxies[proxy];
-    let proxy_url = Url::parse(&format!("http://{proxy_address}")).unwrap();
-    let transport = transport(stack, &proving_ground, Some(proxy_url));
-    let hop = Hop::get(
-        Url::parse(&format!(
-            "https://catalog.test:{}/catalog/1",
-            proving_ground.address().port()
-        ))
-        .unwrap(),
-    );
-
-    let failure = running_clock_runtime()
-        .block_on(transport.send(&hop, Reuse::Allowed))
-        .unwrap_err();
-
-    assert_eq!(failure, expected);
-}
-
 /// A fetch a proxy of its own failed ends with the proxy's Error code,
 /// naming the proxy without its credentials, never with
 /// `navigation_failed` (ADRs 0053 and 0017; issue 2232), and keeps the

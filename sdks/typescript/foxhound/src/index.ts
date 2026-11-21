@@ -36,9 +36,12 @@ export {
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";
 export type {
+  CrawlSettings,
   DatasetRecord,
   Enqueued,
   EnqueuedLink,
   EnqueuedLinks,
+  FoxhoundSettings,
+  LabelSettings,
   RequestSeed,
 } from "./generated/index.ts";

@@ -634,7 +634,11 @@ fn user_settable(key: &str) -> bool {
     keys::find(key).is_some_and(|found| {
         !matches!(
             found.setting.authority,
-            Authority::OperatorPolicy | Authority::OperatorPolicyAlone | Authority::Fixed
+            Authority::OperatorPolicy
+                | Authority::OperatorPolicyAlone
+                | Authority::ProjectFileAlone
+                | Authority::ConnectionAlone
+                | Authority::Fixed
         )
     })
 }
@@ -1043,7 +1047,8 @@ fn above(value: &Value, bound: u64) -> bool {
 /// the project configuration a Client sent,
 /// unless something holds the key: a lock, an Operator policy's cap the
 /// value is past (a clear to no bound is past every cap), a Recipe's
-/// bounds or the key's authority.
+/// bounds or the key's authority. A lock keeps its value over a
+/// `registered` one with no refusal.
 fn take(
     state: &mut State,
     key: Key,
@@ -1062,6 +1067,10 @@ fn take(
     let current = limit(name, &state.effective.value, state.effective.layer);
     authority(key, layer, value, given.for_model, &current, &refused)?;
     if let Some(locked) = &state.locked {
+        // The program never wrote a registered handler's value (ADR 0104).
+        if given.origin == Some(RunOrigin::Registered) {
+            return Ok(());
+        }
         let fix = match locked.layer {
             SettingsLayer::Default => format!("`{name}` is an honesty guarantee no layer changes"),
             SettingsLayer::Recipe => format!("the Recipe does not expose `{name}`"),
@@ -1098,20 +1107,28 @@ fn take(
 /// `setting_not_applicable` for `setting`, set in `layer`, unless `layer`
 /// is one its authority takes it from: a machine's setting from user
 /// configuration or an Operator policy, an Operator's alone from an
-/// Operator policy.
+/// Operator policy, the project file's alone from the project file, and a
+/// Client's own bound from `connect()`'s `settings`, the run layer, which
+/// the scope check keeps to the Connection's own.
 fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError> {
-    let (layers, where_set): (&[SettingsLayer], &str) =
-        if matches!(setting.authority, Authority::OperatorPolicyAlone) {
-            (&[SettingsLayer::OperatorPolicy], "an Operator policy")
-        } else {
-            (
-                &[
-                    SettingsLayer::OperatorPolicy,
-                    SettingsLayer::UserConfiguration,
-                ],
-                "user configuration or an Operator policy",
-            )
-        };
+    let (layers, where_set): (&[SettingsLayer], &str) = match setting.authority {
+        Authority::OperatorPolicyAlone => (&[SettingsLayer::OperatorPolicy], "an Operator policy"),
+        Authority::ProjectFileAlone => (
+            &[SettingsLayer::ProjectConfiguration],
+            "the project file, which `connect()` and the CLI read before they connect",
+        ),
+        Authority::ConnectionAlone => (
+            &[SettingsLayer::Run],
+            "`connect()`'s own `settings`, whose Client applies it to its transport",
+        ),
+        _ => (
+            &[
+                SettingsLayer::OperatorPolicy,
+                SettingsLayer::UserConfiguration,
+            ],
+            "user configuration or an Operator policy",
+        ),
+    };
     if layers.contains(&layer) {
         return Ok(());
     }
@@ -1149,7 +1166,10 @@ fn authority(
             current.clone(),
             format!("`{name}` is an honesty guarantee no layer changes"),
         )),
-        Authority::Machine | Authority::OperatorPolicyAlone => only_in(key.setting, layer),
+        Authority::Machine
+        | Authority::OperatorPolicyAlone
+        | Authority::ProjectFileAlone
+        | Authority::ConnectionAlone => only_in(key.setting, layer),
         Authority::OperatorPolicy if layer != SettingsLayer::OperatorPolicy => Err(refused(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),

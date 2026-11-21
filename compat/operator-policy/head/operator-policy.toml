@@ -5,6 +5,7 @@ lowest_minor = 0
 hello = 30000
 secret = 30000
 run = 30000
+connect = 30000
 close = 30000
 action = 30000
 navigation = 30000
@@ -26,6 +27,11 @@ max_body_size = 4
 max_decompression_ratio = 4
 max_json_depth = 4
 resolve = { "example.test" = ["127.0.0.1"] }
+
+[settings.connection]
+max_pending_calls = 4
+max_queued_write_bytes = 4
+max_listener_queue = 4
 
 [settings.log]
 level = "example"
@@ -260,11 +266,15 @@ signing = true
 [settings.admission]
 max_requests_per_minute = 4
 
+[settings.usage]
+ledger_read_interval = 30000
+
 [settings.version]
 age_notice = true
 
 [settings.politeness]
 sharing = "shared"
+delegation = true
 
 [settings.politeness.proxy]
 concurrency = 4
@@ -403,6 +413,7 @@ max_rows = 4
 hello = 30000
 secret = 30000
 run = 30000
+connect = 30000
 close = 30000
 action = 30000
 navigation = 30000
@@ -424,6 +435,11 @@ max_body_size = 4
 max_decompression_ratio = 4
 max_json_depth = 4
 resolve = { "example.test" = ["127.0.0.1"] }
+
+[lock.connection]
+max_pending_calls = 4
+max_queued_write_bytes = 4
+max_listener_queue = 4
 
 [lock.log]
 level = "example"
@@ -658,11 +674,15 @@ signing = true
 [lock.admission]
 max_requests_per_minute = 4
 
+[lock.usage]
+ledger_read_interval = 30000
+
 [lock.version]
 age_notice = true
 
 [lock.politeness]
 sharing = "shared"
+delegation = true
 
 [lock.politeness.proxy]
 concurrency = 4
@@ -801,6 +821,7 @@ max_rows = 4
 hello = 30000
 secret = 30000
 run = 30000
+connect = 30000
 close = 30000
 action = 30000
 navigation = 30000
@@ -898,6 +919,9 @@ fetch_timeout = 30000
 
 [cap.admission]
 max_requests_per_minute = 4
+
+[cap.usage]
+ledger_read_interval = 30000
 
 [cap.politeness.proxy]
 concurrency = 4

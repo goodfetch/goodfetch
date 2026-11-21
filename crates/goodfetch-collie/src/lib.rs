@@ -45,18 +45,31 @@ mod block_detection;
 pub mod blocking;
 mod collie;
 mod composition;
+mod engine_choice;
 #[cfg(feature = "executable")]
 pub mod executable;
 pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
+mod trace_context;
 
 pub use collie::Collie;
 pub use composition::{composition, composition_with};
+pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    Call, Connection, Error, Locator, Page, Query, Run, Session, Start,
+    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
+    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
+    SchemaError, Session, Start, UsageKind, events, schemars, settings,
 };
-pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use goodfetch_protocol::page::events::PageRequest;
+pub use goodfetch_protocol::page::read::{
+    FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
+    UnreadField, UnreadReason, ValueField,
+};
+pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+pub use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
+};
 pub use linked::ConnectOptions;
 pub use pins::pinned_artifacts;

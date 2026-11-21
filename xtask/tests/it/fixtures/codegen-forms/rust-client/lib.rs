@@ -15,6 +15,27 @@ mod generated {
     pub(crate) mod handles;
 }
 
+/// What a program writes against the reads (ADR 0099): each answers its
+/// value at once, from the answer that opened its handle, by a method of
+/// the async handle and of its blocking twin.
+#[expect(dead_code, reason = "rustc checks the reads' types; nothing runs them")]
+fn reads(run: &generated::handles::Run, blocking: &generated::blocking::Run) {
+    let _: String = run.label();
+    let _: bool = run.is_resumed();
+    let _: String = blocking.label();
+    let _: bool = blocking.is_resumed();
+}
+
+mod markers {
+    /// ADR 0030's run-time warning of a deprecated or Experimental entry.
+    pub(crate) fn warn(
+        _name: &'static str,
+        _experimental: bool,
+        _deprecation: Option<&'static str>,
+    ) {
+    }
+}
+
 /// What a call fails with.
 #[derive(Debug)]
 pub struct Error;
@@ -61,6 +82,19 @@ impl<T, P> Call<T, P> {
     }
 }
 
+/// A whole result: its typed view and the JSON it came from.
+pub struct Answer<T>(PhantomData<fn() -> T>);
+
+impl<'de, T: DeserializeOwned> serde::Deserialize<'de> for Answer<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(_deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self(PhantomData))
+    }
+}
+
+/// A raw call of an operation, its params and its result the wire's JSON.
+#[must_use]
+pub struct RawCall;
+
 /// A question the engine answers at once.
 #[must_use]
 pub struct Query<T, P = Value> {
@@ -73,10 +107,20 @@ impl<T, P> Query<T, P> {
         edit(&mut self.params);
         self
     }
+
+    pub(crate) fn map<U>(self, _map: impl FnOnce(T) -> U + Send + 'static) -> Query<U, P>
+    where
+        T: 'static,
+    {
+        Query {
+            params: self.params,
+            reply: PhantomData,
+        }
+    }
 }
 
 pub(crate) mod host {
-    use super::{Call, Connection, DeserializeOwned, PhantomData, Query, Serialize};
+    use super::{Call, Connection, DeserializeOwned, PhantomData, Query, RawCall, Serialize};
 
     /// What a handle reaches its engine through.
     #[derive(Clone, Debug)]
@@ -110,6 +154,18 @@ pub(crate) mod host {
                 params,
                 reply: PhantomData,
             }
+        }
+
+        pub(crate) fn raw(
+            &self,
+            _operation: &str,
+            _namespace: &'static str,
+            _param: &'static str,
+        ) -> RawCall
+        where
+            Id: Serialize,
+        {
+            RawCall
         }
 
         pub(crate) fn query<T, P>(&self, _method: &'static str, params: P) -> Query<T, P>
@@ -177,6 +233,18 @@ pub mod blocking {
         /// Sends the call and blocks until its reply.
         pub fn send(self) -> Result<T, Error> {
             Err(Error)
+        }
+    }
+
+    /// A raw call, sent by `send()`.
+    #[must_use]
+    pub struct RawCall {
+        raw: crate::RawCall,
+    }
+
+    impl RawCall {
+        pub(crate) fn new(raw: crate::RawCall, _connection: &Connection) -> Self {
+            Self { raw }
         }
     }
 

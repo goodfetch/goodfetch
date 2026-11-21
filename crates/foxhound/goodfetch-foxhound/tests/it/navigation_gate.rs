@@ -729,14 +729,19 @@ fn taken(env: &TestEnv, key: &str) -> Taken {
 /// of [`SERVICE_WORKER_KEY`] right before the reload and once it answered,
 /// how many requests for the page arrived, how many the gate admitted of the
 /// key's, and how many of those it admitted before their turn after the
-/// crawl's start ([`admitted_too_soon`]).
+/// crawl's start ([`admitted_too_soon`]). The crawl runs at
+/// `politeness.delegation: false`, so each Permit is taken in the file
+/// [`taken`] reads, not from a Delegation the engine holds (ADR 0142).
 fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), usize, usize, usize) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
     let page = format!("/service-worker/?navigations={navigations}");
     let more = json!({
-        "politeness": { "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() } },
+        "politeness": {
+            "delegation": false,
+            "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() },
+        },
     });
 
     let mut going = None;

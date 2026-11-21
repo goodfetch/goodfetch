@@ -48,6 +48,8 @@ mod session_pages;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,24 +68,22 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
-use goodfetch_engine::{CallContext, CallError};
+use goodfetch_engine::{CallContext, CallError, RunOfCall};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::catalog::Authority;
-use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
+use goodfetch_protocol::catalog::{Authority, SettingScope};
+use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::access_mode::{
-    BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
-    STEALTH_ITEMS,
-};
+use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY};
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
-use goodfetch_protocol::page::{CONTENT_EXTRACTOR, PageId, PageOpened, SessionId};
+use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
+use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_PAGE_CHECK,
-    SESSION_SOURCE, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_WAIT,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
+    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_WAIT,
 };
 use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
@@ -104,7 +104,7 @@ use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
-use crate::interception::{HeldBrowser, Interception, Lookups, SESSION_KEYS};
+use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
@@ -299,6 +299,34 @@ pub(crate) struct OpenPage {
     _admission: Arc<Permit>,
     /// Its place among its browser's open pages, left at the same moment.
     in_browser: Arc<InBrowser>,
+}
+
+// The Run a raw call names by a page or a Session, whose trace records it
+// (ADR 0099).
+impl RunOfCall for Sessions {
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
+        Box::pin(async move {
+            let page_id = PageId(page_id.to_owned());
+            let state = self.state.lock().await;
+            state
+                .pages
+                .get(&page_id)
+                .map(|page| page.run.id().clone())
+                .or_else(|| {
+                    state
+                        .crashed
+                        .get(&page_id)
+                        .map(|(run_id, _)| run_id.clone())
+                })
+        })
+    }
+
+    fn session_run(&self, session_id: &str) -> Option<RunId> {
+        parse_session_id(&SessionId(session_id.to_owned())).map(|(run_id, _)| run_id)
+    }
 }
 
 /// The ID of the Session at `position` of the Run `run`.
@@ -506,7 +534,7 @@ impl Sessions {
         match life.apply(SessionEvent::SourceReady, None)? {
             SessionEffect::Opened => {}
             // A `close()` while it opened abandoned the open (S3).
-            _ => return Err(cancelled(StoppedBy::Program, ClosedValue::Session)),
+            _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
         self.record(&run, position, false, &settings, borrowed.as_ref(), context)
             .await?;
@@ -1318,21 +1346,13 @@ fn own_settings(
     } else {
         values
             .keys()
-            .find(|key| {
-                !SESSION_KEYS.contains(key)
-                    && *key != SESSION_PAGE_CHECK.name
-                    && *key != CONTENT_EXTRACTOR.name
-                    && !fixed_for_the_session(key)
-            })
+            .find(|key| !applies_to(key, SettingScope::Session))
             .map(|key| {
-                let operator_alone = setting(key).is_some_and(|setting| {
-                    matches!(setting.authority, Authority::OperatorPolicyAlone)
-                });
-                if operator_alone {
-                    (key, "set it in an Operator policy")
-                } else {
-                    (key, "set it on the Run, whose Sessions all take it")
-                }
+                (
+                    key,
+                    set_outside_code(key)
+                        .unwrap_or("set it on the Run, whose Sessions all take it"),
+                )
             })
     };
     if let Some((key, fix)) = refused {
@@ -1403,12 +1423,15 @@ fn page_settings(
     if context.surface().acts_for_model() {
         values = values.from_model();
     }
-    if let Some(key) = values.keys().find(|key| *key != CONTENT_EXTRACTOR.name) {
-        let fix = if fixed_for_the_session(key) {
+    if let Some(key) = values
+        .keys()
+        .find(|key| !applies_to(key, SettingScope::Page))
+    {
+        let fix = set_outside_code(key).unwrap_or(if setting_scopes::fixed_for_the_session(key) {
             "a Session keeps its Access mode, Identity profile and proxy for its life: open a new Session with it"
         } else {
             "set it on the page's Session or its Run, whose pages all take it"
-        };
+        });
         return Err(settings_error(
             &SettingsError::NotApplicable {
                 key: key.to_owned(),
@@ -1421,17 +1444,27 @@ fn page_settings(
     not_locked(values, run, "page", context)
 }
 
-/// What starts the `proxy.*` keys a Session's own `settings` may set.
-const PROXY_PREFIX: &str = "proxy.";
+/// Whether the setting `key` names is one `scope`'s own `settings` set
+/// (ADR 0083).
+fn applies_to(key: &str, scope: SettingScope) -> bool {
+    setting(key).is_some_and(|setting| setting_scopes::of(setting).contains(&scope))
+}
 
-/// Whether `key` is one of what a Session keeps for its life, which only
-/// its opening sets (ADR 0021; pitfall S05): its Access mode, an item of
-/// its Identity profile, its signing key and key directory, or its proxy.
-fn fixed_for_the_session(key: &str) -> bool {
-    key == BROWSER_ACCESS_MODE.name
-        || STEALTH_ITEMS.iter().any(|item| item.name == key)
-        || IDENTIFIED_ITEMS.iter().any(|item| item.name == key)
-        || key.starts_with(PROXY_PREFIX)
+/// Where the setting `key` names is set when a program's own code sets it
+/// at no scope (ADR 0083), as `proxy.providers`, which only configuration
+/// sets; `None` when some scope's own `settings` set it.
+fn set_outside_code(key: &str) -> Option<&'static str> {
+    let setting = setting(key).filter(|setting| setting_scopes::of(setting).is_empty())?;
+    Some(match setting.authority {
+        Authority::OperatorPolicy | Authority::OperatorPolicyAlone => {
+            "set it in an Operator policy"
+        }
+        Authority::ProjectFileAlone => {
+            "set it in the project file, which `connect()` and the CLI read before they connect"
+        }
+        Authority::Fixed => "it keeps its built-in value, which no layer changes",
+        _ => "set it in configuration or an Operator policy, which alone set it",
+    })
 }
 
 /// The proxy a Session of `run` opens with: the one its own settings `own`

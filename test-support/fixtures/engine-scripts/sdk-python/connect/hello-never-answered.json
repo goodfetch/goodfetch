@@ -1,0 +1,26 @@
+{
+  "description": "A Collie Client says hello and the engine never answers: once connect()'s timeout passes, the Client cancels its hello, fails the connect with deadline_exceeded naming timeout.connect and ends the Attached engine.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 0
+        }
+      }
+    }
+  ]
+}

@@ -1078,6 +1078,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "connection-library"
+version = "0.1.0"
+dependencies = [
+ "goodfetch-collie-client",
+ "goodfetch-protocol",
+]
+
+[[package]]
 name = "conpty"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2338,6 +2346,7 @@ dependencies = [
  "goodfetch-clean-up-rules",
  "goodfetch-collie",
  "goodfetch-collie-client",
+ "goodfetch-conformance",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -2382,6 +2391,7 @@ dependencies = [
  "tungstenite",
  "ureq",
  "url",
+ "windows-sys 0.61.2",
  "zip",
 ]
 
@@ -2390,11 +2400,19 @@ name = "goodfetch-collie-client"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "encoding_rs",
+ "futures-core",
+ "goodfetch-conformance",
+ "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "libc",
+ "proptest",
+ "rstest",
+ "schemars",
  "serde",
  "serde_json",
  "tempfile",
@@ -2402,6 +2420,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-core",
  "trybuild",
  "windows-sys 0.61.2",
 ]
@@ -2506,6 +2525,16 @@ dependencies = [
  "tracing",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "goodfetch-encoding"
+version = "0.0.0"
+dependencies = [
+ "encoding_rs",
+ "goodfetch-workspace-hack",
+ "html5ever 0.39.0",
+ "rstest",
 ]
 
 [[package]]
@@ -2637,6 +2666,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "goodfetch-counted-work",
+ "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-frontier",
@@ -2692,6 +2722,7 @@ dependencies = [
  "arrow-schema",
  "bytes",
  "clap",
+ "connection-library",
  "csv",
  "data-encoding",
  "flate2",
@@ -2841,6 +2872,7 @@ name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "goodfetch-test-support",
  "jiff",
  "jsonschema",
  "proptest",
@@ -8353,7 +8385,6 @@ dependencies = [
  "jsonschema",
  "libc",
  "proc-macro2",
- "proptest",
  "quick-xml 0.41.0",
  "quote",
  "regex",
@@ -8368,6 +8399,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
+ "toml_edit",
  "unicode-ident",
  "ureq",
  "windows-sys 0.61.2",

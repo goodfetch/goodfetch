@@ -72,3 +72,109 @@ fn the_catalog_marks_every_entry_it_keeps_to_the_sdks() {
 
     assert_eq!(unmarked, Vec::<&str>::new());
 }
+
+/// A deprecation's one text (ADR 0099), which every SDK's markers and
+/// warning and the CLI's carry: since when, the earliest removal, the
+/// replacement when there is one, and the note.
+#[rstest]
+#[case::with_a_replacement(
+    Some("sample.shout"),
+    "Since 0.1, removed no earlier than 1.0: use `sample.shout` instead. Repeats in capitals."
+)]
+#[case::without_one(None, "Since 0.1, removed no earlier than 1.0: Repeats in capitals.")]
+fn a_deprecation_renders_one_text(#[case] replacement: Option<&'static str>, #[case] text: &str) {
+    let deprecation = super::Deprecation {
+        since: ProtocolVersion { major: 0, minor: 1 },
+        replacement,
+        earliest_removal: ProtocolVersion { major: 1, minor: 0 },
+        note: "Repeats in capitals.",
+    };
+
+    assert_eq!(deprecation.message(), text);
+}
+
+/// A deprecation reads back from the catalog file as it was written, with
+/// owned text, as `xtask codegen`'s generators read it.
+#[test]
+fn a_deprecation_reads_back_as_the_catalog_writes_it() {
+    let deprecation = super::Deprecation {
+        since: ProtocolVersion { major: 0, minor: 1 },
+        replacement: Some("sample.shout"),
+        earliest_removal: ProtocolVersion { major: 1, minor: 0 },
+        note: "Repeats in capitals.",
+    };
+
+    let written = serde_json::to_value(deprecation).unwrap();
+    let read: super::Deprecation<String> = serde_json::from_value(written.clone()).unwrap();
+
+    assert_eq!(
+        written,
+        json!({
+            "since": "0.1",
+            "replacement": "sample.shout",
+            "earliest_removal": "1.0",
+            "note": "Repeats in capitals.",
+        })
+    );
+    assert_eq!(read.message(), deprecation.message());
+}
+
+/// Every deprecation of the catalog names a replacement of its own section,
+/// if any, and a removal no earlier than the next major (ADR 0030).
+#[test]
+fn every_deprecation_names_an_entry_of_its_section_and_a_later_major() {
+    let modules = crate::entries::MODULES;
+    let operations: Vec<&str> = modules
+        .iter()
+        .flat_map(|entries| entries.operations)
+        .map(|operation| operation.name)
+        .collect();
+    let events: Vec<&str> = modules
+        .iter()
+        .flat_map(|entries| entries.events)
+        .map(|event| event.name)
+        .collect();
+    let requests: Vec<&str> = modules
+        .iter()
+        .flat_map(|entries| entries.handler_requests)
+        .map(|request| request.name)
+        .collect();
+    let settings: Vec<&str> = modules
+        .iter()
+        .flat_map(|entries| entries.settings)
+        .map(|setting| setting.name)
+        .collect();
+    let deprecations = modules.iter().flat_map(|entries| {
+        let operations = entries
+            .operations
+            .iter()
+            .map(|operation| (operation.name, operation.deprecated, &operations));
+        let events = entries
+            .events
+            .iter()
+            .map(|event| (event.name, event.deprecated, &events));
+        let requests = entries
+            .handler_requests
+            .iter()
+            .map(|request| (request.name, request.deprecated, &requests));
+        let settings = entries
+            .settings
+            .iter()
+            .map(|setting| (setting.name, setting.deprecated, &settings));
+        operations.chain(events).chain(requests).chain(settings)
+    });
+
+    let wrong: Vec<&str> = deprecations
+        .filter_map(|(name, deprecated, section)| {
+            let deprecated = deprecated?;
+            let replaced = deprecated
+                .replacement
+                .is_none_or(|replacement| replacement != name && section.contains(&replacement));
+            let later = deprecated.earliest_removal.major > deprecated.since.major
+                && deprecated.earliest_removal.minor == 0;
+            (!(replaced && later)).then_some(name)
+        })
+        .collect();
+
+    assert_eq!(wrong, Vec::<&str>::new());
+}

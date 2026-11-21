@@ -6,17 +6,19 @@
 //! Run or left at the built-in default, the engine chooses: the crawl
 //! learns the tier per Label on a domain (`goodfetch-crawl`'s
 //! `tier_choice`), its HTTP leaving from where `fetch.http_from` says. A
-//! Label also takes `fetch.http_from`, `fetch.encoding`,
-//! `crawl.content_types` and `session.page_check`. A call the request's tier cannot serve exactly
+//! Label also takes the other settings `setting_scopes::LABEL_SETTINGS`
+//! lists, and is refused any other. A call the request's tier cannot serve exactly
 //! escalates the request to the browser under `auto`, and fails with
 //! `browser_required` under a forced tier, which nothing escalates.
 
 use std::collections::BTreeMap;
 
 use encoding_rs::Encoding;
-use goodfetch_engine::CallError;
+use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, LabelDeclaration};
+use goodfetch_protocol::foxhound::crawl::{
+    ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
+};
 use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_HTTP_FROM,
     FETCH_KEPT_RESPONSES_URLS, FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
@@ -24,10 +26,11 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, CONTENT_EXTRACTORS};
+use goodfetch_protocol::setting_scopes::LABEL_SETTINGS;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
-    SettingInvalidDetails, SettingNotApplicableDetails, SettingsLayer,
+    SettingInvalidDetails, SettingNotApplicableDetails, SettingsLayer, TIMEOUT_HOOK,
 };
 use serde_json::{Map, Value, json};
 
@@ -45,9 +48,11 @@ const PROXY_KEYS: &str = "proxy.";
 /// `session.page_check` it sets, if any (ADR 0093), whether it keeps its URLs' fragments
 /// (`crawl.keep_url_fragment`, ADR 0120) and whether it keeps responses
 /// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says,
-/// and the main-content step its pages' `formats` read with
-/// (`content.extractor`, spec #580). Its `session.source` is the Session
-/// pool's to read.
+/// the main-content step its pages' `formats` read with
+/// (`content.extractor`, spec #580), and how long each call of a Hook on its
+/// requests may run (`timeout.hook`) and whether a failed handler or Hook
+/// call is tried again (`crawl.retry.handler_failed`, ADR 0104). Its
+/// `session.source` is the Session pool's to read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
@@ -58,6 +63,8 @@ pub struct LabelSettings {
     fragments: BTreeMap<String, bool>,
     kept_responses: BTreeMap<String, bool>,
     extractors: BTreeMap<String, BuiltIn>,
+    hook_timeouts: BTreeMap<String, u64>,
+    retries_handler_failed: BTreeMap<String, bool>,
 }
 
 /// How a request's tier is chosen.
@@ -73,11 +80,12 @@ pub enum Choosing {
 /// `fetch.http_from`, the Run's or a declared Label's own (ADR 0023).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HttpFrom {
-    /// From inside the Session's browser, as `browser_fetch`: the default.
-    #[default]
+    /// From inside the Session's browser, as `browser_fetch`.
     Browser,
-    /// Learned per Label; as [`HttpFrom::Transport`] until the engine
-    /// learns which client a site accepts.
+    /// Learned per Label, the default (issue 3106); as
+    /// [`HttpFrom::Transport`] until the engine learns which client a site
+    /// accepts.
+    #[default]
     Learned,
     /// From a Session's own HTTP transport, as `http`.
     Transport,
@@ -133,7 +141,8 @@ impl LabelSettings {
     /// key but `fetch.tier`, `fetch.http_from`, `fetch.encoding`,
     /// `crawl.content_types`,
     /// `session.page_check`, `crawl.keep_url_fragment`,
-    /// `fetch.kept_responses.urls`, `content.extractor` and
+    /// `fetch.kept_responses.urls`, `content.extractor`, `timeout.hook`,
+    /// `crawl.retry.handler_failed` and
     /// `session.source`, which the Session pool reads; `fetch.tier_race` and every `proxy.*` key, the pools'
     /// identity policy, are the Run's only), and
     /// `setting_invalid` for a `fetch.tier` that names no tier, a
@@ -142,8 +151,10 @@ impl LabelSettings {
     /// `crawl.content_types` that is no list of media ranges, a
     /// `session.page_check` that is no Page check, a
     /// `crawl.keep_url_fragment` that is no Boolean, a
-    /// `fetch.kept_responses.urls` that is no list of patterns or a
-    /// `content.extractor` that names no built-in.
+    /// `fetch.kept_responses.urls` that is no list of patterns, a
+    /// `content.extractor` that names no built-in, a `timeout.hook` that is
+    /// no duration in milliseconds or a `crawl.retry.handler_failed` that
+    /// is no Boolean.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut http_from = BTreeMap::new();
@@ -153,6 +164,8 @@ impl LabelSettings {
         let mut fragments = BTreeMap::new();
         let mut kept_responses = BTreeMap::new();
         let mut extractors = BTreeMap::new();
+        let mut hook_timeouts = BTreeMap::new();
+        let mut retries_handler_failed = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
@@ -181,10 +194,7 @@ impl LabelSettings {
                     continue;
                 }
                 if key == CRAWL_KEEP_URL_FRAGMENT.name {
-                    let Value::Bool(keeps) = value else {
-                        return Err(invalid(name, &key, &value, "is no Boolean"));
-                    };
-                    fragments.insert(name.clone(), keeps);
+                    fragments.insert(name.clone(), boolean(name, &key, &value)?);
                     continue;
                 }
                 if key == FETCH_KEPT_RESPONSES_URLS.name {
@@ -209,6 +219,14 @@ impl LabelSettings {
                     extractors.insert(name.clone(), extractor);
                     continue;
                 }
+                if key == TIMEOUT_HOOK.name {
+                    hook_timeouts.insert(name.clone(), millis(name, &key, &value)?);
+                    continue;
+                }
+                if key == CRAWL_RETRY_HANDLER_FAILED.name {
+                    retries_handler_failed.insert(name.clone(), boolean(name, &key, &value)?);
+                    continue;
+                }
                 // The Session pool reads a Label's own Session source.
                 if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
                     continue;
@@ -229,7 +247,23 @@ impl LabelSettings {
             fragments,
             kept_responses,
             extractors,
+            hook_timeouts,
+            retries_handler_failed,
         })
+    }
+
+    /// Each declared Label that sets `timeout.hook`, with its value in
+    /// milliseconds.
+    pub fn hook_timeouts(&self) -> impl Iterator<Item = (&str, u64)> {
+        self.hook_timeouts
+            .iter()
+            .map(|(name, millis)| (name.as_str(), *millis))
+    }
+
+    /// The `crawl.retry.handler_failed` the Label `label` sets: `None` when
+    /// it leaves it to the Run.
+    pub fn retries_handler_failed(&self, label: &str) -> Option<bool> {
+        self.retries_handler_failed.get(label).copied()
     }
 
     /// The main-content step the Label `label` chooses with
@@ -342,7 +376,7 @@ impl LabelSettings {
 /// does not take: a `proxy.*` key never, since a Run's proxy settings apply
 /// to every Session of its pools, so one crawl presents one identity policy
 /// (ADRs 0093 and 0117); `fetch.tier_race` is the Run's only; the others
-/// not in this engine.
+/// ADR 0093 gives a Label, not yet in this engine (issue 1472).
 fn not_taken(name: &str, key: String) -> CallError {
     let why = if key.starts_with(PROXY_KEYS) {
         "which a Label never takes: a Run's proxy settings apply to every Session of its Session pools, so one crawl presents one identity policy".to_owned()
@@ -352,13 +386,21 @@ fn not_taken(name: &str, key: String) -> CallError {
         } else {
             ""
         };
+        let taken: Vec<String> = LABEL_SETTINGS
+            .iter()
+            .map(|setting| format!("`{}`", named::setting(setting.name)))
+            .collect();
         format!(
-            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.http_from`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `content.extractor`, `session.page_check` and `session.source` are set per Label"
+            "which a Label does not take in this engine{only}: only {} are set per Label",
+            taken.join(", ")
         )
     };
     CallError::new(
         &SETTING_NOT_APPLICABLE,
-        format!("The Label `{name}` sets `{key}`, {why}; set `{key}` for the Run instead."),
+        format!(
+            "The Label `{name}` sets `{set}`, {why}; set `{set}` for the Run instead.",
+            set = named::setting(&key)
+        ),
         &SettingNotApplicableDetails {
             key,
             layer: SettingsLayer::Run,
@@ -416,7 +458,10 @@ fn http_from_of(label: &str, key: &str, value: &Value) -> Result<HttpFrom, CallE
 fn invalid(name: &str, key: &str, value: &Value, reason: &str) -> CallError {
     CallError::new(
         &SETTING_INVALID,
-        format!("The Label `{name}` sets `{key}` to {value}, which {reason}."),
+        format!(
+            "The Label `{name}` sets `{}` to {value}, which {reason}.",
+            named::setting(key)
+        ),
         &SettingInvalidDetails {
             key: key.to_owned(),
             layer: Some(SettingsLayer::Run),
@@ -425,6 +470,28 @@ fn invalid(name: &str, key: &str, value: &Value, reason: &str) -> CallError {
             fix: None,
         },
     )
+}
+
+/// The duration in milliseconds the Label `name` sets `key` to.
+///
+/// # Errors
+///
+/// `setting_invalid` for a `value` that is no duration in milliseconds.
+fn millis(name: &str, key: &str, value: &Value) -> Result<u64, CallError> {
+    value
+        .as_u64()
+        .ok_or_else(|| invalid(name, key, value, "is no duration in milliseconds"))
+}
+
+/// The Boolean `value` the Label `name` sets `key` to.
+///
+/// # Errors
+///
+/// `setting_invalid` for a `value` that is no Boolean.
+fn boolean(name: &str, key: &str, value: &Value) -> Result<bool, CallError> {
+    value
+        .as_bool()
+        .ok_or_else(|| invalid(name, key, value, "is no Boolean"))
 }
 
 /// The WHATWG Encoding label the Label `name` sets `fetch.encoding` to, as

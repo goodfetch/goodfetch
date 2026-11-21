@@ -4,11 +4,11 @@
 //! renamed over the path, missing folders made first and a file there
 //! replaced; a failure, and a [`FileSaving`] dropped before it finishes,
 //! removes the temporary file, so the path holds the whole file or what it
-//! held before. A failure the path causes ([`Error::PathNotWritable`]) is
-//! told from one of the storage ([`Error::FileWriteFailed`]) by its
+//! held before. A failure the path causes (`path_not_writable`) is
+//! told from one of the storage (`file_write_failed`) by its
 //! `io::ErrorKind`, and the OS's error is kept as the source. The engine
 //! writes a kept file under the same rule; this one writes the bytes a
-//! Daemon streams. Its calls block: [`crate::Connection::save_file`] runs
+//! Daemon streams. Its calls block: [`crate::ClientConnection::save_file`] runs
 //! them on the Connection's tracker.
 #![expect(
     clippy::disallowed_methods,
@@ -19,7 +19,9 @@ use std::fs::File;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-use crate::error::{Error, FileFailure};
+use goodfetch_protocol::checkpoint::{FileWriteFailedDetails, PathNotWritableDetails, WriteSide};
+
+use crate::error::Error;
 
 /// The reasons ADR 0116 gives `path_not_writable`; every other one is the
 /// storage's.
@@ -54,8 +56,8 @@ impl FileSaving {
     ///
     /// # Errors
     ///
-    /// [`Error::PathNotWritable`] when the path cannot hold a file, such
-    /// as a folder or a path through a file, and [`Error::FileWriteFailed`]
+    /// `path_not_writable` when the path cannot hold a file, such
+    /// as a folder or a path through a file, and `file_write_failed`
     /// when its storage fails. Either names the path as given.
     pub fn create(path: &Path, call: &str) -> Result<Self, Error> {
         Self::create_at(path, absolute(path, call)?, call)
@@ -130,8 +132,8 @@ impl FileSaving {
     ///
     /// # Errors
     ///
-    /// [`Error::FileWriteFailed`] when the storage fails, such as when it
-    /// is full, or [`Error::PathNotWritable`] for a file too large for it.
+    /// `file_write_failed` when the storage fails, such as when it
+    /// is full, or `path_not_writable` for a file too large for it.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), Error> {
         self.partial
             .as_file_mut()
@@ -273,29 +275,30 @@ fn failure(
             }
             _ => format!("Give `{call}` a path in a folder this user can write."),
         };
-        Error::PathNotWritable(Box::new(FileFailure {
-            reason,
-            os_code,
-            side: None,
-            path: path.to_owned(),
-            message: format!(
-                "The path `{shown}` cannot be written ({detail}); nothing was written there."
-            ),
-            fix,
+        Error::path_not_writable(
+            &PathNotWritableDetails {
+                reason: reason.to_owned(),
+                os_code: os_code.map(str::to_owned),
+                path: shown.to_string(),
+                fix,
+            },
+            format!("The path `{shown}` cannot be written ({detail}); nothing was written there."),
             cause,
-        }))
+        )
     } else {
-        Error::FileWriteFailed(Box::new(FileFailure {
-            reason,
-            os_code,
-            side: Some("program"),
-            path: path.to_owned(),
-            message: format!(
+        Error::file_write_failed(
+            &FileWriteFailedDetails {
+                reason: reason.to_owned(),
+                os_code: os_code.map(str::to_owned),
+                path: Some(shown.to_string()),
+                side: WriteSide::Program,
+            },
+            format!(
                 "The file could not be written at `{shown}` ({detail}); the path holds what it held before."
             ),
-            fix: format!("Free space where `{shown}` is, then call `{call}` again."),
+            format!("Free space where `{shown}` is, then call `{call}` again."),
             cause,
-        }))
+        )
     }
 }
 

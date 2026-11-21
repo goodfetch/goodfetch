@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 
 use crate::CallError;
+use crate::deadline::Enclosing;
 
 /// Why a lease lets no more commands leave.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -44,6 +45,14 @@ pub trait LeaseCheck: Debug + Send + Sync {
     fn permit_wait(&self, url: &str) -> PermitWait {
         let _ = url;
         PermitWait::none()
+    }
+
+    /// The end of the call that encloses its page's calls, when one does,
+    /// such as a crawl handler's under `timeout.handler` (ADR 0080): a page
+    /// call still waiting at that end ends with `deadline_exceeded` naming
+    /// that call. None by default.
+    fn enclosing(&self) -> Option<Enclosing> {
+        None
     }
 }
 

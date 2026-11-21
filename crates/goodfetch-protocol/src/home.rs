@@ -85,6 +85,9 @@ pub const RUN_TRACE_PROVENANCE: &str = "trace/provenance.jsonl";
 /// The run trace's CDP commands, in the run folder.
 pub const RUN_TRACE_CDP_COMMANDS: &str = "trace/cdp-commands.jsonl";
 
+/// The run trace's raw calls (ADR 0099), in the run folder.
+pub const RUN_TRACE_CALLS: &str = "trace/calls.jsonl";
+
 /// The per-major folder of the Product version `version` in the home at
 /// `home`.
 pub fn per_major(home: &Path, version: &ProductVersion) -> PathBuf {

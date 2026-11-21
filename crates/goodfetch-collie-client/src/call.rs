@@ -4,19 +4,24 @@
 //! Each holds its typed params, `P`, until it is sent, so the members the
 //! catalog gives a handle set their options on them; awaiting either only
 //! exchanges messages with the Connection's runtime, so it runs on any
-//! executor (ADR 0081).
+//! executor (ADR 0081). Dropping the future once its call is sent cancels
+//! the call with `$/cancel`, without waiting, when the catalog says the
+//! call is cancellable (ADR 0080).
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::entries;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::Error;
-use crate::rpc::{Outgoing, Sender};
+use crate::rpc::{CallId, Outgoing, Sender};
+use crate::trace_context::{self, TraceContext};
 
 /// A call's reply, as `.await` gives it.
 pub type Reply<T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>;
@@ -27,15 +32,19 @@ type Read<T> = Box<dyn FnOnce(Value) -> Result<T, Error> + Send + 'static>;
 
 /// What the handle a call came from notes of its reply's JSON before the
 /// caller reads it: a Run notes that it ended.
-type Note = Box<dyn FnOnce(&Value) + Send + 'static>;
+pub(crate) type Note = Box<dyn FnOnce(&Value) + Send + 'static>;
+
+/// What answers a call before it is sent, so that it is not: a close of a
+/// value already closed answers at once.
+type Settled = Box<dyn FnOnce() -> Option<Value> + Send + 'static>;
 
 /// The name of the params member an operation's own `timeout` travels in
 /// (ADR 0080).
-const WIRE_TIMEOUT: &str = "timeout";
+pub(crate) const WIRE_TIMEOUT: &str = "timeout";
 
 /// How long a call waits for its reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Timeout {
+pub(crate) enum Timeout {
     /// The engine's default for an operation that takes its own `timeout`;
     /// for any other, as long as the Connection lasts, until the
     /// Connection takes a scope's default (spec #606).
@@ -47,7 +56,8 @@ enum Timeout {
 }
 
 /// A call that waits for its reply, `T`, with its params, `P`. Nothing is
-/// sent until it is awaited.
+/// sent until it is awaited, and dropping the future once a cancellable
+/// call is sent cancels it with `$/cancel`, without waiting (ADR 0080).
 #[must_use = "a call is sent only when it is awaited"]
 pub struct Call<T, P = Value> {
     request: Request<P>,
@@ -73,9 +83,10 @@ impl<T: DeserializeOwned, P> Call<T, P> {
 
 impl<T, P> Call<T, P> {
     /// Fails the call if its reply has not come within `timeout`: with
-    /// [`Error::TimedOut`], or with the engine's `deadline_exceeded` for an
-    /// operation that takes its own `timeout`. A reply that comes later
-    /// changes nothing.
+    /// `deadline_exceeded`, or with the engine's `deadline_exceeded` for an
+    /// operation that takes its own `timeout`. A cancellable call the
+    /// client's own timer ends is cancelled with `$/cancel`, as a dropped
+    /// one is (ADR 0080). A reply that comes later changes nothing.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Timeout::After(timeout);
         self
@@ -103,13 +114,36 @@ impl<T, P> Call<T, P> {
         self
     }
 
+    /// Changes the params before they are sent, or fails the call with the
+    /// error `edit` returns, which it then answers without sending: an
+    /// option's builder method that checks its value, as `settings` does.
+    pub(crate) fn try_edit(mut self, edit: impl FnOnce(&mut P) -> Result<(), Error>) -> Self {
+        if let Ok(params) = &mut self.request.params
+            && let Err(error) = edit(params)
+        {
+            self.request.params = Err(error);
+        }
+        self
+    }
+
     /// Runs `note` with the reply's JSON once it has come.
     pub(crate) fn note(mut self, note: impl FnOnce(&Value) + Send + 'static) -> Self {
         self.request.note = Some(Box::new(note));
         self
     }
 
-    /// The call whose reply is `map` of this one's: an opener's handle.
+    /// Runs `settled` when the call is awaited, before anything is sent:
+    /// the JSON it returns is the call's reply, and the call is not sent.
+    pub(crate) fn settled(
+        mut self,
+        settled: impl FnOnce() -> Option<Value> + Send + 'static,
+    ) -> Self {
+        self.request.settled = Some(Box::new(settled));
+        self
+    }
+
+    /// The call whose reply is `map` of this one's: an opener's handle, or
+    /// the one property of a result (issue 2517).
     pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Call<U, P>
     where
         T: 'static,
@@ -139,9 +173,10 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
             Timeout::After(after) if !wire => Some(after),
             _ => None,
         };
+        let trace_context = request.sender.trace_context();
         Box::pin(async move {
             let reply = request
-                .send(timer, |params| {
+                .send(trace_context, timer, |params| {
                     if wire {
                         set_wire_timeout(params, timeout);
                     }
@@ -154,7 +189,9 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
 
 /// A question the engine answers at once, `T`, with its params, `P`,
 /// without waiting on a page, a network or anything else, so it takes no
-/// timeout. Nothing is sent until it is awaited.
+/// timeout. Nothing is sent until it is awaited, and dropping the future
+/// once a cancellable query is sent cancels it with `$/cancel`, without
+/// waiting.
 #[must_use = "a query is sent only when it is awaited"]
 pub struct Query<T, P = Value> {
     request: Request<P>,
@@ -174,16 +211,44 @@ impl<T: DeserializeOwned, P> Query<T, P> {
 
 impl<T, P> Query<T, P> {
     /// Changes the params before they are sent: an option's builder
-    /// method.
-    #[expect(
-        dead_code,
-        reason = "no query of the catalog takes an option yet; `xtask codegen` writes its builder methods through this one"
-    )]
+    /// method, as `config.explain`'s `keys`.
     pub(crate) fn edit(mut self, edit: impl FnOnce(&mut P)) -> Self {
         if let Ok(params) = &mut self.request.params {
             edit(params);
         }
         self
+    }
+
+    /// The query whose answer is `map` of this one's: the one property of
+    /// a result (issue 2517).
+    #[expect(
+        dead_code,
+        reason = "no query of the catalog answers a result of one property yet; `xtask codegen` writes its member through this one"
+    )]
+    pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Query<U, P>
+    where
+        T: 'static,
+    {
+        let read = self.read;
+        Query {
+            request: self.request,
+            read: Box::new(move |value| read(value).map(map)),
+        }
+    }
+}
+
+impl<T: 'static, P> Query<T, P> {
+    /// The query whose answer is `map` of this one's, or the error `map`
+    /// fails with: a read whose values a program's type reads.
+    pub(crate) fn try_map<U>(
+        self,
+        map: impl FnOnce(T) -> Result<U, Error> + Send + 'static,
+    ) -> Query<U, P> {
+        let read = self.read;
+        Query {
+            request: self.request,
+            read: Box::new(move |value| read(value).and_then(map)),
+        }
     }
 }
 
@@ -193,7 +258,8 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Query<T, P
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { request, read } = self;
-        Box::pin(async move { read(request.send(None, |_| ()).await?) })
+        let trace_context = request.sender.trace_context();
+        Box::pin(async move { read(request.send(trace_context, None, |_| ()).await?) })
     }
 }
 
@@ -203,6 +269,7 @@ struct Request<P> {
     method: String,
     params: Result<P, Error>,
     note: Option<Note>,
+    settled: Option<Settled>,
 }
 
 impl<P> Request<P> {
@@ -212,30 +279,60 @@ impl<P> Request<P> {
             method: method.to_owned(),
             params,
             note: None,
+            settled: None,
         }
     }
 }
 
 impl<P: Serialize> Request<P> {
     /// Sends the request, its params as JSON once `edit` changed them,
-    /// and answers its reply's JSON once the handle noted it; a timer of
-    /// the client's fails it past `timeout`.
+    /// carrying `trace_context`, the Trace context its caller had, and
+    /// answers its reply's JSON once the handle noted it; a timer of the
+    /// client's fails it past `timeout`. A request its handle settles
+    /// first is not sent, and a cancellable one dropped before its reply is
+    /// cancelled.
     async fn send(
         self,
+        trace_context: Option<TraceContext>,
         timeout: Option<Duration>,
         edit: impl FnOnce(&mut Value),
     ) -> Result<Value, Error> {
-        let mut params = serde_json::to_value(self.params?).map_err(Error::Shape)?;
+        self.sender
+            .ensure_opener()
+            .map_err(|forked| forked.in_call(&self.method))?;
+        if let Some(answer) = self.settled.and_then(|settled| settled()) {
+            return Ok(answer);
+        }
+        // A value closed before the call fails it headed by the call, as the
+        // Connection's own end does (ADR 0079's note of 2026-11-19).
+        let params = self.params.map_err(|error| error.in_call(&self.method))?;
+        let mut params = serde_json::to_value(params).map_err(Error::shape)?;
         edit(&mut params);
+        trace_context::carry(&mut params, trace_context);
         let (reply, replied) = oneshot::channel();
-        self.sender.call(Outgoing {
+        let call = Outgoing {
             method: self.method,
             params,
             timeout,
             reply,
             notified: None,
-        });
-        let result = replied.await.map_err(|_| Error::Closed)??;
+        };
+        let mut waiting = if cancellable(&call.method) {
+            let call = self.sender.call_cancellable(call);
+            Some(Waiting {
+                sender: self.sender,
+                call,
+                replied: false,
+            })
+        } else {
+            self.sender.call(call);
+            None
+        };
+        let replied = replied.await;
+        if let Some(waiting) = &mut waiting {
+            waiting.replied = true;
+        }
+        let result = replied.map_err(|_| Error::closed())??;
         if let Some(note) = self.note {
             note(&result);
         }
@@ -243,9 +340,34 @@ impl<P: Serialize> Request<P> {
     }
 }
 
+/// Whether the catalog says a Client may cancel a call of `method` in
+/// flight; the engine ignores `$/cancel` for any other call, including one
+/// of a method the catalog does not know.
+fn cancellable(method: &str) -> bool {
+    entries::operations_of(Product::Foxhound)
+        .any(|operation| operation.name == method && operation.cancellable)
+}
+
+/// A sent cancellable call its caller waits on: dropped before its reply, as when the
+/// caller drops the call's future, it cancels the call with `$/cancel`
+/// without waiting (ADR 0080).
+struct Waiting {
+    sender: Sender,
+    call: CallId,
+    replied: bool,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        if !self.replied {
+            self.sender.cancel_sent(&self.call);
+        }
+    }
+}
+
 /// Reads a reply's JSON as `T`.
 fn read<T: DeserializeOwned>() -> Read<T> {
-    Box::new(|value| serde_json::from_value(value).map_err(Error::Shape))
+    Box::new(|value| serde_json::from_value(value).map_err(Error::shape))
 }
 
 /// Sets the operation's own `timeout` in `params` (ADR 0080): the engine's
@@ -263,11 +385,14 @@ fn set_wire_timeout(params: &mut Value, timeout: Timeout) {
             members.insert(WIRE_TIMEOUT.to_owned(), Value::Null);
         }
         Timeout::After(after) => {
-            let millis = u64::try_from(after.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX);
-            members.insert(WIRE_TIMEOUT.to_owned(), Value::from(millis));
+            members.insert(WIRE_TIMEOUT.to_owned(), Value::from(wire_millis(after)));
         }
     }
 }
+
+/// A duration in whole milliseconds, rounded up, as a timeout is sent and
+/// reported, and a duration Setting too.
+pub(crate) use goodfetch_protocol::catalog::wire_millis;
 
 /// C-SEND-SYNC: a call and a query, and the futures they become, move
 /// between threads and outlive the borrow that made them.

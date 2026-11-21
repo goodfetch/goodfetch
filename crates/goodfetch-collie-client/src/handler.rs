@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
 
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, ErrorResponse, ProtocolFailure, Request, RequestId, Response, Version,
 };
@@ -17,9 +17,11 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
-use crate::error::Error;
+use crate::error::{BoxError, Error};
 use crate::line;
+use crate::opening_process::OpeningProcess;
 use crate::sync::{Mutex, MutexGuard};
+use goodfetch_protocol::error_code::ErrorCode;
 
 /// The streams the engine's requests go to, by method, or `None` once the
 /// Connection has ended, which ends every stream.
@@ -40,15 +42,13 @@ impl Streams {
     pub(crate) fn open(&self, method: &str) -> Result<HandlerRequests, Error> {
         let mut served = self.served();
         let Some(streams) = served.as_mut() else {
-            return Err(Error::Closed);
+            return Err(Error::closed());
         };
         if streams
             .get(method)
             .is_some_and(|stream| !stream.is_closed())
         {
-            return Err(Error::AlreadyServed {
-                method: method.to_owned(),
-            });
+            return Err(Error::already_served(method));
         }
         // Unbounded because the engine bounds it: it sends a Client at most
         // `crawl.handler.concurrency` requests at once, so the SDK keeps no
@@ -70,6 +70,7 @@ impl Streams {
             params: request.params.unwrap_or(Value::Null),
             lines: lines.downgrade(),
             answered: false,
+            opener: OpeningProcess::current(),
         };
         let mut served = self.served();
         let Some(streams) = served.as_mut() else {
@@ -102,7 +103,7 @@ impl Streams {
 }
 
 /// The engine's requests of one method, in the order it sent them, from
-/// [`crate::Connection::handler_requests`]. Dropping it stops serving the
+/// [`crate::ClientConnection::handler_requests`]. Dropping it stops serving the
 /// method: the requests it still held go back to the engine as dropped,
 /// and later ones are answered with the method error.
 #[derive(Debug)]
@@ -134,6 +135,9 @@ pub struct HandlerCall {
     /// The Connection's output, which a held request never keeps open.
     lines: mpsc::WeakUnboundedSender<Vec<u8>>,
     answered: bool,
+    /// The process whose Connection read the request, the only one whose
+    /// answer reaches the engine.
+    opener: OpeningProcess,
 }
 
 impl HandlerCall {
@@ -151,8 +155,9 @@ impl HandlerCall {
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] when the Connection has ended, so the engine never
-    /// reads the answer.
+    /// `closed` when the Connection has ended, so the engine never
+    /// reads the answer, and `connection_forked` in a process other than
+    /// the one that opened it, such as the child of a `fork`.
     pub fn answer(mut self, result: Value) -> Result<(), Error> {
         let id = self.id.clone();
         self.send(&Response {
@@ -162,18 +167,23 @@ impl HandlerCall {
         })
     }
 
-    /// Answers the request with the failure `error`.
+    /// Answers the request with the program's own error `error`, as ADR
+    /// 0109 reads it: a Goodfetch [`Error`] keeps its code, and any other
+    /// error fails with `own`, the code of the place that called the
+    /// program, such as a handler's `handler_failed` (see
+    /// [`Error::of_program`]).
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] when the Connection has ended, so the engine never
-    /// reads the answer.
-    pub fn fail(mut self, error: ErrorObject) -> Result<(), Error> {
+    /// `closed` when the Connection has ended, so the engine never
+    /// reads the answer, and `connection_forked` in a process other than
+    /// the one that opened it, such as the child of a `fork`.
+    pub fn fail(mut self, error: impl Into<BoxError>, own: ErrorCode) -> Result<(), Error> {
         let id = Some(self.id.clone());
         self.send(&ErrorResponse {
             jsonrpc: Version,
             id,
-            error,
+            error: Error::of_program(error.into(), own).to_object(),
         })
     }
 
@@ -200,9 +210,10 @@ impl HandlerCall {
     /// Writes `answer` as the request's one answer.
     fn send(&mut self, answer: &impl Serialize) -> Result<(), Error> {
         self.answered = true;
-        let line = line::encode(answer).map_err(Error::Shape)?;
-        let lines = self.lines.upgrade().ok_or(Error::Closed)?;
-        lines.send(line).map_err(|_closed| Error::Closed)
+        self.opener.ensure_current()?;
+        let line = line::encode(answer).map_err(Error::shape)?;
+        let lines = self.lines.upgrade().ok_or_else(Error::closed)?;
+        lines.send(line).map_err(|_closed| Error::closed())
     }
 }
 
@@ -212,8 +223,9 @@ impl Drop for HandlerCall {
             return;
         }
         let details = CallCancelledDetails {
-            by: StoppedBy::Program,
+            by: CancelledBy::Program,
             closed: None,
+            person: None,
         };
         let details: Map<String, Value> = serde_json::to_value(details)
             .and_then(serde_json::from_value)

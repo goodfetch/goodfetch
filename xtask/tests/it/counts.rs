@@ -766,6 +766,11 @@ const OTHER_B1_ROWS: &str = "\
 | `E6.robots_reads` | reads of a robots.txt copy per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E6.private_transactions` | Politeness transactions and opens per attempt of a Run's own Politeness | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.undelegated_transactions` | Politeness transactions per attempt at `politeness.delegation: false` | ≤ 3 | 6 | B1 | must not grow | `just counts` | implementer done |
+| `E6.delegations` | Delegations taken per Run | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E6.delegation_transactions` | transactions per Delegation taken | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E6.other_transactions` | other Politeness transactions per Run | 4 | 4 | B1 | must not grow | `just counts` | implementer done |
+| `E6.shared_transactions` | Politeness transactions per attempt of two engines crawling one site | ≤ 3 | 3 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
@@ -853,13 +858,18 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("E6.robots_reads", 1),
         ("E6.off_work", 0),
         ("E6.private_transactions", 0),
+        ("E6.undelegated_transactions", 0),
+        ("E6.delegations", 1),
+        ("E6.delegation_transactions", 1),
+        ("E6.other_transactions", 4),
+        ("E6.shared_transactions", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"second_copies\":0,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"private_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"held_links_batches\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"second_copies\":0,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"private_attempts\":0,\"undelegated_attempts\":0,\"delegations\":1,\"shared_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"held_links_batches\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -1894,5 +1904,104 @@ fn gungraun_writes_under_the_roots_target_folder() {
     assert!(
         homes.lines().all(|home| Path::new(home) == expected),
         "{homes}"
+    );
+}
+
+/// `script`, writing first the Callgrind cap it was given, or `unset`, to
+/// `at-once` beside itself.
+fn writing_its_callgrind_cap(script: &str) -> String {
+    script.replacen(
+        "#!/bin/sh\n",
+        "#!/bin/sh\nprintf '%s' \"${GOODFETCH_COUNTS_CALLGRIND_AT_ONCE-unset}\" > \"$(dirname \"$0\")/at-once\"\n",
+        1,
+    )
+}
+
+/// The cap reaches the benchmark in each mode, by the option or by the
+/// variable alone, the option first; without either, the benchmark gets
+/// none and keeps its own bound.
+#[rstest]
+#[case::by_option(&["--callgrind-at-once", "2"], None, "2")]
+#[case::by_variable(&[], Some("2"), "2")]
+#[case::the_option_over_the_variable(&["--callgrind-at-once", "1"], Some("3"), "1")]
+#[case::planted(&["--callgrind-at-once", "2", "--plant", "F1.parses"], None, "2")]
+#[case::proving(&["--callgrind-at-once", "2", "--prove"], None, "2")]
+#[case::neither(&[], None, "unset")]
+fn the_callgrind_cap_reaches_the_benchmark_by_option_or_variable(
+    #[case] options: &[&str],
+    #[case] variable: Option<&str>,
+    #[case] seen: &str,
+) {
+    let script = writing_its_callgrind_cap(&benchmark(&[("default", 104)], false));
+    let (workspace, executable) = workspace("8", &script);
+    let mut args = vec!["counts", "--row", "F1.parses", "--executable", &executable];
+    args.extend(options);
+    let variables: Vec<(&str, &std::ffi::OsStr)> = variable
+        .map(|value| ("GOODFETCH_COUNTS_CALLGRIND_AT_ONCE", value.as_ref()))
+        .into_iter()
+        .collect();
+
+    let outcome = workspace.xtask_with_env(&args, &variables);
+
+    assert_eq!(
+        workspace.read_text("at-once"),
+        seen,
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
+/// A cap that is no whole number of 1 or more is refused, by the option or
+/// by the variable, before any benchmark runs.
+#[rstest]
+#[case::zero_by_option(&["--callgrind-at-once", "0"], None, "--callgrind-at-once")]
+#[case::zero_by_variable(&[], Some("0"), "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE is `0`, not a whole number of 1 or more")]
+#[case::a_word_by_variable(&[], Some("two"), "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE is `two`, not a whole number of 1 or more")]
+fn a_callgrind_cap_that_is_no_whole_number_of_one_or_more_is_refused_before_anything_runs(
+    #[case] options: &[&str],
+    #[case] variable: Option<&str>,
+    #[case] said: &str,
+) {
+    let script = writing_its_callgrind_cap(&benchmark(&[("default", 104)], false));
+    let (workspace, executable) = workspace("8", &script);
+    let mut args = vec!["counts", "--row", "F1.parses", "--executable", &executable];
+    args.extend(options);
+    let variables: Vec<(&str, &std::ffi::OsStr)> = variable
+        .map(|value| ("GOODFETCH_COUNTS_CALLGRIND_AT_ONCE", value.as_ref()))
+        .into_iter()
+        .collect();
+
+    let outcome = workspace.xtask_with_env(&args, &variables);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(outcome.stderr.contains(said), "{}", outcome.stderr);
+    assert!(!workspace.path().join("at-once").exists());
+}
+
+/// Under `strace` too, the benchmark gets the cap.
+#[cfg(target_os = "linux")]
+#[test]
+fn under_strace_the_callgrind_cap_reaches_the_benchmark() {
+    let workspace = Workspace::from_fixture("empty");
+    let script = writing_its_callgrind_cap(&traced_benchmark(false));
+    let path = executable_script(&workspace, "benchmark.sh", &script);
+    let executable = format!("B1={}", path.display());
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--strace",
+        "--callgrind-at-once",
+        "2",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(
+        workspace.read_text("at-once"),
+        "2",
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
     );
 }

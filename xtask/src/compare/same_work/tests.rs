@@ -1,11 +1,11 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::auto::Judged;
 use crate::compare::extracted::{Differing, Extracted};
-use crate::compare::matrix::{self, Row, Scenario};
+use crate::compare::matrix::{self, Scenario};
+use crate::compare::trials;
 use crate::compare::trials::{
-    AutoRun, Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
-    Measured, Redone, SIZE_CONCURRENCIES, SIZES, SizesCell, Tool, Trial, Work, fixture,
-    size_not_run, size_tools,
+    AutoRun, Comparison, CountedCell, CountedRun, Measured, Redone, SIZE_CONCURRENCIES, SIZES,
+    SizesCell, Tool, Trial, Work, fixture, size_not_run, size_tools,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -108,7 +108,7 @@ fn an_auto_run_that_left_a_page_of_the_manifest_unrequested_did_other_work() {
 #[test]
 fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
     let mut trials = comparison(|_, _| work(0));
-    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
+    trials.syscalls = counted(|_| true, |_, _, _| work(0));
     let one = named(&trials);
     let mut again = trials
         .trials
@@ -365,6 +365,10 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
+            (
+                "different_bytes",
+                "durable foxhound batch trial 3".to_owned()
+            ),
             ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
             ("different_bytes", "durable pagesift trial 3".to_owned()),
         ]
@@ -478,13 +482,11 @@ fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
 /// its scenario, cell and number: a counted cell over the 4-page site,
 /// which a scenario that runs only its timed trials has no run in.
 fn counted(
-    counts: impl Fn(Scenario, Row, Tool) -> bool,
+    counts: impl Fn(&matrix::Cell) -> bool,
     work: impl Fn(Scenario, &str, u32) -> Work,
 ) -> CountedCell {
     let runs = matrix::measured()
-        .filter(|(cell, config)| {
-            !cell.scenario.timed_only() && counts(cell.scenario, cell.row, config.tool())
-        })
+        .filter(|(cell, _)| !cell.scenario.timed_only() && counts(cell))
         .flat_map(|(cell, config)| {
             let work = &work;
             (1..=cell.runs(3)).map(move |number| CountedRun {
@@ -554,7 +556,7 @@ fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<Stopped<'_>>) {
 fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
     trials.syscalls = counted(
-        |_, _, _| true,
+        |_| true,
         |scenario, cell, number| {
             if (scenario, cell, number) == (Scenario::Browser, "spider", 2) {
                 short()
@@ -587,7 +589,7 @@ fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
 fn a_strace_run_served_other_bytes_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
     trials.syscalls = counted(
-        |_, _, _| true,
+        |_| true,
         |scenario, cell, number| {
             work(u64::from(
                 (scenario, cell, number) == (Scenario::Raw, "crawlee", 1),
@@ -622,21 +624,14 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             work(0)
         }
     });
-    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
-    trials.instructions = counted(
-        |scenario, row, tool| {
-            INSTRUCTION_SCENARIOS.contains(&scenario)
-                && row == Row::Main
-                && INSTRUCTION_TOOLS.contains(&tool)
-        },
-        |scenario, cell, number| {
-            if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
-                short()
-            } else {
-                work(0)
-            }
-        },
-    );
+    trials.syscalls = counted(|_| true, |_, _, _| work(0));
+    trials.instructions = counted(trials::instruction_counted, |scenario, cell, number| {
+        if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
+            short()
+        } else {
+            work(0)
+        }
+    });
 
     strace_runs_of_other_work_set_aside(&mut trials);
 
@@ -663,7 +658,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
 /// short of a page.
 fn sizes() -> SizesCell {
     let trials_run = matrix::measured()
-        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.row == Row::Main)
+        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.counted_criteria())
         .flat_map(|(cell, config)| {
             SIZES.into_iter().flat_map(move |pages| {
                 SIZE_CONCURRENCIES

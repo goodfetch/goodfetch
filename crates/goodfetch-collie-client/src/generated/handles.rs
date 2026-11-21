@@ -6,6 +6,7 @@
 #[derive(Clone, Debug)]
 pub struct Run {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::run::RunId>,
+    pub(crate) opened: ::std::sync::Arc<::goodfetch_protocol::run::RunStarted>,
 }
 
 impl Run {
@@ -15,17 +16,29 @@ impl Run {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `run` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `run_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "run", "run_id")
+    }
+
     /// Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn abort(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunAbortParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunAbortParams,
+    > {
+        crate::markers::warn("run.abort", true, None);
         self.host.call(
             "run.abort",
             ::goodfetch_protocol::run::RunAbortParams {
@@ -41,13 +54,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn checkpoint(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::Checkpoint,
+        crate::Answer<::goodfetch_protocol::run::Checkpoint>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
+        crate::markers::warn("run.checkpoint", true, None);
         self.host.call(
             "run.checkpoint",
             ::goodfetch_protocol::checkpoint::RunCheckpointParams {
@@ -63,17 +77,21 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn discard(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunDiscarded, ::goodfetch_protocol::run::RunParams>
-    {
-        self.host.call(
+    ) -> crate::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams> {
+        crate::markers::warn("run.discard", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::run::RunDiscarded,
+            ::goodfetch_protocol::run::RunParams,
+        > = self.host.call(
             "run.discard",
             ::goodfetch_protocol::run::RunParams {
                 run_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.run_id)
     }
 
     /// Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.
@@ -82,11 +100,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn finish(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunFinishParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunFinishParams,
+    > {
+        crate::markers::warn("run.finish", true, None);
         self.host
             .call(
                 "run.finish",
@@ -104,13 +125,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn migrate(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
+        crate::markers::warn("run.migrate", true, None);
         self.host.call(
             "run.migrate",
             ::goodfetch_protocol::checkpoint::RunCheckpointParams {
@@ -126,8 +148,9 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::page::NewPageParams> {
+        crate::markers::warn("run.new_page", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
@@ -150,10 +173,11 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_session(
         &self,
     ) -> crate::Call<Session, ::goodfetch_protocol::page::session::NewSessionParams> {
+        crate::markers::warn("run.new_session", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::session::SessionOpened,
@@ -177,11 +201,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn pause(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
+        crate::markers::warn("run.pause", true, None);
         self.host.call(
             "run.pause",
             ::goodfetch_protocol::run::RunParams {
@@ -196,13 +223,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn progress(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunProgressParams,
     > {
+        crate::markers::warn("run.progress", true, None);
         self.host.call(
             "run.progress",
             ::goodfetch_protocol::run::RunProgressParams {
@@ -218,11 +246,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn report(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
+        crate::markers::warn("run.report", true, None);
         self.host.call(
             "run.report",
             ::goodfetch_protocol::run::RunParams {
@@ -237,14 +268,15 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn set_progress_message(
         &self,
         message: ::goodfetch_protocol::run::ProgressMessage,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunSetProgressMessageParams,
     > {
+        crate::markers::warn("run.set_progress_message", true, None);
         self.host.call(
             "run.set_progress_message",
             ::goodfetch_protocol::run::RunSetProgressMessageParams {
@@ -260,11 +292,14 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn stop(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunStopParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunStopParams,
+    > {
+        crate::markers::warn("run.stop", true, None);
         self.host
             .call(
                 "run.stop",
@@ -282,17 +317,29 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn usage(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunUsage, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunUsage>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
+        crate::markers::warn("run.usage", true, None);
         self.host.call(
             "run.usage",
             ::goodfetch_protocol::run::RunParams {
                 run_id: self.host.id().clone(),
             },
         )
+    }
+
+    /// Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    #[must_use]
+    pub fn started_as(&self) -> ::goodfetch_protocol::run::StartedAs {
+        crate::markers::warn("run.started_as", true, None);
+        ::std::borrow::ToOwned::to_owned(&self.opened.started_as)
     }
 }
 
@@ -309,14 +356,24 @@ impl Session {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `session` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `session_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "session", "session_id")
+    }
+
     /// Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn close(&self) -> crate::Call<(), ::goodfetch_protocol::page::session::SessionParams> {
+        crate::markers::warn("session.close", true, None);
         self.host.close(
             "session.close",
             ::goodfetch_protocol::page::session::SessionParams {
@@ -331,10 +388,11 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(
         &self,
     ) -> crate::Call<Page, ::goodfetch_protocol::page::session::NewSessionPageParams> {
+        crate::markers::warn("session.new_page", true, None);
         let host = self.host.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
@@ -357,18 +415,48 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn pages(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::session_pages::SessionPages,
+        Vec<::goodfetch_protocol::page::PageId>,
         ::goodfetch_protocol::page::session::SessionParams,
     > {
-        self.host.call(
+        crate::markers::warn("session.pages", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::session_pages::SessionPages,
+            ::goodfetch_protocol::page::session::SessionParams,
+        > = self.host.call(
             "session.pages",
             ::goodfetch_protocol::page::session::SessionParams {
                 session_id: self.host.id().clone(),
             },
+        );
+        call.map(|result| result.pages)
+    }
+
+    /// Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+    ///
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, its call already sent, hands its events in order. It reads them from the Connection's own Subscription, which the first such stream sends before its call and the last one dropped cancels; an event it has not read holds one of the Subscription's credits. Dropping the stream cancels its call without blocking and without a warning.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, and `internal` for an event that does not fit its type.
+    pub fn events<E: crate::events::SessionEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
+        crate::markers::warn("session.on", true, None);
+        <E as crate::events::sealed::SessionEvent>::warn();
+        let handle = self.clone();
+        self.host.listen_published(
+            "session.on",
+            ::goodfetch_protocol::page::session_pages::SessionOnParams {
+                session_id: self.host.id().clone(),
+                event: <E as crate::events::sealed::SessionEvent>::EVENT,
+            },
+            <E as crate::events::sealed::SessionEvent>::NAME,
+            "session_id",
+            move |data| <E as crate::events::sealed::SessionEvent>::build(&handle, data),
         )
     }
 }
@@ -386,16 +474,26 @@ impl Page {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `page` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `page_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "page", "page_id")
+    }
+
     /// Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn close(
         &self,
     ) -> crate::Call<(), ::goodfetch_protocol::page::session_pages::PageCloseParams> {
+        crate::markers::warn("page.close", true, None);
         self.host.close(
             "page.close",
             ::goodfetch_protocol::page::session_pages::PageCloseParams {
@@ -411,15 +509,19 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn evaluate(
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::EvaluateParams,
     > {
-        self.host.call(
+        crate::markers::warn("page.evaluate", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::functions::EvaluateParams,
+        > = self.host.call(
             "page.evaluate",
             ::goodfetch_protocol::page::functions::EvaluateParams {
                 page_id: self.host.id().clone(),
@@ -427,7 +529,8 @@ impl Page {
                 arg: None,
                 world: None,
             },
-        )
+        );
+        call.map(|result| result.value)
     }
 
     /// Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -436,14 +539,15 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn formats(
         &self,
         formats: ::goodfetch_protocol::page::FormatsRequest,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::PageFormats,
+        crate::Answer<::goodfetch_protocol::page::PageFormats>,
         ::goodfetch_protocol::page::FormatsParams,
     > {
+        crate::markers::warn("page.formats", true, None);
         self.host.call(
             "page.formats",
             ::goodfetch_protocol::page::FormatsParams {
@@ -459,17 +563,26 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn go_back(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.go_back", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.go_back",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(move |result| {
+            result
+                .response
+                .map(|response| crate::Response::new(host, response))
+        })
     }
 
     /// Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
@@ -478,17 +591,26 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn go_forward(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.go_forward", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.go_forward",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(move |result| {
+            result
+                .response
+                .map(|response| crate::Response::new(host, response))
+        })
     }
 
     /// Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
@@ -497,23 +619,30 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn goto(
         &self,
         url: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::GotoParams>
-    {
-        self.host
-            .call(
-                "page.goto",
-                ::goodfetch_protocol::page::GotoParams {
-                    page_id: self.host.id().clone(),
-                    url: url.into(),
-                    wait_until: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+    ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::GotoParams> {
+        crate::markers::warn("page.goto", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::GotoParams,
+        > = self.host.call(
+            "page.goto",
+            ::goodfetch_protocol::page::GotoParams {
+                page_id: self.host.id().clone(),
+                url: url.into(),
+                wait_until: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(move |result| {
+            result
+                .response
+                .map(|response| crate::Response::new(host, response))
+        })
     }
 
     /// Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -522,14 +651,15 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.
     pub fn read(
         &self,
         fields: ::std::collections::BTreeMap<String, ::goodfetch_protocol::page::read::PageField>,
     ) -> crate::Query<
-        ::goodfetch_protocol::page::read::PageRead,
+        crate::Answer<::goodfetch_protocol::page::read::PageRead>,
         ::goodfetch_protocol::page::read::PageReadParams,
     > {
+        crate::markers::warn("page.read", true, None);
         self.host.query(
             "page.read",
             ::goodfetch_protocol::page::read::PageReadParams {
@@ -545,17 +675,26 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn reload(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
+        crate::markers::warn("page.reload", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.reload",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(move |result| {
+            result
+                .response
+                .map(|response| crate::Response::new(host, response))
+        })
     }
 
     /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
@@ -564,15 +703,17 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn request(
         &self,
         url: impl Into<String>,
-    ) -> crate::Call<
-        ::goodfetch_protocol::page::PageResponse,
-        ::goodfetch_protocol::page::request::PageRequestParams,
-    > {
-        self.host.call(
+    ) -> crate::Call<crate::Response, ::goodfetch_protocol::page::request::PageRequestParams> {
+        crate::markers::warn("page.request", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::PageResponse,
+            ::goodfetch_protocol::page::request::PageRequestParams,
+        > = self.host.call(
             "page.request",
             ::goodfetch_protocol::page::request::PageRequestParams {
                 page_id: self.host.id().clone(),
@@ -582,7 +723,8 @@ impl Page {
                 post_data: None,
                 max_redirects: None,
             },
-        )
+        );
+        call.map(move |result| crate::Response::new(host, result))
     }
 
     /// Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -591,27 +733,30 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_function(
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::WaitForFunctionParams,
     > {
-        self.host
-            .call(
-                "page.wait_for_function",
-                ::goodfetch_protocol::page::waits::WaitForFunctionParams {
-                    page_id: self.host.id().clone(),
-                    function: function.into(),
-                    arg: None,
-                    world: None,
-                    polling_interval: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+        crate::markers::warn("page.wait_for_function", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::waits::WaitForFunctionParams,
+        > = self.host.call(
+            "page.wait_for_function",
+            ::goodfetch_protocol::page::waits::WaitForFunctionParams {
+                page_id: self.host.id().clone(),
+                function: function.into(),
+                arg: None,
+                world: None,
+                polling_interval: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.value)
     }
 
     /// Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -620,13 +765,14 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_load_state(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForLoadStateParams,
     > {
+        crate::markers::warn("page.wait_for_load_state", true, None);
         self.host
             .call(
                 "page.wait_for_load_state",
@@ -645,13 +791,14 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_request(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::events::PageRequest,
+        crate::Answer<::goodfetch_protocol::page::events::PageRequest>,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
+        crate::markers::warn("page.wait_for_request", true, None);
         self.host
             .call(
                 "page.wait_for_request",
@@ -670,23 +817,28 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_request_finished(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::events::PageExchange,
+        crate::Exchange,
         ::goodfetch_protocol::page::events::WaitForRequestFinishedParams,
     > {
-        self.host
-            .call(
-                "page.wait_for_request_finished",
-                ::goodfetch_protocol::page::events::WaitForRequestFinishedParams {
-                    page_id: self.host.id().clone(),
-                    url: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+        crate::markers::warn("page.wait_for_request_finished", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::events::PageExchange,
+            ::goodfetch_protocol::page::events::WaitForRequestFinishedParams,
+        > = self.host.call(
+            "page.wait_for_request_finished",
+            ::goodfetch_protocol::page::events::WaitForRequestFinishedParams {
+                page_id: self.host.id().clone(),
+                url: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout()
+            .map(move |result| crate::Exchange::new(host, result))
     }
 
     /// Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -695,23 +847,26 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_response(
         &self,
-    ) -> crate::Call<
-        ::goodfetch_protocol::page::events::PageExchange,
-        ::goodfetch_protocol::page::waits::WaitForExchangeParams,
-    > {
-        self.host
-            .call(
-                "page.wait_for_response",
-                ::goodfetch_protocol::page::waits::WaitForExchangeParams {
-                    page_id: self.host.id().clone(),
-                    url: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+    ) -> crate::Call<crate::Exchange, ::goodfetch_protocol::page::waits::WaitForExchangeParams>
+    {
+        crate::markers::warn("page.wait_for_response", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::page::events::PageExchange,
+            ::goodfetch_protocol::page::waits::WaitForExchangeParams,
+        > = self.host.call(
+            "page.wait_for_response",
+            ::goodfetch_protocol::page::waits::WaitForExchangeParams {
+                page_id: self.host.id().clone(),
+                url: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout()
+            .map(move |result| crate::Exchange::new(host, result))
     }
 
     /// Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -720,14 +875,15 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_url(
         &self,
         url: ::goodfetch_protocol::page::route::UrlMatcher,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForUrlParams,
     > {
+        crate::markers::warn("page.wait_for_url", true, None);
         self.host
             .call(
                 "page.wait_for_url",
@@ -739,6 +895,27 @@ impl Page {
                 },
             )
             .wire_timeout()
+    }
+
+    /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
+    ///
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning. An event that opens a value hands that value, whose own `events` hand the events of its own the same call carries, in order, its close last; dropping that stream passes over them, and the call goes on.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, such as `page_events_lost`, and `internal` for an event that does not fit its type.
+    pub fn events<E: crate::events::PageEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
+        crate::markers::warn("page.on", true, None);
+        <E as crate::events::sealed::PageEvent>::warn();
+        <E as crate::events::sealed::PageEvent>::listen(
+            self,
+            ::goodfetch_protocol::page::events::PageOnParams {
+                page_id: self.host.id().clone(),
+                event: <E as crate::events::sealed::PageEvent>::EVENT,
+            },
+        )
     }
 
     /// A locator (ADR 0085): what an action looks for on a page, resolved
@@ -757,6 +934,45 @@ impl Page {
     }
 }
 
+/// A `web_socket` an event opened (ADR 0081): what that event told of it,
+/// and its own events, which the same call carries.
+#[derive(Debug)]
+pub struct WebSocket {
+    /// Its URL.
+    pub url: String,
+    /// The browser's ID for the socket, which its events name.
+    pub web_socket_id: String,
+    pub(crate) events: crate::EventStream<WebSocketEvent>,
+}
+
+impl WebSocket {
+    /// Its own events, in order, each once, its close last, after which
+    /// the stream ends; the stream also ends with the call that opened it.
+    /// Dropping the stream passes over the events it has not read, and
+    /// the call's other streams go on. The call stays lossless: events
+    /// held unread keep their credits, so once the engine waits on them,
+    /// the call's other streams wait too.
+    pub fn events(self) -> crate::EventStream<WebSocketEvent> {
+        self.events
+    }
+}
+
+/// An event of a [`WebSocket`]'s own.
+#[derive(Clone, Debug, ::serde::Deserialize)]
+#[serde(tag = "event", content = "data")]
+#[non_exhaustive]
+pub enum WebSocketEvent {
+    /// A page's WebSocket closed.
+    #[serde(rename = "web_socket.close")]
+    Close(::goodfetch_protocol::page::events::WebSocketClosed),
+    /// A page's WebSocket received a message frame: its text, or a binary frame's bytes in Base64.
+    #[serde(rename = "web_socket.frame_received")]
+    FrameReceived(::goodfetch_protocol::page::events::WebSocketFrame),
+    /// A page's WebSocket sent a message frame: its text, or a binary frame's bytes in Base64.
+    #[serde(rename = "web_socket.frame_sent")]
+    FrameSent(::goodfetch_protocol::page::events::WebSocketFrame),
+}
+
 /// A `locator` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Locator {
@@ -770,17 +986,29 @@ impl Locator {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `locator` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `locator`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "locator", "locator")
+    }
+
     /// Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn click(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::ClickParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::ClickParams,
+    > {
+        crate::markers::warn("locator.click", true, None);
         self.host.call(
             "locator.click",
             ::goodfetch_protocol::page::ClickParams {
@@ -795,15 +1023,19 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn evaluate_all(
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
     > {
-        self.host.call(
+        crate::markers::warn("locator.evaluate_all", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
+        > = self.host.call(
             "locator.evaluate_all",
             ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams {
                 locator: self.host.id().clone(),
@@ -811,7 +1043,8 @@ impl Locator {
                 arg: None,
                 world: None,
             },
-        )
+        );
+        call.map(|result| result.value)
     }
 
     /// Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
@@ -820,12 +1053,15 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn fill(
         &self,
         value: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::FillParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::FillParams,
+    > {
+        crate::markers::warn("locator.fill", true, None);
         self.host.call(
             "locator.fill",
             ::goodfetch_protocol::page::FillParams {
@@ -841,12 +1077,15 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn press(
         &self,
         key: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::PressParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::PressParams,
+    > {
+        crate::markers::warn("locator.press", true, None);
         self.host.call(
             "locator.press",
             ::goodfetch_protocol::page::PressParams {
@@ -862,13 +1101,14 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::LocatorWaitForParams,
     > {
+        crate::markers::warn("locator.wait_for", true, None);
         self.host
             .call(
                 "locator.wait_for",
@@ -887,24 +1127,24 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_count(
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
-    ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Counted,
-        ::goodfetch_protocol::page::waits::WaitForCountParams,
-    > {
-        self.host
-            .call(
-                "locator.wait_for_count",
-                ::goodfetch_protocol::page::waits::WaitForCountParams {
-                    locator: self.host.id().clone(),
-                    count,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+    ) -> crate::Call<u64, ::goodfetch_protocol::page::waits::WaitForCountParams> {
+        crate::markers::warn("locator.wait_for_count", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::waits::Counted,
+            ::goodfetch_protocol::page::waits::WaitForCountParams,
+        > = self.host.call(
+            "locator.wait_for_count",
+            ::goodfetch_protocol::page::waits::WaitForCountParams {
+                locator: self.host.id().clone(),
+                count,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.count)
     }
 
     /// Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -913,27 +1153,30 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_function(
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
     > {
-        self.host
-            .call(
-                "locator.wait_for_function",
-                ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams {
-                    locator: self.host.id().clone(),
-                    function: function.into(),
-                    arg: None,
-                    world: None,
-                    polling_interval: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+        crate::markers::warn("locator.wait_for_function", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
+        > = self.host.call(
+            "locator.wait_for_function",
+            ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams {
+                locator: self.host.id().clone(),
+                function: function.into(),
+                arg: None,
+                world: None,
+                polling_interval: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.value)
     }
 }
 
@@ -958,8 +1201,13 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::NewPageParams> {
     /// main-content step its formats read with. Any other key is refused
     /// with `setting_not_applicable`, as only its Session or its Run sets
     /// it.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+            Ok(())
+        })
     }
 }
 
@@ -1021,8 +1269,13 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::session::NewSessionPageParams
     /// with `setting_not_applicable`, as only its Session or its Run sets
     /// it; the Session's Access mode, Identity profile and proxy only its
     /// opening sets.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+            Ok(())
+        })
     }
 }
 
@@ -1039,8 +1292,14 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::session::NewSessionParams> {
     /// `session.source` is refused here with `setting_not_applicable`,
     /// as the call's own `source` sets it, and so is any other key, which
     /// only the Run sets.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings =
+                settings.within(::goodfetch_protocol::catalog::SettingScope::Session)?;
+            Ok(())
+        })
     }
     /// `session.source` for this Session alone: left out, the Run's or the
     /// connection's applies; `null`, the Session opens fresh (ADRs 0083

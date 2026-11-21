@@ -27,7 +27,8 @@ export type Line =
 
 const MEMBERS = new Set(["jsonrpc", "id", "method", "params", "result", "error"]);
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+/** Whether `value` is a JSON object: not null, not a list. */
+export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

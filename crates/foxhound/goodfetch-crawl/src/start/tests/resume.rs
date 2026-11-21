@@ -12,8 +12,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    POLICY, Reply, answer_all, configure, crawl, default_dependencies, delivered, page_of,
-    paused_after_its_first_page, records, run_file, seeds, work_items,
+    POLICY, Reply, answer_all, configure, crawl, crawl_connected, default_dependencies, delivered,
+    page_of, paused_after_its_first_page, records, run_file, seeds, work_items,
 };
 use crate::policy::CrawlPolicy;
 
@@ -206,7 +206,8 @@ fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() 
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))
         .collect();
-    let (stopped, handled, finished) = crawl(
+    let (stopped, handled, finished) = crawl_connected(
+        &json!({ "timeout": { "run": 15_000 } }),
         || {
             configure(&env, ONE_AT_A_TIME);
             default_dependencies(&env, RunStateOptions::default())
@@ -219,10 +220,7 @@ fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() 
                         "labels": { "page": {} },
                         "run_id": "timed",
                         "seeds": seeds,
-                        "settings": {
-                            "timeout": { "run": 15_000 },
-                            "admission": { "max_requests_per_minute": 6 },
-                        },
+                        "settings": { "admission": { "max_requests_per_minute": 6 } },
                     }),
                     &mut answer_all,
                 )

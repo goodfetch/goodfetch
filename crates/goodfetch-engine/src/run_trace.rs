@@ -18,6 +18,11 @@
 //! - **The CDP command log** (spec #577), `trace/cdp-commands.jsonl`, while
 //!   the Run's `browser.cdp_command_log` is on: one JSON line per command the
 //!   engine sends a browser, its method only.
+//! - **The raw call log** (ADR 0099, G8), `trace/calls.jsonl`: one JSON
+//!   line per call a program made through its SDK's raw `call`, the call
+//!   whose `_meta` carries `raw: true`, marked raw, with its operation,
+//!   when it arrived and how it ended. A generated member's call writes
+//!   nothing here.
 //!
 //! Every Provenance and request-log line passes through the Run's `Mask` as
 //! a kept output (spec #564): no value a Run resolved is written, unless the
@@ -44,15 +49,20 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
-use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
+use goodfetch_protocol::home::{
+    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS,
+};
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
+use goodfetch_protocol::run::RunId;
+use jiff::Timestamp;
 use serde::Serialize;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::mask::{Mask, Scope};
@@ -104,10 +114,16 @@ enum Log {
     Provenance,
     Requests,
     CdpCommands,
+    Calls,
 }
 
 impl Log {
-    const ALL: [Self; 3] = [Self::Provenance, Self::Requests, Self::CdpCommands];
+    const ALL: [Self; 4] = [
+        Self::Provenance,
+        Self::Requests,
+        Self::CdpCommands,
+        Self::Calls,
+    ];
 
     /// How many files the writer holds.
     const COUNT: usize = Self::ALL.len();
@@ -118,6 +134,7 @@ impl Log {
             Self::Provenance => 0,
             Self::Requests => 1,
             Self::CdpCommands => 2,
+            Self::Calls => 3,
         }
     }
 
@@ -127,6 +144,7 @@ impl Log {
             Self::Provenance => RUN_TRACE_PROVENANCE,
             Self::Requests => RUN_TRACE_REQUESTS,
             Self::CdpCommands => RUN_TRACE_CDP_COMMANDS,
+            Self::Calls => RUN_TRACE_CALLS,
         }
     }
 }
@@ -256,6 +274,20 @@ impl RunTrace {
         }
     }
 
+    /// The raw call log, its writer started, so a raw call that ends records
+    /// itself without waiting, cancelled or not.
+    ///
+    /// # Errors
+    ///
+    /// When the writer cannot start; the next raw call tries again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe: a writer it started stays the Run's, for the next call.
+    pub async fn calls(&self) -> io::Result<CallLog> {
+        self.writer().await.map(|writer| CallLog(writer.clone()))
+    }
+
     /// Sends `line` to the writer for `log` and waits until it is written.
     async fn written(&self, log: Log, line: Vec<u8>) -> io::Result<()> {
         let writer = self.writer().await?;
@@ -269,6 +301,111 @@ impl RunTrace {
             .await
             .map_err(|_| ended())?;
         wrote.await.unwrap_or_else(|_| Err(ended()))
+    }
+}
+
+/// The Run trace's raw call log (ADR 0099, G8), through the Run's started
+/// writer.
+#[derive(Debug)]
+pub struct CallLog(mpsc::Sender<Entry>);
+
+impl CallLog {
+    /// Records a raw call of `operation` that arrived at `arrived_at` and
+    /// ended as `ended`: answered, or failed with its Error code. Its line
+    /// is written with the next group the writer writes, and no one waits
+    /// for it. It is lost with a `warn` event when the writer's mailbox is
+    /// full, and with a `debug` one once the Run has ended; a call that ends
+    /// its Run writes its [`RawCallLine`] before that end.
+    pub fn raw_call(&self, operation: &str, arrived_at: Timestamp, ended: Result<(), &str>) {
+        /// A line of the raw call log, its members in the order written.
+        #[derive(Serialize)]
+        struct Line<'l> {
+            operation: &'l str,
+            raw: bool,
+            arrived_at: Timestamp,
+            ended: Ended<'l>,
+        }
+        /// How the call ended: `"answered"`, or `{"failed": code}`.
+        #[derive(Serialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Ended<'l> {
+            Answered,
+            Failed(&'l str),
+        }
+        let entry = Line {
+            operation,
+            raw: true,
+            arrived_at,
+            ended: ended.map_or_else(Ended::Failed, |()| Ended::Answered),
+        };
+        let mut line = match serde_json::to_vec(&entry) {
+            Ok(line) => line,
+            Err(error) => {
+                tracing::warn!(%error, "a raw call line of the Run trace cannot be encoded");
+                return;
+            }
+        };
+        line.push(b'\n');
+        let sent = self.0.try_send(Entry {
+            log: Log::Calls,
+            line,
+            written: None,
+        });
+        match sent {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => tracing::warn!(
+                operation,
+                "a raw call is not in the Run trace: its writer's mailbox is full"
+            ),
+            Err(TrySendError::Closed(_)) => tracing::debug!(
+                operation,
+                "a raw call is not in the Run trace: its Run has ended"
+            ),
+        }
+    }
+}
+
+/// A raw call's line in the trace of the live Run it names (ADR 0099, G8),
+/// written once: by the call when it ends, with how it ended, or, for a
+/// call that ends that Run or waits for its end, by the Run's end, as
+/// answered, before the end stops the writer, whichever comes first.
+#[derive(Debug)]
+pub struct RawCallLine {
+    run: RunId,
+    log: CallLog,
+    operation: &'static str,
+    arrived_at: Timestamp,
+    written: OnceLock<()>,
+}
+
+impl RawCallLine {
+    /// The line of a raw call of `operation`, arrived at `arrived_at`,
+    /// naming the Run `run`, whose raw call log is `log`.
+    pub fn new(run: RunId, log: CallLog, operation: &'static str, arrived_at: Timestamp) -> Self {
+        Self {
+            run,
+            log,
+            operation,
+            arrived_at,
+            written: OnceLock::new(),
+        }
+    }
+
+    /// The Run whose trace it is a line of.
+    pub fn run(&self) -> &RunId {
+        &self.run
+    }
+
+    /// Whether it was written.
+    pub fn is_written(&self) -> bool {
+        self.written.get().is_some()
+    }
+
+    /// Writes the line, the call `ended` as it says, unless it was written.
+    pub fn write(&self, ended: Result<(), &str>) {
+        if self.written.set(()).is_ok() {
+            self.log.raw_call(self.operation, self.arrived_at, ended);
+        }
     }
 }
 

@@ -1,19 +1,65 @@
 # The manifest of Foxhound's Rust SDK's hand-written public members (ADR
 # 0099; STYLE.md, Protocol and SDKs): each names the catalog entry it serves,
 # or `entry = "none"` with its reason, and the canonical words and form it is
-# spelled from, in the forms of `sdks/typescript/manifest.toml`. The values a
-# connection hands out are the Collie client crate's, re-exported, and listed
-# with it. `xtask sdk-manifests` refuses an entry that is no catalog
-# operation or one only a person may call. ADR 0099's completeness tests join
-# with area 11's catalog mapping ticket; until then a member added by hand
-# gets its line here.
+# spelled from, in the forms of `sdks/typescript/manifest.toml`, whose header
+# says what `xtask sdk-manifests` refuses. The values a connection hands out
+# are the Collie client crate's, re-exported, and listed with it. A
+# `blocking::` receiver is its async receiver's twin. `xtask sdk-exports`
+# matches it to what the crate exports, read from its source: each item its
+# public modules declare or re-export from its own modules, on `(crate)` at
+# the root or on the module's path, as `blocking`, and each `pub` member of
+# such a type's inherent `impl`s; another crate's item it re-exports is that
+# crate's to list.
+#
+# Each `[[target]]` is a `tracing` target the SDK crates emit under (ADR
+# 0078), with the public constant that names it, or `constant = "none"`
+# with its reason: part of the SDK's contract as names, never as message
+# text, as Python's `[[logger]]` lines are.
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Foxhound"
+entry = "none"
+reason = "Foxhound's Connection, the entry point (ADR 0078)."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "composition"
+entry = "none"
+reason = "Foxhound's composition of the engine (ADR 0087): Collie's, then Foxhound's own contributions, which its executable and the linked engine run."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "composition_with"
+entry = "none"
+reason = "`composition` on the fetch tiers it is given, such as a test's or a benchmark's that serve their pages from memory."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "COMMANDS"
+entry = "none"
+reason = "The commands Foxhound's executable writes by hand, which its `main` passes to Collie's executable entry (ADRs 0087, 0090 and 0094), behind the `executable` feature."
+words = ["commands"]
+form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
-reason = "The one factory of ADR 0078, as `Collie::connect` is: it starts the linked Foxhound engine the crate composes (ADR 0087) and finishes `hello`, naming Foxhound, which no catalog entry carries."
+reason = "The one factory of ADR 0078, as `Collie::connect` is: it reaches the engine its options' `engine` chooses, at `Auto` the remote Daemon `GOODFETCH_URL` names, else the Daemon running in the Goodfetch home, else the linked Foxhound engine the crate composes (ADRs 0087 and 0098), and finishes `hello`, naming Foxhound, which no catalog entry carries, then sends each of its options' `limits` as a `usage.set` on its Client connection (ADR 0080)."
 words = ["connect"]
 form = "opener"
 
@@ -23,6 +69,7 @@ receiver = "Foxhound"
 member = "scope"
 entry = "none"
 reason = "The scoped form of `connect` and `close` (ADRs 0078 and 0112); `Collie::scope`'s member under the same name."
+only = "TypeScript's scoped form is `await using` on `[Symbol.asyncDispose]`, the words `close`."
 words = ["scope"]
 form = "closer"
 
@@ -37,18 +84,53 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
 member = "close"
 entry = "none"
-reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it (ADR 0078); `Collie::close`'s member under the same name."
+reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it, or closes its Daemon connection (ADR 0078); `Collie::close`'s member under the same name."
 words = ["close"]
 form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, a builder whose `params` and result are `serde_json` values (ADR 0099, G8), for an operation acting on no value that the SDK does not generate: any catalog operation, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie::engine`'s member under the same name."
+words = ["engine"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Foxhound"
+entry = "none"
+reason = "`Foxhound` without async (ADR 0081), for a program that has no runtime of its own."
+words = ["foxhound"]
+form = "type"
 
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
 member = "connect"
 entry = "none"
-reason = "`Foxhound::connect` without async (ADR 0081), blocking the calling thread until `hello` is finished."
+reason = "`Foxhound::connect` without async (ADR 0081), blocking the calling thread until `hello` is finished and its options' `limits` are set."
 words = ["connect"]
 form = "opener"
 
@@ -63,8 +145,77 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
 member = "close"
 entry = "none"
 reason = "`Foxhound::close` without async (ADR 0081)."
 words = ["close"]
 form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "call"
+entry = "none"
+reason = "`Foxhound::call` without async (ADR 0081), its builder ending in `send()`."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "engine"
+entry = "none"
+reason = "`Foxhound::engine`, which never blocks (ADR 0081)."
+words = ["engine"]
+form = "read"
+
+# Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
+# are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
+# adds the Usage kind only it counts.
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "PAID_FETCHES"
+entry = "none"
+reason = "The `paid_fetch` Usage kind a Limit caps, which only Foxhound counts (ADR 0087), for `Limits::count` and `Limits::price`; a value, no catalog entry, which a Collie engine refuses with `not_in_product`."
+only = "TypeScript names the Usage kind as the `paidFetches` key of its `Limits` object, plain data, where Rust's `Limits` takes a `UsageKind` value (ADR 0080)."
+words = ["paid", "fetches"]
+form = "constant"
+
+[[target]]
+crate = "goodfetch-collie-client"
+name = "goodfetch::client"
+constant = "logging::CLIENT"
+reason = "The SDK's runtime: the engine `connect()` reached, at info; a log level the engine refused, at warning, a handle dropped unclosed, and what the Connection saw of its engine's messages, at debug and trace."
+
+[[target]]
+crate = "goodfetch-collie-client"
+name = "goodfetch::client::run"
+constant = "logging::RUN"
+reason = "A start that resumed its Run, at info, or found it ended, at warning."
+
+[[target]]
+crate = "goodfetch-collie-client"
+name = "goodfetch::engine"
+constant = "logging::ENGINE"
+reason = "The highest level the program's subscriber records for it is the level of the engine's logs a Connection asks for, in `hello` and `connection.set_log_level` (`logging::engine_log_level`); an engine event whose target is not a path of identifiers is re-emitted under it."
+
+[[target]]
+crate = "goodfetch-collie-client"
+name = "goodfetch::engine::<area>"
+constant = "none"
+reason = "Each `$/log` event of the engine, at its level, under the engine's own target past `goodfetch`, with `target`, `fields` (one JSON object) and `dropped` as the event's fields."
+
+[[target]]
+crate = "goodfetch-collie"
+name = "goodfetch::collie"
+constant = "none"
+reason = "The linked engine's failure, and a refused Limit's connection that failed to close, at warning. The linked engine's own events reach the program's subscriber directly, under their own targets."

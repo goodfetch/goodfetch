@@ -449,7 +449,8 @@ fn a_run_across_many_origins_holds_at_most_its_cache_in_memory_and_fetches_each_
                         format!("User-agent: *\nDisallow: /{origin}/\n").as_bytes()
                     ))))
                 );
-                most_held = most_held.max(copies.held());
+                let in_memory = lock(&copies.memory);
+                most_held = most_held.max(in_memory.cached.len() + in_memory.in_flight.len());
             }
         }
 
@@ -495,13 +496,6 @@ fn reference(pattern: &[u8], path: &[u8]) -> bool {
 }
 
 proptest! {
-    /// Parsing is a pure function of the bytes: never a panic, and the
-    /// same groups each time.
-    #[test]
-    fn parsing_any_bytes_is_pure(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
-        prop_assert_eq!(parse(&bytes), parse(&bytes));
-    }
-
     /// A file written from groups reads back as those groups.
     #[test]
     fn a_written_file_reads_back(

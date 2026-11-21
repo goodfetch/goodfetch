@@ -84,7 +84,7 @@ export function limitList(limits: Limits | undefined): RunLimit[] {
     if (field === "price" || value === undefined) {
       continue;
     }
-    counts.push({ usage_kind: usageKind(`limits.${field}`, field), amount: count(field, value) });
+    counts.push({ usageKind: usageKind(`limits.${field}`, field), amount: count(field, value) });
   }
   const prices: RunLimit[] = [];
   const price: Readonly<Record<string, unknown>> = limits.price ?? {};
@@ -93,9 +93,8 @@ export function limitList(limits: Limits | undefined): RunLimit[] {
       continue;
     }
     const key = `limits.price.${field}`;
-    const usage_kind = usageKind(key, field);
     const { currency, amount } = millionths(key, value);
-    prices.push({ usage_kind, currency, amount });
+    prices.push({ usageKind: usageKind(key, field), currency, amount });
   }
   return [...inKindOrder(counts), ...inKindOrder(prices)];
 }
@@ -103,7 +102,7 @@ export function limitList(limits: Limits | undefined): RunLimit[] {
 /** `limits`, in the order of `USAGE_KINDS`. */
 function inKindOrder(limits: readonly RunLimit[]): RunLimit[] {
   const order = Object.values(USAGE_KINDS);
-  return limits.toSorted((a, b) => order.indexOf(a.usage_kind) - order.indexOf(b.usage_kind));
+  return limits.toSorted((a, b) => order.indexOf(a.usageKind) - order.indexOf(b.usageKind));
 }
 
 /** The wire's Usage kind of the SDK name `field`. */

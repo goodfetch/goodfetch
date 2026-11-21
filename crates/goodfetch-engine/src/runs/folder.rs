@@ -1,25 +1,30 @@
 //! A Run's folder (ADRs 0002 and 0031): the Run's own row as it begins and
-//! as it ends, and the readers that open its state without a lock to
-//! compare a start's inputs, read its report or read what it recorded of
-//! itself. Its calls block: the registry runs them under its owner's
-//! blocking policy.
+//! as it ends, with the settings fixed for its life as it began (ADRs 0102
+//! and 0120), and the readers that open its state without a lock to
+//! compare a start's inputs and fixed settings, read its report or read
+//! what it recorded of itself. Its calls block: the registry runs them
+//! under its owner's blocking policy.
 
 use std::collections::BTreeMap;
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{
-    Lifecycle, MAX_TAG_CHARACTERS, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
+    Lifecycle, MAX_TAG_CHARACTERS, RunId, RunKind, RunReport, StartInput, Tags,
 };
-use goodfetch_protocol::settings::WeakenedSetting;
+use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
+use super::FixedSettingChanged;
 use crate::durable;
 use crate::engine_context::CALLER;
 use crate::mask::{Masks, Scope};
+use crate::settings::{RunSettings, fixed_keys};
 use crate::sqlite_store::{Access, File};
+use crate::stored_time::StoredTime;
 
 /// The Run's own row, written once when it begins.
 pub(super) struct RunRow {
@@ -28,12 +33,15 @@ pub(super) struct RunRow {
     pub(super) needs: Product,
     pub(super) epoch: u64,
     pub(super) inputs: String,
-    pub(super) started_at: PointInTime,
+    pub(super) started_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     /// What binds it, as JSON.
     pub(super) binding: Option<String>,
     pub(super) clean_up_digest: Option<String>,
+    /// The settings fixed for its life, as [`FixedSettings::kept`] writes
+    /// them.
+    pub(super) fixed_settings: String,
 }
 
 impl RunRow {
@@ -41,8 +49,8 @@ impl RunRow {
         connection
             .prepare_cached(
                 "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, \
-                 policy_version, weakened, binding, clean_up_digest) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 policy_version, weakened, binding, clean_up_digest, fixed_settings) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )?
             .execute((
                 self.run_id.as_str(),
@@ -52,12 +60,13 @@ impl RunRow {
                 i64::try_from(self.epoch).unwrap_or(i64::MAX),
                 &self.inputs,
                 Lifecycle::Running.as_str(),
-                self.started_at.as_str(),
+                StoredTime(self.started_at),
                 self.policy_version.as_deref(),
                 serde_json::to_string(&self.weakened)
                     .expect("invariant: setting limits encode"),
                 self.binding.as_deref(),
                 self.clean_up_digest.as_deref(),
+                &self.fixed_settings,
             ))?;
         Ok(())
     }
@@ -83,6 +92,9 @@ pub(super) struct Found {
     pub(super) caller: String,
     pub(super) inputs: String,
     pub(super) lifecycle: Lifecycle,
+    /// The settings fixed for its life, as [`FixedSettings::kept`] wrote
+    /// them.
+    pub(super) fixed_settings: String,
 }
 
 pub(super) fn text<T: serde::Serialize>(value: &T) -> String {
@@ -142,6 +154,101 @@ pub(super) fn input_differences(found: &str, given: &str) -> Vec<StartInput> {
         .collect()
 }
 
+/// The settings fixed for a Run's life (ADRs 0102 and 0120) as a start or
+/// a resume resolves them: each key the Run's Product honours, with its
+/// value masked as the run file keeps it, its value as given, and the
+/// layer that set it.
+pub(super) struct FixedSettings(Vec<FixedSetting>);
+
+struct FixedSetting {
+    key: &'static str,
+    kept: Value,
+    given: Value,
+    layer: SettingsLayer,
+}
+
+/// Which of a [`FixedSettings`]' keys a comparison reads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Compared {
+    /// Every key: a start declares the whole Run again.
+    Every,
+    /// Only the keys a layer above the catalog default sets: a key a
+    /// resume leaves out is no change, since the Run reads its own.
+    Given,
+}
+
+impl FixedSettings {
+    pub(super) fn of(settings: Option<&RunSettings>, masks: &Masks) -> Self {
+        let Some(resolved) = settings.map(RunSettings::resolved) else {
+            return Self(Vec::new());
+        };
+        Self(
+            fixed_keys()
+                .filter_map(|setting| {
+                    let effective = resolved.effective(setting)?;
+                    let mut kept = effective.value.clone();
+                    masks.apply_value(&mut kept, Scope::Kept);
+                    Some(FixedSetting {
+                        key: setting.name,
+                        kept,
+                        given: effective.value.clone(),
+                        layer: effective.layer,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// As the run file keeps them: an object of each key's masked value.
+    pub(super) fn kept(&self) -> String {
+        let object: Map<String, Value> = self
+            .0
+            .iter()
+            .map(|fixed| (fixed.key.to_owned(), fixed.kept.clone()))
+            .collect();
+        Value::Object(object).to_string()
+    }
+
+    /// Whether every key `compared` reads keeps the value the Run `run_id`
+    /// began with, `began` as [`kept`](Self::kept) wrote it. A value that
+    /// left the masks since the Run kept it masked is no difference: a
+    /// value differs when it differs both masked and as given, as an input
+    /// does. A key the Run did not keep, one its Product does not honour,
+    /// is no difference either, and neither is a `began` that no longer
+    /// reads, as an input that no longer reads is none.
+    ///
+    /// # Errors
+    ///
+    /// The first key that differs, with the layer that set it.
+    pub(super) fn unchanged(
+        &self,
+        run_id: &RunId,
+        began: &str,
+        compared: Compared,
+    ) -> Result<(), FixedSettingChanged> {
+        let began: Map<String, Value> = match serde_json::from_str(began) {
+            Ok(Value::Object(object)) => object,
+            _ => Map::new(),
+        };
+        match self
+            .0
+            .iter()
+            .filter(|fixed| compared == Compared::Every || fixed.layer != SettingsLayer::Default)
+            .find(|fixed| {
+                began
+                    .get(fixed.key)
+                    .is_some_and(|value| *value != fixed.kept && *value != fixed.given)
+            }) {
+            Some(fixed) => Err(FixedSettingChanged {
+                run_id: run_id.clone(),
+                key: fixed.key,
+                layer: fixed.layer,
+            }),
+            None => Ok(()),
+        }
+    }
+}
+
 /// Opens a Run's state read-only, as a reader that takes no lock.
 pub(super) fn open_reader(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Option<Connection>> {
     if vfs.is_none() && !file.exists() {
@@ -156,7 +263,9 @@ pub(super) fn read_found(file: &Path, vfs: Option<&str>) -> Result<Option<Found>
             return Ok(None);
         };
         connection
-            .prepare_cached("SELECT kind, needs, caller, inputs, lifecycle FROM run")?
+            .prepare_cached(
+                "SELECT kind, needs, caller, inputs, lifecycle, fixed_settings FROM run",
+            )?
             .query_row([], |row| {
                 Ok(Found {
                     kind: parsed(&row.get::<_, String>(0)?)?,
@@ -164,6 +273,7 @@ pub(super) fn read_found(file: &Path, vfs: Option<&str>) -> Result<Option<Found>
                     caller: row.get(2)?,
                     inputs: row.get(3)?,
                     lifecycle: parsed(&row.get::<_, String>(4)?)?,
+                    fixed_settings: row.get(5)?,
                 })
             })
             .optional()
@@ -200,7 +310,7 @@ pub(super) struct Recorded {
     pub(super) needs: Product,
     pub(super) tags: Tags,
     pub(super) lifecycle: Lifecycle,
-    pub(super) started_at: PointInTime,
+    pub(super) started_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     /// Its start's inputs, as canonical JSON.
@@ -230,7 +340,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                     parsed::<Product>(&row.get::<_, String>(2)?)?,
                     parsed::<Lifecycle>(&row.get::<_, String>(3)?)?,
                 ),
-                PointInTime::from_rfc3339(row.get(4)?),
+                row.get::<_, StoredTime>(4)?.0,
                 row.get::<_, Option<String>>(5)?,
                 (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
                 row.get::<_, Option<String>>(8)?,
@@ -332,7 +442,7 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             }),
             report.verdict.as_str(),
             report.completeness.as_str(),
-            report.ended_at.as_str(),
+            StoredTime(report.ended_at),
             serde_json::to_string(&kept).expect("invariant: a Run report encodes"),
         ))?;
     Ok(())

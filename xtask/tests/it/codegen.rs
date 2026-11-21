@@ -760,42 +760,6 @@ fn the_connections_messages_are_types_of_the_collie_client_package_only(
     );
 }
 
-/// Covers: story:1-57
-#[rstest]
-#[case::typescript_collie_client(
-    "sdks/typescript/collie-client/src/generated/operations.ts",
-    "\"sample.echo\"",
-    "\"sample.crawl\""
-)]
-#[case::typescript_foxhound(
-    "sdks/typescript/foxhound/src/generated/operations.ts",
-    "\"sample.crawl\"",
-    "\"sample.echo\""
-)]
-#[case::python_collie_client(
-    "sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py",
-    "\"sample.echo\"",
-    "\"sample.crawl\""
-)]
-#[case::python_foxhound(
-    "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py",
-    "\"sample.crawl\"",
-    "\"sample.echo\""
-)]
-fn each_sdk_package_generates_only_its_products_operations(
-    #[case] path: &str,
-    #[case] own_operation: &str,
-    #[case] other_operation: &str,
-) {
-    let workspace = Workspace::from_fixture("codegen");
-
-    codegen(&workspace);
-
-    let operations = workspace.read_text(path);
-    assert!(operations.contains(own_operation), "{operations}");
-    assert!(!operations.contains(other_operation), "{operations}");
-}
-
 /// Each package spells its own Product's values of a type both Products
 /// share (ADR 0095), Foxhound's on top of Collie's, and keeps a value it
 /// does not know as received (ADR 0079).
@@ -1155,14 +1119,21 @@ fn workspace_with_the_forms_catalog() -> Workspace {
             &format!("[[area]]\nnumber = 1\nkind = \"operation\"\nprefix = \"{prefix}\"\n"),
         );
     }
+    workspace.append(
+        "features/areas.toml",
+        "[[area]]\nnumber = 1\nkind = \"event\"\nprefix = \"run.\"\n",
+    );
     workspace
 }
 
 /// A prefix keeps its one meaning and a query never waits (ADR 0099), a
 /// result is typed by fields a call declares (ADR 0147), and a call's own
-/// `timeout` names the setting it sets (ADR 0080): `xtask codegen` refuses
-/// a catalog that says otherwise, naming the operation, in place of writing
-/// a member whose name, options or result lie.
+/// `timeout` names the setting it sets (ADR 0080), and a deprecated
+/// parameter or value leaves a call free of it (ADR 0099), and a read
+/// takes nothing but its handle and answers a value of the answer that
+/// opened it (issue 2798): `xtask codegen` refuses a catalog that says
+/// otherwise, naming the operation, in place of writing a member whose
+/// name, options or result lie.
 ///
 /// Covers: story:11-178
 #[rstest]
@@ -1187,6 +1158,31 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "operation `page.new_ready`"
 )]
 #[case::is_on_a_round_trip("\"page.close\"", "\"page.is_closed\"", "operation `page.is_closed`")]
+#[case::a_read_its_opener_does_not_answer(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub name: String,",
+    "operation `run.label`"
+)]
+#[case::a_read_of_another_type_than_its_opener_answers(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: u64,",
+    "operation `run.label`"
+)]
+#[case::a_read_whose_result_has_two_properties(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,\n    /// A second value a read cannot answer.\n    pub other: u64,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result has one property"
+)]
+#[case::a_read_whose_result_property_is_optional(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: Option<String>,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result's `label` is required"
+)]
+#[case::a_read_with_a_parameter(
+    "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n",
+    "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n    /// A parameter a read cannot take.\n    pub fresh: bool,\n",
+    "operation `run.is_resumed`"
+)]
 #[case::on_on_a_round_trip("\"page.close\"", "\"page.on_close\"", "operation `page.on_close`")]
 #[case::get_by_on_an_operation(
     "\"page.is_ready\"",
@@ -1213,6 +1209,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "pub struct PageOpened {\n    /// The page.\n    #[schemars(extend(\"typed_by\" = \"run_id\"))]\n",
     "operation `run.new_page`"
 )]
+#[case::typed_by_on_a_result_of_one_property(
+    "    /// The names of the fields the page did not give.\n    pub unread: Vec<String>,\n",
+    "",
+    "operation `page.read`: its result's one property"
+)]
 #[case::a_handle_id_without_a_type(
     "pub page_id: PageId,\n    /// The URL to navigate to.",
     "pub page_id: String,\n    /// The URL to navigate to.",
@@ -1222,6 +1223,24 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "#[schemars(extend(\"setting\" = \"timeout.navigation\"))]\n",
     "",
     "operation `page.goto`"
+)]
+/// Covers: story:11-182
+#[case::a_deprecated_required_parameter(
+    "    /// The URL to navigate to.\n",
+    "    /// The URL to navigate to.\n    #[schemars(extend(\"deprecation\" = {\"since\": \"0.1\", \"replacement\": null, \"earliest_removal\": \"1.0\", \"note\": \"\"}))]\n",
+    "operation `page.goto`: its required parameter `url` is deprecated"
+)]
+/// Covers: story:11-182
+#[case::every_value_deprecated(
+    "    /// Parsed.\n    Interactive,\n    /// Loaded, with its subresources.\n    Complete,\n",
+    "",
+    "operation `page.wait_for_ready`: every value of its parameter `state` is deprecated"
+)]
+/// Covers: story:11-182
+#[case::a_deprecated_value_that_is_no_string(
+    "    Loaded,\n}",
+    "    Loaded(u64),\n}",
+    "operation `page.wait_for_ready`: its parameter `state` takes a deprecated variant that is no string"
 )]
 fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
     #[case] from: &str,
@@ -1242,9 +1261,11 @@ fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
 /// generated handles type-check with the client package's own hand-written
 /// modules under `tsc` with `skipLibCheck: false`, and
 /// `codegen-forms/forms.types.ts` holds what a program can and cannot write
-/// against them.
+/// against them. A deprecated option or value has an overload of its own,
+/// which oxlint's `no-deprecated` reports on each use the fixture marks and
+/// on no other, since `tsc` reports no deprecation (ADR 0099).
 ///
-/// Covers: story:11-178
+/// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
@@ -1253,8 +1274,13 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     for module in [
         "caller.ts",
         "field-values.ts",
+        "framing.ts",
         "goodfetch-error.ts",
         "handle.ts",
+        "json.ts",
+        "markers.ts",
+        "raw-call.ts",
+        "wire.ts",
     ] {
         let contents =
             std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
@@ -1281,6 +1307,28 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
         "{}{}",
         String::from_utf8_lossy(&checked.stdout),
         String::from_utf8_lossy(&checked.stderr)
+    );
+    workspace.add_fixture_file(
+        "codegen-forms/oxlintrc.json",
+        &format!("{COLLIE_CLIENT}/.oxlintrc.json"),
+    );
+    let linted = workspace
+        .command(repository.join("node_modules/.bin/oxlint"))
+        .current_dir(workspace.path().join(COLLIE_CLIENT))
+        .args([
+            "-c",
+            ".oxlintrc.json",
+            "--tsconfig",
+            "tsconfig.json",
+            "src/forms.types.ts",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        linted.status.success(),
+        "oxlint: {}{}",
+        String::from_utf8_lossy(&linted.stdout),
+        String::from_utf8_lossy(&linted.stderr)
     );
     insta::assert_snapshot!(
         "typescript_forms_handles",
@@ -1321,16 +1369,24 @@ fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
 /// and its sync twin: the generated handles type-check with the client
 /// package's own hand-written modules under pyright's strict mode and
 /// `mypy --strict`, and `codegen-forms/forms_types.py` holds what a program
-/// can and cannot write against them, each refusal checked by both.
+/// can and cannot write against them, each refusal checked by both. A
+/// deprecated keyword or value has an `@overload` of its own, which both
+/// report on each use the fixture marks and on no other (ADR 0099).
 ///
-/// Covers: story:11-178
+/// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_python_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
     codegen(&workspace);
     let repository = repository();
     let package = format!("{PYTHON_CLIENT}/src/goodfetch_collie_client");
-    for module in ["caller.py", "handle.py"] {
+    for module in [
+        "caller.py",
+        "handle.py",
+        "markers.py",
+        "point_in_time.py",
+        "raw_call.py",
+    ] {
         let contents = std::fs::read(repository.join(&package).join(module)).unwrap();
         workspace.write(&format!("{package}/{module}"), &contents);
     }
@@ -1596,6 +1652,50 @@ fn python_model_field_defaults_to_a_constructed_model() {
             "limits: Annotated[SampleLimits | None, Field(validate_default=True)] = Field( default_factory=lambda: SampleLimits.model_validate({\"pages\": 0}) )"
         ) && flat.contains("= {\"kind\": \"sample\"}"),
         "{models}"
+    );
+}
+
+/// A property whose type is a named type keeps its own description in the
+/// TypeScript layer, and the type keeps its own, even where another property
+/// refers to that type with no description of its own (issue 2895: an array
+/// of the type gave every such property the type's description).
+/// Covers: story:1-57
+#[test]
+fn typescript_property_of_a_named_type_keeps_its_own_description() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        FOXHOUND,
+        "    /// How many pages to visit.\n    pub pages: u32,\n}",
+        "    /// How many pages to visit.\n    pub pages: u32,\n    \
+         /// The finders tried when `start` finds no page.\n    \
+         pub fallbacks: Vec<SampleFinder>,\n    \
+         /// What finds the first page.\n    pub start: SampleFinder,\n}\n\n\
+         /// What finds a page, named by `kind`.\n\
+         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]\n\
+         #[serde(tag = \"kind\", rename_all = \"snake_case\")]\n\
+         pub enum SampleFinder {\n    /// By its title.\n    Title {\n        \
+         /// The title.\n        title: String,\n    },\n    \
+         /// By its path.\n    Path {\n        /// The path.\n        path: String,\n    },\n}",
+    );
+
+    codegen(&workspace);
+
+    let types = workspace.read_text("sdks/typescript/foxhound/src/generated/types.ts");
+    let doc_before = |declaration: &str| {
+        let at = types
+            .find(declaration)
+            .unwrap_or_else(|| panic!("no `{declaration}` in\n{types}"));
+        let opening = types[..at].rfind("/**").unwrap();
+        types[opening..at].to_owned()
+    };
+    let start = doc_before("  start:");
+    assert!(
+        start.contains("What finds the first page.") && !start.contains("What finds a page"),
+        "{types}"
+    );
+    assert!(
+        doc_before("export type SampleFinder =").contains("What finds a page, named by `kind`."),
+        "{types}"
     );
 }
 

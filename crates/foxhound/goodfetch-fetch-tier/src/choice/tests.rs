@@ -6,10 +6,15 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::settings::{Layers, Values, resolve};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::setting_scopes;
+use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::settings::page_check::PageCheck;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{
     Choosing, Forced, HttpFrom, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
@@ -122,6 +127,8 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
 #[case::an_access_mode(json!({ "browser": { "access_mode": "stealth" } }), "setting_not_applicable", "browser.access_mode")]
 /// Covers: setting:stealth.fingerprint_method
 #[case::a_stealth_item(json!({ "stealth": { "fingerprint_method": "engine" } }), "setting_not_applicable", "stealth.fingerprint_method")]
+#[case::a_hook_timeout_not_a_duration(json!({ "timeout": { "hook": "fast" } }), "setting_invalid", "timeout.hook")]
+#[case::a_retry_not_a_boolean(json!({ "crawl": { "retry": { "handler_failed": "yes" } } }), "setting_invalid", "crawl.retry.handler_failed")]
 fn a_label_setting_it_cannot_take_is_refused(
     #[case] settings: Value,
     #[case] code: &str,
@@ -135,6 +142,56 @@ fn a_label_setting_it_cannot_take_is_refused(
             error.details().and_then(|details| details["key"].as_str())
         ),
         (code, Some(key))
+    );
+}
+
+/// A Label is refused exactly the settings the scope rule does not give a
+/// Label (ADR 0093), each with `setting_not_applicable`; one it gives is at
+/// most `setting_invalid` for a `null` it cannot take.
+#[test]
+fn a_label_takes_exactly_the_settings_whose_scopes_include_a_label() {
+    for setting in MODULES.iter().flat_map(|entries| entries.settings.iter()) {
+        let nested = setting
+            .name
+            .rsplit('.')
+            .fold(Value::Null, |inner, segment| {
+                Value::Object(Map::from_iter([(segment.to_owned(), inner)]))
+            });
+
+        let refused = LabelSettings::of(&declared(&[("list", nested)]))
+            .err()
+            .is_some_and(|error| error.code() == "setting_not_applicable");
+
+        assert_eq!(
+            refused,
+            !setting_scopes::label_sets(setting.name),
+            "{}",
+            setting.name
+        );
+    }
+}
+
+/// A Label sets `timeout.hook` and `crawl.retry.handler_failed` for its
+/// own requests' Hooks and handler (ADR 0104); a Label that sets neither
+/// leaves both to the Run.
+#[test]
+fn a_label_sets_its_own_hook_deadline_and_handler_retry() {
+    let settings = LabelSettings::of(&declared(&[
+        (
+            "detail",
+            json!({ "timeout": { "hook": 250 }, "crawl": { "retry": { "handler_failed": true } } }),
+        ),
+        ("list", json!({})),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        (
+            settings.hook_timeouts().collect::<Vec<_>>(),
+            settings.retries_handler_failed("detail"),
+            settings.retries_handler_failed("list"),
+        ),
+        (vec![("detail", 250)], Some(true), None)
     );
 }
 
@@ -172,7 +229,7 @@ fn a_requests_forced_encoding_is_its_labels_else_the_runs(
 #[case::the_labels_learned("learning", HttpFrom::Transport, HttpFrom::Learned)]
 #[case::the_runs_for_a_label_setting_none("page", HttpFrom::Transport, HttpFrom::Transport)]
 #[case::the_runs_for_an_undeclared_label("other", HttpFrom::Learned, HttpFrom::Learned)]
-#[case::the_default("page", HttpFrom::Browser, HttpFrom::Browser)]
+#[case::the_default("page", HttpFrom::default(), HttpFrom::Learned)]
 fn a_requests_http_leaves_from_its_labels_choice_else_the_runs(
     #[case] label: &str,
     #[case] run: HttpFrom,
@@ -195,6 +252,41 @@ fn a_requests_http_leaves_from_its_labels_choice_else_the_runs(
         ),
         (expected, Choosing::Engine)
     );
+}
+
+/// The Run's `fetch.http_from` under `run`, its Run layer, and whether the
+/// Run's settings weaken it.
+fn run_http_from(run: Value) -> (HttpFrom, bool) {
+    let Value::Object(run) = run else {
+        panic!("settings are a table");
+    };
+    let layers = Layers {
+        run: Values::read(SettingsLayer::Run, &run, Product::Foxhound).unwrap(),
+        ..Layers::default()
+    };
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap();
+    let weakened = resolved
+        .weakened()
+        .iter()
+        .any(|weakened| weakened.key == "fetch.http_from");
+    (HttpFrom::of_run(&resolved), weakened)
+}
+
+/// A Run that sets nothing learns per Label where its HTTP leaves from,
+/// the ladder (issue 3106), and a default is not a weakening: only
+/// `transport` is named in `weakened` (ADR 0023's note of 2026-11-21).
+///
+/// Covers: setting:fetch.http_from
+#[rstest::rstest]
+#[case::by_default(json!({}), (HttpFrom::Learned, false))]
+#[case::learned(json!({ "fetch": { "http_from": "learned" } }), (HttpFrom::Learned, false))]
+#[case::browser(json!({ "fetch": { "http_from": "browser" } }), (HttpFrom::Browser, false))]
+#[case::transport(json!({ "fetch": { "http_from": "transport" } }), (HttpFrom::Transport, true))]
+fn fetch_http_from_defaults_to_learned_and_weakens_only_under_transport(
+    #[case] run: Value,
+    #[case] expected: (HttpFrom, bool),
+) {
+    assert_eq!(run_http_from(run), expected);
 }
 
 /// A Label's own `session.page_check` is read whole beside its

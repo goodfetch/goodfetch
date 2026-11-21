@@ -11,6 +11,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, BrowserCacheEntry};
 use goodfetch_protocol::catalog::Product;
@@ -73,7 +74,7 @@ pub fn place_executable_copy(
         {
             return Ok(ExecutableCopy { id, executable });
         }
-        Read::Entry(_) => store::delete(root, &folder)?,
+        Read::Entry(_) => store::delete(root, &folder, None)?,
         Read::Absent => {}
         // An entry it cannot read is never touched: this engine cannot
         // make the copy there, so it says so.
@@ -104,8 +105,8 @@ pub fn place_executable_copy(
         format_version: BROWSER_CACHE.version,
         artifact: id.clone(),
         digest: content_digest(&files)?.to_string(),
-        installed_at: now,
-        used_at: now,
+        installed_at: SystemTime::from(now),
+        used_at: SystemTime::from(now),
     };
     store::install(root, partial, &id, &entry)?;
     Ok(ExecutableCopy { id, executable })

@@ -21,6 +21,7 @@ use crate::catalog::{
 use crate::foxhound::dataset::DatasetDeclaration;
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::hook::CrawlHookDeclaration;
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
@@ -188,10 +189,11 @@ pub struct LabelDeclaration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
-    /// Its settings, nested by key: today `fetch.tier`, `session.page_check`,
-    /// which judges its pages in place of the Run's, and `session.source`,
-    /// which gives the Label a Session pool of its own (ADR 0093), any other
-    /// key refused with `setting_not_applicable`.
+    /// Its settings, nested by key: those whose scopes include `label`
+    /// (ADR 0093), such as `fetch.tier`, `session.page_check`, which judges
+    /// its pages in place of the Run's, and `session.source`, which gives
+    /// the Label a Session pool of its own; any other key is refused with
+    /// `setting_not_applicable`.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: serde_json::Map<String, Value>,
@@ -293,6 +295,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub extraction: Option<CrawlExtraction>,
+    /// The crawl's Hooks in code, in the order declared (ADR 0104). Never
+    /// kept in the Run's state: a start that resumes the Run declares them
+    /// again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hooks: Vec<CrawlHookDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -535,6 +543,28 @@ pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `response_unavailable` details (ADR 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseUnavailableDetails {
+    /// The URL of the request; absent for a request Politeness held unsent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// The response's HTTP status; `null` for a request held unsent.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<u16>,
+    /// The time the site's `Retry-After` asks for, in RFC 3339, read in
+    /// either of its forms; `null` when it asks for none.
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
+    pub retry_after: Option<std::time::SystemTime>,
+    /// What to do about it, such as re-admitting the request once the site
+    /// is back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
+}
+
 /// What `label_unknown` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LabelUnknownDetails {
@@ -611,6 +641,7 @@ pub const TIMEOUT_HANDLER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -629,6 +660,7 @@ pub const CRAWL_HANDLE_STATUSES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -650,6 +682,7 @@ pub const CRAWL_CONTENT_TYPES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -664,6 +697,7 @@ pub const CRAWL_RETRY_MAX: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -678,6 +712,7 @@ pub const CRAWL_MAX_STAGED_ENQUEUES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -688,7 +723,7 @@ fn ten_thousand() -> Value {
 /// `crawl.retry.handler_failed` (ADR 0093).
 pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     name: "crawl.retry.handler_failed",
-    description: "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+    description: "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
     kind: ValueKind::Boolean,
     default: no,
     clearable: false,
@@ -696,6 +731,7 @@ pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -710,6 +746,7 @@ pub const CRAWL_RETRY_ENGINE_PANICKED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -724,6 +761,7 @@ pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -738,6 +776,7 @@ pub const CRAWL_KEEP_ALIVE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -752,6 +791,7 @@ pub const CRAWL_DOMAIN_KEYS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -770,6 +810,7 @@ pub const CRAWL_DOMAIN_ORDER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

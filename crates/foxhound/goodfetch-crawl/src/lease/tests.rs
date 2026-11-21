@@ -1,6 +1,6 @@
 //! A lease's rules as pure functions of a monotonic reading, with no clock;
-//! the waiting loop of an attempt's lease in process on the paused `Clock`
-//! with a default-length lease (ADR 0059); and the model-based test of
+//! the waiting loop of an attempt's lease and its handler's end in process
+//! on the paused `Clock` (ADR 0059); and the model-based test of
 //! leases and commits on real SQLite (`model`).
 #![expect(
     clippy::disallowed_methods,
@@ -12,9 +12,15 @@ mod model;
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
-use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
+use goodfetch_protocol::connection::WaitedFor;
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, TIMEOUT_HANDLER};
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_ACTION};
 use proptest::prelude::*;
+use serde_json::{Value, json};
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use super::{Lease, Leases};
@@ -153,6 +159,145 @@ fn a_command_withheld_after_the_lease_ended_raises_attempt_ended() {
         assert_eq!(
             (error.code(), error.retryable()),
             (ATTEMPT_ENDED.name, ATTEMPT_ENDED.retryable)
+        );
+    });
+}
+
+/// A page call made inside a crawl handler ends at the handler's own end,
+/// its `timeout.handler` (ADR 0080), not at its own 30 s `timeout.action`,
+/// and its `deadline_exceeded` names the handler call as `ended_by`.
+///
+/// Covers: story:11-41, story:11-43
+#[test]
+fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
+    on_paused_clock(async |leases, clock| {
+        let start = clock.now();
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        clock.sleep(Duration::from_secs(55)).await;
+
+        let ended = handler
+            .bound(
+                &clock,
+                Deadline::declared(&TIMEOUT_ACTION).within(
+                    &clock,
+                    WaitedFor::BROWSER_ANSWER,
+                    std::future::pending::<()>(),
+                ),
+                || Some("a navigation under way on page `p-1`".to_owned()),
+            )
+            .await;
+
+        let error = ended.expect_err("the handler's end came first");
+        assert_eq!(
+            (
+                clock.now().duration_since(start),
+                error.code(),
+                error.details().cloned().map(Value::Object)
+            ),
+            (
+                Duration::from_secs(60),
+                "deadline_exceeded",
+                Some(json!({
+                    "limit": { "key": "timeout.handler", "value": 60_000, "layer": "default" },
+                    "elapsed": 5_000,
+                    "waited_for": "answer",
+                    "ended_by": { "operation": "crawl_request.handle", "call_id": 4 },
+                    "observed": "a navigation under way on page `p-1`",
+                }))
+            )
+        );
+    });
+}
+
+/// Before the handler call is sent, and in a code-free crawl, which sends
+/// none, nothing encloses the attempt's page calls.
+#[test]
+fn no_handler_call_sent_encloses_nothing() {
+    on_paused_clock(async |leases, _clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+
+        assert!(lease.enclosing().is_none());
+    });
+}
+
+/// A renewal of its lease moves the handler's end later by as much, so a
+/// call still waiting at the end the handler had keeps its answer.
+///
+/// Covers: story:11-41
+#[test]
+fn a_renewal_moves_the_handlers_end_later() {
+    on_paused_clock(async |leases, clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        let renewed = async {
+            clock.sleep(Duration::from_secs(50)).await;
+            lease.renew(DEFAULT_LEASE);
+        };
+        let answered = async {
+            clock.sleep(Duration::from_secs(100)).await;
+            Ok("clicked")
+        };
+
+        let ((), answer) = tokio::join!(renewed, handler.bound(&clock, answered, || None));
+
+        assert_eq!(answer.ok(), Some("clicked"));
+    });
+}
+
+/// A handler's wait for a navigation-gate permit does not count toward its
+/// `timeout.handler` (ADR 0093), however much longer than that timeout it
+/// lasts: a call answered after the wait keeps its answer, and the
+/// handler's time runs again from the wait's end, where a call never
+/// answered ends one timeout later.
+///
+/// The timeout is 1 s and the lease 11 s, so the wait's renewals, a
+/// quarter of the lease apart, are further apart than the timeout.
+///
+/// Covers: story:11-41
+#[test]
+fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
+    on_paused_clock(async |leases, clock| {
+        let leases =
+            leases.handled_under(Deadline::given(&TIMEOUT_HANDLER, 1_000, SettingsLayer::Run));
+        let start = clock.now();
+        let lease = leases.grant("1", 1, Duration::from_secs(11));
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        let (permitted, wait_ended) = oneshot::channel::<()>();
+        let waiting = async {
+            clock.sleep(Duration::from_secs(12)).await;
+            drop(permitted);
+        };
+        let answered = async {
+            clock.sleep(Duration::from_millis(12_500)).await;
+            Ok("answered")
+        };
+        let never_answered = async {
+            let ended = handler
+                .bound(&clock, std::future::pending::<Result<(), _>>(), || None)
+                .await;
+            (
+                ended.map_err(|error| error.code()),
+                clock.now().duration_since(start),
+            )
+        };
+
+        let ((), (), answer, never) = tokio::join!(
+            lease.held_through_permit_wait(wait_ended),
+            waiting,
+            handler.bound(&clock, answered, || None),
+            never_answered,
+        );
+
+        assert_eq!(
+            (answer.ok(), never),
+            (
+                Some("answered"),
+                (Err("deadline_exceeded"), Duration::from_secs(13))
+            )
         );
     });
 }

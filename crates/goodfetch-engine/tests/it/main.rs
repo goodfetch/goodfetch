@@ -47,6 +47,7 @@ mod heap;
 mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod ledger_look;
 // B3's message scenario, which `counted_messages` checks.
 #[path = "../../benches/messages.rs"]
 #[expect(

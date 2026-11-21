@@ -14,6 +14,7 @@
 mod call_input;
 mod changed_certificates;
 mod checkpoint;
+mod connection_settings;
 mod consent_walls;
 mod controls;
 mod daemon;
@@ -40,6 +41,7 @@ mod panics;
 mod pauses;
 mod preamble;
 mod progress;
+mod raw_calls;
 mod refetch_stops;
 mod refusals;
 mod report;
@@ -234,7 +236,7 @@ fn cancel(id: i64) -> Value {
 }
 
 /// How many calls a Connection keeps in flight, as `too_many_calls`'s
-/// `max` names it.
+/// `max` and `hello`'s `max_calls_in_flight` name it.
 const IN_FLIGHT_CAP: i64 = 256;
 
 /// How long a test waits, on the paused clock, for a message the engine
@@ -433,7 +435,10 @@ fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
             vec![json!({
                 "jsonrpc": "2.0",
                 "id": 0,
-                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+                "result": {
+                    "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0",
+                    "max_calls_in_flight": IN_FLIGHT_CAP,
+                },
             })],
             true
         )

@@ -9,18 +9,23 @@
 
 use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
+use std::io;
 use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::pin::{Pin, pin};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError, Weak};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use data_encoding::BASE64;
-use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, HelloResult};
-use goodfetch_protocol::events::{CREDIT, CreditParams};
-use goodfetch_protocol::jsonrpc::RequestId;
-use goodfetch_protocol::page::{CHUNK, Chunk};
+use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
+use goodfetch_protocol::error_code::ErrorCode;
+use goodfetch_protocol::jsonrpc::META;
+use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevel, LogLevelSet, SetLogLevelParams};
+use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -30,11 +35,17 @@ use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use crate::call::{Call, Query, Reply};
+use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
+use crate::listener_queue::ListenerQueue;
+use crate::logging;
+use crate::published::Published;
+use crate::raw_call::RawCall;
 use crate::rpc::{self, Heard, Outgoing, Sender};
-use crate::sync::{Mutex, MutexGuard};
+use crate::sync::{AtomicBool, Mutex, MutexGuard};
+use crate::trace_context::{self, TraceContextSource};
 use crate::transport::{self, Endpoint, Network};
 
 /// How many `$/chunk` notifications a save takes ahead of those it has
@@ -42,14 +53,17 @@ use crate::transport::{self, Endpoint, Network};
 /// each chunk written.
 const CHUNKS_AHEAD: u32 = 16;
 
-/// The runtime a Connection's tasks run on.
-#[derive(Debug)]
+/// The runtime a Connection's tasks run on. Cloning it shares the runtime:
+/// one the Connection owns shuts down once every clone, and every
+/// Connection opened on it, is dropped, so an opening that failed can open
+/// another Connection on the same runtime.
+#[derive(Clone, Debug)]
 pub struct ConnectionRuntime(Kind);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Kind {
     /// One the Connection owns and shuts down with its last handle.
-    Owned(Runtime),
+    Owned(Arc<Owned>),
     /// One the program drives, which outlives the Connection.
     Driven(Handle),
 }
@@ -58,10 +72,10 @@ impl ConnectionRuntime {
     /// A runtime the Connection owns, which `goodfetch-runtime` builds. It
     /// runs its tasks on its own worker threads, so it must be a
     /// multi-thread one: nothing drives a current-thread runtime the
-    /// Connection owns. Dropping the Connection's last handle shuts it
-    /// down in the background.
+    /// Connection owns. Dropping the Connection's last handle, and this
+    /// value's last clone, shuts it down in the background.
     pub fn owned(runtime: Runtime) -> Self {
-        Self(Kind::Owned(runtime))
+        Self(Kind::Owned(Arc::new(Owned(Some(runtime)))))
     }
 
     /// The runtime behind `handle`, which the program drives and which
@@ -73,10 +87,10 @@ impl ConnectionRuntime {
     }
 
     /// Its handle, and the runtime itself when the Connection owns it.
-    fn split(self) -> (Handle, Owned) {
+    fn split(self) -> (Handle, Option<Arc<Owned>>) {
         match self.0 {
-            Kind::Owned(runtime) => (runtime.handle().clone(), Owned(Some(runtime))),
-            Kind::Driven(handle) => (handle, Owned(None)),
+            Kind::Owned(owned) => (owned.handle(), Some(owned)),
+            Kind::Driven(handle) => (handle, None),
         }
     }
 }
@@ -85,6 +99,17 @@ impl ConnectionRuntime {
 /// when it is dropped: dropping a runtime on an async worker would panic.
 #[derive(Debug)]
 struct Owned(Option<Runtime>);
+
+impl Owned {
+    /// The runtime's handle.
+    fn handle(&self) -> Handle {
+        self.0
+            .as_ref()
+            .expect("invariant: an owned runtime is taken only when it is dropped")
+            .handle()
+            .clone()
+    }
+}
 
 impl Drop for Owned {
     fn drop(&mut self) {
@@ -96,14 +121,22 @@ impl Drop for Owned {
 
 /// A Connection to one engine. Cloning it is cheap and every clone is the
 /// same Connection.
+///
+/// It belongs to the process that opened it: in another, such as the child
+/// of a `fork`, each use of it or of a value under it fails with
+/// `connection_forked` before anything reaches its engine, and that
+/// process opens a Connection of its own (ADR 0078).
 #[derive(Clone, Debug)]
-pub struct Connection(Arc<Inner>);
+pub struct ClientConnection(Arc<Inner>);
 
 #[derive(Debug)]
 struct Inner {
     sender: Sender,
     /// The streams of the engine's requests the program serves.
     streams: Streams,
+    /// Its own Subscription, which the streams of the events the engine
+    /// publishes share.
+    published: Published,
     /// The runtime its tasks run on.
     handle: Handle,
     tasks: TaskTracker,
@@ -113,17 +146,24 @@ struct Inner {
     /// The Runs it started, which `close()` closes first. A Run holds its
     /// Connection, so the Connection only refers to it.
     runs: Mutex<Vec<Weak<dyn Closes>>>,
+    /// The level its engine was last told to send its logs at (ADR 0078):
+    /// `hello`'s, then each one a start told it.
+    log_level: Mutex<LogLevel>,
+    /// Whether a close has returned, after which closing again does
+    /// nothing, even when that close timed out with a task still running.
+    closed: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
-    _runtime: Owned,
+    _runtime: Option<Arc<Owned>>,
 }
 
-impl Connection {
+impl ClientConnection {
     /// Opens a Connection to the engine at `endpoint` over `network`, on
-    /// `runtime`, and says `hello`.
+    /// `runtime`, and says `hello`, waiting for its answer as long as it
+    /// takes.
     ///
     /// # Errors
     ///
-    /// [`Error::Unreachable`] when the transport cannot reach the engine,
+    /// `connection_lost` when the transport cannot reach the engine,
     /// and whatever `hello`'s call fails with.
     pub async fn open(
         runtime: ConnectionRuntime,
@@ -131,6 +171,41 @@ impl Connection {
         endpoint: &Endpoint,
         hello: HelloParams,
     ) -> Result<(Self, HelloResult), Error> {
+        Self::open_within(
+            runtime,
+            network,
+            endpoint,
+            hello,
+            ConnectTimeout::Off,
+            ListenerQueue::DEFAULT,
+            None,
+        )
+        .await
+    }
+
+    /// Opens a Connection as [`ClientConnection::open`] does, waiting for
+    /// `hello`'s answer within `timeout` (ADR 0083); past it, the
+    /// Connection is closed. Each stream of its own Subscription, such as a
+    /// Session's, holds at most `listener_queue` unread events. Each call,
+    /// `hello`'s included, carries the Trace context `trace_context_source`
+    /// reads on the thread that makes it, and none without it (ADR 0132).
+    ///
+    /// # Errors
+    ///
+    /// As [`ClientConnection::open`], [`ConnectTimeout::check`]'s refusal,
+    /// and `deadline_exceeded` when `hello`'s answer
+    /// did not come within `timeout`, its `limit` naming `timeout.connect`
+    /// and the layer that set it, and `waited_for` `hello`.
+    pub async fn open_within(
+        runtime: ConnectionRuntime,
+        network: &Network,
+        endpoint: &Endpoint,
+        hello: HelloParams,
+        timeout: ConnectTimeout,
+        listener_queue: ListenerQueue,
+        trace_context_source: Option<Arc<dyn TraceContextSource>>,
+    ) -> Result<(Self, HelloResult), Error> {
+        timeout.check()?;
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
@@ -138,43 +213,144 @@ impl Connection {
             async move { transport::open(&network, &endpoint).await },
             &handle,
         );
-        let opened = joined(opening.await)?.map_err(Error::Unreachable)?;
+        let opened = joined(opening.await)?.map_err(Error::unreachable)?;
         if let Some(process) = opened.process {
-            tasks.spawn_on(process.watch(), &handle);
+            logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
         let streams = Streams::new();
-        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
+        let sender = rpc::start(
+            opened.link,
+            &handle,
+            &tasks,
+            streams.clone(),
+            trace_context_source,
+        );
+        let published = Published::new(
+            sender.clone(),
+            handle.clone(),
+            tasks.clone(),
+            listener_queue,
+        );
         let connection = Self(Arc::new(Inner {
             sender,
             streams,
+            published,
             handle,
             tasks,
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
+            log_level: Mutex::new(hello.log_level.unwrap_or_default()),
+            closed: AtomicBool::new(false),
             _runtime: owned,
         }));
-        match connection.call::<HelloResult>(HELLO, &hello).await {
+        let deadline = timeout.deadline();
+        let said = match &deadline {
+            Some((after, _)) => connection
+                .call::<HelloResult>(HELLO, &hello)
+                .timeout(*after),
+            None => connection.call::<HelloResult>(HELLO, &hello).no_timeout(),
+        };
+        match said.await {
             Ok(said) => Ok((connection, said)),
             Err(error) => {
                 connection.close().await?;
-                Err(error)
+                Err(match (error, deadline) {
+                    (error, Some((after, limit)))
+                        if !error.is_answer() && error.code() == ErrorCode::DEADLINE_EXCEEDED =>
+                    {
+                        connect_timeout::exceeded(after, limit)
+                    }
+                    (error, _) => error,
+                })
+            }
+        }
+    }
+
+    /// Tells the engine `level`, which the program's subscriber records
+    /// for [`logging::ENGINE`], with `connection.set_log_level` when it is
+    /// not the level the engine was last told, and sends nothing when it
+    /// is (ADR 0078). An engine that refuses it keeps sending its logs at
+    /// the level it had, which the crate warns of under
+    /// [`logging::CLIENT`]: the engine's logs are telemetry, so the
+    /// refusal fails nothing, and the next start tells it again.
+    ///
+    /// # Errors
+    ///
+    /// `closed` when the Connection is closed, and `call_cancelled` when the
+    /// program closes it while the level is in flight.
+    pub(crate) async fn follow_log_level(&self, level: LogLevel) -> Result<(), Error> {
+        let told = std::mem::replace(&mut *self.log_level(), level);
+        if told == level {
+            return Ok(());
+        }
+        let params = SetLogLevelParams { log_level: level };
+        match self
+            .call::<LogLevelSet>(CONNECTION_SET_LOG_LEVEL.name, &params)
+            .await
+        {
+            Ok(LogLevelSet {}) => Ok(()),
+            Err(error) if error.is_ended_by_close() => Err(error),
+            Err(error) => {
+                let mut current = self.log_level();
+                if *current == level {
+                    *current = told;
+                }
+                drop(current);
+                tracing::warn!(
+                    target: logging::CLIENT,
+                    log_level = level.as_str(),
+                    %error,
+                    "The engine did not take the log level `{}`; it keeps sending its logs at `{}`.",
+                    level.as_str(),
+                    told.as_str(),
+                );
+                Ok(())
             }
         }
     }
 
     /// The call of `method` with `params`, whose reply reads as `T`.
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
-        Call::new(self.sender(), method, to_value(params))
+        Call::new(self.sender(), method, typed_params(method, params))
+    }
+
+    /// The raw call of `operation` (ADR 0099), its params and its result
+    /// the wire's JSON, which awaiting sends: the Products' `call`.
+    pub fn raw_call(&self, operation: &str) -> RawCall {
+        RawCall::new(self.sender(), operation, None)
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Query<T> {
-        Query::new(self.sender(), method, to_value(params))
+        Query::new(self.sender(), method, typed_params(method, params))
+    }
+
+    /// Fails unless the calling process opened the Connection, as each
+    /// use of it does: a Product crate's connection checks it before it
+    /// waits on tasks of its own.
+    ///
+    /// # Errors
+    ///
+    /// `connection_forked` in another process, such as the child of a
+    /// `fork`.
+    pub fn ensure_opener(&self) -> Result<(), Error> {
+        self.0.sender.ensure_opener()
+    }
+
+    /// Whether the calling process opened the Connection.
+    pub(crate) fn in_opener(&self) -> bool {
+        self.0.sender.in_opener()
     }
 
     /// The handle the calls of the Connection's handles go through.
     pub(crate) fn sender(&self) -> Sender {
         self.0.sender.clone()
+    }
+
+    /// Its own Subscription, which the streams of the events the engine
+    /// publishes share.
+    pub(crate) fn published(&self) -> &Published {
+        &self.0.published
     }
 
     /// The save of a file to the program's `path` through the call of
@@ -198,7 +374,7 @@ impl Connection {
         SaveFile {
             connection: self.clone(),
             method: method.to_owned(),
-            params: to_value(params),
+            params: typed_params(method, params),
             path: path.to_owned(),
             call: call.to_owned(),
             timeout: None,
@@ -229,12 +405,16 @@ impl Connection {
             tokio::select! {
                 biased;
                 Some(heard) = heard.recv() => self.hear(heard, &mut saving).await?,
-                result = &mut replied => break result.map_err(|_| Error::Closed),
+                result = &mut replied => break result.map_err(|_| Error::closed()),
             }
         };
         // A call the engine answered is over; one the Connection failed, as
         // timed out, is not, and the dropped save stops it.
-        saving.answered = matches!(result, Ok(Ok(_) | Err(Error::Failed(_))));
+        saving.answered = match &result {
+            Ok(Ok(_)) => true,
+            Ok(Err(error)) => error.is_answer(),
+            Err(_) => false,
+        };
         let result = result??;
         while let Ok(heard) = heard.try_recv() {
             self.hear(heard, &mut saving).await?;
@@ -251,12 +431,13 @@ impl Connection {
         match heard {
             Heard::Sent(id) => {
                 saving.id = Some(id);
-                self.credit(id, CHUNKS_AHEAD)
+                self.0.sender.credit(id, CHUNKS_AHEAD);
+                Ok(())
             }
             Heard::Notified { method, params } if method == CHUNK => {
-                let chunk: Chunk = serde_json::from_value(params).map_err(Error::Shape)?;
+                let chunk: Chunk = serde_json::from_value(params).map_err(Error::shape)?;
                 let bytes = BASE64.decode(chunk.data.as_bytes()).map_err(|error| {
-                    Error::Shape(serde_json::Error::custom(format!(
+                    Error::shape(serde_json::Error::custom(format!(
                         "a chunk's data is no Base64: {error}"
                     )))
                 })?;
@@ -278,7 +459,7 @@ impl Connection {
                     .await?;
                 saving.file = Some(file);
                 if let Some(id) = saving.id {
-                    self.credit(id, 1)?;
+                    self.0.sender.credit(id, 1);
                 }
                 Ok(())
             }
@@ -305,14 +486,31 @@ impl Connection {
         .await
     }
 
-    /// Grants the streaming call `id` `credits` more chunks.
-    fn credit(&self, id: i64, credits: u32) -> Result<(), Error> {
-        let params = to_value(&CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        })?;
-        self.0.sender.notify(CREDIT, params);
-        Ok(())
+    /// The bytes of the page body `handle` names, read from the file the
+    /// engine keeps it in, which a Client on the same machine reads (ADR
+    /// 0118).
+    pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
+        self.blocking(move || {
+            let path = PathBuf::from(handle.path);
+            let unreadable = |source| Error::body_unreadable(&path, source);
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "a blocking task on the Connection's tracker reads the file"
+            )]
+            let bytes = std::fs::read(&path).map_err(unreadable)?;
+            if u64::try_from(bytes.len()).ok() != Some(handle.size) {
+                return Err(unreadable(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "the file holds {} bytes where the body has {}",
+                        bytes.len(),
+                        handle.size
+                    ),
+                )));
+            }
+            Ok(bytes)
+        })
+        .await
     }
 
     /// Runs the blocking `work` on the Connection's tracker. Dropping the
@@ -321,6 +519,7 @@ impl Connection {
         &self,
         work: impl FnOnce() -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {
+        self.ensure_opener()?;
         joined(self.0.tasks.spawn_blocking_on(work, &self.0.handle).await)?
     }
 
@@ -331,35 +530,70 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// [`Error::AlreadyServed`] while another stream serves `method`, and
-    /// [`Error::Closed`] once the Connection has ended.
+    /// `internal` while another stream serves `method`, and
+    /// `closed` once the Connection has ended.
     pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
         self.0.streams.open(method)
     }
 
     /// Closes the Connection: first every Run it started that is still
-    /// open, as [`crate::Run::close`] does, then every call in flight fails with
-    /// [`Error::Closed`], as does every later one; the engine reads the end
+    /// open, as [`crate::Run::close`] does, each closed at once even when
+    /// `timeout.close` runs out before its abort, then every call in flight fails with
+    /// `call_cancelled`, `by: program` and `closed: connection`, and every
+    /// later one with `closed`; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
-    /// Connection's tasks have ended. Closing again does nothing.
+    /// Connection's tasks have ended, or once `timeout.close` has run out.
+    /// Closing again does nothing. A Connection to a Daemon only
+    /// disconnects: the Daemon goes on.
     ///
     /// # Errors
     ///
-    /// The first error a Run's close failed with; the Connection closes
-    /// all the same.
+    /// The first error a Run's close failed with, and `deadline_exceeded`
+    /// when `timeout.close` ran out first; the Connection closes all the
+    /// same. `connection_forked` in a process other than the one that
+    /// opened it, where it closes nothing.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future before it completes leaves the Runs it had not
-    /// closed yet open and the Connection open.
+    /// Dropping the future after its first poll leaves every Run it
+    /// started closed, the aborts it had not sent unsent, and the
+    /// Connection open.
     pub async fn close(&self) -> Result<(), Error> {
-        let runs: Vec<Arc<dyn Closes>> = std::mem::take(&mut *self.runs())
+        self.ensure_opener()?;
+        if self.0.closed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // The timer is the Connection's runtime's, so the close runs on
+        // any executor (ADR 0081).
+        let bounded = {
+            let _entered = self.0.handle.enter();
+            tokio::time::timeout(close_timeout(), self.close_unbounded())
+        };
+        let closed = match bounded.await {
+            Ok(closed) => closed,
+            Err(_elapsed) => {
+                self.0.sender.close();
+                self.0.tasks.close();
+                Err(Error::timed_out())
+            }
+        };
+        self.0.closed.store(true, Ordering::Release);
+        closed
+    }
+
+    /// Closes the Connection as [`ClientConnection::close`] says, however
+    /// long it takes.
+    async fn close_unbounded(&self) -> Result<(), Error> {
+        // Every Run is closed before the first abort is sent, so one the
+        // close's timeout cut short before its abort is closed all the same.
+        let closing: Vec<_> = std::mem::take(&mut *self.runs())
             .iter()
             .filter_map(Weak::upgrade)
+            .map(Closes::close)
             .collect();
         let mut closed = Ok(());
-        for run in runs {
-            let result = run.close().await;
+        for run in closing {
+            let result = run.await;
             closed = closed.and(result);
         }
         self.0.sender.close();
@@ -379,9 +613,10 @@ impl Connection {
     /// Sends the call of `method` with `params` without waiting for its
     /// reply, which is dropped: a `Drop` that must never block sends it.
     pub(crate) fn send_and_forget(&self, method: &str, params: &impl Serialize) {
-        let Ok(params) = serde_json::to_value(params) else {
+        let Ok(mut params) = serde_json::to_value(params) else {
             return;
         };
+        trace_context::carry(&mut params, self.0.sender.trace_context());
         let (reply, _dropped) = oneshot::channel();
         self.0.sender.call(Outgoing {
             method: method.to_owned(),
@@ -401,15 +636,37 @@ impl Connection {
         &self,
         future: impl Future<Output = Result<T, Error>> + Send + 'static,
     ) -> Result<T, Error> {
+        if !self.in_opener() {
+            // In another process, the runtime has no thread to run
+            // `future`: one poll here reaches its call's own check, which
+            // names the call's operation, and nothing waits.
+            let _runtime = self.0.handle.enter();
+            let mut context = Context::from_waker(Waker::noop());
+            return match pin!(future).poll(&mut context) {
+                Poll::Ready(answer) => answer,
+                Poll::Pending => Err(Error::connection_forked()),
+            };
+        }
         let (done, ended) = std::sync::mpsc::sync_channel(1);
+        // The runtime's worker has no Trace context of its own: every call
+        // `future` makes carries this thread's (ADR 0132).
+        let callers = self.0.sender.trace_context();
         self.0.handed.spawn_on(
-            async move {
+            trace_context::as_callers(callers, async move {
                 let _gone = done.send(future.await);
-            },
+            }),
             &self.0.handle,
         );
         // The task ends without sending only when the runtime shut down.
-        ended.recv().unwrap_or(Err(Error::Closed))
+        ended.recv().unwrap_or_else(|_| Err(Error::closed()))
+    }
+
+    /// The level its engine was last told, held.
+    fn log_level(&self) -> MutexGuard<'_, LogLevel> {
+        self.0
+            .log_level
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The Runs it started, which a panic elsewhere leaves as they were.
@@ -421,8 +678,8 @@ impl Connection {
 /// The save of a file to the program's path, whose reply reads as `T`.
 /// Nothing is sent until it is awaited.
 ///
-/// Awaiting it fails with [`Error::PathNotWritable`] or
-/// [`Error::FileWriteFailed`] when the Connection cannot write the path,
+/// Awaiting it fails with `path_not_writable` or
+/// `file_write_failed` when the Connection cannot write the path,
 /// and with whatever the call fails with; none leaves a file beside the
 /// path or changes it.
 ///
@@ -432,7 +689,7 @@ impl Connection {
 /// engine's call with `$/cancel`; the path holds what it held before.
 #[must_use = "a save is sent only when it is awaited"]
 pub struct SaveFile<T> {
-    connection: Connection,
+    connection: ClientConnection,
     method: String,
     params: Result<Value, Error>,
     path: PathBuf,
@@ -442,7 +699,7 @@ pub struct SaveFile<T> {
 }
 
 impl<T> SaveFile<T> {
-    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// Fails the save with `deadline_exceeded` if its reply has not come
     /// within `timeout`, the file it was writing removed.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
@@ -470,15 +727,17 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
             timeout,
             reply: _,
         } = self;
+        let trace_context = connection.0.sender.trace_context();
         Box::pin(async move {
             let path = file_saving::absolute(&given, &call)?;
             let mut params = params?;
             let Value::Object(fields) = &mut params else {
-                return Err(Error::Shape(serde_json::Error::custom(
+                return Err(Error::shape(serde_json::Error::custom(
                     "a save's params are an object",
                 )));
             };
             fields.insert("path".to_owned(), to_value(&path)?);
+            trace_context::carry(&mut params, trace_context);
             let saving = Saving {
                 given,
                 path,
@@ -489,7 +748,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
                 sender: connection.0.sender.clone(),
             };
             let result = connection.saved(method, params, timeout, saving).await?;
-            serde_json::from_value(result).map_err(Error::Shape)
+            serde_json::from_value(result).map_err(Error::shape)
         })
     }
 }
@@ -513,24 +772,23 @@ impl Drop for Saving {
         let Some(id) = self.id.filter(|_| !self.answered) else {
             return;
         };
-        if let Ok(params) = serde_json::to_value(CancelParams {
-            id: RequestId::Number(id),
-        }) {
-            self.sender.notify(CANCEL, params);
-        }
+        self.sender.cancel(id);
     }
 }
 
 /// What a Connection closes before itself: a Run it started. The `host`
 /// module, above the Connection, implements it (ADR 0126).
 pub(crate) trait Closes: Debug + Send + Sync {
-    /// Closes it, as [`crate::Run::close`] does.
+    /// Closes it at once, as [`crate::Run::close`] does; the future sends
+    /// what the engine is told.
     fn close(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        if !self.tasks.is_closed() {
+        // In another process, such as the child of a `fork`, the tasks are
+        // the opener's, which closes them.
+        if !self.tasks.is_closed() && self.sender.in_opener() {
             tracing::warn!(
                 target: "goodfetch::client",
                 "a Connection was dropped without close(): it closes without waiting"
@@ -541,9 +799,31 @@ impl Drop for Inner {
     }
 }
 
+/// How long a close waits: `timeout.close`'s default (ADR 0078).
+pub(crate) fn close_timeout() -> Duration {
+    let millis = (TIMEOUT_CLOSE.default)()
+        .as_u64()
+        .expect("invariant: `timeout.close` defaults to a duration in milliseconds");
+    Duration::from_millis(millis)
+}
+
 /// `params` as the call sends them.
 fn to_value(params: &impl Serialize) -> Result<serde_json::Value, Error> {
-    serde_json::to_value(params).map_err(Error::Shape)
+    serde_json::to_value(params).map_err(Error::shape)
+}
+
+/// The params of a typed call of `method` as the wire's JSON. A `_meta`
+/// among them is refused: the SDK writes a request's envelope, so a typed
+/// call is never marked raw (ADR 0099).
+fn typed_params(method: &str, params: &impl Serialize) -> Result<serde_json::Value, Error> {
+    let params = to_value(params)?;
+    if params
+        .as_object()
+        .is_some_and(|fields| fields.contains_key(META))
+    {
+        return Err(Error::own_meta(method));
+    }
+    Ok(params)
 }
 
 /// What a task on the Connection's runtime returned. A panic in it carries
@@ -554,7 +834,7 @@ fn joined<T>(result: Result<T, JoinError>) -> Result<T, Error> {
         if error.is_panic() {
             panic::resume_unwind(error.into_panic());
         }
-        Error::Closed
+        Error::closed()
     })
 }
 
@@ -562,6 +842,6 @@ fn joined<T>(result: Result<T, JoinError>) -> Result<T, Error> {
 /// between them and outlive the borrow that made them (ADR 0081).
 const _: () = {
     const fn send_sync_static<T: Send + Sync + 'static>() {}
-    send_sync_static::<Connection>();
+    send_sync_static::<ClientConnection>();
     send_sync_static::<ConnectionRuntime>();
 };

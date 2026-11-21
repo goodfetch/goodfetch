@@ -455,7 +455,7 @@ fn the_register_of_this_repository_passes() {
 /// The command of each step the repository's `just <recipe>` runs, as
 /// keep-going's list mode prints them (`<command>  # <step>`) without running
 /// any (`ci/keep-going.sh`, as `just quick-steps` reads them).
-fn steps(recipe: &str) -> Vec<String> {
+pub(crate) fn steps(recipe: &str) -> Vec<String> {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();

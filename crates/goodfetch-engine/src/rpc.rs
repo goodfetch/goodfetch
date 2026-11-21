@@ -22,13 +22,18 @@ pub mod framing;
 
 mod connection;
 mod handshake;
+mod raw_call;
 mod stream;
 mod websocket;
 
 pub use self::stream::send_events;
 
+use std::num::NonZeroU64;
+
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, Form, NOT_IN_PRODUCT,
+};
 
 use goodfetch_protocol::jsonrpc::{ErrorResponse, RequestId, Version};
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
@@ -42,6 +47,15 @@ pub(crate) use crate::wire::{Line, notification_line, success_line};
 
 pub(crate) use connection::{Access, Dispatch, serve};
 pub use handshake::version_refusal;
+
+/// How many calls the engine keeps in flight on one Connection, as
+/// `hello`'s result advertises it (issue 2529): one more is refused with
+/// `too_many_calls`.
+pub fn max_calls_in_flight() -> Option<NonZeroU64> {
+    u64::try_from(connection::MAX_IN_FLIGHT)
+        .ok()
+        .and_then(NonZeroU64::new)
+}
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.
@@ -96,11 +110,25 @@ fn not_in_product(
     CallError::new(&NOT_IN_PRODUCT, message, &details)
 }
 
-/// The line of a failure, the one conversion of an error for the wire.
-fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
+/// The error of a call its Client cancelled.
+fn cancelled_by_client() -> CallError {
+    CallError::new(
+        &CALL_CANCELLED,
+        "The call was cancelled by its Client.",
+        &CallCancelledDetails {
+            by: CancelledBy::Client,
+            closed: None,
+            person: None,
+        },
+    )
+}
+
+/// The line of a failure, the one conversion of an error for the wire, its
+/// names spelled in `form`, the Connection's (ADR 0099).
+fn failure_line(id: Option<RequestId>, error: &CallError, form: Form) -> Vec<u8> {
     line(&ErrorResponse {
         jsonrpc: Version,
         id,
-        error: error.to_error_object(),
+        error: error.to_error_object_in(form),
     })
 }

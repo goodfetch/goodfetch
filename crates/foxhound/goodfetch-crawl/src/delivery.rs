@@ -81,6 +81,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
@@ -96,13 +97,14 @@ use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
-    LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
+    LEASE_LOST, TIMEOUT_HANDLER, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
     SampleRefresh,
 };
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
+use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::report::{
     BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
@@ -128,6 +130,7 @@ use tokio::time::Instant;
 
 use crate::attempt_outcome::{self, Outcome, Refusing};
 use crate::code_free::{self, CodeFree};
+use crate::hooks::Hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::lease::{CommitError, Leases, WorkItemLease};
@@ -153,8 +156,8 @@ mod politeness;
 mod watch;
 
 use attempt::{
-    Answer, Attempt, Escalating, Lessons, Tiering, TransportSession, effect, handler_lease,
-    leased_count, run_hand_over,
+    Answer, Attempt, Escalating, Handling, Lessons, Tiering, TransportSession, effect,
+    handler_lease, leased_count, run_hand_over,
 };
 use merged::merged;
 use pages::{Pages, Start};
@@ -211,13 +214,15 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    (tiers, labels, choices, code_free): (
+    (tiers, labels, choices, (code_free, hooks)): (
         FetchTiers,
         labels::Declared,
         TierChoices,
-        Option<CodeFree>,
+        (Option<CodeFree>, Vec<CrawlHookDeclaration>),
     ),
 ) {
+    // Each stage's chain is built once, as the Run opens (ADR 0104).
+    let hooks = std::sync::Arc::new(Hooks::of(hooks, settings.resolved(), &labels.settings));
     let mut servers = vec![Serving {
         context,
         left: None,
@@ -272,6 +277,7 @@ pub(crate) async fn drive(
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         untouched,
         code_free: code_free.map(std::sync::Arc::new),
+        hooks,
         asking: arrivals.asking.clone(),
     };
     for (setting, code, message) in SWITCHED_OFF {
@@ -372,9 +378,13 @@ fn wall_ms(run: &Run) -> u64 {
 
 /// Where `run`'s leases are granted, each attempt staging in the crawl's
 /// staging, and its commit keying the work items it adds as `admission`'s
-/// gate keys them.
+/// gate keys them; each handler call sent under a lease waits under the
+/// Run's `timeout.handler`, resolved once here.
 fn leases_of(run: &Run, arrivals: &Opened, admission: &Admission) -> Leases {
+    let handler_timeout =
+        Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_HANDLER);
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
+        .handled_under(handler_timeout)
         .staging_in(arrivals.staging.clone())
         .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())
@@ -656,7 +666,9 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 /// it, counts as `handler_lost` against `crawl.retry.max` and is retried or
 /// failed, then delivery goes on from the committed state, so the work
 /// since that state is redone. Its domain policy is read again from its
-/// settings; one that cannot be read admits no seed or enqueue.
+/// settings; one that cannot be read admits no seed or enqueue. Its Hooks
+/// in code are `hooks`, those the start that resumed it declared, never
+/// kept in its run file (ADR 0104).
 ///
 /// # Cancel safety
 ///
@@ -665,8 +677,8 @@ pub(crate) async fn resume(
     run: Run,
     context: CallContext,
     settings: RunSettings,
-    crawls: Crawls,
-    tiers: FetchTiers,
+    (crawls, tiers): (Crawls, FetchTiers),
+    hooks: Vec<CrawlHookDeclaration>,
 ) {
     let policy = CrawlPolicy::of(settings.resolved());
     let retry_max = policy.retry_max;
@@ -728,7 +740,7 @@ pub(crate) async fn resume(
         opened,
         crawls,
         settings,
-        (tiers, labels, choices, code_free),
+        (tiers, labels, choices, (code_free, hooks)),
     )
     .await;
 }
@@ -760,6 +772,8 @@ struct Fetching<'a> {
     /// What a code-free crawl handles its requests with; none when its
     /// program does.
     code_free: Option<std::sync::Arc<CodeFree>>,
+    /// The crawl's Hooks in code, each stage's chain built once.
+    hooks: std::sync::Arc<Hooks>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
     /// The readers of the untouched page of each Label, built once.
@@ -818,6 +832,13 @@ impl Untouched {
 }
 
 impl Fetching<'_> {
+    /// What an attempt that hands `hand_over` over is handled with: the
+    /// crawl's code-free handling, if any, and its Hooks in code.
+    fn handling(&self, hand_over: std::sync::Arc<HandOver>) -> Handling {
+        let hooks = std::sync::Arc::clone(&self.hooks);
+        (hand_over, self.code_free.clone(), hooks)
+    }
+
     /// What the attempt of `leased`, holding `lease` and watched by
     /// `watch`, hands over with its Run's pages, built once as it is
     /// leased: `of_run`, what every attempt of the Run hands over alike,
@@ -1105,7 +1126,7 @@ async fn lease_to_servers(
                 leased: (leased, (session, in_browser), leased_count(run)),
                 lease,
                 watch,
-                fetching: (tiering, (hand_over, fetching.code_free.clone())),
+                fetching: (tiering, fetching.handling(hand_over)),
                 admission,
             }));
         }
@@ -1344,7 +1365,15 @@ async fn settled(
     for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
         let held = settling.held.is_some();
         let on = (run, state.stored());
-        queued.push(queue_outcome(on, read.policy, held, attempt, scored).await);
+        // A Label's own `crawl.retry.handler_failed` replaces the Run's
+        // for its requests' handler and Hooks (ADR 0104).
+        let policy = read.policy.under_label(
+            fetching
+                .labels
+                .settings
+                .retries_handler_failed(&attempt.leased.crawl_request.label),
+        );
+        queued.push(queue_outcome(on, policy, held, attempt, scored).await);
     }
     let stored = state.stored().clone();
     Box::pin(async move {
@@ -1907,7 +1936,7 @@ struct Finished {
 /// 0138), with what its Session's score changed and its tier choice,
 /// `scored`: its Records committed once while its lease holds, its
 /// links admitted and keyed, or its handler's skip, its block, or its work
-/// item retried or failed, under the Run's `policy`, with no retry when its
+/// item retried or failed, under `policy`, its Label's own, with no retry when its
 /// failure's site asked for a time further away than the Run waits
 /// (`held`), or its sitemap's entries admitted and keyed, the fetch ended
 /// with no outcome (ADR 0093).

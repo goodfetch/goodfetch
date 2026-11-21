@@ -1,7 +1,7 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
 browsers = ["env", "facts", "process", "variables"]
-callgrind = []
+callgrind = ["variables"]
 canaries = ["proving_ground", "proving_ground_format", "seeded"]
 cargo_consumer = ["env", "variables"]
 cli = ["daemon", "env", "exercise", "facts", "locales", "snapshot"]
@@ -34,6 +34,7 @@ proving_ground = ["env", "process", "proving_ground_format", "received_requests"
 proving_ground_format = []
 proxy_in_front = []
 pty = ["cli", "env"]
+raw_calls = []
 received_requests = ["proving_ground_format"]
 resident = []
 resolver = []

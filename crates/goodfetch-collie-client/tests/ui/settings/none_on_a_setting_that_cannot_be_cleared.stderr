@@ -1,0 +1,17 @@
+error[E0277]: `Option<_>` is no value of a setting whose values are `Duration`
+ --> tests/ui/settings/none_on_a_setting_that_cannot_be_cleared.rs:6:62
+  |
+6 |     let _settings = Settings::new().set(timeout::NAVIGATION, None);
+  |                                     ---                      ^^^^ the key's values are `Duration`
+  |                                     |
+  |                                     required by a bound introduced by this call
+  |
+  = help: the trait `IntoSettingValue<Duration>` is not implemented for `Option<_>`
+note: required by a bound in `Settings::set`
+ --> src/settings.rs
+  |
+  |     pub fn set<T: SettingValue>(
+  |            --- required by a bound in this associated function
+...
+  |         value: impl IntoSettingValue<T>,
+  |                     ^^^^^^^^^^^^^^^^^^^ required by this bound in `Settings::set`

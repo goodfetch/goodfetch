@@ -16,6 +16,7 @@
 )]
 
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::frontier::crawl_with;
@@ -243,29 +244,24 @@ fn a_document_whose_markup_refuses_the_purpose_ends_skipped_unhandled() {
 /// signal is judged against (ADR 0086).
 ///
 /// Covers: setting:site_preferences.respect_use_signals, setting:site_preferences.purpose
-#[test]
-fn every_page_is_handled_unless_the_signals_are_honoured_for_a_declared_purpose() {
-    let hosts: [(&str, &[&str]); 4] = [
-        (TDMREP_HOST, &["/catalog/1", "/catalog/2"]),
-        (CONTENT_SIGNAL_HOST, &["/catalog/1"]),
-        (TDMREP_FILE_HOST, &["/catalog/1"]),
-        (
-            MARKUP_HOST,
-            &["/catalog/1", "/catalog/2", "/catalog/3", "/catalog/4"],
-        ),
-    ];
-    for (host, paths) in hosts {
-        for site_preferences in [
-            json!({ "purpose": "ai-train" }),
-            json!({ "respect_use_signals": true }),
-        ] {
-            let crawled = crawl(host, paths, &site_preferences);
+#[rstest]
+#[case::tdmrep_header_unhonoured_for_ai_train(TDMREP_HOST, &["/catalog/1", "/catalog/2"], json!({ "purpose": "ai-train" }))]
+#[case::tdmrep_header_honoured_for_search(TDMREP_HOST, &["/catalog/1", "/catalog/2"], json!({ "respect_use_signals": true }))]
+#[case::content_signal_unhonoured_for_ai_train(CONTENT_SIGNAL_HOST, &["/catalog/1"], json!({ "purpose": "ai-train" }))]
+#[case::content_signal_honoured_for_search(CONTENT_SIGNAL_HOST, &["/catalog/1"], json!({ "respect_use_signals": true }))]
+#[case::tdmrep_file_unhonoured_for_ai_train(TDMREP_FILE_HOST, &["/catalog/1"], json!({ "purpose": "ai-train" }))]
+#[case::tdmrep_file_honoured_for_search(TDMREP_FILE_HOST, &["/catalog/1"], json!({ "respect_use_signals": true }))]
+#[case::markup_unhonoured_for_ai_train(MARKUP_HOST, &["/catalog/1", "/catalog/2", "/catalog/3", "/catalog/4"], json!({ "purpose": "ai-train" }))]
+#[case::markup_honoured_for_search(MARKUP_HOST, &["/catalog/1", "/catalog/2", "/catalog/3", "/catalog/4"], json!({ "respect_use_signals": true }))]
+fn every_page_is_handled_unless_the_signals_are_honoured_for_a_declared_purpose(
+    #[case] host: &str,
+    #[case] paths: &[&str],
+    #[case] site_preferences: Value,
+) {
+    let crawled = crawl(host, paths, &site_preferences);
 
-            assert_eq!(
-                (crawled.handled, crawled.sent),
-                (owned(paths), owned(paths)),
-                "{host} under {site_preferences}"
-            );
-        }
-    }
+    assert_eq!(
+        (crawled.handled, crawled.sent),
+        (owned(paths), owned(paths))
+    );
 }

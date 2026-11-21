@@ -1,7 +1,10 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::{HelloParams, ProductVersion, Surface, VersionLine};
+use super::{
+    CallCancelledDetails, CancelledBy, ClosedValue, HelloParams, ProductVersion, StoppedBy,
+    Surface, VersionLine,
+};
 use crate::catalog::{Product, ProtocolVersion};
 use crate::log::LogLevel;
 
@@ -172,6 +175,52 @@ fn a_hello_with_an_unknown_field_is_refused() {
     }));
 
     assert!(hello.is_err());
+}
+
+#[test]
+fn call_cancelled_details_read_who_stopped_the_call_what_closed_and_for_whom() {
+    let sent = json!({ "by": "person", "closed": "run", "person": "ada" });
+
+    let read: CallCancelledDetails = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(
+        (&read.by, &read.closed, read.person.as_deref()),
+        (&CancelledBy::Person, &Some(ClosedValue::Run), Some("ada"))
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}
+
+#[test]
+fn call_cancelled_details_keep_who_and_what_a_newer_engine_names() {
+    let sent = json!({ "by": "a_newer_stopper", "closed": "a_newer_value" });
+
+    let read: CallCancelledDetails = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(
+        (
+            read.by.as_str(),
+            read.closed.as_ref().map(ClosedValue::as_str),
+            read.person.as_deref(),
+        ),
+        ("a_newer_stopper", Some("a_newer_value"), None)
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}
+
+#[rstest]
+#[case::client(StoppedBy::Client, "client")]
+#[case::program(StoppedBy::Program, "program")]
+#[case::browser(StoppedBy::Browser, "browser")]
+fn whoever_stops_a_run_stops_its_calls_under_the_same_name(
+    #[case] stopped: StoppedBy,
+    #[case] wire: &str,
+) {
+    let by = CancelledBy::from(stopped);
+
+    assert_eq!(
+        (by.as_str(), serde_json::to_value(&by).unwrap()),
+        (wire, json!(wire))
+    );
 }
 
 #[test]

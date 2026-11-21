@@ -25,6 +25,9 @@ from goodfetch_collie_client.connection import EngineFallback, EngineInfo
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
 from goodfetch_collie_client.engine_choice import EngineChoice, RemoteDaemon
 from goodfetch_collie_client.generated.errors import (
+    ArtifactDownloadFailedError,
+    ArtifactUnavailableOfflineError,
+    BrowserNotInstalledError,
     CallCancelledError,
     ClosedError,
     ConnectionOverloadedError,
@@ -39,12 +42,14 @@ from goodfetch_collie_client.generated.errors import (
     ListenerFailedError,
     NotInProductError,
     ProtocolVersionUnsupportedError,
+    RefusedError,
     RunConflictError,
     RunEndedError,
     RunIdInvalidError,
     RunInUseError,
     RunStateUnavailableError,
     SettingInvalidError,
+    UnavailableError,
 )
 from goodfetch_collie_client.generated.models import (
     ExplainedSetting,
@@ -75,11 +80,14 @@ from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
 
 __all__ = [
+    "ArtifactDownloadFailedError",
+    "ArtifactUnavailableOfflineError",
     "AsyncCollie",
     "AsyncConnection",
     "AsyncKeyValueStore",
     "AsyncRun",
     "AsyncSequence",
+    "BrowserNotInstalledError",
     "CallCancelledError",
     "ClosedError",
     "Collie",
@@ -111,6 +119,7 @@ __all__ = [
     "Prices",
     "Product",
     "ProtocolVersionUnsupportedError",
+    "RefusedError",
     "RemoteDaemon",
     "Run",
     "RunConflictError",
@@ -131,4 +140,5 @@ __all__ = [
     "SettingsLayer",
     "StartedAs",
     "Subscription",
+    "UnavailableError",
 ]

@@ -24,6 +24,16 @@ impl UnknownValue {
     pub const fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// The error a request that names this value is refused with: a
+    /// request is not covered by ADR 0079's keeping of a newer engine's
+    /// values. `what` names the enumeration, and `known` its values.
+    pub(crate) fn refused<E: serde::de::Error>(&self, what: &str, known: &[&str]) -> E {
+        E::custom(format_args!(
+            "unknown {what} `{self}`, expected one of {}",
+            known.join(", ")
+        ))
+    }
 }
 
 impl fmt::Display for UnknownValue {
@@ -48,6 +58,12 @@ impl UnknownMember {
             .get(TAG)
             .and_then(Value::as_str)
             .expect("invariant: a member is read only with its tag")
+    }
+
+    /// Its tag as a value of its union's open kind enumeration, which the
+    /// tag names.
+    pub(crate) fn tag_value(&self) -> UnknownValue {
+        UnknownValue(self.tag().to_owned())
     }
 
     /// Its fields as received, its tag included.

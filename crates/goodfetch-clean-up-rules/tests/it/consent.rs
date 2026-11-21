@@ -32,19 +32,30 @@ fn a_snippet_the_library_does_not_have_is_in_no_world() {
 }
 
 /// A rule that names a dropped snippet is left out of the bundle, by the
-/// snippet it names, and every other rule is in it.
+/// snippet it names, and every other rule of autoconsent's is in it.
 /// Covers: story:5-100
 #[test]
 fn a_rule_that_names_a_dropped_snippet_is_left_out_of_the_bundle() {
+    let rules: serde_json::Value =
+        serde_json::from_str(include_str!("../../consent/autoconsent/compact-rules.json"))
+            .expect("autoconsent's rules are JSON");
+    let names: Vec<&str> = rules["r"]
+        .as_array()
+        .expect("the rules are a list")
+        .iter()
+        .map(|rule| rule[1].as_str().expect("a compact rule's name is a string"))
+        .collect();
+
     let runner = Runner::embedded().expect("the embedded runner decompresses");
-    assert_eq!(
-        (
-            consent::dropped_rules(),
-            runner.source().contains("\"cookie-popup-close-cookies\""),
-            runner.source().contains("\"didomi\""),
-        ),
-        (&["cookie-popup-close-cookies"][..], false, true)
-    );
+
+    let left_out: Vec<&str> = names
+        .into_iter()
+        .filter(|name| {
+            let quoted = serde_json::to_string(name).expect("a name serializes");
+            !runner.source().contains(&quoted)
+        })
+        .collect();
+    assert_eq!(left_out, ["cookie-popup-close-cookies"]);
 }
 
 /// autoconsent's library and heuristics reach the bundle as their authors

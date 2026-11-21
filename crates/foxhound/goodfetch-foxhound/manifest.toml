@@ -5,14 +5,54 @@
 # says what `xtask sdk-manifests` refuses. The values a connection hands out
 # are the Collie client crate's, re-exported, and listed with it. A
 # `blocking::` receiver is its async receiver's twin. `xtask sdk-exports`
-# matches TypeScript's manifest to what its packages export; matching this
-# one to what the crate exports is issue 2920's, and until then a member
-# added by hand gets its line here.
+# matches it to what the crate exports, read from its source: each item its
+# public modules declare or re-export from its own modules, on `(crate)` at
+# the root or on the module's path, as `blocking`, and each `pub` member of
+# such a type's inherent `impl`s; another crate's item it re-exports is that
+# crate's to list.
 #
 # Each `[[target]]` is a `tracing` target the SDK crates emit under (ADR
 # 0078), with the public constant that names it, or `constant = "none"`
 # with its reason: part of the SDK's contract as names, never as message
 # text, as Python's `[[logger]]` lines are.
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Foxhound"
+entry = "none"
+reason = "Foxhound's Connection, the entry point (ADR 0078)."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "composition"
+entry = "none"
+reason = "Foxhound's composition of the engine (ADR 0087): Collie's, then Foxhound's own contributions, which its executable and the linked engine run."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "composition_with"
+entry = "none"
+reason = "`composition` on the fetch tiers it is given, such as a test's or a benchmark's that serve their pages from memory."
+only = "TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
+words = ["composition", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "COMMANDS"
+entry = "none"
+reason = "The commands Foxhound's executable writes by hand, which its `main` passes to Collie's executable entry (ADRs 0087, 0090 and 0094), behind the `executable` feature."
+words = ["commands"]
+form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -75,6 +115,15 @@ entry = "none"
 reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie::engine`'s member under the same name."
 words = ["engine"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Foxhound"
+entry = "none"
+reason = "`Foxhound` without async (ADR 0081), for a program that has no runtime of its own."
+words = ["foxhound"]
+form = "type"
 
 [[member]]
 crate = "goodfetch-foxhound"

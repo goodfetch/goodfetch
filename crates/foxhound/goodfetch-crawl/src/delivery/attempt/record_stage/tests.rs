@@ -34,7 +34,7 @@ fn a_record_stage_call_sends_crawl_hook_handles_params() {
     let calling = Calling {
         run_id: &params.run_id,
         hook: &params.hook,
-        stage: params.stage,
+        stage: params.stage.clone(),
         crawl_request: &params.crawl_request,
         attempt: params.attempt,
         lease_epoch: params.lease_epoch,

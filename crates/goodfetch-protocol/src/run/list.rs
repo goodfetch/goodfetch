@@ -10,7 +10,6 @@ use crate::point_in_time::PointInTime;
 use std::time::SystemTime;
 
 use schemars::JsonSchema;
-use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
@@ -230,10 +229,9 @@ pub struct RunListParams {
 /// does not cover, so an engine answers it with an error, not an empty list.
 fn known_verdict<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Verdict>, D::Error> {
     match Option::<Verdict>::deserialize(deserializer)? {
-        Some(Verdict::Unknown(value)) => Err(D::Error::custom(format_args!(
-            "unknown Verdict `{value}`, expected one of {}",
-            crate::wire_name::all(&Verdict::ALL).join(", ")
-        ))),
+        Some(Verdict::Unknown(value)) => {
+            Err(value.refused("Verdict", &crate::wire_name::all(&Verdict::ALL)))
+        }
         known => Ok(known),
     }
 }

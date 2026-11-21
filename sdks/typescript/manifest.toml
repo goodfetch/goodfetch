@@ -1965,7 +1965,6 @@ receiver = "(module)"
 member = "Foxhound"
 entry = "none"
 reason = "Foxhound's Connection, the entry point (ADR 0078)."
-only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
 words = ["foxhound"]
 form = "type"
 
@@ -1975,7 +1974,7 @@ receiver = "(module)"
 member = "FoxhoundConnectOptions"
 entry = "none"
 reason = "The options of `Foxhound.connect()`, with Foxhound's Limits."
-only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
 words = ["foxhound", "connect", "options"]
 form = "type"
 
@@ -1985,7 +1984,7 @@ receiver = "(module)"
 member = "FoxhoundConnectOverOptions"
 entry = "none"
 reason = "The options of `connectOver()`, with Foxhound's Limits."
-only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
 words = ["foxhound", "connect", "over", "options"]
 form = "type"
 
@@ -1995,7 +1994,7 @@ receiver = "(module)"
 member = "FoxhoundLimits"
 entry = "none"
 reason = "Foxhound's Limits (ADR 0080): Collie's, and Paid fetches."
-only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+only = "Rust's crate declares no Limits type of its own: it re-exports Collie's `Limits`, which takes Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
 words = ["foxhound", "limits"]
 form = "type"
 
@@ -2005,7 +2004,7 @@ receiver = "(module)"
 member = "FoxhoundStartOptions"
 entry = "none"
 reason = "What starting a Run takes, with Foxhound's Limits."
-only = "Rust's manifest lists its crate's types once Rust's exports are read, issue 2920's."
+only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
 words = ["foxhound", "start", "options"]
 form = "type"
 

@@ -148,6 +148,11 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
 
+[target.'cfg(unix)'.dev-dependencies]
+# The `connection-used-after-fork` case forks the test and waits for its
+# child (tests/it/sdk/fork.rs).
+libc.workspace = true
+
 # `cargo binstall goodfetch-collie` installs the executable from its
 # archive on the GitHub Release of the same version (ADRs 0090 and 0094).
 [package.metadata.binstall]

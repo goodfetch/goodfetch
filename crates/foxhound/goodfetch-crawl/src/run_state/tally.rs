@@ -23,14 +23,6 @@ use rusqlite::Connection;
 
 use crate::work_items::{self, Changed, CountedAs};
 
-/// The kinds an ended request counts under.
-const KINDS: [OutcomeKind; 4] = [
-    OutcomeKind::Succeeded,
-    OutcomeKind::Failed,
-    OutcomeKind::Skipped,
-    OutcomeKind::Blocked,
-];
-
 /// The crawl's requests by state, as its Run state counts them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Tally {
@@ -59,7 +51,10 @@ impl Tally {
         };
         let (ended, _) = work_items::ended_counts(connection)?;
         for (kind, name, count) in ended {
-            let Some(kind) = KINDS.into_iter().find(|known| known.as_str() == kind) else {
+            let Some(kind) = OutcomeKind::ALL
+                .into_iter()
+                .find(|known| known.as_str() == kind)
+            else {
                 continue;
             };
             let count = i64::try_from(count).unwrap_or(i64::MAX);
@@ -92,7 +87,7 @@ impl Tally {
 
     /// Counts `by` more requests ended as `ended`, less when negative.
     fn count(&mut self, (kind, name): &CountedAs, by: i64) {
-        let of_kind = self.ended.entry(*kind).or_default();
+        let of_kind = self.ended.entry(kind.clone()).or_default();
         let counted = if let Some(count) = of_kind.get_mut(name.as_str()) {
             *count += by;
             *count
@@ -117,9 +112,9 @@ impl Tally {
     /// The ended requests of `kind`, by what each counts under, in the
     /// order of those names, with how many there are of each: those that
     /// count at least one.
-    pub(crate) fn ended(&self, kind: OutcomeKind) -> impl Iterator<Item = (&str, u64)> {
+    pub(crate) fn ended(&self, kind: &OutcomeKind) -> impl Iterator<Item = (&str, u64)> {
         self.ended
-            .get(&kind)
+            .get(kind)
             .into_iter()
             .flatten()
             .filter_map(|(name, count)| {

@@ -13,9 +13,10 @@ use std::io;
 use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError, Weak};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use data_encoding::BASE64;
@@ -105,6 +106,11 @@ impl Drop for Owned {
 
 /// A Connection to one engine. Cloning it is cheap and every clone is the
 /// same Connection.
+///
+/// It belongs to the process that opened it: in another, such as the child
+/// of a `fork`, each use of it or of a value under it fails with
+/// `connection_forked` before anything reaches its engine, and that
+/// process opens a Connection of its own (ADR 0078).
 #[derive(Clone, Debug)]
 pub struct ClientConnection(Arc<Inner>);
 
@@ -293,6 +299,23 @@ impl ClientConnection {
         Query::new(self.sender(), method, typed_params(method, params))
     }
 
+    /// Fails unless the calling process opened the Connection, as each
+    /// use of it does: a Product crate's connection checks it before it
+    /// waits on tasks of its own.
+    ///
+    /// # Errors
+    ///
+    /// `connection_forked` in another process, such as the child of a
+    /// `fork`.
+    pub fn ensure_opener(&self) -> Result<(), Error> {
+        self.0.sender.ensure_opener()
+    }
+
+    /// Whether the calling process opened the Connection.
+    pub(crate) fn in_opener(&self) -> bool {
+        self.0.sender.in_opener()
+    }
+
     /// The handle the calls of the Connection's handles go through.
     pub(crate) fn sender(&self) -> Sender {
         self.0.sender.clone()
@@ -470,6 +493,7 @@ impl ClientConnection {
         &self,
         work: impl FnOnce() -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {
+        self.ensure_opener()?;
         joined(self.0.tasks.spawn_blocking_on(work, &self.0.handle).await)?
     }
 
@@ -499,7 +523,8 @@ impl ClientConnection {
     ///
     /// The first error a Run's close failed with, and `deadline_exceeded`
     /// when `timeout.close` ran out first; the Connection closes all the
-    /// same.
+    /// same. `connection_forked` in a process other than the one that
+    /// opened it, where it closes nothing.
     ///
     /// # Cancel safety
     ///
@@ -507,6 +532,7 @@ impl ClientConnection {
     /// started closed, the aborts it had not sent unsent, and the
     /// Connection open.
     pub async fn close(&self) -> Result<(), Error> {
+        self.ensure_opener()?;
         if self.0.closed.load(Ordering::Acquire) {
             return Ok(());
         }
@@ -582,6 +608,17 @@ impl ClientConnection {
         &self,
         future: impl Future<Output = Result<T, Error>> + Send + 'static,
     ) -> Result<T, Error> {
+        if !self.in_opener() {
+            // In another process, the runtime has no thread to run
+            // `future`: one poll here reaches its call's own check, which
+            // names the call's operation, and nothing waits.
+            let _runtime = self.0.handle.enter();
+            let mut context = Context::from_waker(Waker::noop());
+            return match pin!(future).poll(&mut context) {
+                Poll::Ready(answer) => answer,
+                Poll::Pending => Err(Error::connection_forked()),
+            };
+        }
         let (done, ended) = std::sync::mpsc::sync_channel(1);
         self.0.handed.spawn_on(
             async move {
@@ -716,7 +753,9 @@ pub(crate) trait Closes: Debug + Send + Sync {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        if !self.tasks.is_closed() {
+        // In another process, such as the child of a `fork`, the tasks are
+        // the opener's, which closes them.
+        if !self.tasks.is_closed() && self.sender.in_opener() {
             tracing::warn!(
                 target: "goodfetch::client",
                 "a Connection was dropped without close(): it closes without waiting"

@@ -823,6 +823,11 @@ pub fn ended(connection: &Connection, id: &str, ending: &Ending) -> rusqlite::Re
             let message = format!("The site blocked the sitemap {url}, with `{name}`.");
             (name, None, message)
         }
+        unknown => {
+            let name = unknown.kind().as_str().to_owned();
+            let message = format!("The sitemap {url} ended with `{name}`.");
+            (name, None, message)
+        }
     };
     keep_failure(
         connection,

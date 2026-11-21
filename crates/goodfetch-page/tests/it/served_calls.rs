@@ -28,7 +28,6 @@ use goodfetch_engine::{
     ReadParams,
 };
 use goodfetch_page::Launcher;
-use goodfetch_page::blocks::NoBlocks;
 use goodfetch_page::page_value::{HandlerPages, Observer, PageValue};
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::{EnclosingCall, ProductVersion};
@@ -40,6 +39,8 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+use crate::handler_page::NoBlocks;
 
 /// The page the Product serves.
 const SERVED: &str = "served-page";

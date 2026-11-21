@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
-use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::page::session::{SESSION_CLOSE, SessionParams};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, PageCloseParams};
 use goodfetch_protocol::page::{Locator, PageId, SessionId};
@@ -460,7 +459,8 @@ impl HeldRun {
             };
             match abort.await {
                 Ok(_) => Ok(()),
-                Err(error) if error.code() == ErrorCode::CLOSED => Ok(()),
+                // The Connection's close ends the Run's work with it.
+                Err(error) if error.is_ended_by_close() => Ok(()),
                 Err(error) => Err(error),
             }
         }

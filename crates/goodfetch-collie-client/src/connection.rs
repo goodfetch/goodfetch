@@ -538,7 +538,8 @@ impl ClientConnection {
     /// Closes the Connection: first every Run it started that is still
     /// open, as [`crate::Run::close`] does, each closed at once even when
     /// `timeout.close` runs out before its abort, then every call in flight fails with
-    /// `closed`, as does every later one; the engine reads the end
+    /// `call_cancelled`, `by: program` and `closed: connection`, and every
+    /// later one with `closed`; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
     /// Connection's tasks have ended, or once `timeout.close` has run out.
     /// Closing again does nothing. A Connection to a Daemon only

@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, ErrorCode};
-use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_protocol::connection::{
+    CallCancelledDetails, CancelledBy, ClosedValue, DaemonEndpoint, HelloParams,
+};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{RunId, Tags};
 use goodfetch_test_support::{TestEnv, logged};
@@ -302,9 +304,10 @@ fn stopped() -> Value {
 
 /// The call in flight of the `connection-close-stops-its-engine` client
 /// conformance case, hand-played over the in-memory network: the
-/// Connection's close aborts its running Run, then fails the call in
-/// flight with `closed` and ends the engine's input.
-/// Covers: story:11-19
+/// Connection's close aborts its running Run, then cancels the call in
+/// flight, which fails with `call_cancelled` as the program's closing of
+/// its Connection stopped it, and ends the engine's input.
+/// Covers: story:11-19, story:11-48
 #[test]
 fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines_input() {
     let (network, mut lines, mut writer) = scripted();
@@ -343,12 +346,64 @@ fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines
         (finished, closed, heard)
     });
 
-    assert!(
-        matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
-        "{finished:?}"
+    let cancelled = finished.unwrap_err();
+    assert_eq!(cancelled.code(), ErrorCode::CALL_CANCELLED, "{cancelled:?}");
+    assert_eq!(
+        cancelled.details::<CallCancelledDetails>(),
+        Some(CallCancelledDetails {
+            by: CancelledBy::Program,
+            closed: Some(ClosedValue::Connection),
+            person: None,
+        })
     );
     assert!(closed.is_ok(), "{closed:?}");
     assert_eq!(heard, ["run.finish", "run.abort", "the end of the input"]);
+}
+
+/// A Run's close whose abort is still in flight when the program closes
+/// the Connection succeeds: the Connection's close ends the Run's work
+/// with it, and the Run is closed already, so the abort the close
+/// cancelled fails nothing.
+/// Covers: story:11-18, story:11-19
+#[test]
+fn a_runs_close_whose_abort_the_connections_close_cancels_succeeds() {
+    let (network, mut lines, mut writer) = scripted();
+    let runtime = goodfetch_test_support::runtime();
+    let (run_closed, connection_closed, heard) = runtime.block_on(async {
+        let peer = async {
+            let hello = lines.next_line().await.unwrap().unwrap();
+            writer.write_all(&reply(&hello, &said())).await.unwrap();
+            let start = lines.next_line().await.unwrap().unwrap();
+            writer.write_all(&reply(&start, &started())).await.unwrap();
+            // The abort goes unanswered: the Connection's close comes first.
+            let mut heard = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                heard.push(request["method"].as_str().unwrap().to_owned());
+            }
+            heard.push("the end of the input".to_owned());
+            writer.shutdown().await.unwrap();
+            heard
+        };
+        let client = async {
+            let (connection, _) = ClientConnection::open(
+                ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                &network,
+                &Endpoint::InMemory,
+                hello(),
+            )
+            .await
+            .unwrap();
+            let run = connection.start().await.unwrap();
+            tokio::join!(run.close(), connection.close())
+        };
+        let ((run_closed, connection_closed), heard) = tokio::join!(client, peer);
+        (run_closed, connection_closed, heard)
+    });
+
+    assert!(run_closed.is_ok(), "{run_closed:?}");
+    assert!(connection_closed.is_ok(), "{connection_closed:?}");
+    assert_eq!(heard, ["run.abort", "the end of the input"]);
 }
 
 /// A page's close and a Connection's close the engine never answers each

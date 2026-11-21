@@ -17,7 +17,7 @@ use goodfetch_collie_client::logging::engine_log_level;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{DaemonEndpoint, Form, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonUnreachableDetails;
-use goodfetch_protocol::settings::SettingInvalidDetails;
+use goodfetch_protocol::settings::{SettingInvalidDetails, SettingUnknownDetails};
 use goodfetch_test_support::{
     CapturedLog, Process, RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, capturing,
     engine_script, real_time_runtime, reported_address, tools,
@@ -424,16 +424,15 @@ fn a_url_that_names_no_loopback_daemon_is_refused(#[case] url: &str) {
 }
 
 /// `GOODFETCH_URL` without `GOODFETCH_TOKEN` fails with `setting_invalid`
-/// naming the token's variable; an empty variable counts as unset.
+/// naming the token's variable.
 /// Covers: story:11-2
-#[rstest]
-#[case::unset(&[("GOODFETCH_URL", "ws://127.0.0.1:7878")])]
-#[case::empty(&[("GOODFETCH_URL", "ws://127.0.0.1:7878"), ("GOODFETCH_TOKEN", "")])]
-fn goodfetch_url_without_a_token_is_refused(#[case] variables: &[(&str, &str)]) {
+#[test]
+fn goodfetch_url_without_a_token_is_refused() {
     let env = TestEnv::new();
+    let variables = [("GOODFETCH_URL", "ws://127.0.0.1:7878")];
 
     let refused = real_time_runtime().block_on(async {
-        Collie::connect(ConnectOptions::default().environment(environment(&env, variables))).await
+        Collie::connect(ConnectOptions::default().environment(environment(&env, &variables))).await
     });
 
     let error = refused.unwrap_err();
@@ -442,18 +441,103 @@ fn goodfetch_url_without_a_token_is_refused(#[case] variables: &[(&str, &str)]) 
     assert_eq!(details.key, "GOODFETCH_TOKEN");
 }
 
-/// An empty `GOODFETCH_URL` counts as unset: `auto` links its own engine.
-/// Covers: story:11-2
+/// An empty deployment variable is refused, never taken for unset (ADR
+/// 0083), before any engine is reached.
+/// Covers: story:11-73
 #[test]
-fn an_empty_goodfetch_url_counts_as_unset() {
+fn an_empty_goodfetch_url_is_refused() {
     let env = TestEnv::new();
 
-    let engine = real_time_runtime().block_on(async {
-        let collie = Collie::connect(
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
             ConnectOptions::default().environment(environment(&env, &[("GOODFETCH_URL", "")])),
         )
         .await
-        .unwrap();
+    });
+
+    let error = refused.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::SETTING_INVALID, "{error:?}");
+    let details: SettingInvalidDetails = error.details().unwrap();
+    assert_eq!(
+        (details.key.as_str(), details.reason.as_str()),
+        ("GOODFETCH_URL", "it is empty; unset it instead")
+    );
+}
+
+/// A `GOODFETCH_` variable off the closed list fails `connect()` with
+/// `setting_unknown` naming the closest deployment variable (ADR 0083).
+/// Covers: story:11-73
+#[test]
+fn a_goodfetch_variable_off_the_list_is_refused_naming_the_closest() {
+    let env = TestEnv::new();
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
+            ConnectOptions::default()
+                .environment(environment(&env, &[("GOODFETCH_HOEM", "/home/goodfetch")])),
+        )
+        .await
+    });
+
+    let error = refused.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::SETTING_UNKNOWN, "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "`GOODFETCH_HOEM` in the environment is no deployment variable; did you mean `GOODFETCH_HOME`?"
+    );
+    assert_eq!(
+        error.fix(),
+        Some("Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.")
+    );
+    let details: SettingUnknownDetails = error.details().unwrap();
+    assert_eq!(details.key, "GOODFETCH_HOEM");
+    assert_eq!(details.closest.as_deref(), Some("GOODFETCH_HOME"));
+}
+
+/// A `GOODFETCH_` variable close to none on the list names none, and its
+/// `fix` lists the deployment variables.
+/// Covers: story:11-73
+#[test]
+fn a_goodfetch_variable_close_to_none_is_refused_naming_none() {
+    let env = TestEnv::new();
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
+            ConnectOptions::default()
+                .environment(environment(&env, &[("GOODFETCH_TELEMETRY", "1")])),
+        )
+        .await
+    });
+
+    let error = refused.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::SETTING_UNKNOWN, "{error:?}");
+    assert_eq!(
+        error.fix(),
+        Some(
+            "Unset GOODFETCH_TELEMETRY: the GOODFETCH_ prefix is reserved for the deployment variables, GOODFETCH_BROWSERS_PATH, GOODFETCH_CHANNEL, GOODFETCH_COLLIE_ENGINE_PATH, GOODFETCH_DAEMON_ADDRESS, GOODFETCH_DAEMON_DRAIN_GRACE, GOODFETCH_FOXHOUND_ENGINE_PATH, GOODFETCH_HOME, GOODFETCH_OPS_ADDRESS, GOODFETCH_TEST_SEED, GOODFETCH_TOKEN, GOODFETCH_URL."
+        )
+    );
+    let details: SettingUnknownDetails = error.details().unwrap();
+    assert_eq!(details.key, "GOODFETCH_TELEMETRY");
+    assert_eq!(details.closest, None);
+}
+
+/// Foxhound's engine-path variable is on the list, so Collie's `connect()`
+/// takes it, and never reads it: Collie links its own engine.
+/// Covers: story:11-73
+#[test]
+fn foxhounds_engine_path_is_recognised_and_not_read() {
+    let env = TestEnv::new();
+    let variables = [(
+        "GOODFETCH_FOXHOUND_ENGINE_PATH",
+        "/nonexistent/goodfetch-foxhound",
+    )];
+
+    let engine = real_time_runtime().block_on(async {
+        let collie =
+            Collie::connect(ConnectOptions::default().environment(environment(&env, &variables)))
+                .await
+                .unwrap();
         let engine = collie.engine().clone();
         collie.close().await.unwrap();
         engine

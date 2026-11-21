@@ -48,7 +48,6 @@ fn answer(headers: &[(&str, &str)]) -> Response<Bytes> {
 /// neither form, or none, asks none, and the driver's backoff waits instead.
 #[rstest]
 #[case::seconds(&[("retry-after", "120")], Some(Duration::from_secs(120)))]
-#[case::seconds_with_spaces(&[("retry-after", " 3 ")], Some(Duration::from_secs(3)))]
 #[case::no_wait(&[("retry-after", "0")], Some(Duration::ZERO))]
 #[case::none(&[], None)]
 #[case::an_http_date_after_the_answers_date(

@@ -113,14 +113,15 @@ class AsyncCollie(AsyncConnection):
         up to 16 at a time, so a bound below 16 can end even a listener that
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
-        or more or a refused `engine` or `GOODFETCH_URL` (`setting_invalid`),
-        a missing executable (`engine_not_found`), a Daemon nothing reaches
-        or that refuses its token (`daemon_unreachable`), a refused Product
-        (`not_in_product`) or version, or a refused Limit raises here, with
-        a `fix`, leaving no Attached engine behind; so does a cancelled
-        opening. The engine
-        sends its logs from the effective level of `goodfetch.engine`, read
-        here (ADR 0078).
+        or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
+        variable set but empty or not Unicode (`setting_invalid`), a
+        `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
+        the closest), a missing executable (`engine_not_found`), a Daemon
+        nothing reaches or that refuses its token (`daemon_unreachable`), a
+        refused Product (`not_in_product`) or version, or a refused Limit
+        raises here, with a `fix`, leaving no Attached engine behind; so
+        does a cancelled opening. The engine sends its logs from the
+        effective level of `goodfetch.engine`, read here (ADR 0078).
 
         `settings` are the Connection's own, sent in `hello`, which every
         Run it starts inherits (ADR 0083): a key left out inherits
@@ -313,13 +314,15 @@ class Collie(Connection):
         up to 16 at a time, so a bound below 16 can end even a listener that
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
-        or more or a refused `engine` or `GOODFETCH_URL` (`setting_invalid`),
-        a missing executable (`engine_not_found`), a Daemon nothing reaches
-        or that refuses its token (`daemon_unreachable`), a refused Product
-        (`not_in_product`) or version, or a refused Limit raises here, with
-        a `fix`, leaving neither Attached engine nor thread behind. The engine sends its
-        logs from the effective level of `goodfetch.engine`, read here
-        (ADR 0078).
+        or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
+        variable set but empty or not Unicode (`setting_invalid`), a
+        `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
+        the closest), a missing executable (`engine_not_found`), a Daemon
+        nothing reaches or that refuses its token (`daemon_unreachable`), a
+        refused Product (`not_in_product`) or version, or a refused Limit
+        raises here, with a `fix`, leaving neither Attached engine nor
+        thread behind. The engine sends its logs from the effective level of
+        `goodfetch.engine`, read here (ADR 0078).
 
         `settings` are the Connection's own, sent in `hello`, which every
         Run it starts inherits (ADR 0083): a key left out inherits

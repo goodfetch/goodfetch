@@ -148,6 +148,38 @@ export function runtimeMessage(
   return fix === undefined ? head : `${head}. ${fix}`;
 }
 
+/** A field a copy of an error shows, as its own fields are. */
+const SHOWN = { writable: true, configurable: true, enumerable: true };
+
+/** A field a copy of an error keeps out of its own fields, as `message` and `stack` are. */
+const HIDDEN = { writable: true, configurable: true, enumerable: false };
+
+/**
+ * A copy of `error` whose `fix` is `fix`: it keeps the error's class,
+ * message, stack, other fields and cause, as `inCall`'s does.
+ */
+export function withFix<Failure extends GoodfetchError>(error: Failure, fix: string): Failure {
+  return copyOf(error, { fix: { ...SHOWN, value: fix } });
+}
+
+/**
+ * A copy of `error` on its prototype, so of its class, with its own
+ * properties and stack, and `fields` in their place.
+ */
+function copyOf<Failure extends GoodfetchError>(
+  error: Failure,
+  fields: PropertyDescriptorMap,
+): Failure {
+  // The stack is read as text, which V8 may hold behind an accessor of the original alone.
+  const { stack } = error;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of `error`'s own properties on its prototype is an instance of its class.
+  return Object.create(Object.getPrototypeOf(error), {
+    ...Object.getOwnPropertyDescriptors(error),
+    stack: { ...HIDDEN, value: stack },
+    ...fields,
+  }) as Failure;
+}
+
 /**
  * `error`, raised by the runtime, as the call `operation` fails with it: a
  * copy whose message is headed by the operation in TypeScript form and
@@ -170,12 +202,9 @@ export function inCall<Failure extends GoodfetchError>(
   const stack = error.stack?.startsWith(header)
     ? `${error.name}: ${message}${error.stack.slice(header.length)}`
     : error.stack;
-  const hidden = { writable: true, configurable: true, enumerable: false };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of `error`'s own properties on its prototype is an instance of its class.
-  return Object.create(Object.getPrototypeOf(error), {
-    ...Object.getOwnPropertyDescriptors(error),
-    message: { ...hidden, value: message },
-    stack: { ...hidden, value: stack },
-    operation: { writable: true, configurable: true, enumerable: true, value: operation },
-  }) as Failure;
+  return copyOf(error, {
+    message: { ...HIDDEN, value: message },
+    stack: { ...HIDDEN, value: stack },
+    operation: { ...SHOWN, value: operation },
+  });
 }

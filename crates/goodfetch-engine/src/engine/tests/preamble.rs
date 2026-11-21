@@ -156,14 +156,9 @@ fn an_enclosing_bound_wraps_only_a_cancellable_calls_answer(
     assert_eq!((&reply["result"], ran), (&answer, expected), "{reply}");
 }
 
-/// The Error code of `reply`, and whether its message names `_meta`.
-fn refusal(reply: &Value) -> (Option<&str>, bool) {
-    (
-        reply["error"]["data"]["code"].as_str(),
-        reply["error"]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("`_meta`")),
-    )
+/// The Error code of `reply`.
+fn refusal(reply: &Value) -> Option<&str> {
+    reply["error"]["data"]["code"].as_str()
 }
 
 #[test]
@@ -191,7 +186,7 @@ fn a_refused_meta_is_refused_before_the_guard_and_the_handler(#[case] params: &s
 
     assert_eq!(
         (refusal(&reply), ran),
-        ((Some("invalid_params"), true), Vec::<&str>::new()),
+        (Some("invalid_params"), Vec::<&str>::new()),
         "{reply}"
     );
 }
@@ -216,7 +211,7 @@ fn a_guards_refusal_comes_before_the_handler_reads_the_params(#[case] params: &s
 
     assert_eq!(
         (refusal(&reply), ran),
-        ((Some("invalid_request"), false), vec!["guard"]),
+        (Some("invalid_request"), vec!["guard"]),
         "{reply}"
     );
 }
@@ -232,7 +227,7 @@ fn params_that_are_not_the_handlers_type_are_refused_once_the_guard_let_them_pas
 
     assert_eq!(
         (refusal(&reply), ran),
-        ((Some("invalid_params"), false), vec!["guard"]),
+        (Some("invalid_params"), vec!["guard"]),
         "{reply}"
     );
 }
@@ -271,7 +266,7 @@ fn traced(members: &str) -> String {
 #[case::the_last_of_each(
     r#""run_id":"run-b","session_id":"session-b","count":2,"run_id":"run-a","session_id":"session-a""#
 )]
-#[case::written_with_an_escape(r#""count":2,"run_id":"run-a","session_id":"session-a""#)]
+#[case::written_with_an_escape(r#""count":2,"run\u005fid":"run-\u0061","session_id":"session-a""#)]
 fn a_requests_span_holds_the_ids_and_the_trace_context_its_params_name(#[case] members: &str) {
     assert_eq!(
         span_of(&traced(members)),

@@ -299,6 +299,8 @@ async fn answered(mut client: Client) -> ([Value; 3], Value, Vec<Value>, Vec<Val
 /// leaves the list, resolved; the same answer again adds nothing and
 /// records nothing. Writing `*` warns that it accepts every domain's wall
 /// and that an Agent no longer asks first, and takes every other wall off.
+/// The Kennel is a person surface (ADR 0141): its answer is admitted, as the
+/// CLI's is, and the Audit log records it as the Kennel's.
 ///
 /// Covers: story:12-26, operation:needs_you.allow_consent_domain, event:needs_you.changed, operation:config.explain
 #[test]
@@ -470,55 +472,6 @@ fn an_answer_the_audit_log_cannot_record_is_written_and_says_so() {
                 .contains("[settings.consent]\ndomains = [\"walled.test\"]"),
         ),
         (&json!(-32603), true),
-        "{answer}"
-    );
-}
-
-/// The Kennel is a person surface (ADR 0141): its answer is admitted, as
-/// the CLI's is, and the Audit log records it as the
-/// Kennel's; an SDK's is still refused with `person_required` and writes
-/// nothing.
-///
-/// Covers: operation:needs_you.allow_consent_domain
-#[rstest]
-#[case::from_the_kennel("kennel", json!(true), Value::Null, &["kennel"])]
-/// Covers: error:person_required
-#[case::from_an_sdk("sdk_python", Value::Null, json!("person_required"), &[])]
-fn a_persons_answer_is_admitted_from_the_kennel_and_refused_from_an_sdk(
-    #[case] surface: &str,
-    #[case] added: Value,
-    #[case] refused: Value,
-    #[case] recorded: &[&str],
-) {
-    let env = TestEnv::new();
-    configure(&env, "");
-    let surface = surface.to_owned();
-
-    let answer = attached_on(&walled_engine(&env), &env, |mut client| async move {
-        opened(&mut client, &surface).await;
-        call(
-            &mut client,
-            2,
-            "needs_you.allow_consent_domain",
-            json!({ "domain": "walled.test" }),
-        )
-        .await
-    });
-
-    assert_eq!(
-        (
-            answer["result"]["added"].clone(),
-            answer["error"]["data"]["code"].clone(),
-            audit_entries(&env)
-                .iter()
-                .map(|entry| entry["surface"].clone())
-                .collect::<Vec<_>>(),
-        ),
-        (
-            added,
-            refused,
-            recorded.iter().map(|surface| json!(surface)).collect()
-        ),
         "{answer}"
     );
 }

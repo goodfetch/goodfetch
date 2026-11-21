@@ -444,13 +444,6 @@ impl RequestSigner {
         })
     }
 
-    /// The key's ID, its RFC 7638 thumbprint, which the key directory names
-    /// it by.
-    #[must_use]
-    pub fn key_id(&self) -> &str {
-        &self.key_id
-    }
-
     /// The headers of a request to `url`, signed now; none for a URL that
     /// is not `http` or `https`, which carries no headers.
     #[must_use]

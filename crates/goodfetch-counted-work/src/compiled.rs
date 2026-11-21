@@ -200,3 +200,6 @@ impl Compiled {
         self.selectors.len()
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -21,6 +21,7 @@ use super::{for_the_key, reference};
 use crate::audit::AuditLog;
 use crate::clock::Clock;
 use crate::home::Home;
+use crate::mask::Redaction;
 use crate::secrets::{
     Carried, Keychain, ProviderFailure, SecretError, Secrets, keychain, secretfile,
 };
@@ -225,7 +226,7 @@ fn over(env: &TestEnv, keychain: Keychain) -> crate::secrets::RunSecrets {
             Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
             Clock::paused(env.start_time()),
         )
-        .for_run(Duration::from_secs(30))
+        .for_run_with(Duration::from_secs(30), Redaction::On)
     })
 }
 

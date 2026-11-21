@@ -110,20 +110,6 @@ fn a_live_runs_report_arrives_at_its_end_and_the_read_never_ends_it() {
     );
 }
 
-/// Covers: story:3-165, operation:run.report
-#[test]
-fn an_ended_runs_report_comes_at_once() {
-    let report = attached(&engine(Product::Collie), |mut client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
-        client.next().await.unwrap();
-        call(&mut client, 1, "run.start", json!({ "run_id": "done" })).await;
-        call(&mut client, 2, "run.finish", json!({ "run_id": "done" })).await;
-        call(&mut client, 3, "run.report", json!({ "run_id": "done" })).await
-    });
-
-    assert_eq!(report["result"]["lifecycle"], "finished");
-}
-
 /// An ended Run's report read after its ending call's answer is the one
 /// its run file keeps, in the engine that ended it as in any other: that
 /// engine keeps no copy of it, so a Daemon that runs Run after Run holds

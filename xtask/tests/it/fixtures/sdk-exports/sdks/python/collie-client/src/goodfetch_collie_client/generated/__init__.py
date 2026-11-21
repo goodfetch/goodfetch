@@ -1,0 +1,1 @@
+"""What `xtask codegen` writes."""

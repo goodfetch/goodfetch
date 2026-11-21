@@ -31,6 +31,7 @@ use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{ExceptionKind, KeyHash, KnownCertificates};
+use goodfetch_engine::mask::Redaction;
 use goodfetch_engine::secrets::{Carried, Keychain, RunSecrets, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
@@ -139,7 +140,7 @@ impl Fixture {
             Arc::clone(&self.owner),
             Clock::system(),
         )
-        .for_run(Duration::from_secs(30))
+        .for_run_with(Duration::from_secs(30), Redaction::On)
     }
 
     /// `stack`'s transport for a Run: the Proving ground's authority, and

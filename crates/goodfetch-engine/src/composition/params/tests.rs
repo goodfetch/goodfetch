@@ -367,7 +367,11 @@ fn a_meta_the_engine_refuses_fails_what_dispatch_takes(#[case] json: &str) {
 
     let _ = params.read::<Named>();
 
-    assert!(params.taken().unwrap_err().to_string().contains("`_meta`"));
+    let refusal = params.taken().unwrap_err();
+    assert_eq!(
+        (refusal.code(), refusal.to_string().contains("`_meta`")),
+        ("invalid_params", true)
+    );
     assert!(arrived.preamble().is_err());
 }
 

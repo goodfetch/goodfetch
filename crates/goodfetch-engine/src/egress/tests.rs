@@ -392,29 +392,29 @@ fn a_url_with_a_zone_id_is_refused_as_a_private_address(#[case] url: &str, #[cas
 }
 
 #[rstest]
-#[case::an_address_in_a_listed_range(&["127.0.0.0/8"], "127.0.0.1", true)]
-#[case::a_listed_address(&["10.0.0.7"], "10.0.0.7", true)]
-#[case::an_address_outside_the_range(&["127.0.0.1/32"], "127.0.0.2", false)]
-#[case::an_ipv6_range(&["fd00::/8"], "fd00::1", true)]
-#[case::metadata_under_a_range_that_covers_it(&["169.254.0.0/16"], "169.254.169.254", false)]
-#[case::metadata_listed_by_its_exact_address(&["169.254.169.254"], "169.254.169.254", true)]
-#[case::metadata_listed_as_its_own_block(&["169.254.169.254/32"], "169.254.169.254", true)]
-#[case::link_local_under_its_range(&["169.254.0.0/16"], "169.254.1.1", true)]
-fn a_private_address_is_reached_only_when_a_range_lists_it(
-    #[case] ranges: &[&str],
-    #[case] address: &str,
-    #[case] allowed: bool,
-) {
+#[case::an_address_in_a_listed_range(&["127.0.0.0/8"], "127.0.0.1")]
+#[case::a_listed_address(&["10.0.0.7"], "10.0.0.7")]
+#[case::an_ipv6_range(&["fd00::/8"], "fd00::1")]
+#[case::metadata_listed_by_its_exact_address(&["169.254.169.254"], "169.254.169.254")]
+#[case::metadata_listed_as_its_own_block(&["169.254.169.254/32"], "169.254.169.254")]
+#[case::link_local_under_its_range(&["169.254.0.0/16"], "169.254.1.1")]
+fn a_private_address_a_range_lists_is_reached(#[case] ranges: &[&str], #[case] address: &str) {
+    let url = "http://intranet.test/";
+    let session = policy(&["*"], &[]).with_private_ranges(ranges).unwrap();
+
+    assert_eq!(judge_addresses(url, &sockets(&[address]), &session), Ok(()));
+}
+
+#[rstest]
+#[case::an_address_outside_the_range(&["127.0.0.1/32"], "127.0.0.2")]
+#[case::metadata_under_a_range_that_covers_it(&["169.254.0.0/16"], "169.254.169.254")]
+fn a_private_address_no_range_lists_is_refused(#[case] ranges: &[&str], #[case] address: &str) {
     let url = "http://intranet.test/";
     let session = policy(&["*"], &[]).with_private_ranges(ranges).unwrap();
 
     assert_eq!(
         judge_addresses(url, &sockets(&[address]), &session),
-        if allowed {
-            Ok(())
-        } else {
-            Err(private(url, address, PRIVATE_RANGES))
-        }
+        Err(private(url, address, PRIVATE_RANGES))
     );
 }
 
@@ -457,39 +457,51 @@ fn of_the_run(settings: Value) -> Policy {
     Policy::of(&resolve(&layers, Product::Collie, Product::Collie).unwrap()).unwrap()
 }
 
-/// `egress.private_ranges` from the Run's settings (story 4-11): a range
-/// opens the addresses it covers to any host, a host name opens its own
-/// connections, not its subdomains', to private addresses, and neither
-/// opens a cloud-metadata address, which only its exact address does.
-/// Covers: story:4-11, setting:egress.private_ranges
-#[rstest]
-#[case::loopback_under_its_range("http://catalog.test/", "127.0.0.1", true)]
-#[case::another_loopback_address_under_its_range("http://catalog.test/", "127.4.5.6", true)]
-#[case::a_listed_hosts_private_answer("http://intranet.test/", "10.0.0.1", true)]
-#[case::a_listed_hosts_name_in_capitals("http://INTRANET.test/", "10.0.0.1", true)]
-#[case::an_unlisted_hosts_private_answer("http://elsewhere.test/", "10.0.0.1", false)]
-#[case::a_listed_hosts_subdomain("http://www.intranet.test/", "10.0.0.1", false)]
-#[case::metadata_through_a_listed_host("http://intranet.test/", "169.254.169.254", false)]
-#[case::metadata_under_a_range_that_covers_it("http://catalog.test/", "169.254.169.254", false)]
-#[case::metadata_listed_by_its_exact_address("http://catalog.test/", "100.100.100.200", true)]
-fn the_runs_private_ranges_open_what_they_list_and_metadata_only_by_its_address(
-    #[case] url: &str,
-    #[case] address: &str,
-    #[case] allowed: bool,
-) {
-    let session = of_the_run(json!({
+/// The Session's policy of a Run whose `egress.private_ranges` lists two
+/// ranges, a host name and a cloud-metadata address.
+fn of_the_runs_private_ranges() -> Policy {
+    of_the_run(json!({
         "egress": {
             "private_ranges": ["127.0.0.0/8", "169.254.0.0/16", "intranet.test", "100.100.100.200"],
         }
-    }));
+    }))
+}
 
+/// `egress.private_ranges` from the Run's settings (story 4-11): a range
+/// opens the addresses it covers to any host, a host name opens its own
+/// connections to private addresses, and a cloud-metadata address opens
+/// by its exact address.
+/// Covers: story:4-11, setting:egress.private_ranges
+#[rstest]
+#[case::loopback_under_its_range("http://catalog.test/", "127.0.0.1")]
+#[case::another_loopback_address_under_its_range("http://catalog.test/", "127.4.5.6")]
+#[case::a_listed_hosts_private_answer("http://intranet.test/", "10.0.0.1")]
+#[case::a_listed_hosts_name_in_capitals("http://INTRANET.test/", "10.0.0.1")]
+#[case::metadata_listed_by_its_exact_address("http://catalog.test/", "100.100.100.200")]
+fn the_runs_private_ranges_open_what_they_list(#[case] url: &str, #[case] address: &str) {
     assert_eq!(
-        judge_addresses(url, &sockets(&[address]), &session),
-        if allowed {
-            Ok(())
-        } else {
-            Err(private(url, address, PRIVATE_RANGES))
-        }
+        judge_addresses(url, &sockets(&[address]), &of_the_runs_private_ranges()),
+        Ok(())
+    );
+}
+
+/// `egress.private_ranges` from the Run's settings (story 4-11): a host
+/// name opens no other host's connections, nor its subdomains', and
+/// neither a range nor a host name opens a cloud-metadata address, which
+/// only its exact address does.
+/// Covers: story:4-11, setting:egress.private_ranges
+#[rstest]
+#[case::an_unlisted_hosts_private_answer("http://elsewhere.test/", "10.0.0.1")]
+#[case::a_listed_hosts_subdomain("http://www.intranet.test/", "10.0.0.1")]
+#[case::metadata_through_a_listed_host("http://intranet.test/", "169.254.169.254")]
+#[case::metadata_under_a_range_that_covers_it("http://catalog.test/", "169.254.169.254")]
+fn the_runs_private_ranges_open_no_other_host_and_metadata_only_by_its_address(
+    #[case] url: &str,
+    #[case] address: &str,
+) {
+    assert_eq!(
+        judge_addresses(url, &sockets(&[address]), &of_the_runs_private_ranges()),
+        Err(private(url, address, PRIVATE_RANGES))
     );
 }
 

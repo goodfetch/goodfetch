@@ -11,6 +11,7 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::daemon::{cli_hello, daemon, opened, the_pick};
@@ -354,10 +355,19 @@ fn request(id: i64, method: &str, params: &Value) -> Value {
 
 /// A Run this engine runs is not discarded, failing with `run_live`; one
 /// another engine holds the writer lock of with `run_in_use`; a Run ID no
-/// Run has with `run_not_found`. Each leaves the Run as it was.
-/// Covers: story:3-39, operation:run.discard, error:run_live, error:run_in_use, error:run_not_found
-#[test]
-fn a_live_run_one_another_engine_writes_and_an_unknown_one_are_not_discarded() {
+/// Run has with `run_not_found`. Each leaves the Runs as they were.
+/// Covers: story:3-39, operation:run.discard
+#[rstest]
+/// Covers: error:run_live
+#[case::live("live", "run_live")]
+/// Covers: error:run_in_use
+#[case::held("held", "run_in_use")]
+/// Covers: error:run_not_found
+#[case::unknown("unknown", "run_not_found")]
+fn a_live_run_one_another_engine_writes_and_an_unknown_one_are_not_discarded(
+    #[case] run_id: &str,
+    #[case] code: &str,
+) {
     let env = TestEnv::new();
     let held = env.home().join("1").join("runs").join("held");
     std::fs::create_dir_all(&held).unwrap();
@@ -369,38 +379,25 @@ fn a_live_run_one_another_engine_writes_and_an_unknown_one_are_not_discarded() {
         .open(held.join("run.lock"))
         .unwrap();
     other.try_lock().unwrap();
+    let run_id = run_id.to_owned();
 
-    let codes = per_run(&env, |mut talk| async move {
+    let (refused, used) = per_run(&env, |mut talk| async move {
         talk.ok(1, "run.start", json!({ "run_id": "live" })).await;
-        let mut codes = Vec::new();
-        for (id, run_id) in [(2, "live"), (3, "held"), (4, "unknown")] {
-            let reply = talk
-                .reply(id, "run.discard", json!({ "run_id": run_id }))
-                .await;
-            codes.push(reply["error"]["data"]["code"].clone());
-        }
+        let reply = talk
+            .reply(2, "run.discard", json!({ "run_id": run_id }))
+            .await;
         let used = talk
             .ok(
-                5,
+                3,
                 "key_value_store.set",
                 json!({ "run_id": "live", "key": "still", "value": "here" }),
             )
             .await;
-        (codes, used)
+        (reply["error"]["data"]["code"].clone(), used)
     });
 
     assert_eq!(
-        (codes, held.join("run.sqlite").exists()),
-        (
-            (
-                vec![
-                    json!("run_live"),
-                    json!("run_in_use"),
-                    json!("run_not_found")
-                ],
-                json!({})
-            ),
-            true
-        )
+        (refused, used, held.join("run.sqlite").exists()),
+        (json!(code), json!({}), true)
     );
 }

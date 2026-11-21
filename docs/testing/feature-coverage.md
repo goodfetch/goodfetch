@@ -15,7 +15,7 @@ Decided in [ADR 0072](../adr/0072-every-feature-in-a-generated-inventory-has-a-p
 
 - **Declare a Feature only when the test asserts its outcome**, never one the test merely passes through.
 - **Declare it in the runner's own idiom**, never by a file or name pattern:
-  - Rust: `/// Covers: operation:run.start, error:run_not_found` on the test function, or `//! Covers: …` on a test module for every test in it; on an rstest table, a `/// Covers:` line between `#[rstest]` or one `#[case]` and the next declares for the case below it only, as rstest gives that case the attributes written there, so each case declares the row it reaches;
+  - Rust: `/// Covers: operation:run.start, error:run_not_found` on the test function, or `//! Covers: …` on a test module for every test in it; a long list wraps onto the doc lines below, each holding Feature IDs only, up to prose, a blank doc line or another attribute; on an rstest table, a `/// Covers:` line between `#[rstest]` or one `#[case]` and the next declares for the case below it only, as rstest gives that case the attributes written there, so each case declares the row it reaches;
   - Vitest: the Feature ID as a tag, on the test or its `describe`, as written (Vitest's tag names accept `:` and `.`); `vitest.config.ts` declares every ID of the inventory through test support's `readFeatureIds`, with `strictTags` on, so an unknown one fails the run;
   - pytest: `@pytest.mark.covers("<feature id>")` or a module's `pytestmark`, under `strict_markers`;
   - Playwright Test: an annotation `{ type: "covers", description: "<feature id>" }` per Feature, on the test or its `describe`; `playwright.config.ts` passes the inventory's IDs, and test support's `test` fails a test whose annotation names an unknown one;

@@ -1013,6 +1013,51 @@ fn timeout_connect_is_set_only_in_the_project_file(
     );
 }
 
+/// A Client's own bound is taken from `connect()`'s own `settings`, the
+/// run layer, alone: configuration, an Operator policy and a Recipe never
+/// reach the Client's transport, so each is refused naming `connect()`
+/// (issue 2518). With nothing set, each keeps its default.
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue, error:setting_not_applicable
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, Some("setting_not_applicable"))]
+#[case::user_configuration(SettingsLayer::UserConfiguration, Some("setting_not_applicable"))]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_connection(SettingsLayer::Run, None)]
+fn a_clients_own_bound_is_set_only_in_connect(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    for (key, default) in [
+        ("connection.max_pending_calls", 10_000),
+        ("connection.max_queued_write_bytes", 67_108_864),
+        ("connection.max_listener_queue", 1_024),
+    ] {
+        let set = resolve(
+            &only(layer, key, &json!(5)),
+            Product::Collie,
+            Product::Collie,
+        );
+        let unset = resolved(&Layers::default());
+
+        let (code, fix) = match &set {
+            Ok(_) => (None, None),
+            Err(error @ SettingsError::NotApplicable { fix, .. }) => {
+                (Some(error.code()), Some(fix.as_str()))
+            }
+            Err(error) => panic!("{error:?}"),
+        };
+        let default_value = unset.effective(catalog_key(key)).unwrap();
+        assert_eq!(
+            (code, &default_value.value, default_value.layer),
+            (refused, &json!(default), SettingsLayer::Default),
+            "{key}"
+        );
+        assert!(fix.is_none_or(|fix| fix.contains("connect()")), "{fix:?}");
+    }
+}
+
 /// `timeout.connect` is 30 s by default, which `config explain` shows set
 /// by the default layer (ADR 0083).
 ///

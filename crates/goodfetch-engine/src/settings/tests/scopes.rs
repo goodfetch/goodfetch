@@ -47,6 +47,42 @@ fn a_runs_own_timeout_run_is_refused_and_named_on_the_connection() {
     assert!(fix.contains("connect()"), "{fix}");
 }
 
+/// A Client's own bound set in a Run's, a Session's or a page's own
+/// `settings` is refused, its fix naming `connect()`, where alone it takes
+/// effect; the Connection's own `settings` take it.
+///
+/// Covers: story:11-70, setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue, error:setting_not_applicable
+#[rstest]
+#[case::run(SettingScope::Run)]
+#[case::session(SettingScope::Session)]
+#[case::page(SettingScope::Page)]
+fn a_clients_own_bound_is_refused_beneath_the_connection(#[case] scope: SettingScope) {
+    let bounds = [
+        (
+            "connection.max_pending_calls",
+            json!({ "connection": { "max_pending_calls": 5 } }),
+        ),
+        (
+            "connection.max_queued_write_bytes",
+            json!({ "connection": { "max_queued_write_bytes": 5 } }),
+        ),
+        (
+            "connection.max_listener_queue",
+            json!({ "connection": { "max_listener_queue": 5 } }),
+        ),
+    ];
+
+    for (name, value) in bounds {
+        let at_connection = refused(value.clone(), SettingScope::Connection);
+        let (code, key, fix) = refused(value, scope).unwrap();
+        assert_eq!(
+            (code, key.as_str(), at_connection),
+            ("setting_not_applicable", name, None)
+        );
+        assert!(fix.contains("connect()"), "{fix}");
+    }
+}
+
 /// A key no program's code sets passes the scope check, for the resolver
 /// to refuse naming the layer and the file that set it.
 ///

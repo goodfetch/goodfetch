@@ -41,8 +41,15 @@ import type { Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
-import { MAX_LISTENER_QUEUE } from "./listeners.ts";
-import { boundsOf, wholeBound, type ChannelBounds, type Transport } from "./rpc.ts";
+import { isRecord } from "./framing.ts";
+import { LISTENER_QUEUE } from "./listeners.ts";
+import {
+  PENDING_CALLS,
+  QUEUED_WRITE_BYTES,
+  wholeBound,
+  type ChannelBounds,
+  type Transport,
+} from "./rpc.ts";
 import type { SettingsOnWire } from "./settings.ts";
 
 /**
@@ -56,30 +63,6 @@ export interface ConnectOverOptions<S = Settings> {
    * Attached engine it started has stopped and its streams are closed.
    */
   readonly signal?: AbortSignal | undefined;
-  /**
-   * How many calls may wait for their answer at once, 10,000 when left
-   * out: past it a new call fails at once with `connection_overloaded`. A
-   * whole number of 1 or more, as is the next bound, or the opening fails
-   * with `setting_invalid`.
-   */
-  readonly maxPendingCalls?: ChannelBounds["maxPendingCalls"];
-  /**
-   * How many bytes may wait to be written to the engine, 64 MiB when left
-   * out: past it a new call fails at once with `connection_overloaded`. One
-   * message larger than this is still taken while nothing waits.
-   */
-  readonly maxQueuedWriteBytes?: ChannelBounds["maxQueuedWriteBytes"];
-  /**
-   * How many events each listener of a value whose events the engine
-   * publishes, such as `session.on`'s, holds in its own queue, the one it
-   * has included, 1,024 when left out (ADR 0081). Its queue gives each
-   * event back to the Connection's Subscription as it takes it, so a slow
-   * listener slows no other; past this bound the listener loses the
-   * events it would take, and once it got those it held it is removed and
-   * the logger gets `listener_events_lost` naming how many it lost. A whole
-   * number of 1 or more, or the opening fails with `setting_invalid`.
-   */
-  readonly maxListenerQueue?: number | undefined;
   /**
    * The Limits of this Client connection (ADR 0080), set once `hello` is
    * answered and before the opening returns: each only lowers what covers
@@ -471,16 +454,31 @@ interface Opening {
  * is 0, negative, fractional or not finite.
  */
 function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>): Opening {
-  const { signal, maxPendingCalls, maxQueuedWriteBytes, maxListenerQueue, logger } = options;
+  const { signal, logger } = options;
+  const settings = product.settingsOnWire(options.settings);
+  const own = clientBounds(settings);
   return {
-    bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
-    listenerQueue: wholeBound("maxListenerQueue", maxListenerQueue, MAX_LISTENER_QUEUE),
+    bounds: {
+      maxPendingCalls: wholeBound(PENDING_CALLS, own["max_pending_calls"]),
+      maxQueuedWriteBytes: wholeBound(QUEUED_WRITE_BYTES, own["max_queued_write_bytes"]),
+    },
+    listenerQueue: wholeBound(LISTENER_QUEUE, own["max_listener_queue"]),
     signal,
     limits: limitList(options.limits),
-    settings: product.settingsOnWire(options.settings),
+    settings,
     timeout: timeoutOf(options.timeout, "timeout.connect"),
     logger,
   };
+}
+
+/**
+ * The `connection` area of the settings `hello` sends, where the Client's
+ * own bounds are set (issue 2518): the engine checks and explains them as
+ * any other setting, and the Client applies them to its own transport.
+ */
+function clientBounds(settings: SettingsOnWire | undefined): Readonly<Record<string, unknown>> {
+  const area = settings?.["connection"];
+  return isRecord(area) ? area : {};
 }
 
 /** The process's own environment, its unset entries left out. */

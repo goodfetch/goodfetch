@@ -59,3 +59,28 @@ export async function connected(): Promise<void> {
     settings: { proxy: { providers: {} } },
   });
 }
+
+// The Client's own bounds are the connection's settings (issue 2518), never
+// options of `connect()`, and never a Run's settings.
+export const connectionBounds: Settings = {
+  connection: { maxPendingCalls: 100, maxQueuedWriteBytes: 1_048_576, maxListenerQueue: 64 },
+};
+// @ts-expect-error a Client's bound is set in `connect()`'s settings alone
+export const runBound: RunSettings = { connection: { maxPendingCalls: 100 } };
+export async function bounded(): Promise<void> {
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Collie.connect({
+    // @ts-expect-error `maxPendingCalls` is `connection.maxPendingCalls` in `settings`
+    maxPendingCalls: 100,
+  });
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Collie.connect({
+    // @ts-expect-error `maxQueuedWriteBytes` is `connection.maxQueuedWriteBytes` in `settings`
+    maxQueuedWriteBytes: 1_048_576,
+  });
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Collie.connect({
+    // @ts-expect-error `maxListenerQueue` is `connection.maxListenerQueue` in `settings`
+    maxListenerQueue: 64,
+  });
+}

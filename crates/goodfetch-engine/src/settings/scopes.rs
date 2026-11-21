@@ -5,6 +5,10 @@
 //! what a Run leaves out it inherits, its `null` clears and its value sets.
 
 use goodfetch_protocol::catalog::{Product, SettingScope};
+use goodfetch_protocol::connection::{
+    CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    Surface, applies_client_bounds,
+};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::{Map, Value};
@@ -45,6 +49,43 @@ pub fn check_scope(
         });
     }
     Ok(())
+}
+
+/// The bounds a Client applies to its own transport, which `connect()`'s
+/// own `settings` alone set (issue 2518).
+const CLIENT_BOUNDS: [&str; 3] = [
+    CONNECTION_MAX_PENDING_CALLS.name,
+    CONNECTION_MAX_QUEUED_WRITE_BYTES.name,
+    CONNECTION_MAX_LISTENER_QUEUE.name,
+];
+
+/// Refuses `own`, a `hello`'s settings from `surface` as `engine` reads
+/// them, when one sets a bound the Client of `surface` does not apply to
+/// its transport, where the value could not take effect (issue 2518).
+///
+/// # Errors
+///
+/// `setting_not_applicable` for the first such key; as [`Values::read`]
+/// for values it cannot read.
+pub fn check_client_bounds(
+    own: &Map<String, Value>,
+    surface: Surface,
+    engine: Product,
+) -> Result<(), SettingsError> {
+    if applies_client_bounds(surface) {
+        return Ok(());
+    }
+    let own = Values::read(SettingsLayer::Run, own, engine)?;
+    match own.keys().find(|key| CLIENT_BOUNDS.contains(key)) {
+        Some(key) => Err(SettingsError::NotApplicable {
+            key: key.to_owned(),
+            layer: SettingsLayer::Run,
+            fix: format!(
+                "remove `{key}`: only the TypeScript Client bounds its own transport, and this Client has no such bound yet"
+            ),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// The fix naming `scopes`, the ones whose own `settings` take a key.

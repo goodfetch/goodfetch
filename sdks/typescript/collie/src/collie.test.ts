@@ -318,14 +318,16 @@ describe("a call on a Connection whose writes the engine's side then rejects", (
   );
 });
 
-describe("a Connection opened with bounds of its own", () => {
+describe("a Connection whose settings set bounds of its own", () => {
   test(
     "refuses the call past its bound on calls waiting",
-    { tags: ["error:connection_overloaded"] },
+    { tags: ["error:connection_overloaded", "setting:connection.max_pending_calls"] },
     async () => {
-      const played = playScript("connect/accepted-by-foxhound.json");
+      const played = playScript("connect/bound-pending-calls-set.json");
       const transport = afterHello(played, () => {});
-      const collie = await connectOver(transport, { maxPendingCalls: 1 });
+      const collie = await connectOver(transport, {
+        settings: { connection: { maxPendingCalls: 1 } },
+      });
       void collie.start();
 
       const error = await failure(collie.start());
@@ -339,11 +341,13 @@ describe("a Connection opened with bounds of its own", () => {
 
   test(
     "refuses the call past its bound on bytes waiting to be written",
-    { tags: ["error:connection_overloaded"] },
+    { tags: ["error:connection_overloaded", "setting:connection.max_queued_write_bytes"] },
     async () => {
-      const played = playScript("connect/accepted-by-foxhound.json");
+      const played = playScript("connect/bound-queued-write-bytes-set.json");
       const transport = afterHello(played, () => new Promise<void>(() => {}));
-      const collie = await connectOver(transport, { maxQueuedWriteBytes: 1 });
+      const collie = await connectOver(transport, {
+        settings: { connection: { maxQueuedWriteBytes: 1 } },
+      });
       void collie.start();
 
       const error = await failure(collie.start());
@@ -356,17 +360,18 @@ describe("a Connection opened with bounds of its own", () => {
   );
 
   test.for([
-    { bound: "maxPendingCalls", bounds: { maxPendingCalls: 0 } },
-    { bound: "maxListenerQueue", bounds: { maxListenerQueue: 1.5 } },
+    { key: "connection.max_pending_calls", connection: { maxPendingCalls: 0 } },
+    { key: "connection.max_queued_write_bytes", connection: { maxQueuedWriteBytes: -1 } },
+    { key: "connection.max_listener_queue", connection: { maxListenerQueue: 1.5 } },
   ])(
-    "fails to open on a $bound that is no count, before it takes the transport",
+    "fails to open on a $key that is no whole number of 1 or more, before it takes the transport",
     { tags: ["error:setting_invalid"] },
-    async ({ bounds }) => {
+    async ({ key, connection }) => {
       const played = playScript("connect/accepted-by-foxhound.json");
 
-      const error = await failure(connectOver(played.transport, bounds));
+      const error = await failure(connectOver(played.transport, { settings: { connection } }));
 
-      expect(error).toMatchObject({ code: "setting_invalid" });
+      expect(error).toMatchObject({ code: "setting_invalid", details: { key, layer: "run" } });
       expect(played.transport.writable.locked).toBe(false);
     },
   );

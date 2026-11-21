@@ -7,7 +7,7 @@
 // the Run above it. A Session's events come on the Connection's own
 // Subscription, which its listeners share, rather than on their calls; each
 // listener's own queue takes them, so a stalled one delays no other and,
-// past `maxListenerQueue`, ends with `listener_events_lost`.
+// past `connection.maxListenerQueue`, ends with `listener_events_lost`.
 import {
   ClosedError,
   type ConsoleMessage,
@@ -362,7 +362,10 @@ describe("a Session's listeners", () => {
           errors.push({ message, fields });
         },
       };
-      const collie = await connectOver(played.transport, { logger, maxListenerQueue: 2 });
+      const collie = await connectOver(played.transport, {
+        logger,
+        settings: { connection: { maxListenerQueue: 2 } },
+      });
       const run = await collie.start();
       const stalledSession = await run.newSession();
       const otherSession = await run.newSession();

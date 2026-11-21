@@ -84,6 +84,28 @@ class ConnectionCleanUpSettings(TypedDict):
     """
 
 
+class ConnectionConnectionSettings(TypedDict):
+    """The `connection` settings of `Settings`."""
+
+    max_listener_queue: NotRequired[int]
+    """The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. An event past it removes the listener, which ends with `listener_events_lost` naming how many it lost. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.
+
+    `connection.max_listener_queue`.
+    """
+
+    max_pending_calls: NotRequired[int]
+    """The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+
+    `connection.max_pending_calls`.
+    """
+
+    max_queued_write_bytes: NotRequired[int]
+    """The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. A call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+
+    `connection.max_queued_write_bytes`.
+    """
+
+
 class ConnectionConsentSettings(TypedDict):
     """The `consent` settings of `Settings`."""
 
@@ -978,6 +1000,8 @@ class Settings(TypedDict):
     checkpoint: NotRequired[ConnectionCheckpointSettings]
 
     clean_up: NotRequired[ConnectionCleanUpSettings]
+
+    connection: NotRequired[ConnectionConnectionSettings]
 
     consent: NotRequired[ConnectionConsentSettings]
 

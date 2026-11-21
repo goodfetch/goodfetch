@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::rss::crawl::Site;
 
-use super::matrix::{Cell, Scenario};
+use super::matrix::{AtDefaults, Cell, Scenario};
 
 /// The Run every trial crawls in.
 pub(crate) const RUN: &str = "crawl";
@@ -296,10 +296,13 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// and a scope of every host; in the auto cell (#2411), `fetch.tier` at
 /// `auto`, its default, with `fetch.http_from: learned`, its Records kept,
 /// and its own Politeness at the crawl's concurrency, no delay and
-/// robots.txt not obeyed, every other setting the catalog's default;
-/// otherwise its own Politeness at the crawl's concurrency, no delay,
-/// robots.txt not obeyed and the maximum-throughput combination's switches
-/// off, at `durability`, on the `browser` tier in the headless browser
+/// robots.txt not obeyed, every other setting the catalog's default; in
+/// the cell at the catalog's defaults (#2175), nothing else but the
+/// scenario's pace, no delay and the crawl's concurrency per domain, and on
+/// its second row `fetch.http_from: learned`; otherwise the default shared
+/// Politeness at the crawl's concurrency, no delay, robots.txt not obeyed
+/// and the maximum-throughput combination's switches off, at `durability`,
+/// on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise; on the extraction scenario's row
 /// that says so (#2136), the ads, trackers and annoyances Filter lists off.
 pub(crate) fn settings(
@@ -319,6 +322,17 @@ pub(crate) fn settings(
         "egress": { "private_ranges": hosts },
     });
     let concurrency = site.concurrency;
+    let pace = json!({ "domain": { "delay": 0, "concurrency": concurrency } });
+    // The catalog's defaults (#2175): the crawl's site and the scenario's
+    // pace alone, and on the second row the other way of
+    // `fetch.http_from`.
+    if let Some(row) = cell.at_defaults() {
+        settings["politeness"] = pace;
+        if row == AtDefaults::Learned {
+            settings["fetch"] = json!({ "http_from": "learned" });
+        }
+        return settings;
+    }
     let added = match scenario {
         Scenario::Hostile => return settings,
         // ADR 0086's 1 s and 1 in flight per domain, which the catalog
@@ -361,12 +375,9 @@ pub(crate) fn settings(
             "frontier": { "learning": false },
             "provenance": { "log": false },
             "dataset": { "records": keeps_records(scenario) },
-            // Its own Politeness, so no other run on the machine shares its
-            // domain's count, at the crawl's concurrency.
-            "politeness": {
-                "sharing": "run",
-                "domain": { "delay": 0, "concurrency": concurrency },
-            },
+            // The default shared Politeness, with Delegations, at the
+            // crawl's concurrency (#2175).
+            "politeness": pace,
             "crawl": { "handler": { "concurrency": concurrency } },
             "site_preferences": { "respect_robots_txt": false },
         }),

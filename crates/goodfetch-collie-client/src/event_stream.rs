@@ -394,11 +394,15 @@ impl Flow {
     }
 
     /// Counts an event of the call's own batches as read, and grants
-    /// [`REGRANT`] more credits once that many were.
+    /// [`REGRANT`] more credits once that many were. An ended call takes
+    /// none: the values it opened still hand the events they hold.
     fn settle(&mut self) {
         let Source::Own(batches) = &mut self.source else {
             return;
         };
+        if self.ended {
+            return;
+        }
         batches.read += 1;
         if batches.read == REGRANT {
             batches.read = 0;

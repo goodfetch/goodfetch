@@ -156,7 +156,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 - **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings. The Products differ only by the crates their executables link, never by a feature (ADR 0087).
 - **Features exist only on the published crates through which each Product's SDK embeds its engine** (such as `goodfetch-collie` and `goodfetch-foxhound`, ADR 0090), only for heavy optional dependencies and `test-util`, and they are additive. Each Product's executable builds one fixed set in its own `cargo build -p`, and `cargo-hack` checks every combination of each embeddable crate's features.
-- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
+- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, except a lock in a `static`, which stays std's because loom's cannot be built in one, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
 
 ### Tests
 

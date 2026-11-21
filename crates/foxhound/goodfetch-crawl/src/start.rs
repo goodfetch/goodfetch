@@ -81,7 +81,8 @@ use crate::work_items::{self, CheckedSeed};
 /// run file, the driver a resumed crawl starts again with, and the Audit
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
-/// Foxhound's composition also hands Collie's pages.
+/// Foxhound's composition also hands Collie's pages, and which finds the
+/// Run of a raw call naming a page they serve (ADR 0099).
 pub fn contribution(tiers: FetchTiers) -> Contribution {
     let crawls = Crawls::default();
     let starting = tiers.clone();
@@ -134,6 +135,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
+        .with_run_of_call(Arc::new(tiers.clone()))
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, context, settings| {

@@ -79,10 +79,18 @@ fn pages() -> Contribution {
 /// reply and the lines of the Run's raw call log, without when each call
 /// arrived, which the test asserts is there.
 fn traced(calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
+    let (mut replies, lines) = ended_by(calls, &("run.finish", json!({ "run_id": RUN })));
+    replies.pop();
+    (replies, lines)
+}
+
+/// [`traced`], [`RUN`] ended by `ending`, whose reply is the last.
+fn ended_by(calls: &[(&str, Value)], ending: &(&str, Value)) -> (Vec<Value>, Vec<Value>) {
     let env = TestEnv::new();
     let engine = engine_with(Product::Collie, Some(pages()));
     let calls: Vec<(String, Value)> = calls
         .iter()
+        .chain([ending])
         .map(|(method, params)| ((*method).to_owned(), params.clone()))
         .collect();
     let replies = attached_on(&engine, &env, |mut client: Client| async move {
@@ -93,7 +101,6 @@ fn traced(calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
         for (id, (method, params)) in (2..).zip(calls) {
             replies.push(call(&mut client, id, &method, params).await);
         }
-        call(&mut client, 1_000, "run.finish", json!({ "run_id": RUN })).await;
         replies
     });
     #[expect(
@@ -155,6 +162,37 @@ fn a_raw_call_is_a_line_of_its_runs_trace_marked_raw_with_how_it_ended() {
             }),
             json!({ "operation": "test.on_page", "raw": true, "ended": "answered" }),
         ]
+    );
+}
+
+/// A raw call that ends its own Run, or waits for its end, is a line of
+/// that Run's trace, written before the Run's end closes it.
+/// Covers: story:11-181
+#[test]
+fn a_raw_call_that_ends_its_own_run_is_a_line_of_its_runs_trace() {
+    let by_run = json!({ "run_id": RUN });
+
+    let ended: Vec<(Value, Vec<Value>)> = ["run.finish", "run.stop", "run.abort"]
+        .into_iter()
+        .map(|ending| {
+            let (replies, lines) = ended_by(&[], &(ending, raw(&by_run)));
+            (replies[0]["result"]["lifecycle"].clone(), lines)
+        })
+        .collect();
+
+    assert_eq!(
+        ended,
+        ["run.finish", "run.stop", "run.abort"].map(|operation| {
+            let lifecycle = if operation == "run.finish" {
+                "finished"
+            } else {
+                "stopped"
+            };
+            (
+                json!(lifecycle),
+                vec![json!({ "operation": operation, "raw": true, "ended": "answered" })],
+            )
+        })
     );
 }
 

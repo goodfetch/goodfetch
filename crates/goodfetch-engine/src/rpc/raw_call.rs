@@ -15,8 +15,9 @@ use tokio_util::sync::CancellationToken;
 use super::cancelled_by_client;
 use crate::call_error::CallError;
 use crate::composition::{ConnectionContext, GuardAnswer, RunOfCall};
+use crate::run_trace::RawCallLine;
 use crate::runs;
-use crate::trace;
+use crate::trace::{self, RawMark};
 
 /// What a raw call names its Run by, taken from its params before its
 /// handler runs.
@@ -51,13 +52,19 @@ pub(super) struct RawCall {
 impl RawCall {
     /// `answer`, its handler's, run under the raw mark and written to its
     /// Run's trace once it ends. The Run is found before the handler runs,
-    /// so a call that closes its page is still written; a call that names
-    /// no live Run, or ends its own, is not.
+    /// so a call that closes its page is still written; a call that ends
+    /// its own Run, or waits for its end, is written by that end, before
+    /// the trace closes; a call that names no live Run is not written.
     pub(super) fn recorded(self, answer: GuardAnswer) -> GuardAnswer {
         Box::pin(async move {
-            let log = match self.run().await {
+            let line = match self.run().await {
                 Some(run) => match runs::run_trace(&run).calls().await {
-                    Ok(log) => Some(log),
+                    Ok(log) => Some(Arc::new(RawCallLine::new(
+                        run.id().clone(),
+                        log,
+                        self.operation,
+                        self.arrived_at,
+                    ))),
                     Err(error) => {
                         tracing::warn!(
                             %error,
@@ -69,7 +76,7 @@ impl RawCall {
                 },
                 None => None,
             };
-            let handler = trace::raw_call(answer);
+            let handler = trace::raw_call(RawMark::new(line.clone()), answer);
             let answered = match &self.cancelled {
                 Some(token) => tokio::select! {
                     biased;
@@ -78,9 +85,8 @@ impl RawCall {
                 },
                 None => handler.await,
             };
-            if let Some(log) = log {
-                let ended = answered.as_ref().map(drop).map_err(CallError::code);
-                log.raw_call(self.operation, self.arrived_at, ended);
+            if let Some(line) = line {
+                line.write(answered.as_ref().map(drop).map_err(CallError::code));
             }
             answered
         })

@@ -146,13 +146,13 @@ use crate::run_state::{
     self, BatchSync, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
     RunStateTables, SecretColumn, Syncing,
 };
-use crate::run_trace;
+use crate::run_trace::{self, RawCallLine};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
 use crate::tasks::{OwnerKind, TaskOwner};
-use crate::trace::Link;
+use crate::trace::{self, Link, RawMark};
 use crate::transition;
 
 /// How often a report read of a Run another engine writes, whose owner did
@@ -1138,7 +1138,9 @@ enum Cause {
 
 /// What the registry is asked. The channel's blocks hold 32 commands
 /// each, of the largest one's size, so the two that carry a Run's whole
-/// start or report box it: each is sent once per Run.
+/// start or report box it: each is sent once per Run. A command that ends
+/// a Run, or waits for its end, carries the raw mark of the raw call that
+/// sent it (ADR 0099), none for a generated call's.
 enum Command {
     Start(
         Box<(Start, RunSecrets, Link)>,
@@ -1148,6 +1150,7 @@ enum Command {
     Finish(
         RunId,
         Letting,
+        Option<RawMark>,
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     ProgressMessage(
@@ -1159,6 +1162,7 @@ enum Command {
         RunId,
         StoppedBy,
         Forwarded,
+        Option<RawMark>,
         oneshot::Sender<Result<Waiting, RunError>>,
     ),
     End(RunId, End),
@@ -1182,6 +1186,7 @@ enum Command {
         RunId,
         StopReason,
         Option<PathBuf>,
+        Option<RawMark>,
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
@@ -1196,7 +1201,12 @@ enum Command {
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     GenerateId(oneshot::Sender<RunId>),
-    SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
+    SafeStop(
+        RunId,
+        StoppedBy,
+        Option<RawMark>,
+        oneshot::Sender<Result<Waiting, RunError>>,
+    ),
     Reader(RunId, oneshot::Sender<Result<RunReader, RunError>>),
     Progress(RunId, oneshot::Sender<Result<Followed, RunError>>),
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
@@ -3194,7 +3204,7 @@ impl Runs {
     async fn finish_or_wait(&self, run_id: RunId, letting: Letting) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Finish(run_id, letting, answer))
+            .send(Command::Finish(run_id, letting, trace::raw_mark(), answer))
             .await
             .map_err(|_| RunError::Stopped)?;
         let report = answered.await.map_err(|_| RunError::Stopped)??;
@@ -3262,7 +3272,13 @@ impl Runs {
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Abort(run_id, by, forwarded, answer))
+            .send(Command::Abort(
+                run_id,
+                by,
+                forwarded,
+                trace::raw_mark(),
+                answer,
+            ))
             .await
             .map_err(|_| RunError::Stopped)?;
         match answered.await.map_err(|_| RunError::Stopped)?? {
@@ -3321,7 +3337,13 @@ impl Runs {
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Stop(run_id, reason, location, answer))
+            .send(Command::Stop(
+                run_id,
+                reason,
+                location,
+                trace::raw_mark(),
+                answer,
+            ))
             .await
             .map_err(|_| RunError::Stopped)?;
         wait_for(answered.await.map_err(|_| RunError::Stopped)??).await
@@ -3347,7 +3369,7 @@ impl Runs {
         by: StoppedBy,
     ) -> impl Future<Output = Result<RunReport, RunError>> + Send + use<> {
         let (answer, answered) = oneshot::channel();
-        self.send_now(Command::SafeStop(run_id, by, answer));
+        self.send_now(Command::SafeStop(run_id, by, trace::raw_mark(), answer));
         async move {
             match answered.await.map_err(|_| RunError::Stopped)?? {
                 Waiting::Report(report) => wait_for(report).await,
@@ -4251,6 +4273,10 @@ struct Live {
     sampled_after: u64,
     /// Its progress, which its readers follow (ADR 0102).
     progress: Progress,
+    /// The lines of the raw calls that asked for its end or wait for it,
+    /// each written, if its call has not written it, once its end is
+    /// decided, before that end closes its Run trace (ADR 0099).
+    raw_endings: Vec<Arc<RawCallLine>>,
 }
 
 /// What a discard, which runs beside the registry, needs of it.
@@ -4492,6 +4518,7 @@ impl Registry {
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             if let Some(command) = self.unless_discarding(command) {
+                self.ending_line(&command);
                 self.answer(command).await;
             }
         }
@@ -4522,14 +4549,14 @@ impl Registry {
                 let started = self.start(start, secrets, connection, &link).await;
                 let _ = answer.send(started);
             }
-            Command::Finish(run_id, letting, answer) => {
+            Command::Finish(run_id, letting, _, answer) => {
                 let _ = answer.send(self.finish(&run_id, letting).await);
             }
             Command::ProgressMessage(run_id, message, answer) => {
                 let _ = answer.send(self.progress_message(&run_id, message).await);
             }
-            Command::Abort(run_id, by, forwarded, answer) => {
-                let _ = answer.send(self.abort(&run_id, by, forwarded).await);
+            Command::Abort(run_id, by, forwarded, raw, answer) => {
+                let _ = answer.send(self.abort(&run_id, by, forwarded, raw).await);
             }
             Command::End(run_id, end) => {
                 let _ = self.end_or_report(&run_id, end).await;
@@ -4567,7 +4594,7 @@ impl Registry {
                     live.checkpoint = Some(*checkpoint);
                 }
             }
-            Command::Stop(run_id, reason, location, answer) => {
+            Command::Stop(run_id, reason, location, _, answer) => {
                 let _ = answer.send(self.stop(&run_id, reason, location).await);
             }
             Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
@@ -4585,8 +4612,8 @@ impl Registry {
             Command::Machine(answer) => {
                 let _ = answer.send(self.machine().await);
             }
-            Command::SafeStop(run_id, by, answer) => {
-                let _ = answer.send(self.safe_stop(&run_id, by).await);
+            Command::SafeStop(run_id, by, raw, answer) => {
+                let _ = answer.send(self.safe_stop(&run_id, by, raw).await);
             }
             Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
             Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
@@ -5137,10 +5164,10 @@ impl Registry {
                 }));
             }
             Command::Resume(_, _, answer) => _ = answer.send(Err(refused())),
-            Command::Finish(_, _, answer) | Command::Stop(_, _, _, answer) => {
+            Command::Finish(_, _, _, answer) | Command::Stop(_, _, _, _, answer) => {
                 _ = answer.send(Err(refused()));
             }
-            Command::Abort(_, _, _, answer) | Command::SafeStop(_, _, answer) => {
+            Command::Abort(_, _, _, _, answer) | Command::SafeStop(_, _, _, answer) => {
                 _ = answer.send(Err(refused()));
             }
             Command::Checkpoint(_, _, answer) => _ = answer.send(Err(refused())),
@@ -5554,8 +5581,7 @@ impl Registry {
             }),
             clean_up_digest: start.clean_up_digest.clone(),
         };
-        let tags = start.tags.clone();
-        let initialize = start.initialize;
+        let (tags, initialize) = (start.tags.clone(), start.initialize);
         state
             .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
@@ -5596,6 +5622,7 @@ impl Registry {
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
             sampled_after: self.setup.governor.storage_samples_begun(),
+            raw_endings: Vec::new(),
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -5981,6 +6008,10 @@ impl Registry {
             .run
             .take()
             .expect("invariant: a running Run keeps its writer until its end is decided");
+        // Queued before the end's record, so its trace writes them.
+        for line in live.raw_endings.drain(..) {
+            line.write(Ok(()));
+        }
         let checkpoint_to = stopping.map(|_| CheckpointTo {
             destination: location.unwrap_or_else(|| live.folder.join(CHECKPOINT_FILE)),
             vfs,
@@ -6063,10 +6094,39 @@ impl Registry {
         Ok(watch::Sender::new(report).subscribe())
     }
 
+    /// Keeps the line of the raw call whose mark `command` carries, when
+    /// the command ends the live Run it names or waits for its end, the
+    /// line is one of that Run's trace and the Run's end is not decided
+    /// yet, for that end to write (ADR 0099). The lines its calls already
+    /// wrote go first, so the Run keeps only those still waiting.
+    fn ending_line(&mut self, command: &Command) {
+        let (Command::Finish(run_id, _, raw, _)
+        | Command::Abort(run_id, _, _, raw, _)
+        | Command::Stop(run_id, _, _, raw, _)
+        | Command::SafeStop(run_id, _, raw, _)) = command
+        else {
+            return;
+        };
+        let Some(line) = raw.as_ref().and_then(|raw| raw.line_of(run_id)) else {
+            return;
+        };
+        if let Some(live) = self.live.get_mut(run_id)
+            && live.run.is_some()
+        {
+            live.raw_endings.retain(|kept| !kept.is_written());
+            live.raw_endings.push(Arc::clone(line));
+        }
+    }
+
     /// Asks a live Run of this engine's to stop at its next safe point as an
     /// abort by `by`, answers the report of an ended one, and stops one no
     /// engine of its own runs as an abort does.
-    async fn safe_stop(&mut self, run_id: &RunId, by: StoppedBy) -> Result<Waiting, RunError> {
+    async fn safe_stop(
+        &mut self,
+        run_id: &RunId,
+        by: StoppedBy,
+        raw: Option<RawMark>,
+    ) -> Result<Waiting, RunError> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
                 run.stop_at_safe_point(StopReason::Abort { by });
@@ -6076,18 +6136,21 @@ impl Registry {
         if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
             return self.ended_report(run_id).await.map(Waiting::Report);
         }
-        self.abort(run_id, by, Forwarded::No).await
+        self.abort(run_id, by, Forwarded::No, raw).await
     }
 
     /// Stops a live Run of this engine's, answers the report of one it
     /// ended, or, unless the abort came forwarded, takes the writer role of
     /// one no engine of its own runs, in a task of its own, since a held
-    /// lock is retried for about a second.
+    /// lock is retried for about a second. That task runs under the `raw`
+    /// mark of the raw call that asked, so an abort it forwards to the
+    /// Run's owner is marked raw there too (ADR 0099).
     async fn abort(
         &mut self,
         run_id: &RunId,
         by: StoppedBy,
         forwarded: Forwarded,
+        raw: Option<RawMark>,
     ) -> Result<Waiting, RunError> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
@@ -6117,7 +6180,11 @@ impl Registry {
         };
         let (answer, answered) = oneshot::channel();
         self.ending_owner.spawn(async move {
-            let _ = answer.send(take_over.abort().await);
+            let aborted = match raw {
+                Some(mark) => trace::raw_call(mark, take_over.abort()).await,
+                None => take_over.abort().await,
+            };
+            let _ = answer.send(aborted);
         });
         Ok(Waiting::TakeOver(answered))
     }
@@ -6331,6 +6398,7 @@ impl Registry {
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
             sampled_after: self.setup.governor.storage_samples_begun(),
+            raw_endings: Vec::new(),
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;

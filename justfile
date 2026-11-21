@@ -433,11 +433,14 @@ mutants base="":
 # ADR 0072's full mutation run of the SDKs' hand-written runtimes, weekly once
 # the nightly tier is on (TESTING.md, Feature coverage): StrykerJS over the
 # TypeScript SDK (sdks/typescript/stryker.config.mjs) and mutmut over each
-# Python SDK package (its pyproject.toml's `[tool.mutmut]`), never over what
-# `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
-# target/mutants-sdks/typescript/, mutmut's results to each package's
+# Python SDK package that has a `[tool.mutmut]` in its pyproject.toml, never
+# over what `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
+# target/mutants-sdks/typescript/, mutmut's log to
+# target/mutants-sdks/python/<package>.log and its results to the package's
 # `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
 # it. mutmut forks each mutant's tests, so its half needs Linux or macOS.
+# Neither run mutates what a test's child process imports, nor skips the
+# quarantined tests as `just test` does (#3199).
 # Mutation-tests the SDKs' runtimes: `just mutants-sdks [typescript | python | all]`.
 mutants-sdks sdk="all":
     #!/usr/bin/env bash
@@ -451,28 +454,31 @@ mutants-sdks sdk="all":
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     if [[ "{{ sdk }}" != python ]]; then
-      # Each Vitest worker's setup file, `stryker-setup-<n>.js` in the
-      # working directory, outlives a run that ends (StrykerJS 10.1.1).
+      # Each StrykerJS test runner writes `stryker-setup-<n>.js` into the
+      # working directory and deletes it when it stops, unless StrykerJS
+      # kills it first (StrykerJS 10.1.1).
       status=0
       pnpm exec stryker run sdks/typescript/stryker.config.mjs || status=$?
       rm -f stryker-setup-*.js
       [[ $status -eq 0 ]] || exit "$status"
     fi
     if [[ "{{ sdk }}" != typescript ]]; then
-      for package in collie-client collie foxhound; do
-        (
-          cd "sdks/python/$package"
+      logs="$PWD/target/mutants-sdks/python"
+      mkdir -p "$logs"
+      for manifest in sdks/python/*/pyproject.toml; do
+        grep -q '^\[tool\.mutmut\]$' "$manifest" || continue
+        package=$(dirname "$manifest")
+        log="$logs/$(basename "$package").log"
+        status=0
+        (cd "$package" && uv run --frozen mutmut run) 2>&1 | tee "$log" || status=$?
+        # mutmut also stops with 1 when the tests pass but none reaches a
+        # mutant, as when the runtime has no function to mutate (Foxhound's
+        # today): that package is reported, not failed.
+        if [[ $status -ne 0 ]] && grep -q "could not find any test case for any mutant" "$log"; then
+          echo "$package: no test reaches a mutant"
           status=0
-          uv run --frozen mutmut run || status=$?
-          # mutmut also stops with 1 when no test reaches a mutant, as when
-          # the runtime has no function to mutate (Foxhound's today): a
-          # package with no mutant at all is skipped, not failed.
-          if [[ $status -ne 0 && -z "$(uv run --frozen mutmut results --all true)" ]]; then
-            echo "sdks/python/$package: no mutant, its runtime has no function yet"
-            status=0
-          fi
-          exit "$status"
-        )
+        fi
+        [[ $status -eq 0 ]] || exit "$status"
       done
     fi
 

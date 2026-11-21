@@ -589,9 +589,10 @@ modes = ["attached"]
 # at its level. TypeScript leads; Python (issue 2903) and Rust (issue 2904)
 # join by adding their surfaces. Rust also plays both cases' scripts as a
 # Daemon's client (`goodfetch-collie-client`'s `logging` tests): Rust's
-# `daemon` mode, which these cases' other surfaces do not list yet. In
-# `linked` mode the engine's own events reach the program's subscriber
-# directly, under their own targets, and none is re-emitted.
+# `daemon` mode, which the cases list for `sdk-rust` alone while their other
+# surfaces run `attached` only. In `linked` mode the engine's own events
+# reach the program's subscriber directly, under their own targets, and none
+# is re-emitted.
 [[capability]]
 name = "logging"
 
@@ -599,13 +600,13 @@ name = "logging"
 id = "log-level-follows-the-logger"
 covers = ["story:11-26"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = ["attached", "linked"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
 
 [[capability.case]]
 id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = ["attached", "linked"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
 
 # The program's Trace context (ADR 0132; issue 1558): a call made inside the
 # program's active span sends that span's `traceparent`, and its

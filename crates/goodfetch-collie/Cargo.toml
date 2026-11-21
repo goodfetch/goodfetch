@@ -100,6 +100,9 @@ goodfetch-collie = { path = ".", features = ["executable", "opentelemetry"] }
 # The embedded Clean-up rules' digest and manifest, which a Run holds to by
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
+# The Rust runner's case-log writer, which the SDK tests that run a client
+# conformance case append their entries through (ADR 0069).
+goodfetch-conformance.workspace = true
 goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true

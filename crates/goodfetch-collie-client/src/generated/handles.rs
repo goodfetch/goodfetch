@@ -889,7 +889,7 @@ impl Page {
 
     /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
     ///
-    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning.
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, already sent, hands its events in order; dropping the stream cancels the call without blocking and without a warning. An event that opens a value hands that value, whose own `events` hand the events of its own the same call carries, in order, its close last; dropping that stream passes over them, and the call goes on.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -899,13 +899,12 @@ impl Page {
     pub fn events<E: crate::events::PageEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
         crate::markers::warn("page.on", true, None);
         <E as crate::events::sealed::PageEvent>::warn();
-        self.host.listen(
-            "page.on",
+        <E as crate::events::sealed::PageEvent>::listen(
+            self,
             ::goodfetch_protocol::page::events::PageOnParams {
                 page_id: self.host.id().clone(),
                 event: <E as crate::events::sealed::PageEvent>::EVENT,
             },
-            <E as crate::events::sealed::PageEvent>::NAME,
         )
     }
 
@@ -923,6 +922,43 @@ impl Page {
             }),
         }
     }
+}
+
+/// A `web_socket` an event opened (ADR 0081): what that event told of it,
+/// and its own events, which the same call carries.
+#[derive(Debug)]
+pub struct WebSocket {
+    /// Its URL.
+    pub url: String,
+    /// The browser's ID for the socket, which its events name.
+    pub web_socket_id: String,
+    pub(crate) events: crate::EventStream<WebSocketEvent>,
+}
+
+impl WebSocket {
+    /// Its own events, in order, each once, its close last, after which
+    /// the stream ends; the stream also ends with the call that opened it.
+    /// Dropping the stream passes over the events it has not read, and
+    /// the call's other streams go on.
+    pub fn events(self) -> crate::EventStream<WebSocketEvent> {
+        self.events
+    }
+}
+
+/// An event of a [`WebSocket`]'s own.
+#[derive(Clone, Debug, ::serde::Deserialize)]
+#[serde(tag = "event", content = "data")]
+#[non_exhaustive]
+pub enum WebSocketEvent {
+    /// A page's WebSocket closed.
+    #[serde(rename = "web_socket.close")]
+    Close(::goodfetch_protocol::page::events::WebSocketClosed),
+    /// A page's WebSocket received a message frame: its text, or a binary frame's bytes in Base64.
+    #[serde(rename = "web_socket.frame_received")]
+    FrameReceived(::goodfetch_protocol::page::events::WebSocketFrame),
+    /// A page's WebSocket sent a message frame: its text, or a binary frame's bytes in Base64.
+    #[serde(rename = "web_socket.frame_sent")]
+    FrameSent(::goodfetch_protocol::page::events::WebSocketFrame),
 }
 
 /// A `locator` a program holds: the members the catalog gives it (ADR 0099).

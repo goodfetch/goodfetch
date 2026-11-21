@@ -27,3 +27,4 @@ mod scripted_daemon;
 mod session_events;
 mod settings;
 mod start;
+mod web_socket;

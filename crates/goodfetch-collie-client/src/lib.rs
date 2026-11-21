@@ -53,7 +53,7 @@ pub use error::{BoxError, Error};
 pub use event_stream::EventStream;
 pub use field_values::FieldValues;
 pub use generated::events;
-pub use generated::handles::{Locator, Page, Run, Session};
+pub use generated::handles::{Locator, Page, Run, Session, WebSocket, WebSocketEvent};
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
 pub use limits::{Limits, Money, MoneyError, UsageKind};

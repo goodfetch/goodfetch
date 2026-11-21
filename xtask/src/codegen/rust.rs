@@ -878,6 +878,9 @@ impl Module {
             self.builder(built);
         }
         self.body.push_str("}\n");
+        if let Some(listener) = &model.listener {
+            self.body.push_str(&listener.values(self.twin));
+        }
     }
 
     fn member(&mut self, member: &MemberModel) {

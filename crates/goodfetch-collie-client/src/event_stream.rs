@@ -18,6 +18,12 @@
 //! holds at most the Connection's [`crate::ListenerQueue`] unread events,
 //! so a stream left unread slows no other: past it, the stream loses its
 //! own events, hands those it held, then ends with `listener_events_lost`.
+//!
+//! A stream of events that open values with events of their own, such as
+//! a page's `WebSocket` values, hands each value with its own stream of that
+//! value's events, which the same call carries ([`opened`]).
+
+mod opened;
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -32,9 +38,15 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::Error;
 use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Received, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
+pub(crate) use opened::Opens;
+use opened::{Opened, Opening};
 
 /// What a stream builds each event's payload into.
 type Build<T> = Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>;
+
+/// What a stream of opened values builds each opening payload, with the
+/// stream of that value's own events, into.
+type BuildOpened<T> = Box<dyn Fn(Value, EventStream<Value>) -> Result<T, Error> + Send + Sync>;
 
 /// The events one call streams, read in order. One reader each: a second
 /// reader calls the method again and gets its own call. It has its own
@@ -51,8 +63,17 @@ type Build<T> = Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>;
 /// held, hands `listener_events_lost` naming how many it lost, then ends.
 #[must_use = "a stream's call is sent when it is made; dropping it cancels the call"]
 pub struct EventStream<T> {
-    flow: Flow,
-    build: Build<T>,
+    reads: Reads<T>,
+}
+
+/// What a stream reads, and what it builds of each item.
+enum Reads<T> {
+    /// The events of its own call or of the Subscription.
+    Flow(Flow, Build<T>),
+    /// The values its call's events open.
+    Opening(Opening, BuildOpened<T>),
+    /// One opened value's own events, which another stream's call carries.
+    Opened(Opened, Build<T>),
 }
 
 /// What a stream reads, whatever it builds of it.
@@ -99,12 +120,16 @@ enum Source {
 
 impl<T> fmt::Debug for EventStream<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("EventStream")
-            .field("event", &self.flow.event)
-            .field("id", &self.flow.id)
-            .field("ended", &self.flow.ended)
-            .finish_non_exhaustive()
+        let mut debug = formatter.debug_struct("EventStream");
+        match &self.reads {
+            Reads::Flow(flow, _) => debug
+                .field("event", &flow.event)
+                .field("id", &flow.id)
+                .field("ended", &flow.ended),
+            Reads::Opening(opening, _) => debug.field("opening", opening),
+            Reads::Opened(opened, _) => debug.field("opened", opened),
+        }
+        .finish_non_exhaustive()
     }
 }
 
@@ -123,9 +148,38 @@ impl<T> EventStream<T> {
         // The call's id, then at most a batch for each credit granted.
         let (notified, heard) = mpsc::channel(CREDITS as usize + 1);
         let source = Source::Own(Batches::default());
+        let flow = Flow::open(sender, method, params, event, notified, heard, source);
         Self {
-            flow: Flow::open(sender, method, params, event, notified, heard, source),
-            build,
+            reads: Reads::Flow(flow, build),
+        }
+    }
+
+    /// Sends the call of `method` with `params`, whose events open values
+    /// as `opens` says, and returns its stream, which builds each opening
+    /// payload, with the stream of that value's own events, each
+    /// `{event, data}`, with `build`; `params` that are an error send
+    /// nothing, and the stream hands that error once.
+    pub(crate) fn opening(
+        sender: Sender,
+        method: &str,
+        params: Result<Value, Error>,
+        opens: Opens,
+        build: BuildOpened<T>,
+    ) -> Self {
+        // The call's id, then at most a batch for each credit granted.
+        let (notified, heard) = mpsc::channel(CREDITS as usize + 1);
+        let source = Source::Own(Batches::default());
+        let flow = Flow::open(
+            sender,
+            method,
+            params,
+            opens.opener,
+            notified,
+            heard,
+            source,
+        );
+        Self {
+            reads: Reads::Opening(Opening::new(flow, opens), build),
         }
     }
 
@@ -153,17 +207,17 @@ impl<T> EventStream<T> {
         } else {
             Source::Own(Batches::default())
         };
+        let flow = Flow::open(
+            published.sender(),
+            method,
+            params,
+            event,
+            notified,
+            heard,
+            source,
+        );
         Self {
-            flow: Flow::open(
-                published.sender(),
-                method,
-                params,
-                event,
-                notified,
-                heard,
-                source,
-            ),
-            build,
+            reads: Reads::Flow(flow, build),
         }
     }
 
@@ -172,11 +226,31 @@ impl<T> EventStream<T> {
     where
         T: 'static,
     {
-        let Self { flow, build } = self;
-        EventStream {
-            flow,
-            build: Box::new(move |data| build(data).map(&map)),
-        }
+        self.and_then(move |item| Ok(map(item)))
+    }
+
+    /// The stream that hands `then` of each of this one's items, an error
+    /// as its item.
+    pub(crate) fn and_then<U>(
+        self,
+        then: impl Fn(T) -> Result<U, Error> + Send + Sync + 'static,
+    ) -> EventStream<U>
+    where
+        T: 'static,
+    {
+        let reads = match self.reads {
+            Reads::Flow(flow, build) => {
+                Reads::Flow(flow, Box::new(move |data| build(data).and_then(&then)))
+            }
+            Reads::Opening(opening, build) => Reads::Opening(
+                opening,
+                Box::new(move |data, opened| build(data, opened).and_then(&then)),
+            ),
+            Reads::Opened(opened, build) => {
+                Reads::Opened(opened, Box::new(move |data| build(data).and_then(&then)))
+            }
+        };
+        EventStream { reads }
     }
 
     /// The next event, or `None` once the stream has ended. Goodfetch's
@@ -199,9 +273,24 @@ impl<T> EventStream<T> {
 
     /// The next item, or `Pending` until one comes.
     fn poll_item(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<T, Error>>> {
-        self.flow
-            .poll_payload(context)
-            .map(|item| item.map(|payload| payload.and_then(&self.build)))
+        match &mut self.reads {
+            Reads::Flow(flow, build) => flow
+                .poll_payload(context)
+                .map(|item| item.map(|payload| payload.and_then(&*build))),
+            Reads::Opening(opening, build) => opening.poll_opened(context).map(|item| {
+                item.map(|read| {
+                    read.and_then(|(data, opened)| {
+                        let events = EventStream {
+                            reads: Reads::Opened(opened, Box::new(Ok)),
+                        };
+                        build(data, events)
+                    })
+                })
+            }),
+            Reads::Opened(opened, build) => {
+                opened.poll_event(context).map(|item| item.map(&*build))
+            }
+        }
     }
 }
 
@@ -245,16 +334,8 @@ impl Flow {
 
     /// The next payload, or `Pending` until one comes.
     fn poll_payload(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
-        if self.ended {
-            return Poll::Ready(None);
-        }
-        if let Err(forked) = self.sender.ensure_opener() {
-            self.ended = true;
-            return Poll::Ready(Some(Err(forked)));
-        }
-        if let Some(error) = self.refused.take() {
-            self.ended = true;
-            return Poll::Ready(Some(Err(error)));
+        if let Err(stop) = self.stopped() {
+            return Poll::Ready(stop.map(Err));
         }
         if matches!(self.source, Source::Published { .. }) {
             self.poll_published(context)
@@ -263,21 +344,78 @@ impl Flow {
         }
     }
 
+    /// Whether the stream reads on from its call, or hands nothing more:
+    /// its error once, or nothing once it ended.
+    fn stopped(&mut self) -> Result<(), Option<Error>> {
+        if self.ended {
+            return Err(None);
+        }
+        if let Err(forked) = self.sender.ensure_opener() {
+            self.ended = true;
+            return Err(Some(forked));
+        }
+        match self.refused.take() {
+            Some(error) => {
+                self.ended = true;
+                Err(Some(error))
+            }
+            None => Ok(()),
+        }
+    }
+
     /// The next payload of the call's own batches.
     fn poll_own(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
+        loop {
+            let envelope = match self.poll_heard(context) {
+                Poll::Ready(Some(Ok(envelope))) => envelope,
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            };
+            self.settle();
+            if envelope.event == self.event {
+                return Poll::Ready(Some(Ok(envelope.data)));
+            }
+        }
+    }
+
+    /// The next event of the call's own batches, whatever it is, which the
+    /// reader settles once it is handed or passed over.
+    fn poll_envelope(
+        &mut self,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<EventEnvelope, Error>>> {
+        if let Err(stop) = self.stopped() {
+            return Poll::Ready(stop.map(Err));
+        }
+        self.poll_heard(context)
+    }
+
+    /// Counts an event of the call's own batches as read, and grants
+    /// [`REGRANT`] more credits once that many were.
+    fn settle(&mut self) {
+        let Source::Own(batches) = &mut self.source else {
+            return;
+        };
+        batches.read += 1;
+        if batches.read == REGRANT {
+            batches.read = 0;
+            credit(&self.sender, self.id, REGRANT);
+        }
+    }
+
+    /// The next event the call's own batches hold or bring, unsettled, or
+    /// the call's end.
+    fn poll_heard(
+        &mut self,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<EventEnvelope, Error>>> {
         let Source::Own(batches) = &mut self.source else {
             return Poll::Ready(None);
         };
         loop {
-            while let Some(envelope) = batches.waiting.pop_front() {
-                batches.read += 1;
-                if batches.read == REGRANT {
-                    batches.read = 0;
-                    credit(&self.sender, self.id, REGRANT);
-                }
-                if envelope.event == self.event {
-                    return Poll::Ready(Some(Ok(envelope.data)));
-                }
+            if let Some(envelope) = batches.waiting.pop_front() {
+                return Poll::Ready(Some(Ok(envelope)));
             }
             match self.heard.poll_recv(context) {
                 // Its first credits go once it was sent, which the
@@ -299,7 +437,9 @@ impl Flow {
                 Poll::Ready(Some(Heard::Notified { .. })) => {}
                 // Its reply came, or the Connection ended: nothing more is
                 // heard.
-                Poll::Ready(None) => return self.poll_end(context),
+                Poll::Ready(None) => {
+                    return self.poll_end(context).map(|failure| failure.map(Err));
+                }
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -372,7 +512,7 @@ impl Flow {
 
     /// Ends the stream with its call's reply: `None` once it answered, its
     /// error once when it failed.
-    fn poll_end(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
+    fn poll_end(&mut self, context: &mut Context<'_>) -> Poll<Option<Error>> {
         let Some(reply) = self.reply.as_mut() else {
             self.ended = true;
             return Poll::Ready(None);
@@ -385,8 +525,8 @@ impl Flow {
         self.ended = true;
         match replied {
             Ok(Ok(_)) => Poll::Ready(None),
-            Ok(Err(error)) => Poll::Ready(Some(Err(error))),
-            Err(_) => Poll::Ready(Some(Err(Error::closed()))),
+            Ok(Err(error)) => Poll::Ready(Some(error)),
+            Err(_) => Poll::Ready(Some(Error::closed())),
         }
     }
 

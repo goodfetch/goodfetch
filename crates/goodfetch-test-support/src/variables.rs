@@ -42,6 +42,10 @@ pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
 /// into, beside the test's own folder, which `just test` sets.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
 
+/// The folder of the case logs, where a Rust test that runs a Client
+/// conformance case appends its entry (ADR 0069), which `just test` sets.
+pub const CASE_LOGS_VARIABLE: &str = "GOODFETCH_TEST_CASE_LOGS";
+
 /// The folder of every test's exercise record, which `just test` sets
 /// (ADR 0072).
 pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
@@ -112,6 +116,7 @@ impl Variables {
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
+            CASE_LOGS_VARIABLE,
             ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,

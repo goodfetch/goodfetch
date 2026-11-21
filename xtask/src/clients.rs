@@ -391,10 +391,10 @@ fn check_case(
             }
             (Surface::SdkRust, _, _) => {
                 notes.push(Finding::new(
-                        "unread-surface",
-                        format!("{} {surface}", case.id),
-                        "this surface's tests are not read yet; its runner's listing joins with its case-log writer (M2)",
-                    ));
+                    "unread-surface",
+                    format!("{} {surface}", case.id),
+                    "this surface's tests are not read yet (issue 3158)",
+                ));
                 continue;
             }
         };

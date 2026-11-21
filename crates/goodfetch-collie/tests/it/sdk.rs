@@ -9,12 +9,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use goodfetch_collie::{Collie, ConnectOptions, ErrorCode, RunId, StartedAs, blocking};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
 use goodfetch_protocol::settings::SettingInvalidDetails;
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{CASE_LOGS_VARIABLE, TestEnv, Variables, real_time_runtime};
 use serde_json::json;
 
 mod closing;
@@ -41,6 +43,16 @@ mod trace_context;
 /// Goodfetch home.
 fn options(env: &TestEnv) -> ConnectOptions {
     ConnectOptions::default().environment(env.env_os())
+}
+
+/// Starts running the client conformance `case` in `linked` mode: its entry
+/// joins the case log `just test` names (ADR 0069), which `xtask clients
+/// check` reads.
+fn linked_case(case: &str) -> ClientCaseRun {
+    let folder = Variables::from_process()
+        .get(CASE_LOGS_VARIABLE)
+        .map(PathBuf::from);
+    ClientCaseRun::start(folder.as_deref(), case, RustMode::Linked).unwrap()
 }
 
 /// Covers: story:11-3, story:11-11, story:11-59

@@ -9,7 +9,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::catalog::sections::Sections;
-use crate::catalog::{Entries, PROTOCOL_VERSION, Setting, SettingScope};
+use crate::catalog::{Entries, PROTOCOL_VERSION, SchemaOf, Setting, SettingScope};
 use crate::journey::Journey;
 use crate::result_document::{CaseLogEntry, ResultDocument};
 use crate::{foxhound, sample};
@@ -23,6 +23,12 @@ fn scopes_of(_setting: &Setting) -> &'static [SettingScope] {
     &[SettingScope::Connection, SettingScope::Run]
 }
 
+/// The details type the SDKs read each of this crate's Error codes as: none,
+/// so they read every code's details as a map.
+fn details_of(_code: &str) -> Option<SchemaOf> {
+    None
+}
+
 /// The two committed files, as JSON values.
 pub struct Emitted {
     /// The JSON Schema bundle.
@@ -34,7 +40,7 @@ pub struct Emitted {
 /// Emits the bundle and catalog of every entry this crate defines.
 pub fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::new(scopes_of);
+    let mut sections = Sections::new(scopes_of, details_of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }

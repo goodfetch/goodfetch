@@ -75,7 +75,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("index.ts", index(layer, &handles)),
         ("operations.ts", operations(layer)),
         ("events.ts", events(layer)),
-        ("errors.ts", errors::errors(layer)),
+        ("errors.ts", errors::errors(layer)?),
         ("plugins.ts", plugins(layer)),
     ];
     files.push(("connection.ts", connection(layer)));

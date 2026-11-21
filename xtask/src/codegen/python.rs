@@ -672,8 +672,13 @@ fn foxhound_error_imports(layer: &Layer) -> String {
 /// name it as a point in time (ADRs 0092 and 0118).
 const RETRY_AFTER_DOC: &str = "When the site's `Retry-After` asks to be tried again: a point in time in UTC, not a duration; `None` when it asks for none. The details keep it as sent.";
 
+/// The docstring of `typed_details` on the class of a code whose details
+/// the SDK reads typed (ADR 0079).
+const TYPED_DETAILS_DOC: &str = "The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do.";
+
 /// The class `class` of one Error code, which reads its `retry_after`
-/// when its details name one as a point in time.
+/// when its details name one as a point in time, and its `typed_details`
+/// when the catalog names their type.
 fn error_class(code: &ErrorCode, class: &str) -> String {
     let (base, description) = if outside_exception(code) {
         (
@@ -685,14 +690,26 @@ fn error_class(code: &ErrorCode, class: &str) -> String {
     };
     let mut text = format!("\n\nclass {class}({base}):\n");
     text.push_str(&docstring("    ", &description, Stability::Stable, None));
-    let (field, set) = if code.retry_after_is_point_in_time() {
-        (
-            format!("\n    retry_after: datetime | None\n    \"\"\"{RETRY_AFTER_DOC}\"\"\"\n"),
-            "        self.retry_after = retry_after_of(self.details)\n",
-        )
-    } else {
-        (String::new(), "")
-    };
+    let mut field = String::new();
+    let mut set = String::new();
+    if code.retry_after_is_point_in_time() {
+        let _ = write!(
+            field,
+            "\n    retry_after: datetime | None\n    \"\"\"{RETRY_AFTER_DOC}\"\"\"\n"
+        );
+        set.push_str("        self.retry_after = retry_after_of(self.details)\n");
+    }
+    if let Some(details) = &code.details {
+        let name = &details.0;
+        let _ = write!(
+            field,
+            "\n    typed_details: {name} | None\n    \"\"\"{TYPED_DETAILS_DOC}\"\"\"\n"
+        );
+        let _ = writeln!(
+            set,
+            "        self.typed_details = details_of({name}, self.details)"
+        );
+    }
     let _ = write!(
         text,
         "{field}\n    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, **fields)\n{set}",
@@ -714,12 +731,25 @@ fn errors(layer: &Layer) -> String {
         text.push_str("from datetime import datetime\n");
     }
     text.push_str("from typing import Final");
+    let detail_types: BTreeSet<String> = layer
+        .error_codes
+        .iter()
+        .filter_map(|code| code.details.as_ref().map(|name| name.0.clone()))
+        .collect();
+    let (details_helper, details_models) = if detail_types.is_empty() {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("from {CALLER_MODULE} import details_of\n"),
+            model_imports(layer, &detail_types),
+        )
+    };
     match layer.product {
         Product::Collie => {
             let helper = if retry_after { ", retry_after_of" } else { "" };
             let _ = write!(
                 text,
-                ", Literal, Unpack\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError{helper}\n\nErrorGroup = Literal["
+                ", Literal, Unpack\n\n{details_helper}from {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError{helper}\n{details_models}\nErrorGroup = Literal["
             );
             text.push_str(
                 &layer
@@ -746,7 +776,11 @@ fn errors(layer: &Layer) -> String {
                 ));
             }
         }
-        Product::Foxhound => text.push_str(&foxhound_error_imports(layer)),
+        Product::Foxhound => {
+            text.push_str(&foxhound_error_imports(layer));
+            text.push_str(&details_helper);
+            text.push_str(&details_models);
+        }
     }
     let mut registry = Vec::new();
     for code in &layer.error_codes {

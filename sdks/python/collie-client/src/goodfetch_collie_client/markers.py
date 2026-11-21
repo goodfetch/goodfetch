@@ -24,6 +24,14 @@ from typing import TYPE_CHECKING, Final, cast
 if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
+__all__ = [
+    "ExperimentalWarning",
+    "warn_deprecated",
+    "warn_deprecated_settings",
+    "warn_entry",
+    "warn_experimental",
+]
+
 # The frames between `warnings.warn` and the member's caller: `_warn_once`,
 # `warn_deprecated`, `warn_experimental`, `warn_entry` or
 # `warn_deprecated_settings`, then the member.

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 
+from goodfetch_collie_client._deployment_variables import check_deployment_variables
 from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
     CLOSE_TIMEOUT,
@@ -29,7 +30,6 @@ from goodfetch_collie_client.connection import (
     connect_limit,
     phase_exceeded,
 )
-from goodfetch_collie_client.deployment_variables import check_deployment_variables
 from goodfetch_collie_client.engine_choice import (
     AttachedReach,
     handed_over_to,
@@ -59,6 +59,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
+
+__all__ = ["ProductPackage", "open_engine", "open_over"]
 
 
 @dataclass(frozen=True)

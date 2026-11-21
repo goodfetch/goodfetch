@@ -14,6 +14,8 @@ from typing import Annotated, TypeAlias
 from pydantic import AfterValidator, AwareDatetime, PlainSerializer, TypeAdapter
 from pydantic import ValidationError as _ValidationError
 
+__all__ = ["PointInTime"]
+
 
 def _in_utc(point: datetime) -> datetime:
     """The same instant, in UTC."""

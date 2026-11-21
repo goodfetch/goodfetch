@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.open_values import Verdict
     from goodfetch_collie_client.json_values import JSONValue
 
+__all__ = ["AIWorkResult", "Claim", "Ended", "Finished", "Reported", "Stopped"]
+
 _Output = TypeVar("_Output", covariant=True)
 
 _KnownClaim: TypeAlias = Literal["done", "gave_up"]

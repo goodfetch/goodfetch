@@ -63,6 +63,8 @@ TOKEN_VARIABLE = "GOODFETCH_TOKEN"
 HOME_VARIABLE = "GOODFETCH_HOME"
 """The variable naming the Goodfetch home."""
 
+__all__ = ["EngineChoice", "RemoteDaemon"]
+
 
 @dataclass(frozen=True)
 class RemoteDaemon:

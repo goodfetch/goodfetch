@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
 
+__all__ = ["AsyncConnection", "Connection"]
+
 
 class AsyncConnection(ABC):
     """A Client's open link to one engine, through which a program reaches its Runs.

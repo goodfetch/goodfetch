@@ -22,8 +22,7 @@ from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, cast
 
 import anyio
 
-from goodfetch_collie_client.caller import result_of
-from goodfetch_collie_client.framing import (
+from goodfetch_collie_client._framing import (
     Failure,
     Invalid,
     LineReader,
@@ -33,6 +32,7 @@ from goodfetch_collie_client.framing import (
     encode_message,
     object_members,
 )
+from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
     ERROR_GROUP_OF_PROTOCOL_FAILURE,

@@ -18,6 +18,8 @@ from typing import cast
 
 from goodfetch_collie_client.handle import whole_milliseconds
 
+__all__ = ["settings_on_wire"]
+
 
 def settings_on_wire(settings: Mapping[str, object]) -> dict[str, object]:
     """`settings` as the wire takes them: by segment, durations in milliseconds."""

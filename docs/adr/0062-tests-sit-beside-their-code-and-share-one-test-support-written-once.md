@@ -109,6 +109,13 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **The fresh review checks the pull request against the checklist in `TESTING.md`.**
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the checklist is a review standard the `code-review` skill applies.
 
+> Note (recorded on 2026-11-21, [#2530](https://github.com/goodfetch/goodfetch/issues/2530)): history moved out of `TESTING.md`'s rules, which keep each rule and its reason and link here; nothing here changes a rule.
+>
+> - **No test's outcome depends on the calendar:** on 2026-11-05 the embedded rules turned 14 days old and six Collie tests that snapshot a Run report failed on every branch with no change to the code.
+> - **`TestEnv::in_memory()`:** the Audit log's property tests passed the Quick kill on a busy disk (fix-queue 123), and a busy disk slowed the Daemon soak's Runs' stores past its time cap (fix-queue 128).
+> - **The test tools' input record:** its check took about 4 ms a test process on 2026-11-12, over 1,188 sources.
+> - **The Daemon soak runs alone:** its 40 crawls took 165 to 210 s alone on the M1 server and 354 to 578 s beside the rest of a Pre-merge run, which timed it out in every M1 deep-fix group's run ([#1740](https://github.com/goodfetch/goodfetch/issues/1740)). After [#1765](https://github.com/goodfetch/goodfetch/issues/1765), where a Run's pages share the cosmetic selectors it parsed and its crawl settles the attempts that ended together in one pass, it took 100 to 142 s alone at load 15 to 28 and 138 to 148 s in a Pre-merge run; under a load of 30 to 65 it took 231 to 265 s ([#2050](https://github.com/goodfetch/goodfetch/issues/2050)). After #2050 built the dependencies its pages run optimized in `dev` (ADR 0061's note of 2026-11-04), it took 76 to 97 s alone at a mean load of 15 to 25, where `main` took 108 to 117 s at 16.
+
 ## Considered Options
 
 - **Levels by speed:** rejected. Speed is the suites ticket's axis, and a slow unit test is still a unit test.

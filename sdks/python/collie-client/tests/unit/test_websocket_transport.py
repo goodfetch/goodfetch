@@ -12,8 +12,8 @@ import logging
 import anyio
 import pytest
 from anyio.abc import ByteStream
+from goodfetch_collie_client._websocket_transport import open_websocket
 from goodfetch_collie_client.generated.connection import WEBSOCKET_SUBPROTOCOL
-from goodfetch_collie_client.websocket_transport import open_websocket
 from websockets.http11 import Request
 from websockets.server import ServerProtocol
 from websockets.typing import Subprotocol

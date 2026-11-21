@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 
 import anyio
 
+from goodfetch_collie_client._websocket_transport import open_websocket
 from goodfetch_collie_client.attached_engine import is_executable_file
 from goodfetch_collie_client.connection import connect_limit, phase_exceeded
 from goodfetch_collie_client.generated.connection import (
@@ -39,7 +40,6 @@ from goodfetch_collie_client.generated.errors import (
     EngineNotFoundError,
     SettingInvalidError,
 )
-from goodfetch_collie_client.websocket_transport import open_websocket
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

@@ -4,7 +4,7 @@
 //! one per WebSocket message each way, so a Connection's newline-delimited
 //! lines cross it unchanged. tungstenite does the handshake and the
 //! framing, as it does in the engine. TypeScript's `websocket-transport.ts`
-//! and Python's `websocket_transport.py` are its twins.
+//! and Python's `_websocket_transport.py` are its twins.
 
 use std::io;
 use std::pin::Pin;

@@ -23,6 +23,7 @@ dev = [
   "goodfetch-test-support",
   "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
+  "mutmut>=3.8.1",
   "mypy>=2.4.0",
   "pip-audit>=2.10.1",
   "pyright>=1.1.414",

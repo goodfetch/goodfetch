@@ -69,7 +69,7 @@ export class Run extends Handle {
    */
   async finish(options: { readonly timeout?: types.RunFinishParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.finish");
-    return this.#host.call("run.finish", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.run") }), { signal: options.signal });
+    return this.#host.call("run.finish", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.run") }), { signal: options.signal, deadline: { key: "timeout.run", value: options.timeout } });
   }
 
   /**
@@ -151,7 +151,7 @@ export class Run extends Handle {
    */
   async stop(options: { readonly timeout?: types.RunStopParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.stop");
-    return this.#host.call("run.stop", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.close") }), { signal: options.signal });
+    return this.#host.call("run.stop", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.close") }), { signal: options.signal, deadline: { key: "timeout.close", value: options.timeout } });
   }
 
   /**
@@ -475,7 +475,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
     warnExperimental("page.goto");
-    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal })).response ?? null;
+    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).response ?? null;
   }
 
   /**
@@ -515,7 +515,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForFunction(function_: types.WaitForFunctionParams["function"], options: { readonly arg?: types.WaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.WaitForFunctionParams["pollingInterval"] | undefined; readonly timeout?: types.WaitForFunctionParams["timeout"] | undefined; readonly world?: types.WaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
     warnExperimental("page.wait_for_function");
-    return (await this.#host.call("page.wait_for_function", defined({ pageId: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
+    return (await this.#host.call("page.wait_for_function", defined({ pageId: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } })).value ?? null;
   }
 
   /**
@@ -525,7 +525,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForLoadState(options: { readonly state?: types.WaitForLoadStateParams["state"] | undefined; readonly timeout?: types.WaitForLoadStateParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
     warnExperimental("page.wait_for_load_state");
-    return this.#host.call("page.wait_for_load_state", defined({ pageId: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+    return this.#host.call("page.wait_for_load_state", defined({ pageId: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -535,7 +535,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForRequest(options: { readonly timeout?: types.WaitForExchangeParams["timeout"] | undefined; readonly url?: types.WaitForExchangeParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageRequest> {
     warnExperimental("page.wait_for_request");
-    return this.#host.call("page.wait_for_request", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_request", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -545,7 +545,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForRequestFinished(options: { readonly timeout?: types.WaitForRequestFinishedParams["timeout"] | undefined; readonly url?: types.WaitForRequestFinishedParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageExchange> {
     warnExperimental("page.wait_for_request_finished");
-    return this.#host.call("page.wait_for_request_finished", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_request_finished", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -555,7 +555,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForResponse(options: { readonly timeout?: types.WaitForExchangeParams["timeout"] | undefined; readonly url?: types.WaitForExchangeParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageExchange> {
     warnExperimental("page.wait_for_response");
-    return this.#host.call("page.wait_for_response", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_response", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -565,7 +565,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForURL(url: types.WaitForUrlParams["url"], options: { readonly timeout?: types.WaitForUrlParams["timeout"] | undefined; readonly waitUntil?: types.WaitForUrlParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
     warnExperimental("page.wait_for_url");
-    return this.#host.call("page.wait_for_url", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.wait"), waitUntil: options.waitUntil }), { signal: options.signal });
+    return this.#host.call("page.wait_for_url", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.wait"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -664,7 +664,7 @@ export class Locator extends Handle {
    */
   async waitFor(options: { readonly state?: types.LocatorWaitForParams["state"] | undefined; readonly timeout?: types.LocatorWaitForParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
     warnExperimental("locator.wait_for");
-    return this.#host.call("locator.wait_for", defined({ locator: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+    return this.#host.call("locator.wait_for", defined({ locator: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**
@@ -674,7 +674,7 @@ export class Locator extends Handle {
    */
   async waitForCount(count: types.WaitForCountParams["count"], options: { readonly timeout?: types.WaitForCountParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Counted["count"]> {
     warnExperimental("locator.wait_for_count");
-    return (await this.#host.call("locator.wait_for_count", defined({ locator: this.#host.id, count, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal })).count;
+    return (await this.#host.call("locator.wait_for_count", defined({ locator: this.#host.id, count, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } })).count;
   }
 
   /**
@@ -684,6 +684,6 @@ export class Locator extends Handle {
    */
   async waitForFunction(function_: types.LocatorWaitForFunctionParams["function"], options: { readonly arg?: types.LocatorWaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.LocatorWaitForFunctionParams["pollingInterval"] | undefined; readonly timeout?: types.LocatorWaitForFunctionParams["timeout"] | undefined; readonly world?: types.LocatorWaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
     warnExperimental("locator.wait_for_function");
-    return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
+    return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } })).value ?? null;
   }
 }

@@ -4,7 +4,13 @@
 import { setImmediate } from "node:timers/promises";
 import * as fc from "fast-check";
 import { describe, expect, test } from "vitest";
-import { type DeprecatedSettings, onWire, type Spelling } from "./settings.ts";
+import { CollieOperations } from "./generated/operations.ts";
+import {
+  type DeprecatedSettings,
+  onWire,
+  type Spelling,
+  warnDeprecatedOnWire,
+} from "./settings.ts";
 
 const SPELLING: Spelling = {
   timeout: ["timeout", { navigation: "navigation", run: "run" }],
@@ -141,6 +147,93 @@ describe("onWire", () => {
           "The setting `session.page_check` is deprecated. Since 0.1, removed no earlier than 1.0: Gone.",
         ],
       ]);
+    },
+  );
+});
+
+/** The deprecation warnings the process shows while `act` runs, as name and message. */
+async function deprecationsDuring(act: () => Promise<void>): Promise<string[][]> {
+  const warnings: Error[] = [];
+  const listen = (warning: Error): void => {
+    warnings.push(warning);
+  };
+  process.on("warning", listen);
+  try {
+    await act();
+    await setImmediate();
+  } finally {
+    process.off("warning", listen);
+  }
+  return warnings
+    .filter((warning) => "code" in warning && warning.code === "GOODFETCH_DEPRECATED")
+    .map((warning) => [warning.name, warning.message]);
+}
+
+describe("warnDeprecatedOnWire", () => {
+  test(
+    "warns of a deprecated key a raw layer sets, `null` and nested ones included, and of none it leaves out",
+    { tags: ["story:11-182"] },
+    async () => {
+      const deprecated: DeprecatedSettings = new Map([
+        ["filter_lists.ads", "Since 0.1, removed no earlier than 1.0: Cleared."],
+        ["paid_fetch.exchange_rates.base", "Since 0.1, removed no earlier than 1.0: Nested."],
+        ["paid_fetch.limit", "Since 0.1, removed no earlier than 1.0: Undefined."],
+        ["session.page_check", "Since 0.1, removed no earlier than 1.0: Absent."],
+      ]);
+
+      const shown = await deprecationsDuring(async () => {
+        warnDeprecatedOnWire(
+          {
+            filter_lists: { ads: null },
+            paid_fetch: { exchange_rates: { base: "EUR" }, limit: undefined },
+          },
+          deprecated,
+        );
+      });
+
+      expect(shown).toEqual([
+        [
+          "DeprecationWarning",
+          "The setting `filter_lists.ads` is deprecated. Since 0.1, removed no earlier than 1.0: Cleared.",
+        ],
+        [
+          "DeprecationWarning",
+          "The setting `paid_fetch.exchange_rates.base` is deprecated. Since 0.1, removed no earlier than 1.0: Nested.",
+        ],
+      ]);
+    },
+  );
+});
+
+describe("CollieOperations", () => {
+  test(
+    "an operation taking a raw run layer warns once per process of a deprecated key it sets",
+    { tags: ["story:11-182"] },
+    async () => {
+      const operations = new CollieOperations({
+        call: (operation) => Promise.reject(new Error(operation)),
+      });
+      const refused: string[] = [];
+
+      const shown = await deprecationsDuring(async () => {
+        for (const repeats of [3, 2]) {
+          await operations
+            .runResume({ runId: "run-1", settings: { sample: { echo_repeats: repeats } } })
+            .catch((refusal: unknown) => {
+              refused.push(String(refusal));
+            });
+        }
+      });
+
+      expect({ shown, refused }).toEqual({
+        shown: [
+          [
+            "DeprecationWarning",
+            "The setting `sample.echo_repeats` is deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces.",
+          ],
+        ],
+        refused: ["Error: run.resume", "Error: run.resume"],
+      });
     },
   );
 });

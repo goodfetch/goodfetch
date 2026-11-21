@@ -113,6 +113,61 @@ fn scan_reads_a_covers_line_between_rstest_cases_for_the_case_below_it_only() {
     );
 }
 
+/// A `Covers:` declaration wrapped onto the doc lines below it reads on while
+/// each line holds Feature IDs only; prose, a blank doc line or another
+/// attribute ends it.
+#[test]
+fn scan_reads_a_covers_declaration_wrapped_over_several_doc_lines() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod wrapped;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/wrapped.rs",
+        b"/// Covers: story:1-1,\n\
+          /// story:1-2, operation:sample.echo\n\
+          /// operation:sample.crawl\n\
+          #[test]\n\
+          fn keeps_everything() {}\n\
+          \n\
+          /// Covers: story:1-1\n\
+          /// It keeps story:1-2 apart.\n\
+          /// operation:sample.echo\n\
+          #[test]\n\
+          fn stops_at_prose() {}\n\
+          \n\
+          /// Covers: story:1-2\n\
+          ///\n\
+          /// operation:sample.crawl\n\
+          #[test]\n\
+          fn stops_at_a_blank_line() {}\n\
+          \n\
+          /// Covers: story:1-1\n\
+          #[inline]\n\
+          /// operation:sample.echo\n\
+          #[test]\n\
+          fn stops_at_another_attribute() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome
+            .stdout
+            .lines()
+            .filter(|line| line.contains("store::tests::wrapped::") && !line.starts_with("event:"))
+            .collect::<Vec<_>>(),
+        vec![
+            "operation:sample.crawl\tunit\tnextest\tsample store::tests::wrapped::keeps_everything",
+            "operation:sample.echo\tunit\tnextest\tsample store::tests::wrapped::keeps_everything",
+            "story:1-1\tunit\tnextest\tsample store::tests::wrapped::keeps_everything",
+            "story:1-1\tunit\tnextest\tsample store::tests::wrapped::stops_at_another_attribute",
+            "story:1-1\tunit\tnextest\tsample store::tests::wrapped::stops_at_prose",
+            "story:1-2\tunit\tnextest\tsample store::tests::wrapped::keeps_everything",
+            "story:1-2\tunit\tnextest\tsample store::tests::wrapped::stops_at_a_blank_line",
+        ]
+    );
+}
+
 /// A module whose file a `#[path]` attribute names is read from that file,
 /// relative to the declaring file's folder, and its own child modules from
 /// the named file's folder, as rustc reads them.

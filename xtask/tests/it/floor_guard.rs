@@ -201,6 +201,8 @@ fn a_lowered_line_is_flagged_and_a_trailer_accepts_it(
 #[case::string_in_rust("a.rs", "const A: &str = \"#[ignore]\";\n")]
 #[case::type_test_expect_error("tests/a.ts", "// @ts-expect-error -- `set` takes no null\n")]
 #[case::type_test_expect_error_colon("a.test.ts", "// @ts-expect-error: outside the catalog\n")]
+#[case::sdk_type_test("src/a.test-d.ts", "// @ts-expect-error -- `set` takes no null\n")]
+#[case::sdk_type_test_tsx("src/a.test-d.tsx", "// @ts-expect-error -- no child\n")]
 #[case::oxlint_next_line("a.ts", "// oxlint-disable-next-line no-console -- it prints\n")]
 #[case::oxlint_two_rules("a.ts", "// oxlint-disable-next-line a/b, c-d -- why\n")]
 #[case::oxlint_in_jsx("a.tsx", "{/* oxlint-disable-next-line a/b -- why */}\n")]

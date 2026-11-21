@@ -12,6 +12,13 @@ classifiers = ["Private :: Do Not Upload"]
 [tool.uv.sources]
 goodfetch-collie-client = { workspace = true }
 
+# mutmut's full run, as in `../collie-client/pyproject.toml`. The package has
+# no generated module; `tests/types` holds type checkers' files, not tests.
+[tool.mutmut]
+source_paths = ["src"]
+pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
+
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10"]
 build-backend = "uv_build"

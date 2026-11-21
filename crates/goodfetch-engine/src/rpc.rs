@@ -28,6 +28,8 @@ mod websocket;
 
 pub use self::stream::send_events;
 
+use std::num::NonZeroU64;
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, CancelledBy, Form, NOT_IN_PRODUCT,
@@ -45,6 +47,15 @@ pub(crate) use crate::wire::{Line, notification_line, success_line};
 
 pub(crate) use connection::{Access, Dispatch, serve};
 pub use handshake::version_refusal;
+
+/// How many calls the engine keeps in flight on one Connection, as
+/// `hello`'s result advertises it (issue 2529): one more is refused with
+/// `too_many_calls`.
+pub fn max_calls_in_flight() -> Option<NonZeroU64> {
+    u64::try_from(connection::MAX_IN_FLIGHT)
+        .ok()
+        .and_then(NonZeroU64::new)
+}
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.

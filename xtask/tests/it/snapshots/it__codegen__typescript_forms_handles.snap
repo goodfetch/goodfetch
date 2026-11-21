@@ -114,7 +114,7 @@ export class Page extends Handle implements AsyncDisposable {
    * Navigates the page to a URL.
    */
   async goto(url: types.GotoParams["url"], referrer: types.GotoParams["referrer"], options: { readonly fresh: types.GotoParams["fresh"]; readonly timeout?: types.GotoParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Navigated["status"]> {
-    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal })).status;
+    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).status;
   }
 
   /**
@@ -156,7 +156,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   waitForReady(options?: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll?: types.WaitForReadyParams["poll"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Acted>;
   async waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll?: types.WaitForReadyParams["poll"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
-    return this.#host.call("page.wait_for_ready", defined({ pageId: this.#host.id, expected: options.expected, poll: options.poll, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+    return this.#host.call("page.wait_for_ready", defined({ pageId: this.#host.id, expected: options.expected, poll: options.poll, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
   }
 
   /**

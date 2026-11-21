@@ -13,9 +13,8 @@ TypeScript's `product-and-provisioning-errors.test.ts` is its twin.
 
 from dataclasses import dataclass
 
-import anyio.to_thread
 import pytest
-from collie_calls import engine_warnings, failure, open_collie
+from collie_calls import engine_warnings, exit_code, failure, open_collie
 from goodfetch_collie import (
     ArtifactDownloadFailedError,
     ArtifactUnavailableOfflineError,
@@ -291,9 +290,8 @@ async def test_raises_the_same_classes_from_a_daemon_naming_its_channel(
         "sdk-python/run/product-and-provisioning-errors-from-the-image.json",
         "socket",
     )
-    env = {**test_env.env, "GOODFETCH_HOME": str(test_env.home)}
-    refused = await refused_calls(await open_collie(way, env, engine="daemon"))
-    code = await anyio.to_thread.run_sync(daemon.wait)
+    refused = await refused_calls(await open_collie(way, test_env.env, engine="daemon"))
+    code = await exit_code(daemon.wait)
 
     check_refused(client_case, refused, IMAGE_INSTALL)
     with client_case.check(

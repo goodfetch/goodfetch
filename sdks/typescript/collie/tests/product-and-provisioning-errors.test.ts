@@ -207,69 +207,62 @@ async function checkRefused(
   );
 }
 
-describe("A Collie Connection on the Scripted engine as a Collie engine", () => {
-  test(
-    "raises NotInProductError for Foxhound's operation and setting, and each missing build's class",
-    {
-      tags: [
-        "client_case/product-and-provisioning-errors",
-        "attached",
-        "story:11-10",
-        "story:11-13",
-        "story:11-189",
-        "story:11-294",
-        "error:not_in_product",
-        "error:browser_not_installed",
-        "error:artifact_unavailable_offline",
-        "error:artifact_download_failed",
-      ],
-    },
-    async ({ testEnv, clientCase }) => {
-      const env = scriptedEngineEnv(testEnv, "collie", "run/product-and-provisioning-errors.json");
-      const { logger, warned } = recordingLogger();
-      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-      const refused = await refusedCalls(await Collie.connect({ env, logger }));
+describe(
+  "A Collie Connection on the Scripted engine as a Collie engine",
+  {
+    tags: [
+      "story:11-10",
+      "story:11-13",
+      "story:11-189",
+      "story:11-294",
+      "error:not_in_product",
+      "error:browser_not_installed",
+      "error:artifact_unavailable_offline",
+      "error:artifact_download_failed",
+    ],
+  },
+  () => {
+    test(
+      "raises NotInProductError for Foxhound's operation and setting, and each missing build's class",
+      { tags: ["client_case/product-and-provisioning-errors", "attached"] },
+      async ({ testEnv, clientCase }) => {
+        const env = scriptedEngineEnv(
+          testEnv,
+          "collie",
+          "run/product-and-provisioning-errors.json",
+        );
+        const { logger, warned } = recordingLogger();
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        const refused = await refusedCalls(await Collie.connect({ env, logger }));
 
-      await checkRefused(clientCase, refused, NPM_INSTALL);
-      await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
-        expect(warned).toEqual([]),
-      );
-    },
-  );
+        await checkRefused(clientCase, refused, NPM_INSTALL);
+        await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
+          expect(warned).toEqual([]),
+        );
+      },
+    );
 
-  test(
-    "raises the same classes from a Daemon, naming Foxhound's install command on the Daemon's channel",
-    {
-      tags: [
-        "client_case/product-and-provisioning-errors",
-        "daemon",
-        "story:11-10",
-        "story:11-13",
-        "story:11-189",
-        "story:11-294",
-        "error:not_in_product",
-        "error:browser_not_installed",
-        "error:artifact_unavailable_offline",
-        "error:artifact_download_failed",
-      ],
-    },
-    async ({ testEnv, processes, clientCase }) => {
-      const daemon = await startScriptedDaemon(
-        testEnv,
-        processes,
-        "run/product-and-provisioning-errors-from-the-installer.json",
-        "socket",
-      );
-      const env = { ...testEnv.env, GOODFETCH_HOME: testEnv.home };
-      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-      const refused = await refusedCalls(await Collie.connect({ env, engine: "daemon" }));
-      const exit = await daemon.exit;
+    test(
+      "raises the same classes from a Daemon, naming Foxhound's install command on the Daemon's channel",
+      { tags: ["client_case/product-and-provisioning-errors", "daemon"] },
+      async ({ testEnv, processes, clientCase }) => {
+        const daemon = await startScriptedDaemon(
+          testEnv,
+          processes,
+          "run/product-and-provisioning-errors-from-the-installer.json",
+          "socket",
+        );
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        const collie = await Collie.connect({ env: testEnv.env, engine: "daemon" });
+        const refused = await refusedCalls(collie);
+        const exit = await daemon.exit;
 
-      await checkRefused(clientCase, refused, INSTALLER_INSTALL);
-      await clientCase.check(
-        "the Daemon played its script through, so the Client sent exactly what it holds",
-        () => expect(exit).toMatchObject({ code: 0 }),
-      );
-    },
-  );
-});
+        await checkRefused(clientCase, refused, INSTALLER_INSTALL);
+        await clientCase.check(
+          "the Daemon played its script through, so the Client sent exactly what it holds",
+          () => expect(exit).toMatchObject({ code: 0 }),
+        );
+      },
+    );
+  },
+);

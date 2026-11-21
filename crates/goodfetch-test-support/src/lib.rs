@@ -9,7 +9,8 @@
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
-//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
+//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
+//! the lines of a Run trace's raw call log (ADR 0099), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
 //! committed JSON Schema bundle over the caller's transport, the endpoint table with `EndpointRunner`, which applies it to a
@@ -83,6 +84,7 @@ mod proving_ground;
 mod proving_ground_format;
 mod proxy_in_front;
 mod pty;
+mod raw_calls;
 mod received_requests;
 mod resident;
 mod resolver;
@@ -200,6 +202,7 @@ pub use proving_ground_format::{
 };
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
+pub use raw_calls::raw_call_lines;
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{

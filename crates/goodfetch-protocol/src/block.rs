@@ -1,7 +1,8 @@
 //! Block causes (ADRs 0035, 0045 and 0048): the closed list of reasons a
 //! site refused a page, a type both Products share (ADR 0095). Collie's
-//! values are listed here; `decoy`, which only Foxhound's Frontier
-//! produces, is listed by Foxhound's own module.
+//! type is here, with Collie's values only, so a Collie program keeps
+//! `decoy`, which only Foxhound's Frontier produces, as an unknown value;
+//! Foxhound's own module has Foxhound's type, which adds it.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,12 @@ use crate::open_value::UnknownValue;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// Why a site refused a page (ADR 0035), on the wire as written.
+/// What an unknown cause means, in each Product's Block cause type.
+pub(crate) const UNKNOWN_CAUSE: &str =
+    "A cause a newer engine gives that this reader does not know.";
+
+/// Why a site refused a page (ADR 0035), on the wire as written: Collie's
+/// causes, which Foxhound's `foxhound::block::BlockCause` adds `decoy` to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(extend("open" = true), transform = crate::open_value::known_members)]
@@ -25,9 +31,6 @@ pub enum BlockCause {
     RateLimit,
     /// The site refused the address the request came from.
     IpBlock,
-    /// A trap page a person would never reach, such as a labyrinth of
-    /// hidden links; only Foxhound's Frontier produces it (ADR 0095).
-    Decoy,
     /// The site asked to be paid for the page (ADR 0045).
     PaymentRequired,
     /// A wall that asks for consent before it shows the page (ADR 0048).
@@ -47,7 +50,6 @@ impl BlockCause {
             Self::Captcha => "captcha",
             Self::RateLimit => "rate_limit",
             Self::IpBlock => "ip_block",
-            Self::Decoy => "decoy",
             Self::PaymentRequired => "payment_required",
             Self::ConsentRequired => "consent_required",
             Self::Unknown(cause) => cause.as_str(),
@@ -61,14 +63,11 @@ impl BlockCause {
             Self::Captcha => "A page that asks a person to prove they are human.",
             Self::RateLimit => "The site refused because too many requests came too fast.",
             Self::IpBlock => "The site refused the address the request came from.",
-            Self::Decoy => {
-                "A trap page a person would never reach; only Foxhound's Frontier produces it."
-            }
             Self::PaymentRequired => "The site asked to be paid for the page (ADR 0045).",
             Self::ConsentRequired => {
                 "A wall that asks for consent before it shows the page (ADR 0048)."
             }
-            Self::Unknown(_) => "A cause a newer engine gives that this reader does not know.",
+            Self::Unknown(_) => UNKNOWN_CAUSE,
         }
     }
 

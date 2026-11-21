@@ -36,9 +36,9 @@ fn an_unknown_block_cause_is_kept() {
 #[test]
 fn a_known_value_never_reads_as_unknown() {
     let verdict: Verdict = serde_json::from_value(json!("verified")).expect("it reads");
-    let cause: BlockCause = serde_json::from_value(json!("decoy")).expect("it reads");
+    let cause: BlockCause = serde_json::from_value(json!("captcha")).expect("it reads");
 
-    assert_eq!((verdict, cause), (Verdict::Verified, BlockCause::Decoy));
+    assert_eq!((verdict, cause), (Verdict::Verified, BlockCause::Captcha));
 }
 
 #[test]

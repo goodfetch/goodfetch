@@ -23,6 +23,7 @@ mod handler_requests;
 mod limits;
 mod logging;
 mod navigations;
+mod partial_results;
 mod points_in_time;
 mod product_and_provisioning;
 mod results;

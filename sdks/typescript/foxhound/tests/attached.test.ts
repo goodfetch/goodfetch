@@ -126,8 +126,8 @@ describe("Foxhound.connect() on an Attached engine", () => {
         "the Collie Daemon played its script through, refusing hello",
         async () => expect(await daemon.exit).toMatchObject({ code: 0 }),
       );
-      // Foxhound's executable is its major's pick, so the fix adds its
-      // `daemon restart` alone.
+      // No newer Foxhound is installed, so Foxhound's executable is its
+      // major's pick and the fix adds its `daemon restart` alone.
       await clientCase.check(
         "engine() reports the Attached Foxhound, and the fallback's cause and fix",
         () =>

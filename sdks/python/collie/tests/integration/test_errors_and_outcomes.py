@@ -18,19 +18,17 @@ import pytest
 from collie_calls import engine_warnings, failure, locator_on, open_collie
 from goodfetch_collie import (
     DeadlineExceededError,
-    RefusedError,
-    UnavailableError,
-)
-from goodfetch_collie_client.generated.errors import (
     EnginePanickedError,
     InternalError,
     ModelError,
     PageError,
     ProgramError,
+    RefusedError,
     SecretInputRefusedError,
     SecretUnavailableError,
     SecretUnboundError,
     TargetNotUniqueError,
+    UnavailableError,
 )
 from goodfetch_test_support import (
     Canary,

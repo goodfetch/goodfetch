@@ -39,6 +39,7 @@ import {
 } from "./generated/index.ts";
 import type { Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
+import { wouldBeThePick } from "./installed-executables.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
 import { isRecord } from "./framing.ts";
@@ -271,7 +272,7 @@ async function openRefusable<S>(
         daemon = await pickOf(daemon, startedAt, common);
         continue;
       }
-      const fix = `${error.fix ?? ""} ${refusalFix(product, env)}`.trim();
+      const fix = `${error.fix ?? ""} ${await refusalFix(product, env, home)}`.trim();
       if (!auto) {
         throw withFix(error, fix);
       }
@@ -327,13 +328,16 @@ async function pickOf(
 /**
  * What a refusal's `fix` adds for `product`'s Client (ADR 0098), as the
  * engine words it: its executable's `daemon restart`, given by its path,
- * and Foxhound at this version or newer for Collie, whose executable is no
- * major's pick while a Foxhound of the major is installed. The SDK does not
- * read which executables are installed, so it names Foxhound for every
- * Collie Client, as the sentence's own condition says. With no executable
- * to name, the remedy is installing it, as `engine_not_found`'s fix says.
+ * and, where that executable would still not be its major's pick by the
+ * executables installed in `home`, Foxhound at this version or newer. With
+ * no executable to name, the remedy is installing it, as
+ * `engine_not_found`'s fix says.
  */
-function refusalFix<S>(product: ProductPackage<S>, env: Readonly<Record<string, string>>): string {
+async function refusalFix<S>(
+  product: ProductPackage<S>,
+  env: Readonly<Record<string, string>>,
+  home: string,
+): Promise<string> {
   let path: string;
   try {
     path = locateEngine(env, product).path;
@@ -345,7 +349,8 @@ function refusalFix<S>(product: ProductPackage<S>, env: Readonly<Record<string, 
   }
   const shown = /\s/.test(path) ? `"${path}"` : path;
   const restart = `Run \`${shown} daemon restart\` to restart the Daemon on its major's pick.`;
-  return product.needs === "foxhound"
+  const client = { product: product.needs, version: PRODUCT_VERSION };
+  return (await wouldBeThePick(client, home, env, new Date()))
     ? restart
     : `${restart} ${product.name}'s executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound ${PRODUCT_VERSION} or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
 }

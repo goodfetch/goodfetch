@@ -10,13 +10,17 @@ use std::fmt::Write as _;
 use goodfetch_protocol::catalog::Product;
 
 use super::{CLIENT_PACKAGE, HEADER, doc};
-use crate::codegen::layer::{Layer, Stability};
+use crate::codegen::layer::{ErrorCode, Layer, Stability};
 use crate::codegen::naming::pascal;
 
 /// The hand-written module of Collie's client package that declares the
 /// base of every error class, which its layer's classes extend and
 /// re-export.
 const GOODFETCH_ERROR_MODULE: &str = "../goodfetch-error.ts";
+
+/// The doc of `retryAfter` on the class of a code whose details name
+/// `retry_after` as a point in time (ADRs 0092 and 0118).
+const RETRY_AFTER_DOC: &str = "  /**\n   * When the site's `Retry-After` asks to be tried again: a point in time in\n   * UTC, not a duration; `null` when it asks for none. The details keep it\n   * as sent, as `retry_after`.\n   */\n";
 
 fn group_class(group: &str) -> String {
     format!("{}Error", pascal(group))
@@ -30,7 +34,7 @@ pub(super) fn errors(layer: &Layer) -> String {
         Product::Collie => {
             let _ = write!(
                 text,
-                "import {{\n  GoodfetchError,\n  isGoodfetchError,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}} from \"{GOODFETCH_ERROR_MODULE}\";\n\nexport {{\n  GoodfetchError,\n  isGoodfetchError,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}};\n\n/** The seven groups of Error codes, named for their remedy (ADR 0079). */\nexport type ErrorGroup = {};\n",
+                "import {{\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}} from \"{GOODFETCH_ERROR_MODULE}\";\n\nexport {{\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}};\n\n/** The seven groups of Error codes, named for their remedy (ADR 0079). */\nexport type ErrorGroup = {};\n",
                 layer
                     .error_groups
                     .iter()
@@ -76,6 +80,9 @@ pub(super) fn errors(layer: &Layer) -> String {
                 .map(|code| group_class(&code.group))
                 .collect();
             imported.extend(["isCollieError".to_owned(), "isGoodfetchError".to_owned()]);
+            if layer.reads_retry_after() {
+                imported.insert("retryAfterOf".to_owned());
+            }
             let names: Vec<String> = imported.into_iter().collect();
             let _ = writeln!(
                 text,
@@ -97,13 +104,7 @@ pub(super) fn errors(layer: &Layer) -> String {
             continue;
         }
         let class = format!("{}Error", pascal(&code.name));
-        text.push('\n');
-        text.push_str(&doc("", &code.description, Stability::Stable, None));
-        let _ = write!(
-            text,
-            "export class {class} extends {group}<{:?}> {{\n  constructor(message: string, fields: ErrorFields = {{}}) {{\n    super(message, {{ ...fields, name: {class:?}, code: {:?}, group: {:?}, retryable: {} }});\n  }}\n}}\n",
-            code.name, code.name, code.group, code.retryable
-        );
+        text.push_str(&error_class(code, &class, &group));
         members.push(class.clone());
         registry.push((code.name.clone(), class));
     }
@@ -116,6 +117,26 @@ pub(super) fn errors(layer: &Layer) -> String {
     }
     text.push_str("};\n");
     text.push_str(&product_errors(layer, &members));
+    text
+}
+
+/// The class `class` of one Error code, on its group's class `group`, which
+/// reads its `retryAfter` when its details name one as a point in time.
+fn error_class(code: &ErrorCode, class: &str, group: &str) -> String {
+    let mut text = format!("\n{}", doc("", &code.description, Stability::Stable, None));
+    let (field, set) = if code.retry_after_is_point_in_time() {
+        (
+            format!("{RETRY_AFTER_DOC}  readonly retryAfter: Date | null;\n\n"),
+            "\n    this.retryAfter = retryAfterOf(fields.details);",
+        )
+    } else {
+        (String::new(), "")
+    };
+    let _ = write!(
+        text,
+        "export class {class} extends {group}<{:?}> {{\n{field}  constructor(message: string, fields: ErrorFields = {{}}) {{\n    super(message, {{ ...fields, name: {class:?}, code: {:?}, group: {:?}, retryable: {} }});{set}\n  }}\n}}\n",
+        code.name, code.name, code.group, code.retryable
+    );
     text
 }
 

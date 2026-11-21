@@ -8,7 +8,10 @@ only the seven groups and the codes' classes come from the catalog.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol, TypedDict, TypeVar
+
+from goodfetch_collie_client.point_in_time import point_in_time
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -165,6 +168,17 @@ def in_call(error: _Error, operation: str) -> _Error:
     copied.operation = operation
     copied.__cause__ = error.__cause__
     return copied
+
+
+def retry_after_of(details: Mapping[str, object]) -> datetime | None:
+    """The point in time `details` name as `retry_after`, in UTC.
+
+    The time the site's `Retry-After` asks for (ADRs 0092 and 0118); `None`
+    when they name none, or a value that is no RFC 3339 text. The classes
+    of the codes whose details declare it read their `retry_after` with it.
+    """
+    sent = point_in_time(details.get("retry_after"))
+    return sent if isinstance(sent, datetime) else None
 
 
 class ErrorClass(Protocol):

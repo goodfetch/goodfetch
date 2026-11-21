@@ -7,6 +7,7 @@ knows. TypeScript's `errors.test.ts` is its twin.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +15,7 @@ import pytest
 from goodfetch_collie_client.generated.errors import (
     ERROR_CLASSES,
     ERROR_GROUP_CLASSES,
+    BlockedError,
     InternalError,
     PageError,
     ProgramError,
@@ -209,6 +211,49 @@ def test_a_field_of_another_shape_stays_in_the_details(key: str, value: object) 
         None,
         {key: value},
     )
+
+
+@pytest.mark.parametrize(
+    ("sent", "retry_after"),
+    [
+        pytest.param(
+            "2026-11-21T10:00:00+02:00",
+            datetime(2026, 11, 21, 8, tzinfo=UTC),
+            id="a time in another offset",
+        ),
+        pytest.param(None, None, id="null"),
+    ],
+)
+def test_blocked_reads_its_retry_after_as_a_point_in_time(
+    sent: str | None, retry_after: datetime | None
+) -> None:
+    """The time the site's `Retry-After` asks for, in UTC (ADRs 0092 and 0118).
+
+    `None` when it asks for none; the details keep it as sent.
+    """
+    error = error_of_reply(
+        {
+            "code": -32003,
+            "message": "blocked",
+            "data": {"code": "blocked", "cause": "rate_limit", "retry_after": sent},
+        },
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, BlockedError)
+    assert (error.retry_after, error.details["retry_after"]) == (retry_after, sent)
+    assert error.retry_after is None or error.retry_after.tzinfo == UTC
+
+
+def test_blocked_with_no_retry_after_has_none() -> None:
+    """An engine that sent no `retry_after` leaves the field `None`."""
+    error = error_of_reply(
+        {"code": -32003, "message": "blocked", "data": {"code": "blocked"}},
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, BlockedError)
+    assert error.retry_after is None
 
 
 def test_an_error_with_no_call_log_has_an_empty_one() -> None:

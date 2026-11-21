@@ -3,6 +3,7 @@
 import {
   GoodfetchError,
   isGoodfetchError,
+  retryAfterOf,
   type ErrorClass,
   type ErrorFields,
   type ErrorIdentity,
@@ -12,6 +13,7 @@ import {
 export {
   GoodfetchError,
   isGoodfetchError,
+  retryAfterOf,
   type ErrorClass,
   type ErrorFields,
   type ErrorIdentity,

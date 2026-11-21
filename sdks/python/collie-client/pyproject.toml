@@ -4,8 +4,15 @@ version = "0.0.0"
 description = "The Collie client package both Products' Python SDKs build on (ADR 0095)."
 requires-python = ">=3.11"
 # Pydantic's supported major range is pinned (ADR 0077, G7). AnyIO runs one
-# async core on asyncio and Trio (ADR 0081).
-dependencies = ["anyio>=4.15.1,<5", "pydantic>=2.14.1,<3", "typing-extensions>=4.16.0"]
+# async core on asyncio and Trio (ADR 0081). websockets' Sans-I/O layer
+# frames the protocol over WebSocket to a remote Daemon (ADR 0049) on AnyIO's
+# streams, so it runs on both.
+dependencies = [
+  "anyio>=4.15.1,<5",
+  "pydantic>=2.14.1,<3",
+  "typing-extensions>=4.16.0",
+  "websockets>=17.4,<18",
+]
 # Nothing is published before the first release (AGENTS.md, Release status).
 classifiers = ["Private :: Do Not Upload"]
 

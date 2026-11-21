@@ -69,16 +69,46 @@ pub(super) fn version() -> ProductVersion {
 /// Starts the Scripted engine playing `script` with `hello` in mode `mode`
 /// (`socket`, as the Daemon of `env`'s home, or `tcp`), and returns it with
 /// the line it printed.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script before any async worker runs"
-)]
 pub(super) fn scripted(
     env: &TestEnv,
     script: &str,
     hello: &HelloParams,
     mode: &str,
 ) -> (Process, Value) {
+    play(env, script, hello, &["--mode", mode])
+}
+
+/// Starts the Scripted engine playing `script` with `hello` as a remote
+/// Daemon, an Exposed Daemon's WebSocket that takes only its own `Origin`
+/// and answers `subprotocol` when the handshake offers it, and returns it
+/// with the line it printed.
+pub(super) fn remote(
+    env: &TestEnv,
+    script: &str,
+    hello: &HelloParams,
+    subprotocol: &str,
+) -> (Process, Value) {
+    play(
+        env,
+        script,
+        hello,
+        &["--mode", "websocket", "--subprotocol", subprotocol],
+    )
+}
+
+/// The SDK's own subprotocol, which a remote Daemon of its protocol major
+/// answers.
+pub(super) fn subprotocol() -> String {
+    PROTOCOL_VERSION.websocket_subprotocol()
+}
+
+/// Starts the Scripted engine playing `script` with `hello` and `args`,
+/// and returns it with the line it printed.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Scripted engine's script before any async worker runs"
+)]
+fn play(env: &TestEnv, script: &str, hello: &HelloParams, args: &[&str]) -> (Process, Value) {
     let mut played: Value =
         serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
     played["steps"][0]["expect"]["params"] = serde_json::to_value(hello).unwrap();
@@ -93,7 +123,7 @@ pub(super) fn scripted(
     command
         .arg("--script")
         .arg(&path)
-        .args(["--mode", mode])
+        .args(args)
         .stderr(std::process::Stdio::null());
     let process = env.spawn(&mut command).unwrap();
     let reported = reported_address(&mut process.child()).unwrap();
@@ -240,7 +270,7 @@ fn auto_reaches_the_remote_daemon_goodfetch_url_names_and_shows_no_token() {
     let (subscriber, log) = goodfetch_log();
 
     let (process, url, engine, shown) = with_default(subscriber, || {
-        let (process, line) = scripted(&env, REACHED_REMOTE, &hello(CANARY), "tcp");
+        let (process, line) = remote(&env, REACHED_REMOTE, &hello(CANARY), &subprotocol());
         let url = format!("ws://{}", line["address"].as_str().unwrap());
         let options = ConnectOptions::default().environment(environment(
             &env,
@@ -303,7 +333,7 @@ fn linked_wins_over_goodfetch_url() {
 #[test]
 fn a_remote_daemon_given_in_code_wins_over_goodfetch_url() {
     let env = TestEnv::new();
-    let (process, line) = scripted(&env, REACHED_REMOTE, &hello(CANARY), "tcp");
+    let (process, line) = remote(&env, REACHED_REMOTE, &hello(CANARY), &subprotocol());
     let url = format!("ws://{}", line["address"].as_str().unwrap());
     let options = ConnectOptions::default()
         .environment(environment(
@@ -378,6 +408,38 @@ fn a_remote_daemon_nothing_answers_for_is_unreachable() {
     assert_eq!(error.code(), ErrorCode::DAEMON_UNREACHABLE, "{error:?}");
     assert!(error.fix().is_some(), "{error:?}");
     assert!(!format!("{error:?}").contains(CANARY), "{error:?}");
+}
+
+/// A remote Daemon that answers no subprotocol the SDK offers, as one of
+/// another protocol major does, fails the connect with
+/// `daemon_unreachable` naming the subprotocol offered, before `hello`.
+/// Covers: story:11-5
+#[test]
+fn a_remote_daemon_answering_no_offered_subprotocol_is_unreachable() {
+    let env = TestEnv::new();
+    let (process, line) = remote(&env, REACHED_REMOTE, &hello(CANARY), "goodfetch.v9999");
+    let url = format!("ws://{}", line["address"].as_str().unwrap());
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
+            ConnectOptions::default()
+                .environment(env.env_os())
+                .engine(EngineChoice::Remote(RemoteDaemon::new(url.clone(), CANARY))),
+        )
+        .await
+    });
+
+    assert!(
+        !process.child().wait().unwrap().success(),
+        "the Scripted engine never heard hello"
+    );
+    let error = refused.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::DAEMON_UNREACHABLE, "{error:?}");
+    assert!(error.message().contains(&subprotocol()), "{error:?}");
+    assert!(
+        error.fix().is_some_and(|fix| fix.contains(&url)),
+        "{error:?}"
+    );
 }
 
 /// A remote Daemon's URL is `ws://` on loopback with a port and nothing

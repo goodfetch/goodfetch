@@ -3,7 +3,8 @@
 //! each Product's SDK crate reach an engine in the same process. On the OS's
 //! network an Attached engine is a child process the client starts and
 //! talks to over its stdio; a Daemon is the Unix socket or loopback TCP
-//! address its endpoint names (ADR 0024), never a named pipe. This is the
+//! address its endpoint names (ADR 0024), never a named pipe; an Exposed
+//! Daemon is a WebSocket on loopback TCP (ADR 0049). This is the
 //! one module on the client side that opens a socket or starts a process
 //! (spec #606). An Attached engine's stderr is never the program's: each
 //! line it writes is logged at warning and its last 64 KiB kept, which
@@ -14,6 +15,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
@@ -24,6 +26,8 @@ use goodfetch_protocol::connection::{DaemonEndpoint, EngineExitedDetails};
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, BufReader};
 use tokio::process::{Child, ChildStderr};
 use tokio::sync::oneshot;
+
+mod websocket;
 
 /// The most of an Attached engine's stderr `engine_exited` carries (ADR
 /// 0078).
@@ -143,6 +147,20 @@ pub enum Endpoint {
     Attached(AttachedEngine),
     /// A running Daemon.
     Daemon(DaemonEndpoint),
+    /// An Exposed Daemon, reached over WebSocket.
+    Exposed(ExposedDaemon),
+}
+
+/// An Exposed Daemon's address, reached over WebSocket with the
+/// subprotocol `goodfetch.v<major>` of the protocol version the client
+/// speaks (ADR 0049; spec #606's Transports), its handshake carrying the
+/// Daemon's own `Host` and, over `http`, `Origin`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExposedDaemon {
+    /// Where it listens.
+    pub address: SocketAddr,
+    /// The `host:port` its URL names, which its handshake carries.
+    pub authority: String,
 }
 
 /// A Product's executable, started as an Attached engine.
@@ -168,9 +186,9 @@ pub(crate) struct Opened {
 /// # Errors
 ///
 /// When the engine cannot be reached: an Attached engine's executable that
-/// does not start, a Daemon's endpoint where nothing listens, an in-memory
-/// network whose engine is gone, or the in-memory endpoint on the OS's
-/// network.
+/// does not start, a Daemon's endpoint where nothing listens, an Exposed
+/// Daemon's WebSocket whose handshake fails, an in-memory network whose
+/// engine is gone, or the in-memory endpoint on the OS's network.
 ///
 /// # Cancel safety
 ///
@@ -185,6 +203,10 @@ pub(crate) async fn open(network: &Network, endpoint: &Endpoint) -> io::Result<O
         (Network::Os, Endpoint::Attached(engine)) => attached(engine),
         (Network::Os, Endpoint::Daemon(endpoint)) => Ok(Opened {
             link: daemon(endpoint).await?,
+            process: None,
+        }),
+        (Network::Os, Endpoint::Exposed(exposed)) => Ok(Opened {
+            link: websocket::open(tcp(exposed.address).await?, exposed).await?,
             process: None,
         }),
         (Network::Os, Endpoint::InMemory) => Err(io::Error::new(
@@ -264,17 +286,20 @@ async fn daemon(endpoint: &DaemonEndpoint) -> io::Result<Link> {
                 path.display()
             ),
         )),
-        DaemonEndpoint::Tcp(address) => {
-            #[expect(
-                clippy::disallowed_types,
-                reason = "ADR 0060: the client's transport module is the one place on the client side that opens sockets"
-            )]
-            let stream = tokio::net::TcpStream::connect(address).await?;
-            stream.set_nodelay(true)?;
-            let (reader, writer) = stream.into_split();
-            Ok(Link::new(reader, writer))
-        }
+        DaemonEndpoint::Tcp(address) => tcp(*address).await,
     }
+}
+
+/// A Connection's bytes over loopback TCP to `address`.
+async fn tcp(address: SocketAddr) -> io::Result<Link> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "ADR 0060: the client's transport module is the one place on the client side that opens sockets"
+    )]
+    let stream = tokio::net::TcpStream::connect(address).await?;
+    stream.set_nodelay(true)?;
+    let (reader, writer) = stream.into_split();
+    Ok(Link::new(reader, writer))
 }
 
 /// An Attached engine's process.

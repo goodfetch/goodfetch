@@ -20,6 +20,8 @@ encoding_rs.workspace = true
 goodfetch-encoding.workspace = true
 # The Stream trait an EventStream implements (ADR 0081).
 futures-core.workspace = true
+# The sink of an Exposed Daemon's WebSocket messages (ADR 0049).
+futures-util.workspace = true
 goodfetch-protocol.workspace = true
 # The schemas of a program's own types, re-exported so that its derive's
 # version is the SDK's (ADR 0082).
@@ -31,6 +33,9 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt", "time"] }
+# The handshake and framing of an Exposed Daemon's WebSocket, as in the
+# engine (ADR 0049).
+tokio-tungstenite.workspace = true
 tracing.workspace = true
 # The callsites an engine's `$/log` events are re-emitted through, under
 # targets known only when they arrive (ADR 0078).

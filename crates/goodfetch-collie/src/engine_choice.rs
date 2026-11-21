@@ -11,10 +11,9 @@
 //! Daemon's place, which [`EngineInfo::fallback`] says why
 //! ([`crate::linked`]).
 //!
-//! A remote Daemon's address is `ws://` on loopback, reached with
-//! newline-delimited JSON-RPC over TCP, which an Exposed Daemon serves
-//! beside WebSocket, as the CLI reaches it (ADR 0024's note of
-//! 2026-10-23): `wss://` and addresses beyond loopback wait for the
+//! A remote Daemon's address is `ws://` on loopback, reached over
+//! WebSocket with the subprotocol `goodfetch.v<major>` (ADR 0049; spec
+//! #606's Transports): `wss://` and addresses beyond loopback wait for the
 //! Daemon's TLS, so a token never crosses the network in the clear. A
 //! token goes into `hello` alone, never into a log, an error, a `Debug`
 //! output or [`EngineInfo`] (ADR 0067).
@@ -25,12 +24,13 @@ use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
+use goodfetch_collie_client::transport::{Endpoint, ExposedDaemon};
 use goodfetch_collie_client::{Error, ErrorCode};
 use goodfetch_engine::Channel;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::settings::deployment_variable;
-use goodfetch_protocol::catalog::{Product, ProtocolVersion};
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::daemon::DaemonToken;
 use goodfetch_protocol::settings::{SettingInvalidDetails, TOKEN_VARIABLE, URL_VARIABLE};
@@ -161,21 +161,34 @@ pub(crate) enum Reach {
 
 /// A Daemon chosen: where it listens and the token its `hello` takes.
 pub(crate) struct DaemonReach {
-    pub(crate) endpoint: DaemonEndpoint,
     pub(crate) token: DaemonToken,
     whose: Whose,
 }
 
 /// Whose Daemon a connection reaches.
 enum Whose {
-    /// The one running in the Goodfetch home, with its process ID.
-    Home { pid: u32 },
-    /// A remote one, at `url`, which `source` named: `engine` or
-    /// `GOODFETCH_URL`.
-    Remote { url: String, source: &'static str },
+    /// The one running in the Goodfetch home, with its process ID and the
+    /// endpoint its runtime file names.
+    Home { pid: u32, endpoint: DaemonEndpoint },
+    /// A remote one, at `url`, which `source` named, `engine` or
+    /// `GOODFETCH_URL`: an Exposed Daemon at `exposed`.
+    Remote {
+        url: String,
+        source: &'static str,
+        exposed: ExposedDaemon,
+    },
 }
 
 impl DaemonReach {
+    /// Where the connection reaches it: the endpoint of the Daemon running
+    /// in the home, or a remote one's WebSocket.
+    pub(crate) fn endpoint(&self) -> Endpoint {
+        match &self.whose {
+            Whose::Home { endpoint, .. } => Endpoint::Daemon(endpoint.clone()),
+            Whose::Remote { exposed, .. } => Endpoint::Exposed(exposed.clone()),
+        }
+    }
+
     /// Its kind.
     pub(crate) fn kind(&self) -> EngineKind {
         match self.whose {
@@ -188,7 +201,7 @@ impl DaemonReach {
     /// remote Daemon.
     pub(crate) fn pid(&self) -> Option<u32> {
         match self.whose {
-            Whose::Home { pid } => Some(pid),
+            Whose::Home { pid, .. } => Some(pid),
             Whose::Remote { .. } => None,
         }
     }
@@ -205,7 +218,7 @@ impl DaemonReach {
     /// Where it listens, as [`EngineInfo::url`] gives it.
     pub(crate) fn url(&self) -> String {
         match &self.whose {
-            Whose::Home { .. } => self.endpoint.to_string(),
+            Whose::Home { endpoint, .. } => endpoint.to_string(),
             Whose::Remote { url, .. } => url.clone(),
         }
     }
@@ -221,16 +234,23 @@ impl DaemonReach {
 
     /// What fails the connect when opening the connection failed with
     /// `error` before `hello` was answered: `daemon_unreachable` when
-    /// nothing answered where it listens, or it closed the connection
-    /// before it answered, as a Daemon does for a token it does not take;
-    /// `error` itself otherwise. `home` is the one whose Daemon it is.
-    pub(crate) fn unreached(&self, error: Error, home: Option<&Home>) -> Error {
+    /// nothing answered where it listens, a remote one opened no WebSocket,
+    /// or it closed the connection before it answered, as a Daemon does
+    /// for a token it does not take; `error` itself otherwise. `home` is
+    /// the one whose Daemon it is, and `version` the client's Product
+    /// version.
+    pub(crate) fn unreached(
+        &self,
+        error: Error,
+        home: Option<&Home>,
+        version: &ProductVersion,
+    ) -> Error {
         let closed = error.code() == ErrorCode::CLOSED;
         if !closed && error.code() != ErrorCode::CONNECTION_LOST {
             return error;
         }
         let url = self.url();
-        let (message, fix) = match (self.remote_source(), closed) {
+        let (message, fix) = match (&self.whose, closed) {
             (_, true) => (
                 format!(
                     "The Daemon at {url} closed the connection before it answered hello, as one does for a token it does not take"
@@ -249,13 +269,16 @@ impl DaemonReach {
                     ),
                 },
             ),
-            (Some(source), false) => (
-                format!("Nothing answers at {url}, the Daemon {source} names"),
+            (Whose::Remote { source, .. }, false) => (
                 format!(
-                    "Start the Daemon {url} names, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave `engine` at `Auto` with {URL_VARIABLE} unset to use this machine's engine."
+                    "No Daemon at {url}, which {source} names, opened a WebSocket of subprotocol {}: nothing listens there, it refused the handshake, or it speaks another protocol major",
+                    PROTOCOL_VERSION.websocket_subprotocol()
+                ),
+                format!(
+                    "Start the Daemon {url} names with an engine of this SDK's Product version {version}, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave `engine` at `Auto` with {URL_VARIABLE} unset to use this machine's engine."
                 ),
             ),
-            (None, false) => (
+            (Whose::Home { .. }, false) => (
                 format!(
                     "Nothing answers at {url}, where the Daemon's runtime file says it listens"
                 ),
@@ -342,27 +365,28 @@ fn remote_of_environment(
 /// The remote Daemon `remote`, which `source` named, once its URL is
 /// checked.
 fn remote_reach(remote: RemoteDaemon, source: &'static str) -> Result<Reach, Error> {
-    let address = remote_address(&remote.url, source)?;
+    let exposed = remote_address(&remote.url, source)?;
     Ok(Reach::Daemon(DaemonReach {
-        endpoint: DaemonEndpoint::Tcp(address),
         token: remote.token,
         whose: Whose::Remote {
             url: remote.url,
             source,
+            exposed,
         },
     }))
 }
 
-/// The address a remote Daemon's URL, which `source` gave, names: `ws://`
-/// with a loopback IP address or `localhost` and a port, and nothing else,
-/// so no credential in it reaches a log, an error or [`EngineInfo`].
+/// The Exposed Daemon a remote Daemon's URL, which `source` gave, names:
+/// `ws://` with a loopback IP address or `localhost` and a port, and
+/// nothing else, so no credential in it reaches a log, an error or
+/// [`EngineInfo`]. Its authority is the URL's, its host in lowercase.
 ///
 /// # Errors
 ///
 /// `setting_invalid` naming `source` otherwise, without the URL when it is
 /// no URL or holds more than a scheme and an address: a user, a password,
 /// a path, a query or a fragment, which may be a secret.
-fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
+fn remote_address(url: &str, source: &str) -> Result<ExposedDaemon, Error> {
     let refused = |why: &str, shown: bool| {
         let what = if shown {
             format!("{url} {why}")
@@ -418,7 +442,10 @@ fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
             true,
         ));
     }
-    Ok(address)
+    Ok(ExposedDaemon {
+        address,
+        authority: authority.to_ascii_lowercase(),
+    })
 }
 
 /// The Daemon of `version`'s major running in `home`, whose runtime file
@@ -431,9 +458,11 @@ pub(crate) fn running(home: &Home, version: &ProductVersion) -> Result<Option<Da
     let files = DaemonFiles::of(home, version);
     match files.running() {
         Ok(found) => Ok(found.map(|found| DaemonReach {
-            endpoint: found.endpoint,
             token: found.token,
-            whose: Whose::Home { pid: found.pid },
+            whose: Whose::Home {
+                pid: found.pid,
+                endpoint: found.endpoint,
+            },
         })),
         Err(error) => {
             let file = files.runtime_file();

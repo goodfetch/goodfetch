@@ -419,9 +419,16 @@ impl Body for Chunks {
 pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant> {
     let work = work.clone();
     let plant: Plant = match row {
-        Row::PageSelectorCompilations => Arc::new(move |_: &str| {
-            let _ = work.compile_selector(row, "h1");
-        }),
+        // An `XPath` expression the engine's cache has not kept, a new one
+        // each page, read as a field's locator is (issue 2713).
+        Row::PageSelectorCompilations => {
+            let planted = AtomicU64::new(0);
+            Arc::new(move |_: &str| {
+                let n = planted.fetch_add(1, Ordering::Relaxed) + 1;
+                goodfetch_fetch_tier::check_xpath(&format!("//h1[{n}]"), &work)
+                    .expect("invariant: the plant's expression is XPath 1.0");
+            })
+        }
         Row::PageFileOpens => Arc::new(move |_: &str| {
             let exe = std::env::current_exe().expect("invariant: a running executable has a path");
             work.open_file(row, OpenOptions::new().read(true), &exe)
@@ -599,6 +606,10 @@ pub(crate) enum Handler {
     /// Waits on the page's `h1` as attached, then as visible, which the
     /// tier answers from the page's own document, and answers no Record.
     Waits,
+    /// One `page.read` of the page's heading by an `XPath` locator, which
+    /// the engine parses once for the crawl (issue 2713), then an answer
+    /// with no Record.
+    XpathRead,
     /// The reference handler of `E1.handled_page_wire_share` (#2407): one
     /// `page.read` of [`REFERENCE_FIELDS`] fields, one `crawl_request.push`
     /// of what it read and one `crawl_request.enqueue_links` of the page's
@@ -1152,6 +1163,7 @@ fn crawl_start(
 enum Handled {
     None,
     Waits(Waits),
+    XpathRead(XpathRead),
     Reference(Reference),
 }
 
@@ -1163,6 +1175,7 @@ impl Handled {
                 navigation,
                 ..Waits::default()
             }),
+            Some(Handler::XpathRead) => Self::XpathRead(XpathRead::default()),
             Some(Handler::Reference) => Self::Reference(Reference::default()),
         }
     }
@@ -1172,6 +1185,7 @@ impl Handled {
         match self {
             Self::None => false,
             Self::Waits(waits) => waits.read(message, writer).await,
+            Self::XpathRead(xpath_read) => xpath_read.read(message, writer).await,
             Self::Reference(reference) => reference.read(message, writer).await,
         }
     }
@@ -1181,8 +1195,54 @@ impl Handled {
         match self {
             Self::None => 0,
             Self::Waits(waits) => waits.answered,
+            Self::XpathRead(xpath_read) => xpath_read.answered,
             Self::Reference(reference) => reference.answered,
         }
+    }
+}
+
+/// The handler of [`Handler::XpathRead`]: on each `crawl_request.handle`,
+/// reads its page's heading by the `XPath` locator `//h1`, then answers no
+/// Record.
+#[derive(Default)]
+struct XpathRead {
+    /// Each request a read is out for, by its key.
+    reading: BTreeMap<String, Value>,
+    answered: u64,
+}
+
+impl XpathRead {
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        let id = message["id"].as_str().unwrap_or_default();
+        if message["method"] == "crawl_request.handle" {
+            let key = self.reading.len().to_string();
+            let fields = json!({
+                "heading": { "locator": { "kind": "xpath", "selector": "//h1" } },
+            });
+            let read = request(
+                &format!("xpath-{key}"),
+                "page.read",
+                &json!({ "page_id": message["params"]["page_id"], "fields": fields }),
+            );
+            send(writer, &encode(&read)).await;
+            self.reading.insert(key, message["id"].clone());
+        } else if let Some(key) = id.strip_prefix("xpath-") {
+            assert!(
+                message["result"]["values"]["heading"].is_string(),
+                "{message}"
+            );
+            let answer = json!({
+                "jsonrpc": "2.0",
+                "id": self.reading[key],
+                "result": { "records": [] },
+            });
+            send(writer, &encode(&answer)).await;
+            self.answered += 1;
+        } else {
+            return false;
+        }
+        true
     }
 }
 

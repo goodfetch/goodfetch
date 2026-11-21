@@ -18,7 +18,10 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
 use dom_query::NodeId;
+use goodfetch_counted_work::{CountedWork, Row};
 
 use evaluate::{Context, Value};
 
@@ -32,12 +35,31 @@ pub struct XpathInvalid {
     reason: String,
 }
 
-/// A checked expression that answers nodes.
+/// A checked expression that answers nodes, shared from the engine's cache.
 #[derive(Clone, Debug)]
-pub(crate) struct Expression(syntax::Expr);
+pub(crate) struct Expression(Arc<syntax::Expr>);
 
 impl Expression {
-    /// Reads `text`.
+    /// `text` read, from the engine's cache: parsed and counted on
+    /// `F1.selector_compilations` only when the cache keeps nothing of it,
+    /// the row that counts a selector's compilation (issue 2713), and
+    /// its refusal kept as its expression is, so every read refuses it
+    /// alike.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse`].
+    pub(crate) fn read(text: &str, work: &CountedWork) -> Result<Self, XpathInvalid> {
+        work.built(Row::PageSelectorCompilations, text, || {
+            Some(Self::parse(text))
+        })
+        .expect("invariant: reading an expression always answers")
+        .as_ref()
+        .clone()
+    }
+
+    /// Reads `text`, uncounted: [`Self::read`] is the one caller outside
+    /// this module's tests.
     ///
     /// # Errors
     ///
@@ -45,9 +67,9 @@ impl Expression {
     /// or a variable (neither is ever bound), calls a function the core
     /// library lacks or with a wrong number of arguments, or answers a
     /// value rather than nodes.
-    pub(crate) fn parse(text: &str) -> Result<Self, XpathInvalid> {
+    fn parse(text: &str) -> Result<Self, XpathInvalid> {
         syntax::parse(text)
-            .map(Self)
+            .map(|expression| Self(Arc::new(expression)))
             .map_err(|reason| XpathInvalid {
                 expression: text.to_owned(),
                 reason,

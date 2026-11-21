@@ -247,6 +247,51 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     );
 }
 
+/// The crawl's fallback reads an `XPath` list field on each page, as the
+/// untouched page's readers read no list: its expression is parsed once for
+/// the engine, as the crawl starts and checks its fields, and no page parses
+/// it again (issue 2713).
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "two crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn an_xpath_list_fields_expression_is_parsed_once_a_crawl() {
+    let links = Map::from_iter([(
+        "links".to_owned(),
+        json!({ "list": { "locator": { "kind": "xpath", "selector": "//nav//a" } } }),
+    )]);
+    let compilations = Row::PageSelectorCompilations;
+
+    let (default, (crawled, listed)) = std::thread::scope(|scope| {
+        let default = scope.spawn(|| counted(compilations, Options::default()));
+        let listed = scope.spawn(|| {
+            let env = TestEnv::new();
+            let metrics = Metrics::none();
+            let work = metrics.counted_work().clone();
+            let options = Options {
+                metrics,
+                fields: links,
+                ..Options::default()
+            };
+            let crawled = crawl_with(env.home(), env.start_time(), env.seed(), options);
+            (crawled, work.read(compilations))
+        });
+        (default.join().unwrap(), listed.join().unwrap())
+    });
+    let read = crawled
+        .records
+        .iter()
+        .filter(|record| {
+            record["links"]
+                .as_array()
+                .is_some_and(|links| !links.is_empty())
+        })
+        .count();
+
+    assert_eq!((read, listed), (PAGES.len() + 1, default + 1));
+}
+
 /// A handler on a document tier waits on each page, which the tier answers from
 /// the page's kept tree: the page is parsed once for its attempt, its Page
 /// signature reads a copy, and the wait's selector comes from the engine's

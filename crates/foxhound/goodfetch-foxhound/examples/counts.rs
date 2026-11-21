@@ -388,6 +388,21 @@ const PRIVATE_CELL: &str = "politeness_sharing_run";
 /// analysed, of the second origin [`BESIDE_ORIGINS`] counts.
 const BESIDE_CELL: &str = "document_tier_handler_beside";
 
+/// The handler's cell whose handler reads each page's heading by an
+/// `XPath` locator in one `page.read`, waiting on nothing: the engine
+/// parses the expression once for the crawl, so it compiles as
+/// [`HANDLED_CELL`] does, 1 over its pages (issue 2713).
+const XPATH_CELL: &str = "document_tier_xpath_read";
+
+/// The handler that serves the pages of the handler's cell `cell`.
+fn handler_of(cell: &Cell) -> Handler {
+    if cell.name == XPATH_CELL {
+        Handler::XpathRead
+    } else {
+        Handler::Waits
+    }
+}
+
 /// Whether the cell named `name` keeps its Run's Politeness to itself.
 fn private(name: &str) -> bool {
     name == PRIVATE_CELL || name == BESIDE_CELL
@@ -730,6 +745,21 @@ fn beside() -> Cell {
     }
 }
 
+/// A handler's cell `name` at the default settings: [`HANDLED_CELL`], or
+/// [`XPATH_CELL`], whose handler reads each page's heading by an `XPath`
+/// locator.
+fn handled(name: &'static str) -> Cell {
+    Cell {
+        name,
+        settings: json!({}),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: true,
+        limit: false,
+    }
+}
+
 /// The cell [`PRIVATE_CELL`]: a Run that keeps its Politeness to itself
 /// takes its Permits and reads its robots.txt copy in memory, with no
 /// SQLite (#2171).
@@ -839,16 +869,9 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
         learning_off(),
-        Cell {
-            name: HANDLED_CELL,
-            settings: json!({}),
-            frontier: None,
-            removes: &[],
-            removes_syncs: false,
-            handler: true,
-            limit: false,
-        },
+        handled(HANDLED_CELL),
         beside(),
+        handled(XPATH_CELL),
         Cell {
             name: "scope_globs_off",
             settings: json!({}),
@@ -1214,7 +1237,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             vfs_files,
             setup_syncs,
             entries,
-        } = crawl(cell, planted, bypassed, Pages::Whole, Handler::Waits);
+        } = crawl(cell, planted, bypassed, Pages::Whole, handler_of(cell));
         assert!(
             entries > 0 || !logs_provenance(cell),
             "the crawl wrote no Run-trace entry"
@@ -1670,7 +1693,7 @@ fn main() {
             .into_iter()
             .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        let ran = crawl(&cell, planted, None, pages, Handler::Waits);
+        let ran = crawl(&cell, planted, None, pages, handler_of(&cell));
         if pages == Pages::CallgrindShorter {
             assert_shorter(&cell, &ran);
         }

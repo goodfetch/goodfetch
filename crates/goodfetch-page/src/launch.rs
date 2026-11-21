@@ -29,6 +29,7 @@ use goodfetch_engine::children::Children;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::executables;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
@@ -286,8 +287,10 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 /// `browser_sandbox_unavailable` where Chromium's sandbox, on, cannot start
 /// (ADR 0049); the Browser cache's codes for a missing build
 /// (`browser_not_installed`, `artifact_unavailable_offline`,
-/// `artifact_download_failed`), and `browser_launch_failed` for a process
-/// that does not start.
+/// `artifact_download_failed`),
+/// `executable_blocked_by_smart_app_control` where Windows' Smart App Control
+/// or another App Control policy refuses the browser (ADR 0039), and
+/// `browser_launch_failed` for a process that does not start otherwise.
 ///
 /// # Cancel safety
 ///
@@ -347,7 +350,10 @@ pub(crate) async fn launch(
     let log = command_log(run, &executable).await?;
     let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone(), log)
         .await
-        .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+        .map_err(|error| {
+            executables::blocked_by_smart_app_control(&executable, &error)
+                .unwrap_or_else(|| launch_failed(&executable, None, &error.to_string()))
+        })?;
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
     // says whether its sandbox can start: one the restriction holds is

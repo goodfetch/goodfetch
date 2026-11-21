@@ -2,7 +2,8 @@
 //! `major.minor`, the surface, the token and the Product the Client needs
 //! with its Product version (ADRs 0024, 0066 and 0095); `$/cancel` (ADR
 //! 0038); the Error codes they answer with; and those a Client's own runtime
-//! raises about its Connection, which no engine sends (ADRs 0078 and 0079).
+//! raises about its Connection, which no engine sends (ADRs 0078 and 0079),
+//! among them the refusal of handlers on an edge runtime (ADR 0049).
 //! Neither `hello` nor `$/cancel` is an operation of the catalog: every
 //! Product's engine speaks both.
 //!
@@ -1143,6 +1144,43 @@ pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// Handler code that must outlive its request, asked for on an edge
+/// runtime (ADR 0049), which ends what it runs with the request: raised by
+/// an SDK before any message, so no engine sends it.
+pub const EDGE_HANDLERS_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "edge_handlers_unsupported",
+    description: "The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The edge runtime a program runs on (ADR 0049), told by its marker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeRuntime {
+    /// Cloudflare Workers (`workerd`), whose `navigator.userAgent` is
+    /// `Cloudflare-Workers`.
+    CloudflareWorkers,
+    /// Vercel's edge runtime, which sets the `EdgeRuntime` global.
+    VercelEdge,
+    /// Deno Deploy, whose environment holds `DENO_DEPLOYMENT_ID`.
+    DenoDeploy,
+}
+
+/// What `edge_handlers_unsupported` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EdgeHandlersUnsupportedDetails {
+    /// The edge runtime the program runs on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub runtime: EdgeRuntime,
+    /// The call that asked for the handlers, by its catalog name, such as
+    /// `crawl.start`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub operation: String,
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -1165,6 +1203,7 @@ pub const ENTRIES: Entries = Entries {
         CONNECTION_LOST,
         ENGINE_OUTPUT_INVALID,
         PERSON_REQUIRED,
+        EDGE_HANDLERS_UNSUPPORTED,
     ],
     plugin_kinds: &[],
     metrics: &[],

@@ -13,7 +13,7 @@ use goodfetch_protocol::catalog::Stability;
 use goodfetch_protocol::entries::MODULES;
 
 use crate::logging;
-use crate::sync::Mutex;
+use crate::sync::StaticMutex;
 
 /// Which of an entry's markers a warning is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -25,7 +25,7 @@ enum Marker {
 }
 
 /// The names this process has warned of, with the marker each was for.
-static WARNED: Mutex<BTreeSet<(Marker, &'static str)>> = Mutex::new(BTreeSet::new());
+static WARNED: StaticMutex<BTreeSet<(Marker, &'static str)>> = StaticMutex::new(BTreeSet::new());
 
 /// Warns, the first time in the process for each marker, that the entry
 /// `name` is Experimental, when `experimental` says so, and that it is

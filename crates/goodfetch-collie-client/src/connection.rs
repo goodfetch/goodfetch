@@ -193,8 +193,9 @@ impl ClientConnection {
     /// # Errors
     ///
     /// As [`ClientConnection::open`], [`ConnectTimeout::check`]'s refusal,
-    /// and `deadline_exceeded` when `hello`'s answer
-    /// did not come within `timeout`, its `limit` naming `timeout.connect`
+    /// and `deadline_exceeded` when the transport's opening, such as an
+    /// Exposed Daemon's WebSocket handshake, and `hello`'s answer did not
+    /// both come within `timeout`, its `limit` naming `timeout.connect`
     /// and the layer that set it, and `waited_for` `hello`.
     pub async fn open_within(
         runtime: ConnectionRuntime,
@@ -209,11 +210,27 @@ impl ClientConnection {
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
-        let opening = tasks.spawn_on(
+        let deadline = timeout.deadline();
+        // One expiry for the transport's opening and `hello`'s answer: an
+        // Exposed Daemon's WebSocket handshake can hang as `hello` can.
+        let expiry = deadline
+            .as_ref()
+            .map(|(after, _)| tokio::time::sleep(*after).deadline());
+        let mut opening = tasks.spawn_on(
             async move { transport::open(&network, &endpoint).await },
             &handle,
         );
-        let opened = joined(opening.await)?.map_err(Error::unreachable)?;
+        let opened = match (expiry, &deadline) {
+            (Some(expiry), Some((after, limit))) => {
+                let Ok(opened) = tokio::time::timeout_at(expiry, &mut opening).await else {
+                    opening.abort();
+                    return Err(connect_timeout::exceeded(*after, limit.clone()));
+                };
+                joined(opened)?
+            }
+            _ => joined(opening.await)?,
+        }
+        .map_err(Error::unreachable)?;
         if let Some(process) = opened.process {
             logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
@@ -243,14 +260,14 @@ impl ClientConnection {
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
-        let deadline = timeout.deadline();
-        let said = match &deadline {
-            Some((after, _)) => connection
-                .call::<HelloResult>(HELLO, &hello)
-                .timeout(*after),
-            None => connection.call::<HelloResult>(HELLO, &hello).no_timeout(),
+        let said = connection.call::<HelloResult>(HELLO, &hello).no_timeout();
+        let said = match expiry {
+            Some(expiry) => tokio::time::timeout_at(expiry, said)
+                .await
+                .unwrap_or_else(|_| Err(Error::timed_out())),
+            None => said.await,
         };
-        match said.await {
+        match said {
             Ok(said) => Ok((connection, said)),
             Err(error) => {
                 connection.close().await?;

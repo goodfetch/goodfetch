@@ -26,6 +26,7 @@ import {
   holdInRealm,
   openEngine,
   openOver,
+  refuseHandlersOnEdge,
   type ClientConnection,
   type Transport,
   warnEntry,
@@ -174,9 +175,17 @@ export class Foxhound implements Connection {
    * Before anything is sent, a Label without a handler fails with
    * `label_unhandled`, and a seed whose Label's name `crawl` does not
    * declare with `label_unknown` (a seed carries its Label's name only).
+   * On an edge runtime, whose request ends before the handlers would run,
+   * it fails first with `edge_handlers_unsupported` (ADR 0049): the crawl
+   * runs as a Recipe on the Daemon instead.
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
+    refuseHandlersOnEdge({
+      operation: "crawl.start",
+      names: foxhound.operationNames,
+      handlers: "the crawl's handlers",
+    });
     checkCrawlStartable(crawl, options.seeds);
     const settings = settingsOnWire(options.settings);
     const params: CrawlStartParams = {

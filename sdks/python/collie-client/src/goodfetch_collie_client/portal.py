@@ -17,12 +17,14 @@ from typing import TYPE_CHECKING, TypeVar
 import anyio
 from anyio.from_thread import BlockingPortal
 
+from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
-from goodfetch_collie_client.opening_process import OpeningProcess
 
 if TYPE_CHECKING:
     import concurrent.futures
     from collections.abc import Awaitable, Callable
+
+__all__ = ["LoopStopped", "PrivateLoop"]
 
 _T = TypeVar("_T")
 

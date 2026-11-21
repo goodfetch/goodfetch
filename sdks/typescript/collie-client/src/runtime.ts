@@ -14,6 +14,7 @@
 // deprecated or Experimental entry warn through `markers`' functions.
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
+export { refuseHandlersOnEdge } from "./edge-runtime.ts";
 export {
   FileSaving,
   saveFile,

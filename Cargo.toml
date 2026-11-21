@@ -391,7 +391,8 @@ tower-layer = { version = "0.3.3", default-features = false }
 tower-service = { version = "0.3.3", default-features = false }
 # The protocol over WebSocket, an Exposed Daemon's carriage for edge and
 # serverless Clients (ADR 0049): tungstenite's handshake and framing, on
-# Tokio in the engine, and blocking in the endpoint table's runner.
+# Tokio in the engine and the Rust SDK's client, and blocking in the
+# endpoint table's runner.
 # futures-util drives its stream of messages and its sink.
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 # The Rust SDK's EventStream implements its Stream trait, so a program

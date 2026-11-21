@@ -99,7 +99,7 @@ def test_an_unknown_verdict_is_never_verified() -> None:
     assert raised.value.details["verdict"] == "proven"
 
 
-@pytest.mark.covers("story:11-34")
+@pytest.mark.covers("story:11-34", "story:11-35")
 def test_how_it_ended_its_verdict_and_the_models_claim_are_read_apart() -> None:
     """A stopped task's partial output sits beside its Verdict and the model's claim."""
     result = replace(

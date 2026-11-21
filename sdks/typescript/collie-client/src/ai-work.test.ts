@@ -80,19 +80,23 @@ describe("an AI work result", { tags: ["story:11-34", "error:not_verified"] }, (
     expect(refusal(finished({ verdict: "proven" })).details["verdict"]).toBe("proven");
   });
 
-  test("how it ended, its Verdict and the model's claim are read apart", () => {
-    const result = finished({
-      ended: { kind: "stopped", reason: { kind: "timeout" }, partial: { name: "Ada" } },
-      verdict: "needs_review",
-      verdictReasons: [{ code: "stopped", message: "the task stopped before it finished" }],
-      reported: { claim: "done" },
-    });
+  test(
+    "how it ended, its Verdict and the model's claim are read apart",
+    { tags: ["story:11-35"] },
+    () => {
+      const result = finished({
+        ended: { kind: "stopped", reason: { kind: "timeout" }, partial: { name: "Ada" } },
+        verdict: "needs_review",
+        verdictReasons: [{ code: "stopped", message: "the task stopped before it finished" }],
+        reported: { claim: "done" },
+      });
 
-    const name =
-      result.ended.kind === "finished" ? result.ended.output.name : result.ended.partial.name;
+      const name =
+        result.ended.kind === "finished" ? result.ended.output.name : result.ended.partial.name;
 
-    expect(name).toBe("Ada");
-    expect(result.verdict).toBe("needs_review");
-    expect(result.reported?.claim).toBe("done");
-  });
+      expect(name).toBe("Ada");
+      expect(result.verdict).toBe("needs_review");
+      expect(result.reported?.claim).toBe("done");
+    },
+  );
 });

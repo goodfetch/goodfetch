@@ -291,8 +291,9 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n",
-                layer.protocol_version,
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */\nexport const WEBSOCKET_SUBPROTOCOL = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n",
+                layer.protocol_version.to_string(),
+                layer.protocol_version.websocket_subprotocol(),
                 layer.product_version,
                 ATTACHED_ENGINE,
                 DEPLOYMENT_VARIABLES

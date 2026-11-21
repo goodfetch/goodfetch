@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::jsonrpc::META;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -217,7 +217,7 @@ fn shared_types(
 /// is no SDK's (metrics, for instance).
 #[derive(Deserialize)]
 struct Projection {
-    protocol_version: String,
+    protocol_version: ProtocolVersion,
     operations: Vec<Operation>,
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
@@ -309,8 +309,8 @@ fn protocol_failure_groups(failures: &[ProtocolFailure]) -> Result<BTreeMap<i64,
 /// One SDK package's layer.
 pub(super) struct Layer {
     pub(super) product: Product,
-    /// The protocol version `major.minor` the catalog speaks.
-    pub(super) protocol_version: String,
+    /// The protocol version the catalog speaks.
+    pub(super) protocol_version: ProtocolVersion,
     /// The Product version the workspace carries, which the client package's
     /// `hello` names.
     pub(super) product_version: String,

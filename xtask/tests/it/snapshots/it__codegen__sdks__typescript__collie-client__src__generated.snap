@@ -23,6 +23,9 @@ export type { PageSettings, RunSettings, SessionSettings, Settings } from "./set
 /** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */
 export const PROTOCOL_VERSION = "0.1";
 
+/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */
+export const WEBSOCKET_SUBPROTOCOL = "goodfetch.v0";
+
 /** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */
 export const PRODUCT_VERSION = "0.0.0";
 

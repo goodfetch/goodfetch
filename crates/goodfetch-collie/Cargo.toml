@@ -16,8 +16,9 @@ readme = "README.md"
 executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
-# without it, a request carries none.
-opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+# without it, a request carries none. The engine, which the SDK links,
+# already takes both crates, so the feature adds none.
+opentelemetry = []
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,

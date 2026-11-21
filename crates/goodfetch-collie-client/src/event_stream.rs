@@ -221,9 +221,7 @@ impl Flow {
         let (reply, replied) = oneshot::channel();
         let refused = match params {
             Ok(mut params) => {
-                if let Some(traced) = sender.trace_context() {
-                    trace_context::carry(&mut params, traced);
-                }
+                trace_context::carry(&mut params, sender.trace_context());
                 sender.call(Outgoing {
                     method: method.to_owned(),
                     params,

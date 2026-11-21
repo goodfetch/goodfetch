@@ -7,7 +7,8 @@
 //! Scripted engine, reached as a Daemon, fails on params it does not
 //! expect and on a step left unused, so its clean exit says each call
 //! carried exactly that. The blocking API reads the calling thread's span,
-//! though its call runs on the Connection's runtime.
+//! though its call runs on the Connection's runtime, even for `run.start`,
+//! whose request is made there.
 //! Covers: story:11-138
 
 use goodfetch_collie::{Collie, EngineChoice, blocking};
@@ -31,7 +32,7 @@ const SCRIPT: &str = "sdk-rust/connect/trace-context.json";
 
 /// The program's span's own ID, which every span the test's tracer opens
 /// takes, as the script expects it.
-const SPAN_ID: u64 = 0x00f0_67aa_0ba9_02b7;
+const SPAN_ID: u64 = 0x1a2b_3c4d_5e6f_7081;
 
 /// Gives every span [`SPAN_ID`], so that the `traceparent` sent is known.
 #[derive(Debug)]
@@ -49,7 +50,7 @@ impl IdGenerator for FixedIds {
 
 /// A subscriber that records every span through `tracing-opentelemetry`,
 /// with the tracer that gives [`FixedIds`].
-fn traced() -> impl tracing::Subscriber + Send + Sync {
+fn opentelemetry_subscriber() -> impl tracing::Subscriber + Send + Sync {
     let provider = SdkTracerProvider::builder()
         .with_id_generator(FixedIds)
         .build();
@@ -88,23 +89,25 @@ fn daemon(env: &TestEnv) -> goodfetch_collie::ConnectOptions {
 /// Covers: story:11-138
 #[test]
 fn a_call_in_a_span_carries_its_trace_context_and_one_outside_none() {
-    tracing::subscriber::with_default(traced(), || {
+    tracing::subscriber::with_default(opentelemetry_subscriber(), || {
         let env = TestEnv::new();
         let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
 
         real_time_runtime().block_on(async {
             let collie = Collie::connect(daemon(&env)).await.unwrap();
-            async {
+            let run = async {
                 collie.explain_settings().await.unwrap();
                 collie
                     .call("run.list")
                     .params(json!({ "lifecycle": "running" }))
                     .await
                     .unwrap();
+                collie.start().await.unwrap()
             }
             .instrument(program_span())
             .await;
             collie.explain_settings().await.unwrap();
+            run.finish().await.unwrap();
             collie.close().await.unwrap();
         });
 
@@ -117,20 +120,22 @@ fn a_call_in_a_span_carries_its_trace_context_and_one_outside_none() {
 /// Covers: story:11-138
 #[test]
 fn a_blocking_call_carries_its_threads_trace_context() {
-    tracing::subscriber::with_default(traced(), || {
+    tracing::subscriber::with_default(opentelemetry_subscriber(), || {
         let env = TestEnv::new();
         let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
 
         let collie = blocking::Collie::connect(daemon(&env)).unwrap();
-        program_span().in_scope(|| {
+        let run = program_span().in_scope(|| {
             collie.explain_settings().send().unwrap();
             collie
                 .call("run.list")
                 .params(json!({ "lifecycle": "running" }))
                 .send()
                 .unwrap();
+            collie.start().send().unwrap()
         });
         collie.explain_settings().send().unwrap();
+        run.finish().send().unwrap();
         collie.close().unwrap();
 
         played_whole(&process);

@@ -173,8 +173,8 @@ impl ClientConnection {
     /// `hello`'s answer within `timeout` (ADR 0083); past it, the
     /// Connection is closed. Each stream of its own Subscription, such as a
     /// Session's, holds at most `listener_queue` unread events. Each call,
-    /// `hello`'s included, carries the Trace context `traces` reads on the
-    /// thread that makes it, and none without it (ADR 0132).
+    /// `hello`'s included, carries the Trace context `trace_context_source`
+    /// reads on the thread that makes it, and none without it (ADR 0132).
     ///
     /// # Errors
     ///
@@ -189,7 +189,7 @@ impl ClientConnection {
         hello: HelloParams,
         timeout: ConnectTimeout,
         listener_queue: ListenerQueue,
-        traces: Option<Arc<dyn TraceContextSource>>,
+        trace_context_source: Option<Arc<dyn TraceContextSource>>,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
         let (handle, owned) = runtime.split();
@@ -204,7 +204,13 @@ impl ClientConnection {
             logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
         let streams = Streams::new();
-        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone(), traces);
+        let sender = rpc::start(
+            opened.link,
+            &handle,
+            &tasks,
+            streams.clone(),
+            trace_context_source,
+        );
         let published = Published::new(
             sender.clone(),
             handle.clone(),
@@ -594,9 +600,7 @@ impl ClientConnection {
         let Ok(mut params) = serde_json::to_value(params) else {
             return;
         };
-        if let Some(traced) = self.0.sender.trace_context() {
-            trace_context::carry(&mut params, traced);
-        }
+        trace_context::carry(&mut params, self.0.sender.trace_context());
         let (reply, _dropped) = oneshot::channel();
         self.0.sender.call(Outgoing {
             method: method.to_owned(),
@@ -628,10 +632,13 @@ impl ClientConnection {
             };
         }
         let (done, ended) = std::sync::mpsc::sync_channel(1);
+        // The runtime's worker has no Trace context of its own: every call
+        // `future` makes carries this thread's (ADR 0132).
+        let callers = self.0.sender.trace_context();
         self.0.handed.spawn_on(
-            async move {
+            trace_context::as_callers(callers, async move {
                 let _gone = done.send(future.await);
-            },
+            }),
             &self.0.handle,
         );
         // The task ends without sending only when the runtime shut down.
@@ -704,7 +711,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
             timeout,
             reply: _,
         } = self;
-        let traced = connection.0.sender.trace_context();
+        let trace_context = connection.0.sender.trace_context();
         Box::pin(async move {
             let path = file_saving::absolute(&given, &call)?;
             let mut params = params?;
@@ -714,9 +721,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
                 )));
             };
             fields.insert("path".to_owned(), to_value(&path)?);
-            if let Some(traced) = traced {
-                trace_context::carry(&mut params, traced);
-            }
+            trace_context::carry(&mut params, trace_context);
             let saving = Saving {
                 given,
                 path,

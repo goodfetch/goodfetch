@@ -242,8 +242,9 @@ pub(crate) fn client_span(method: &'static str) -> Span {
 }
 
 /// The Trace context a request sent under `span` carries in its `_meta`:
-/// none while the process exports no spans.
-pub(crate) fn sent(span: &Span) -> Option<TraceContext> {
+/// none while the process exports no spans. The Rust SDK reads a program's
+/// current span through it too (ADR 0132).
+pub fn sent(span: &Span) -> Option<TraceContext> {
     let context = span.context();
     let sent = context.span().span_context().clone();
     sent.is_valid().then(|| {

@@ -3,6 +3,7 @@
 import {
   GoodfetchError,
   isGoodfetchError,
+  retryAfterOf,
   type ErrorClass,
   type ErrorFields,
   type ErrorIdentity,
@@ -12,6 +13,7 @@ import {
 export {
   GoodfetchError,
   isGoodfetchError,
+  retryAfterOf,
   type ErrorClass,
   type ErrorFields,
   type ErrorIdentity,
@@ -182,8 +184,16 @@ export class ArtifactUnavailableOfflineError extends RefusedError<"artifact_unav
  * The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.
  */
 export class BlockedError extends PageError<"blocked"> {
+  /**
+   * When the site's `Retry-After` asks to be tried again: a point in time in
+   * UTC, not a duration; `null` when it asks for none. The details keep it
+   * as sent, as `retry_after`.
+   */
+  readonly retryAfter: Date | null;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BlockedError", code: "blocked", group: "page", retryable: false });
+    this.retryAfter = retryAfterOf(fields.details);
   }
 }
 

@@ -604,6 +604,15 @@ words = ["is", "goodfetch", "error"]
 form = "read"
 
 [[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "retryAfterOf"
+entry = "none"
+reason = "The point in time an error's details name as `retry_after`, the time the site's `Retry-After` asks for (ADRs 0092 and 0118), which the generated class of each code whose details declare one reads as its `retryAfter`, Foxhound's among them."
+words = ["retry", "after", "of"]
+form = "read"
+
+[[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
 member = "Listener"

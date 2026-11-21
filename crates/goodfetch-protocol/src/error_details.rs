@@ -9,6 +9,12 @@
 use crate::error_code::{ErrorCode, ErrorDetails};
 use crate::foxhound::error_code as foxhound;
 
+/// The Error codes whose details name `retry_after` as a point in time, the
+/// time the site's `Retry-After` asks for (ADRs 0092 and 0118), which each
+/// SDK's class of the code reads as its own `retryAfter` field.
+pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
+    &[ErrorCode::BLOCKED, foxhound::RESPONSE_UNAVAILABLE];
+
 /// Implements [`ErrorDetails`] for each type, naming its code.
 macro_rules! details {
     ($($details:path => $code:expr),+ $(,)?) => {
@@ -62,6 +68,7 @@ details! {
     crate::events::ListenerEventsLostDetails => ErrorCode::LISTENER_EVENTS_LOST,
     crate::executables::ExecutableBlockedBySmartAppControlDetails => ErrorCode::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL,
     crate::foxhound::crawl::LabelUnknownDetails => foxhound::LABEL_UNKNOWN,
+    crate::foxhound::crawl::ResponseUnavailableDetails => foxhound::RESPONSE_UNAVAILABLE,
     crate::foxhound::crawl::StagingFullDetails => foxhound::STAGING_FULL,
     crate::foxhound::dataset::DatasetDuplicateDetails => foxhound::DATASET_DUPLICATE,
     crate::foxhound::dataset::DatasetKeyInvalidDetails => foxhound::DATASET_KEY_INVALID,

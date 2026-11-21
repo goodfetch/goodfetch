@@ -138,6 +138,16 @@ pub(super) struct ErrorCode {
     pub(super) exit_code: Option<u8>,
 }
 
+impl ErrorCode {
+    /// Whether the code's details name `retry_after` as a point in time,
+    /// which its class reads as its own field.
+    pub(super) fn retry_after_is_point_in_time(&self) -> bool {
+        goodfetch_protocol::error_details::RETRY_AFTER_POINT_IN_TIME
+            .iter()
+            .any(|code| code.as_str() == self.name)
+    }
+}
+
 /// A request the engine sends a program's handler, such as
 /// `crawl_request.handle`: only the types it takes, which the layer defines.
 #[derive(Debug, Deserialize)]
@@ -341,6 +351,14 @@ pub(super) struct Layer {
 }
 
 impl Layer {
+    /// Whether any of the layer's Error codes reads `retry_after` as a point
+    /// in time, so its errors module needs the helper that reads it.
+    pub(super) fn reads_retry_after(&self) -> bool {
+        self.error_codes
+            .iter()
+            .any(ErrorCode::retry_after_is_point_in_time)
+    }
+
     /// The layer of `product`'s package: Collie's entries for Collie's client
     /// package, with the types of the bundle's `connection` section, which
     /// every engine speaks and the client package's runtime sends; Foxhound's

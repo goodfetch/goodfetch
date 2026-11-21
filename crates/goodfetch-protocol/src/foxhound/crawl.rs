@@ -471,6 +471,17 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A handler's own request to retry its attempt: `ctx.retry(message)`
+/// (ADR 0093).
+pub const RETRY_REQUESTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "retry_requested",
+    description: "The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error.",
+    group: ErrorGroup::Page,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A site failing for now, or a crawl request held unsent: past the bound
 /// on its `Retry-After`, or with a start the Politeness file could not
 /// record (ADRs 0093, 0118 and 0086).
@@ -886,6 +897,7 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[CRAWL_REQUEST_HANDLE],
     error_codes: &[
         HANDLER_FAILED,
+        RETRY_REQUESTED,
         RESPONSE_UNAVAILABLE,
         RESPONSE_NOT_OK,
         HANDLER_LOST,

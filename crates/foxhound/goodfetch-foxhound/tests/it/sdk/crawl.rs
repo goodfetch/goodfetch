@@ -2,17 +2,24 @@
 //! program declares a [`Crawl`] with no connection, starts its Run with
 //! `start_crawl` and serves it with `crawl.serve(&run)`, whose handlers run
 //! inside that future, until the Run ends and its report returns.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use goodfetch_foxhound::settings::{Settings, egress, fetch, network};
 use goodfetch_foxhound::{
     ConnectOptions, Crawl, CrawlContext, Error, ErrorCode, Foxhound, RunId, Seed, error_code,
 };
 use goodfetch_protocol::foxhound::crawl::LabelUnknownDetails;
+use goodfetch_protocol::foxhound::report::CountOf;
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
 use serde::{Deserialize, Serialize};
+use tokio::sync::{Semaphore, mpsc};
 
 /// The Proving ground's seed the crawls read.
 const SITE: u64 = 1602;
@@ -48,7 +55,7 @@ fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
     )
 }
 
-/// Covers: story:11-1013, story:11-1014
+/// Covers: story:11-1013, story:11-1014, story:11-1015
 #[test]
 fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
     let env = TestEnv::new();
@@ -135,10 +142,220 @@ fn a_panic_in_a_handler_fails_its_request_with_handler_failed_and_serve_goes_on(
             (1, 1),
             "{requests:?}"
         );
+        assert_eq!(
+            count(&requests.by_error_code, "handler_failed"),
+            1,
+            "{requests:?}"
+        );
+    });
+}
+
+/// How many requests `counts` lists under `name`.
+fn count(counts: &[CountOf], name: &str) -> u64 {
+    counts
+        .iter()
+        .find(|counted| counted.name == name)
+        .map_or(0, |counted| counted.count)
+}
+
+/// `?` on the program's own error fails the request with
+/// `handler_failed`, while the SDK's own `Error` keeps its code: an
+/// enqueue to another crawl's Label fails with `label_unknown`.
+#[test]
+fn a_handlers_error_is_handler_failed_and_an_sdk_error_keeps_its_code() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let (book, empty) = (
+        site.url("shop.test", "/book"),
+        site.url("shop.test", "/empty"),
+    );
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        let mut other = Crawl::new();
+        let elsewhere = other.label::<Visit>("elsewhere").unwrap();
+        crawl
+            .handle(&page, move |ctx: CrawlContext<Visit>| async move {
+                if ctx.payload().depth == 0 {
+                    let _shelf: u32 = "no shelf".parse()?;
+                } else {
+                    ctx.enqueue(ctx.url().to_owned(), &elsewhere, Visit { depth: 2 })
+                        .await?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        let seeds = [
+            Seed::new(&book, &page, Visit { depth: 0 }),
+            Seed::new(&empty, &page, Visit { depth: 1 }),
+        ];
+        let run = foxhound.start_crawl(&crawl, seeds).await.unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            [
+                count(&requests.by_error_code, "handler_failed"),
+                count(&requests.by_error_code, "label_unknown"),
+            ],
+            [1, 1],
+            "{requests:?}"
+        );
+    });
+}
+
+/// `ctx.skip` ends its request `skipped` with the reason `handler`, and
+/// `ctx.retry` ends its attempt with `retry_requested`, so the request is
+/// delivered again, even when the handler swallowed the retry: every later
+/// call on its context fails with `attempt_ended`, which no outcome
+/// carries.
+///
+/// Covers: error:retry_requested
+#[test]
+fn a_skip_and_a_swallowed_retry_end_their_attempts_as_asked() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let (book, empty) = (
+        site.url("shop.test", "/book"),
+        site.url("shop.test", "/empty"),
+    );
+    let (seen, mut sightings) = mpsc::unbounded_channel();
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        let pages = crawl.dataset::<Visited>("pages").unwrap();
+        crawl
+            .handle(&page, move |ctx: CrawlContext<Visit>| async move {
+                let depth = ctx.payload().depth;
+                if depth == 0 {
+                    return Err(ctx.skip("no book here"));
+                }
+                if ctx.attempt() == 1 {
+                    let _swallowed = ctx.retry("once more");
+                    let visited = Visited {
+                        url: ctx.url().to_owned(),
+                        depth,
+                    };
+                    let pushed = ctx.push(&pages, &visited).await.unwrap_err();
+                    seen.send(pushed.code().to_string()).unwrap();
+                }
+                seen.send(format!("attempt {}", ctx.attempt())).unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let seeds = [
+            Seed::new(&book, &page, Visit { depth: 0 }),
+            Seed::new(&empty, &page, Visit { depth: 1 }),
+        ];
+        let run = foxhound.start_crawl(&crawl, seeds).await.unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (requests.succeeded, requests.skipped, requests.failed),
+            (1, 1, 0),
+            "{requests:?}"
+        );
+        assert_eq!(
+            count(&requests.by_skip_reason, "handler"),
+            1,
+            "{requests:?}"
+        );
+    });
+    let mut sighted = Vec::new();
+    while let Ok(sighting) = sightings.try_recv() {
+        sighted.push(sighting);
+    }
+    assert_eq!(sighted, ["attempt_ended", "attempt 1", "attempt 2"]);
+}
+
+/// Dropping the `serve` future gives the Crawl requests it was handling
+/// back to the engine, uncounted: the next serve of the Run is handed the
+/// same request again as its first attempt, and the Run finishes with it.
+#[test]
+fn dropping_serve_gives_its_requests_back_uncounted() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let book = site.url("shop.test", "/book");
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let gate = Arc::new(Semaphore::new(0));
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        let opened = Arc::clone(&gate);
+        crawl
+            .handle(&page, move |ctx: CrawlContext<Visit>| async move {
+                started.send(ctx.attempt()).unwrap();
+                let _permit = opened.acquire().await?;
+                Ok(())
+            })
+            .unwrap();
+
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
+            .await
+            .unwrap();
+        tokio::select! {
+            ended = crawl.serve(&run) => panic!("the serve ended first: {ended:?}"),
+            first = starts.recv() => assert_eq!(first, Some(1)),
+        }
+        gate.add_permits(1);
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        assert_eq!(starts.recv().await, Some(1), "delivered again, uncounted");
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (requests.succeeded, requests.failed),
+            (1, 0),
+            "{requests:?}"
+        );
+    });
+}
+
+/// The serve's future is `Send` and, for a crawl whose handlers borrow
+/// nothing, `'static`: a spawned task serves the Run.
+///
+/// Covers: story:11-1025
+#[test]
+fn a_spawned_task_serves_a_crawl() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let book = site.url("shop.test", "/book");
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        crawl
+            .handle(&page, |_ctx: CrawlContext<Visit>| async { Ok(()) })
+            .unwrap();
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
+            .await
+            .unwrap();
+
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test spawns the serve as a program's own task would"
+        )]
+        let served = tokio::spawn(async move { crawl.serve(&run).await });
+        let report = served.await.unwrap().unwrap();
+        foxhound.close().await.unwrap();
+
+        assert_eq!(report.requests.unwrap().succeeded, 1);
     });
 }
 
 /// A Label without a handler fails the start, before anything is sent.
+///
+/// Covers: story:11-1015, error:label_unhandled
 #[test]
 fn a_crawl_with_a_label_left_unhandled_is_not_started() {
     let env = TestEnv::new();
@@ -189,6 +406,8 @@ fn a_seed_of_another_crawls_label_is_refused() {
 /// Declaring needs no connection: a second Label of one name, or a second
 /// handler, fails at once with `label_duplicate`, and a handler for
 /// another crawl's Label with `label_unknown`.
+///
+/// Covers: story:11-1013, story:11-1015, error:label_duplicate, error:label_unknown
 #[test]
 fn a_declaration_mistake_fails_at_once() {
     let mut crawl = Crawl::new();

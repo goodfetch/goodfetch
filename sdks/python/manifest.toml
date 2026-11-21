@@ -17,7 +17,9 @@
 # Its `[[logger]]` lines list the SDK's logger names (ADR 0078), which are
 # SDK API under semver as names, checked as such by `griffe check` once
 # #148 adds it, through the constants of
-# `goodfetch_collie_client.host_logging`. Message text is not.
+# `goodfetch_collie_client.host_logging`. Message text is not. A logger
+# line's `package` is the distribution that ships it, not an import name,
+# and neither check reads these lines.
 #
 # Each logger sits under `goodfetch`, which alone carries a handler, a
 # `NullHandler`; `<area>` is an engine log event's target as a dotted path,

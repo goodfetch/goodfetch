@@ -26,6 +26,9 @@ class it names is a member of that name:
 
 A member is generated when the module declaring it has a `generated`
 segment, and the language library's when it comes from outside the SDK.
+An `__all__` declared other than as one list of strings, or naming what
+its module neither defines nor imports, fails the read: its message goes
+to stderr and the exit code is 1.
 """
 
 from __future__ import annotations
@@ -40,6 +43,10 @@ GENERATED = "generated"
 MODULE = "(module)"
 # The longest chain of re-exports a name is followed through.
 HOPS = 32
+
+
+class ReadError(Exception):
+    """A package's source the reader cannot read its exports from."""
 
 
 @dataclass(frozen=True)
@@ -155,18 +162,36 @@ def absolute(module: Module, name: str | None, level: int) -> str:
 
 
 def exported_names(module: Module) -> list[str] | None:
-    """A module's literal `__all__`, or `None` when it declares none."""
+    """A module's literal `__all__`, or `None` when it declares none.
+
+    An `__all__` built any other way, extended, or holding anything but
+    strings is refused: the reader would miss the names it adds.
+    """
+    names: list[str] | None = None
     for node in statements(module.tree.body):
-        if "__all__" in assigned(node):
-            value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
-            if isinstance(value, ast.List | ast.Tuple):
-                return [
-                    element.value
-                    for element in value.elts
-                    if isinstance(element, ast.Constant)
-                    and isinstance(element.value, str)
-                ]
-    return None
+        extended = (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+        )
+        if not extended and "__all__" not in assigned(node):
+            continue
+        value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
+        if extended or names is not None or not isinstance(value, ast.List | ast.Tuple):
+            raise ReadError(unreadable(module))
+        names = []
+        for element in value.elts:
+            if not isinstance(element, ast.Constant) or not isinstance(
+                element.value, str
+            ):
+                raise ReadError(unreadable(module))
+            names.append(element.value)
+    return names
+
+
+def unreadable(module: Module) -> str:
+    """Why the reader refuses the `__all__` of `module`."""
+    return f"`{module.name}` declares `__all__` other than as one list of strings"
 
 
 class Reader:
@@ -201,7 +226,7 @@ class Reader:
                 return Declared(self.modules[submodule], submodule, None)
             module, name = self.modules[target], original
         message = f"`{module.name}.{name}` is re-exported more than {HOPS} times"
-        raise RecursionError(message)
+        raise ReadError(message)
 
     def bases(self, declared: Declared) -> list[Declared]:
         """The class `declared` and each base the SDK declares, nearest first.
@@ -338,6 +363,16 @@ def exports(sdk: Path) -> list[dict[str, object]]:
             continue
         for name in names:
             declared = reader.resolve(module, name)
+            if (
+                isinstance(declared, Declared)
+                and declared.node is None
+                and declared.name not in modules
+            ):
+                message = (
+                    f"`{module.name}`'s `__all__` names `{name}`, "
+                    "which it neither defines nor imports"
+                )
+                raise ReadError(message)
             identity = (
                 f"{declared.module.name}:{declared.name}"
                 if isinstance(declared, Declared)
@@ -352,4 +387,8 @@ def exports(sdk: Path) -> list[dict[str, object]]:
 
 
 if __name__ == "__main__":
-    sys.stdout.write(json.dumps(exports(Path(sys.argv[1]))))
+    try:
+        sys.stdout.write(json.dumps(exports(Path(sys.argv[1]))))
+    except ReadError as error:
+        sys.stderr.write(f"{error}\n")
+        sys.exit(1)

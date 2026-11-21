@@ -163,18 +163,24 @@ fn compare(
         .collect();
     for member in members {
         let subject = super::subject(manifest, member);
-        let message = match by_key.get(&(&member.package, &member.receiver, &member.name)) {
-            None => format!(
-                "`{}` exports no `{}.{}`; remove the line, or correct its package, receiver or member (ADR 0099)",
-                member.package, member.receiver, member.name
+        let (kind, message) = match by_key.get(&(&member.package, &member.receiver, &member.name)) {
+            None => (
+                "unused-line",
+                format!(
+                    "`{}` exports no `{}.{}`; remove the line, or correct its package, receiver or member (ADR 0099)",
+                    member.package, member.receiver, member.name
+                ),
             ),
-            Some(found) if found.iter().all(|found| found.generated) => format!(
-                "the generator writes `{}.{}` of `{}`; remove the line (ADR 0099)",
-                member.receiver, member.name, member.package
+            Some(found) if found.iter().all(|found| found.generated) => (
+                "generated",
+                format!(
+                    "the generator writes `{}.{}` of `{}`; remove the line (ADR 0099)",
+                    member.receiver, member.name, member.package
+                ),
             ),
             Some(_) => continue,
         };
-        findings.push(Finding::new("unused-line", subject, message));
+        findings.push(Finding::new(kind, subject, message));
     }
     // Each entry's receivers, and the members it lists on `(module)`.
     let names: BTreeSet<(&str, &str)> = members

@@ -17,6 +17,10 @@ const PYTHON_MANIFEST: &str = "sdks/python/manifest.toml";
 const PYTHON_ENTRY: &str = "sdks/python/collie/src/goodfetch_collie/__init__.py";
 const PYTHON_COLLIE: &str = "sdks/python/collie/src/goodfetch_collie/collie.py";
 const PYTHON_HANDLE: &str = "sdks/python/collie-client/src/goodfetch_collie_client/handle.py";
+/// The finding on a line naming no member its SDK exports.
+const UNUSED: &str = "unused-line";
+/// The finding on a line naming a member the generator writes.
+const GENERATED: &str = "generated";
 
 fn workspace() -> Workspace {
     let workspace = Workspace::from_fixture("sdk-exports");
@@ -104,9 +108,10 @@ fn check_refuses_a_hand_written_export_no_line_lists(
 }
 
 #[rstest]
-#[case::member_no_entry_exports("Collie", "begin", "[\"begin\"]", "opener")]
-#[case::member_the_generator_writes("(module)", "Page", "[\"page\"]", "type")]
+#[case::member_no_entry_exports(UNUSED, "Collie", "begin", "[\"begin\"]", "opener")]
+#[case::member_the_generator_writes(GENERATED, "(module)", "Page", "[\"page\"]", "type")]
 fn check_refuses_a_line_naming_no_hand_written_export(
+    #[case] kind: &str,
     #[case] receiver: &str,
     #[case] member: &str,
     #[case] words: &str,
@@ -124,10 +129,7 @@ fn check_refuses_a_line_naming_no_hand_written_export(
 
     assert_eq!(
         outcome.findings(),
-        vec![finding(
-            "unused-line",
-            &format!("{MANIFEST} {receiver}.{member}")
-        )]
+        vec![finding(kind, &format!("{MANIFEST} {receiver}.{member}"))]
     );
     assert_eq!(outcome.code, 1);
 }
@@ -256,16 +258,23 @@ fn check_refuses_a_public_rust_item_no_line_lists(
 /// a hand-written type, not another crate's type it re-exports, which that
 /// crate's manifest lists, and nothing only a test build compiles.
 #[rstest]
-#[case::member_the_crate_lacks("Foxhound", "abort", "[\"abort\"]", "closer")]
-#[case::hidden_member("Foxhound", "hidden", "[\"hidden\"]", "read")]
-#[case::member_the_generator_writes("Foxhound", "start", "[\"start\"]", "opener")]
-#[case::generated_type("(crate)", "Handle", "[\"handle\"]", "type")]
-#[case::generated_type_behind_a_path("blocking", "Waited", "[\"waited\"]", "type")]
-#[case::other_crates_type("(crate)", "Run", "[\"run\"]", "type")]
-#[case::item_of_a_test_module("tests", "helper", "[\"helper\"]", "read")]
-#[case::item_of_a_module_only_some_tests_build("slow_tests", "helper", "[\"helper\"]", "read")]
-#[case::member_of_a_test_impl("Foxhound", "fake", "[\"fake\"]", "opener")]
+#[case::member_the_crate_lacks(UNUSED, "Foxhound", "abort", "[\"abort\"]", "closer")]
+#[case::hidden_member(UNUSED, "Foxhound", "hidden", "[\"hidden\"]", "read")]
+#[case::member_the_generator_writes(GENERATED, "Foxhound", "start", "[\"start\"]", "opener")]
+#[case::generated_type(GENERATED, "(crate)", "Handle", "[\"handle\"]", "type")]
+#[case::generated_type_behind_a_path(GENERATED, "blocking", "Waited", "[\"waited\"]", "type")]
+#[case::other_crates_type(UNUSED, "(crate)", "Run", "[\"run\"]", "type")]
+#[case::item_of_a_test_module(UNUSED, "tests", "helper", "[\"helper\"]", "read")]
+#[case::item_of_a_module_only_some_tests_build(
+    UNUSED,
+    "slow_tests",
+    "helper",
+    "[\"helper\"]",
+    "read"
+)]
+#[case::member_of_a_test_impl(UNUSED, "Foxhound", "fake", "[\"fake\"]", "opener")]
 fn check_refuses_a_rust_line_naming_no_public_hand_written_item(
+    #[case] kind: &str,
     #[case] receiver: &str,
     #[case] member: &str,
     #[case] words: &str,
@@ -284,7 +293,7 @@ fn check_refuses_a_rust_line_naming_no_public_hand_written_item(
     assert_eq!(
         outcome.findings(),
         vec![finding(
-            "unused-line",
+            kind,
             &format!("{RUST_MANIFEST} {receiver}.{member}")
         )],
         "{}",
@@ -383,26 +392,64 @@ fn check_refuses_a_public_python_member_no_line_lists(
 /// a module with no `__all__`, not a private member, not a field of a shape
 /// of data, and nothing the generator writes, even on a hand-written class.
 #[rstest]
-#[case::member_no_entry_exports("goodfetch_collie", "Collie", "begin", "[\"begin\"]", "opener")]
-#[case::name_left_out_of_all("goodfetch_collie", "(module)", "helper", "[\"helper\"]", "read")]
+#[case::member_no_entry_exports(
+    UNUSED,
+    "goodfetch_collie",
+    "Collie",
+    "begin",
+    "[\"begin\"]",
+    "opener"
+)]
+#[case::name_left_out_of_all(
+    UNUSED,
+    "goodfetch_collie",
+    "(module)",
+    "helper",
+    "[\"helper\"]",
+    "read"
+)]
 #[case::name_of_a_module_with_no_all(
+    UNUSED,
     "goodfetch_collie.collie",
     "(module)",
     "open_over",
     "[\"open\", \"over\"]",
     "opener"
 )]
-#[case::private_member("goodfetch_collie", "Collie", "_flush", "[\"flush\"]", "closer")]
+#[case::private_member(
+    UNUSED,
+    "goodfetch_collie",
+    "Collie",
+    "_flush",
+    "[\"flush\"]",
+    "closer"
+)]
 #[case::field_of_a_shape_of_data(
+    UNUSED,
     "goodfetch_collie",
     "StartOptions",
     "timeout",
     "[\"timeout\"]",
     "read"
 )]
-#[case::generated_type("goodfetch_collie", "(module)", "Page", "[\"page\"]", "type")]
-#[case::member_the_generator_writes("goodfetch_collie", "Collie", "start", "[\"start\"]", "opener")]
+#[case::generated_type(
+    GENERATED,
+    "goodfetch_collie",
+    "(module)",
+    "Page",
+    "[\"page\"]",
+    "type"
+)]
+#[case::member_the_generator_writes(
+    GENERATED,
+    "goodfetch_collie",
+    "Collie",
+    "start",
+    "[\"start\"]",
+    "opener"
+)]
 fn check_refuses_a_python_line_naming_no_public_hand_written_member(
+    #[case] kind: &str,
     #[case] package: &str,
     #[case] receiver: &str,
     #[case] member: &str,
@@ -422,11 +469,36 @@ fn check_refuses_a_python_line_naming_no_public_hand_written_member(
     assert_eq!(
         outcome.findings(),
         vec![finding(
-            "unused-line",
+            kind,
             &format!("{PYTHON_MANIFEST} {receiver}.{member}")
         )],
         "{}",
         outcome.stdout
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// An `__all__` the reader cannot read whole, or naming what its module
+/// neither defines nor imports, fails the run rather than dropping a name.
+#[rstest]
+#[case::name_nothing_declares("[\"Collie\", \"Colie\"]", "Colie")]
+#[case::name_built_at_run_time("[\"Collie\", *EXTRA]", "__all__")]
+#[case::all_extended("[\"Collie\"]\n__all__ += [\"Page\"]", "__all__")]
+fn check_fails_on_a_python_all_it_cannot_read(#[case] all: &str, #[case] named: &str) {
+    let workspace = workspace();
+    workspace.edit(
+        PYTHON_ENTRY,
+        "__all__ = [\"Collie\", \"Page\", \"StartOptions\", \"Subscription\"]",
+        &format!("__all__ = {all}"),
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(outcome.stdout, "");
+    assert!(
+        outcome.stderr.contains(&format!("`{named}`")),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 2);
 }

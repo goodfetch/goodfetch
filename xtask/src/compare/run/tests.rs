@@ -571,16 +571,32 @@ fn the_sizes_cell_runs_every_tool_at_16_in_flight_and_two_at_1_and_64() {
     };
 
     for pages in [100, 1_000, 10_000] {
+        let at_16: Vec<Tool> = Tool::ALL
+            .into_iter()
+            .filter(|&tool| pages <= 1_000 || tool != Tool::FastCrw)
+            .collect();
         assert_eq!(
             (tools_at(16, pages), tools_at(1, pages), tools_at(64, pages)),
             (
-                Tool::ALL.to_vec(),
+                at_16,
                 vec![Tool::Foxhound],
                 vec![Tool::Foxhound, Tool::Spider]
             ),
             "at {pages} pages"
         );
     }
+}
+
+/// A tool that cannot crawl a size is not run there, with its reason:
+/// fastCRW, whose crawl job stops at 1,000 pages, at 10,000 (#2871).
+#[test]
+fn the_sizes_cell_does_not_run_fastcrw_past_its_thousand_pages() {
+    let reason = |pages| crate::compare::trials::size_not_run(Tool::FastCrw, pages, 16);
+
+    assert_eq!(
+        (reason(100), reason(1_000), reason(10_000).is_some()),
+        (None, None, true)
+    );
 }
 
 /// The sizes cell runs Spider where its crawl holds: not at 1 request in

@@ -125,7 +125,7 @@ pub(super) fn sizes(cell: &SizesCell) -> Sizes<'_> {
                 let stop = stopped.iter().find(|point| {
                     point.run.tool == tool && at(point.site_pages, point.concurrency)
                 });
-                let figures = match (size_not_run(tool, concurrency), stop) {
+                let figures = match (size_not_run(tool, site_pages, concurrency), stop) {
                     (Some(reason), _) => SizeFigures::NotMeasured {
                         reason: reason.to_owned(),
                     },

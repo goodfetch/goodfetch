@@ -320,7 +320,7 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario], named: Option<&[&str]>) -> V
             let tools: Vec<Tool> = size_tools(concurrency)
                 .iter()
                 .copied()
-                .filter(|&tool| size_not_run(tool, concurrency).is_none())
+                .filter(|&tool| size_not_run(tool, site_pages, concurrency).is_none())
                 .collect();
             findings.extend(check_pass(&Pass {
                 suffix: format!(" sizes {site_pages} pages at {concurrency}"),

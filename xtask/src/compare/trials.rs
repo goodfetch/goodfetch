@@ -56,15 +56,25 @@ pub(crate) fn size_tools(concurrency: u32) -> &'static [Tool] {
     }
 }
 
-/// Why the sizes cell runs no trial of `tool` at `concurrency` in flight,
-/// where it does not: Spider at 1, whose crawl stops short of the site.
-pub(crate) fn size_not_run(tool: Tool, concurrency: u32) -> Option<&'static str> {
-    (tool == Tool::Spider && concurrency == 1).then_some(
-        "Spider 2.53.9 crawls part of the site with one request in flight: its raw crawl \
-         ends once a fetch leaves none in flight and adds no link, though links it has \
-         read wait in its batch (12 of 100, 112 of 1,000 and 1,112 of 10,000 pages on \
-         2026-11-13)",
-    )
+/// Why the sizes cell runs no trial of `tool` on the site of `pages` at
+/// `concurrency` in flight, where it does not: Spider at 1, whose crawl
+/// stops short of the site, and fastCRW past the 1,000 pages a crawl job
+/// of its reaches (#2871).
+pub(crate) fn size_not_run(tool: Tool, pages: u64, concurrency: u32) -> Option<&'static str> {
+    match tool {
+        Tool::Spider if concurrency == 1 => Some(
+            "Spider 2.53.9 crawls part of the site with one request in flight: its raw crawl \
+             ends once a fetch leaves none in flight and adds no link, though links it has \
+             read wait in its batch (12 of 100, 112 of 1,000 and 1,112 of 10,000 pages on \
+             2026-11-13)",
+        ),
+        Tool::FastCrw if pages > 1_000 => Some(
+            "fastCRW crawls at most 1,000 pages a job: at its pinned version, a crawl job's \
+             `limit` is held to 1,000 whatever the request asks (`max_pages.min(1000)` in \
+             `run_crawl_inner`, `crw-crawl/src/crawl.rs`)",
+        ),
+        _ => None,
+    }
 }
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
 /// (a unit test holds the two equal).

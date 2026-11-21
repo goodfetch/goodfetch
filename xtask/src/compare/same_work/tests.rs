@@ -665,7 +665,7 @@ fn sizes() -> SizesCell {
                     .into_iter()
                     .filter(move |&concurrency| {
                         size_tools(concurrency).contains(&config.tool())
-                            && size_not_run(config.tool(), concurrency).is_none()
+                            && size_not_run(config.tool(), pages, concurrency).is_none()
                     })
                     .flat_map(move |concurrency| {
                         (1..=3).map(move |number| {

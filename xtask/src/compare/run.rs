@@ -450,7 +450,7 @@ fn size_points(options: &Options) -> Vec<Point> {
                 .iter()
                 .filter(move |(_, config)| {
                     size_tools(crawl.concurrency).contains(&config.tool())
-                        && size_not_run(config.tool(), crawl.concurrency).is_none()
+                        && size_not_run(config.tool(), crawl.pages, crawl.concurrency).is_none()
                 })
                 .map(move |&(cell, config)| {
                     (cell, at_concurrency(config, crawl.concurrency), crawl)

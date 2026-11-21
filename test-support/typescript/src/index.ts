@@ -52,7 +52,12 @@ export {
 } from "./play-script.ts";
 export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
-export { productEnv, scriptedEngineEnv, type Product } from "./product-env.ts";
+export {
+  productEnv,
+  scriptedEngineClientMethods,
+  scriptedEngineEnv,
+  type Product,
+} from "./product-env.ts";
 export {
   startScriptedDaemon,
   type ScriptedDaemon,

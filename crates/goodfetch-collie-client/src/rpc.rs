@@ -304,6 +304,9 @@ struct Pending {
     reply: oneshot::Sender<Result<Value, Error>>,
     deadline: Option<Key>,
     notified: Option<mpsc::Sender<Heard>>,
+    /// Whether the catalog says the engine cancels it, so its deadline
+    /// passing sends its `$/cancel` (ADR 0080).
+    cancellable: bool,
 }
 
 impl Pending {
@@ -362,6 +365,7 @@ async fn correlate(
                     let unheard = call.notified.as_ref().is_some_and(|notified| {
                         matches!(notified.try_send(Heard::Sent(id)), Err(mpsc::error::TrySendError::Closed(_)))
                     });
+                    let cancellable = noted.is_some();
                     if let Some(noted) = noted {
                         // Its caller cancels it with `CancelSent`.
                         let _noted = noted.id.0.set(id);
@@ -373,7 +377,7 @@ async fn correlate(
                         // so never learnt its id: the call is cancelled here.
                         send(&cancelled(id), &lines);
                     }
-                    pending.insert(id, Pending { method, reply: call.reply, deadline, notified: call.notified });
+                    pending.insert(id, Pending { method, reply: call.reply, deadline, notified: call.notified, cancellable });
                 }
                 Some(Command::Notify(notification)) => send(&notification, &lines),
                 Some(Command::CancelSent(call)) => {
@@ -387,6 +391,11 @@ async fn correlate(
                 let id = expired.into_inner();
                 if let Some(call) = pending.remove(&id) {
                     tracing::debug!(target: "goodfetch::client", id, "a call timed out");
+                    // The engine's work for it ends too, as for a dropped
+                    // call; its late answer then changes nothing.
+                    if call.cancellable {
+                        send(&cancelled(id), &lines);
+                    }
                     call.fail(Error::timed_out());
                 }
             }

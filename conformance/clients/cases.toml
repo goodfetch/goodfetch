@@ -398,6 +398,23 @@ covers = ["story:11-41", "story:11-42"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# Cancellation (ADR 0080; issue 3074): a TypeScript signal's abort, a Python
+# task's cancellation, Ctrl+C's KeyboardInterrupt in the sync API, and a
+# dropped Rust future each send `$/cancel` naming the call, and the Scripted
+# engine's work ends; the call fails with the program's own cancellation,
+# `signal.reason` or `CancelledError`, never `call_cancelled`. With a signal
+# and a timeout both set the first ends the call, and a timeout the client's
+# own timer enforces, Rust's, sends `$/cancel` too. A click already sent is
+# not undone (ADRs 0080 and 0081): nothing is sent again or in its stead,
+# and the next call goes as usual. Attached in TypeScript and Python, three
+# ways in Python, and against the Scripted engine's Daemon in Rust: Rust's
+# linked mode runs the crate's own engine in process, which plays no script.
+[[capability.case]]
+id = "cancellation-reaches-the-engine"
+covers = ["story:11-47"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
 [[capability]]
 name = "catalog-mapping"
 

@@ -235,6 +235,9 @@ impl Gateway {
             product_version: version(),
             engine_instance: self.instance.clone(),
             private_endpoint: None,
+            // Each call goes on to an engine over a Connection of the
+            // Client's own, which that engine caps.
+            max_calls_in_flight: goodfetch_engine::rpc::max_calls_in_flight(),
         };
         let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
         outgoing.send(reply.to_string()).await.ok()?;

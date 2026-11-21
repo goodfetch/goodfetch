@@ -11,9 +11,10 @@ from typing import Final
 from typing_extensions import deprecated
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
-from goodfetch_collie_client.markers import warn_deprecated, warn_experimental
+from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
 from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .settings import DEPRECATED_SETTINGS
 
 
 class AsyncCollieOperations:
@@ -49,6 +50,7 @@ class AsyncCollieOperations:
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(SettingsExplanation, await self._caller.call("config.explain", params))
 
     async def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:
@@ -505,6 +507,7 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.new_page")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(PageOpened, await self._caller.call("run.new_page", params))
 
     async def run_new_session(self, params: NewSessionParams) -> SessionOpened:
@@ -513,6 +516,7 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.new_session")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(SessionOpened, await self._caller.call("run.new_session", params))
 
     async def run_pause(self, params: RunParams) -> RunReport:
@@ -545,6 +549,7 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.resume")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("run.resume", params))
 
     async def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
@@ -561,6 +566,7 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("run.start", params))
 
     async def run_stop(self, params: RunStopParams) -> RunReport:
@@ -605,6 +611,7 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.new_page")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(PageOpened, await self._caller.call("session.new_page", params))
 
     async def session_on(self, params: SessionOnParams) -> SessionOnEnded:
@@ -697,6 +704,7 @@ class CollieOperations:
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(SettingsExplanation, self._caller.call("config.explain", params))
 
     def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:
@@ -1153,6 +1161,7 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.new_page")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(PageOpened, self._caller.call("run.new_page", params))
 
     def run_new_session(self, params: NewSessionParams) -> SessionOpened:
@@ -1161,6 +1170,7 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.new_session")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(SessionOpened, self._caller.call("run.new_session", params))
 
     def run_pause(self, params: RunParams) -> RunReport:
@@ -1193,6 +1203,7 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.resume")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("run.resume", params))
 
     def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
@@ -1209,6 +1220,7 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("run.start", params))
 
     def run_stop(self, params: RunStopParams) -> RunReport:
@@ -1253,6 +1265,7 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.new_page")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(PageOpened, self._caller.call("session.new_page", params))
 
     def session_on(self, params: SessionOnParams) -> SessionOnEnded:

@@ -62,6 +62,7 @@ fn each_fabricated_hello_gets_its_generated_reply(
                     "protocol_version": protocol_version,
                     "product": hello.engine,
                     "product_version": "1.4.0",
+                    "max_calls_in_flight": super::IN_FLIGHT_CAP,
                 })
             ),
             "{received:#?}"

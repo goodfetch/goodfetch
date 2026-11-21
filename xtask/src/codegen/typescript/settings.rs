@@ -27,6 +27,11 @@ use super::wire::{inline_path, path_value};
 /// generated settings module declares.
 pub(super) const SETTINGS_ON_WIRE: &str = "settingsOnWire";
 
+/// What the generated settings module declares to warn of each deprecated
+/// setting a scope's raw `settings` set, which a generated operation taking
+/// them calls (ADR 0099).
+pub(super) const WARN_DEPRECATED_SETTINGS: &str = "warnDeprecatedSettings";
+
 /// Where Collie's client package's generated settings module takes the
 /// hand-written walker of a scope's settings onto the wire from.
 const COLLIE_WALKER: &str = "../settings.ts";
@@ -149,7 +154,7 @@ fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<St
         .context("a settings module types one scope at least")?
         .name;
     let mut text = format!(
-        "{HEADER}\nimport {{\n  type DeprecatedSettings,\n  onWire,\n  type SettingsOnWire,\n  type Spelling,\n}} from \"{walker}\";\n"
+        "{HEADER}\nimport {{\n  type DeprecatedSettings,\n  onWire,\n  type SettingsOnWire,\n  type Spelling,\n  warnDeprecatedOnWire,\n}} from \"{walker}\";\n"
     );
     for scope in scopes {
         let level = tree(settings, Some(scope.scope))?;
@@ -170,6 +175,10 @@ fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<St
     let _ = write!(
         text,
         "\n/** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */\nexport function settingsOnWire(settings: {outermost} | undefined): SettingsOnWire | undefined {{\n  return onWire(settings, SPELLING, DEPRECATED_SETTINGS);\n}}\n",
+    );
+    let _ = write!(
+        text,
+        "\n/** @internal Warns once per process of each deprecated setting `settings`, raw as the wire takes them, set (ADR 0099). */\nexport function {WARN_DEPRECATED_SETTINGS}(settings: SettingsOnWire | undefined): void {{\n  warnDeprecatedOnWire(settings, DEPRECATED_SETTINGS);\n}}\n",
     );
     Ok(text)
 }

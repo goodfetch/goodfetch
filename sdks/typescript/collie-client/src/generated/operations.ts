@@ -3,6 +3,7 @@
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
 import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
 
@@ -309,6 +310,7 @@ export class CollieOperations {
    * Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.
    */
   configExplain(params: ConfigExplainParams): Promise<SettingsExplanation> {
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("config.explain", params, {});
   }
 
@@ -887,6 +889,7 @@ export class CollieOperations {
    */
   runNewPage(params: NewPageParams): Promise<PageOpened> {
     warnExperimental("run.new_page");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.new_page", params, {});
   }
 
@@ -897,6 +900,7 @@ export class CollieOperations {
    */
   runNewSession(params: NewSessionParams): Promise<SessionOpened> {
     warnExperimental("run.new_session");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.new_session", params, {});
   }
 
@@ -937,6 +941,7 @@ export class CollieOperations {
    */
   runResume(params: RunResumeParams): Promise<RunStarted> {
     warnExperimental("run.resume");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.resume", params, {});
   }
 
@@ -957,6 +962,7 @@ export class CollieOperations {
    */
   runStart(params: RunStartParams): Promise<RunStarted> {
     warnExperimental("run.start");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.start", params, {});
   }
 
@@ -1009,6 +1015,7 @@ export class CollieOperations {
    */
   sessionNewPage(params: NewSessionPageParams): Promise<PageOpened> {
     warnExperimental("session.new_page");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("session.new_page", params, {});
   }
 

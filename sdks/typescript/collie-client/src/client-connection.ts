@@ -20,7 +20,6 @@ import {
   ClosedError,
   CollieOperations,
   collieOperations,
-  DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
   PRODUCT_VERSION,
@@ -53,6 +52,7 @@ import type { SettingsOnWire } from "./settings.ts";
 import { SharedSubscription } from "./shared-subscription.ts";
 import {
   Channel,
+  phaseExceeded,
   type ChannelBounds,
   type ChannelOpenOptions,
   type Transport,
@@ -601,6 +601,11 @@ export class ClientConnection implements AsyncDisposable {
       { type: "HelloResult" satisfies CollieWireType },
       collieWire.types,
     ) as HelloResult;
+    // The engine refuses a call past its cap with `too_many_calls`: the
+    // Channel queues the rest under it (ADR 0038; issue 2529).
+    if (result.maxCallsInFlight !== undefined && result.maxCallsInFlight !== null) {
+      this.#channel.capCallsInFlight(result.maxCallsInFlight);
+    }
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,
@@ -783,30 +788,6 @@ export function connectLimit(
         ? { key: "timeout.connect", value, layer: "default" }
         : { key: "timeout.connect", value, layer: "run", origin: "argument" },
   };
-}
-
-/**
- * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
- * `waitedFor` started at `startedAt` (ADR 0080).
- */
-export function phaseExceeded(
-  message: string,
-  fix: string,
-  limit: ErrorLimit,
-  startedAt: number,
-  waitedFor: "hello" | "close",
-): DeadlineExceededError {
-  return new DeadlineExceededError(message, {
-    code: "deadline_exceeded",
-    group: "deadline_exceeded",
-    retryable: true,
-    fix,
-    limit,
-    details: {
-      elapsed: Date.now() - startedAt,
-      waited_for: waitedFor,
-    },
-  });
 }
 
 /**

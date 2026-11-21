@@ -305,7 +305,10 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
         "table-auto",
         &[json!({ "url": proving_ground.url(HOST, "/states"), "label": "page" })],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "auto", "http_from": "browser" } }),
+        ),
         &mut the_tables_calls(&mut runs),
     );
     let ended = ended(&mut engine, "table-auto");
@@ -333,7 +336,8 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
 /// listing, and the browser's run, in the same attempt, answers the three
 /// entries; under a forced `http` the wait fails with `browser_required`,
 /// and the request ends `failed`, never `succeeded` with nothing (pitfall
-/// H22). Neither counts a retry.
+/// H22). Neither counts a retry. Under `auto`, its HTTP leaves from the
+/// browser (`fetch.http_from: browser`).
 ///
 /// Covers: story:6-260, story:6-259, operation:locator.wait_for_count
 #[rstest::rstest]
@@ -357,7 +361,10 @@ fn a_script_rendered_page_never_ends_as_an_empty_success_on_http(
         &run_id,
         &[json!({ "url": proving_ground.url(HOST, "/blog/1"), "label": "blog" })],
         &json!({ "blog": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": tier } })),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": tier, "http_from": "browser" } }),
+        ),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             let waited = inside.call(
                 "locator.wait_for_count",

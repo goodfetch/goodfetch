@@ -80,11 +80,12 @@ pub enum Choosing {
 /// `fetch.http_from`, the Run's or a declared Label's own (ADR 0023).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HttpFrom {
-    /// From inside the Session's browser, as `browser_fetch`: the default.
-    #[default]
+    /// From inside the Session's browser, as `browser_fetch`.
     Browser,
-    /// Learned per Label; as [`HttpFrom::Transport`] until the engine
-    /// learns which client a site accepts.
+    /// Learned per Label, the default (issue 3106); as
+    /// [`HttpFrom::Transport`] until the engine learns which client a site
+    /// accepts.
+    #[default]
     Learned,
     /// From a Session's own HTTP transport, as `http`.
     Transport,

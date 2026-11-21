@@ -78,7 +78,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::naming;
 use layer::Layer;
 pub(crate) use members::{HandleMember, handle_members};
-pub(crate) use naming::{camel, pascal, rust_snake, rust_type};
+pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
 
 /// Where `goodfetch-protocol`'s committed outputs live.
 const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";

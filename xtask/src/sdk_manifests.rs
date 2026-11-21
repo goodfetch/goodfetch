@@ -16,9 +16,11 @@
 //! A receiver is the same across SDKs within the same package, the
 //! `@goodfetch/` or `goodfetch-` prefix aside; a Rust `blocking::` twin is
 //! its async receiver, and a Rust crate's root is a TypeScript module's.
+//! A Python receiver, whose package is an import name such as
+//! `goodfetch_collie`, is not yet matched to another SDK's (issue 3115).
 //! `xtask sdk-exports` matches a manifest to the members its SDK exports
-//! ([`exports`]), TypeScript's and Rust's; their doc text and markers, and
-//! the Python SDK's manifest, are issue 2920's next parts.
+//! ([`exports`]), TypeScript's, Rust's and Python's; their doc text and
+//! markers are issue 2920's next parts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -39,12 +41,13 @@ pub(crate) mod exports;
 const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 /// Each SDK's manifest and its language; an SDK that lists its hand-written
 /// members adds its own here.
-const MANIFESTS: [(&str, Language); 2] = [
+const MANIFESTS: [(&str, Language); 3] = [
     ("sdks/typescript/manifest.toml", Language::TypeScript),
     (
         "crates/foxhound/goodfetch-foxhound/manifest.toml",
         Language::Rust,
     ),
+    ("sdks/python/manifest.toml", Language::Python),
 ];
 /// The `entry` of a member that serves no catalog entry, with its reason.
 const NO_ENTRY: &str = "none";
@@ -76,6 +79,7 @@ const CRATE: &str = "(crate)";
 enum Language {
     TypeScript,
     Rust,
+    Python,
 }
 
 #[derive(Deserialize)]
@@ -162,10 +166,11 @@ fn spelling(language: Language, member: &Member) -> Option<String> {
         return Some(words.to_uppercase());
     }
     match (language, member.form == TYPE) {
-        (Language::TypeScript, true) => Some(codegen::pascal(&words)),
+        (Language::TypeScript | Language::Python, true) => Some(codegen::pascal(&words)),
         (Language::TypeScript, false) => Some(codegen::camel(&words)),
         (Language::Rust, true) => codegen::rust_type(&words),
         (Language::Rust, false) => codegen::rust_snake(&words),
+        (Language::Python, false) => Some(codegen::snake(&words)),
     }
 }
 
@@ -194,6 +199,7 @@ fn generated_name(language: Language, words: &str) -> Option<String> {
     match language {
         Language::TypeScript => Some(codegen::camel(words)),
         Language::Rust => codegen::rust_snake(words),
+        Language::Python => Some(codegen::snake(words)),
     }
 }
 

@@ -74,6 +74,6 @@ CREATE TABLE waiters (
         woken_at INTEGER NOT NULL,
         PRIMARY KEY (key, run_id)
     ) STRICT;
-INSERT INTO "waiters" VALUES('hold.test','holding','wake.sock',1,0,0);
+INSERT INTO "waiters" VALUES('hold.test','waiting','wake.sock',1,0,0);
 CREATE INDEX permits_by_key ON permits (key);
 COMMIT;

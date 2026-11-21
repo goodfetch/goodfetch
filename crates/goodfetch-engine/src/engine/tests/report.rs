@@ -811,35 +811,13 @@ fn a_part_no_area_supplied_is_absent_never_zero() {
     );
 }
 
+/// A code of the warning table, and one from a newer engine, are handed
+/// over as they came.
 /// Covers: story:3-155
 #[rstest]
-fn a_warning_handed_over_appears_with_what_it_concerns(
-    #[values(
-        "fingerprint_none",
-        "fingerprint_js_injection",
-        "fingerprint_basic",
-        "fingerprint_basic_fallback",
-        "browser_build_outdated",
-        "browser_build_third_party",
-        "browser_build_firefox",
-        "browser_build_plugin",
-        "human_input_fallback",
-        "proxy_exit_may_change",
-        "filter_vendor_flagged",
-        "trap_links_off",
-        "cpu_throttled",
-        "storage_low",
-        "politeness_store_degraded",
-        "clean_up_rules_stale",
-        "path_not_writable",
-        "file_write_failed",
-        "baseline_unavailable",
-        "plugin_quantity_above_maximum",
-        "plugin_figures",
-        "a_code_from_a_newer_engine"
-    )]
-    code: &str,
-) {
+#[case::a_table_code("storage_low")]
+#[case::a_code_from_a_newer_engine("a_code_from_a_newer_engine")]
+fn a_warning_handed_over_appears_with_what_it_concerns(#[case] code: &str) {
     let env = TestEnv::new();
     let warning = json!({
         "code": code,
@@ -967,45 +945,41 @@ fn run_usage_gives_what_the_run_used_and_the_limits_that_apply() {
         ],
     );
 
-    let limit = |left: u64| {
-        json!({
+    // The run's one charge of 3 requests takes a Slice of 3, held while
+    // the run is live and charged at its end: 97 are left either way.
+    let used = json!({
+        "model": {
+            "calls": 2,
+            "tokens": 300,
+            "input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "price": null,
+        },
+        "browser_time": 1_500,
+        "proxy_bytes": 4_096,
+        "requests": 3,
+        "paid_solves": [{ "currency": "USD", "amount": 20_000 }],
+        "limits": [{
             "scope": { "kind": "install", "id": "" },
             "usage_kind": "requests",
             "period": { "every": "month", "time_zone": "UTC" },
             "resets_at": "2026-02-01T00:00:00Z",
             "amount": 100,
-            "left": left,
+            "left": 97,
             "set_by": "client",
-        })
-    };
-    let used = |left: u64| {
-        json!({
-            "model": {
-                "calls": 2,
-                "tokens": 300,
-                "input_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 0,
-                "output_tokens": 0,
-                "reasoning_tokens": 0,
-                "price": null,
-            },
-            "browser_time": 1_500,
-            "proxy_bytes": 4_096,
-            "requests": 3,
-            "paid_solves": [{ "currency": "USD", "amount": 20_000 }],
-            "limits": [limit(left)],
-            "uncapped": true,
-        })
-    };
-    let live_left = replies[3]["result"]["limits"][0]["left"].as_u64().unwrap();
+        }],
+        "uncapped": true,
+    });
     assert_eq!(
         (
             &replies[3]["result"],
             &replies[4]["result"]["usage"],
             &replies[5]["result"],
         ),
-        (&used(live_left), &used(97), &used(97))
+        (&used, &used, &used)
     );
 }
 

@@ -34,6 +34,7 @@ mod raw_call;
 mod scripted;
 mod settings;
 mod start;
+mod trace_context;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

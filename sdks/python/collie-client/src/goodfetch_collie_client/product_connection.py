@@ -24,8 +24,8 @@ from goodfetch_collie_client.connection import (
     EngineInfo,
     Reached,
 )
+from goodfetch_collie_client.deployment_variables import check_deployment_variables
 from goodfetch_collie_client.engine_choice import AttachedReach, reach_engine
-from goodfetch_collie_client.generated.errors import SettingInvalidError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.limits import limit_list
@@ -78,22 +78,12 @@ class EngineLocation:
 def locate_engine(env: Mapping[str, str], product: ProductPackage) -> EngineLocation:
     """The executable `env` names for `product`, or its platform wheel's.
 
-    Raises:
-        SettingInvalidError: The variable is set but empty.
+    `env` has passed `check_deployment_variables`, so a variable it holds is
+    never empty.
     """
     variable = product.engine_path_variable
     name, executable, package = product.name, product.executable, product.package
     named = env.get(variable)
-    if named == "":
-        # An empty value is never taken for unset (ADR 0083).
-        raise SettingInvalidError(
-            f"{variable} is set but empty",
-            fix=(
-                f"Set {variable} to {name}'s executable, {executable}, or leave it "
-                f"unset to use the one {package} installed."
-            ),
-            details={"key": variable, "reason": "an empty value names no executable"},
-        )
     if named is not None:
         return EngineLocation(
             named,
@@ -126,7 +116,10 @@ async def open_engine(
     else the running Daemon of the SDK's line, else an Attached engine (ADR
     0024). `env` is the environment map, read here and never at import: the
     process's own when left out (ADRs 0062 and 0083). An Attached engine,
-    and a Daemon this call starts, gets exactly this map. `connect_timeout`
+    and a Daemon this call starts, gets exactly this map. A `GOODFETCH_`
+    variable off the closed list of deployment variables
+    (`setting_unknown`, naming the closest) or one set but empty
+    (`setting_invalid`) raises before any engine is reached. `connect_timeout`
     is how long `hello` waits for its answer: `timeout.connect`'s 30 s when
     left out, none for `None`; past it, `DeadlineExceededError` naming
     `timeout.connect` raises. `max_listener_queue` bounds the queue of each
@@ -151,6 +144,7 @@ async def open_engine(
         else timeout_of(connect_timeout, "timeout.connect")
     )
     environment = dict(os.environ if env is None else env)
+    check_deployment_variables(environment)
     reach = await reach_engine(
         engine, environment, lambda: locate_engine(environment, product)
     )

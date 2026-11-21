@@ -120,9 +120,13 @@ fn a_progress_message_is_kept_in_run_state_carried_on_progress_and_in_the_run_in
 
 /// Covers: story:3-129
 #[rstest]
-#[case::at_most_512_characters(512, true)]
-#[case::longer(513, false)]
-fn a_progress_message_holds_at_most_512_characters(#[case] length: usize, #[case] kept: bool) {
+#[case::at_most_512_characters(512, true, None)]
+#[case::longer(513, false, Some("invalid_params"))]
+fn a_progress_message_holds_at_most_512_characters(
+    #[case] length: usize,
+    #[case] kept: bool,
+    #[case] refused: Option<&str>,
+) {
     let env = TestEnv::new();
     let message = "é".repeat(length);
 
@@ -145,9 +149,11 @@ fn a_progress_message_holds_at_most_512_characters(#[case] length: usize, #[case
     assert_eq!(
         (
             answer.get("result").is_some(),
+            answer["error"]["data"]["code"].as_str(),
             in_run_state(&env, "long").is_some()
         ),
-        (kept, kept)
+        (kept, refused, kept),
+        "{answer}"
     );
 }
 

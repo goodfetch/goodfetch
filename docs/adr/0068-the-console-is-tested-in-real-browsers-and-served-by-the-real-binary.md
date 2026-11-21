@@ -167,6 +167,8 @@ ADR 0030 runs every code sample in CI against the Proving ground, through Rust d
 - **Visual:** Vitest's `toMatchScreenshot` on stories, Playwright's `toHaveScreenshot` in served and docs tests.
 - **Localization:** a locale is a parameter of a Vitest project and of a Playwright project, so a pseudo-locale or a right-to-left locale runs the same tests.
 
+> Note (recorded on 2026-11-21 from `TESTING.md`, [#2530](https://github.com/goodfetch/goodfetch/issues/2530)): until a Release run had passed, the tools served tests rely on were shown under the production CSP's Trusted Types by local runs: [#372](https://github.com/goodfetch/goodfetch/issues/372)'s on macOS on 2026-10-19 and, with every test of `trusted-types.spec.ts`, `fail-on-errors.spec.ts` and the `bypassCSP` refusals, one on Linux x86-64 on 2026-10-22.
+
 ## Considered Options
 
 - **jsdom or happy-dom for components:** rejected. They do no layout, and Base UI's primitives need hand-written polyfills there. Base UI itself tests in Chromium.

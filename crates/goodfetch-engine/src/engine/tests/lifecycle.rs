@@ -129,11 +129,15 @@ fn a_finish_racing_an_abort_leaves_the_run_stopped_by_the_abort() {
 /// nothing: each answers the Run's report (ADR 0128).
 ///
 /// Covers: story:3-151
-#[test]
-fn a_stop_or_finish_of_an_ended_run_answers_its_report_unchanged() {
+#[rstest::rstest]
+#[case::pause("run.pause")]
+#[case::migrate("run.migrate")]
+#[case::finish("run.finish")]
+fn a_stop_or_finish_of_an_ended_run_answers_its_report_unchanged(#[case] method: &str) {
     let env = TestEnv::new();
+    let method = method.to_owned();
 
-    let answers = attached_on(
+    let answer = attached_on(
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
@@ -141,25 +145,17 @@ fn a_stop_or_finish_of_an_ended_run_answers_its_report_unchanged() {
             client.next().await;
             call(&mut client, 1, "run.start", json!({ "run_id": "ended" })).await;
             call(&mut client, 2, "run.finish", json!({ "run_id": "ended" })).await;
-            let mut answers = Vec::new();
-            for (id, method) in [(3, "run.pause"), (4, "run.migrate"), (5, "run.finish")] {
-                let answer = call(&mut client, id, method, json!({ "run_id": "ended" })).await;
-                answers.push(json!([
-                    answer["result"]["lifecycle"],
-                    answer["result"]["stop_reason"]
-                ]));
-            }
-            answers
+            call(&mut client, 3, &method, json!({ "run_id": "ended" })).await
         },
     );
 
     assert_eq!(
-        answers,
-        vec![
-            json!(["finished", null]),
-            json!(["finished", null]),
-            json!(["finished", null])
-        ]
+        json!([
+            answer["result"]["lifecycle"],
+            answer["result"]["stop_reason"]
+        ]),
+        json!(["finished", null]),
+        "{answer}"
     );
 }
 

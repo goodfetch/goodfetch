@@ -338,11 +338,6 @@ impl KnownCertificates {
         }
     }
 
-    /// Its file.
-    pub fn path(&self) -> &Path {
-        &self.store.file().path
-    }
-
     /// What the store holds for `person`'s `host`. A store never written
     /// holds nothing, and is not created.
     ///

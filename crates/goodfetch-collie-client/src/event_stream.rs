@@ -38,6 +38,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::Error;
 use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Received, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
+use crate::trace_context;
 pub(crate) use opened::Opens;
 use opened::{Opened, Opening};
 
@@ -308,7 +309,8 @@ impl Flow {
     ) -> Self {
         let (reply, replied) = oneshot::channel();
         let refused = match params {
-            Ok(params) => {
+            Ok(mut params) => {
+                trace_context::carry(&mut params, sender.trace_context());
                 sender.call(Outgoing {
                     method: method.to_owned(),
                     params,

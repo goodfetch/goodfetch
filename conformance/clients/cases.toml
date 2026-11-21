@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "37"
+version = "38"
 
 [[capability]]
 name = "lifecycle"
@@ -272,6 +272,16 @@ name = "connecting"
 id = "connect-finds-the-engine"
 covers = ["story:11-2", "story:11-4", "story:11-5", "story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A Daemon that refuses `hello` by Product or protocol version and cannot
+# hand over (ADR 0098): under `auto` the Client runs an Attached engine,
+# reports why in `engine().fallback` and warns once; under `daemon` it
+# raises the refusal, whose fix adds the executable's `daemon restart`.
+# TypeScript runs it; Python and Rust follow (issue 1261's sub-issues).
+[[capability.case]]
+id = "connect-falls-back-when-the-daemon-refuses"
+covers = ["story:11-9", "story:11-290", "story:11-293"]
+surfaces = ["sdk-typescript"]
 
 [[capability]]
 name = "product-conformance"
@@ -540,3 +550,19 @@ id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The program's Trace context (ADR 0132; issue 1558): a call made inside the
+# program's active span sends that span's `traceparent`, and its
+# `tracestate` when set, in `_meta`, never Baggage, and a call made outside
+# any span sends no `_meta`; against the Scripted engine. Rust leads, behind
+# its `opentelemetry` feature, played as a Daemon's client: its `daemon`
+# mode. TypeScript, Python (asyncio, Trio and the sync API) and Rust's
+# `linked` mode join with issue 1558's follow-up.
+[[capability]]
+name = "trace-context"
+
+[[capability.case]]
+id = "trace-context"
+covers = ["story:11-138"]
+surfaces = ["sdk-rust"]
+modes = ["daemon"]

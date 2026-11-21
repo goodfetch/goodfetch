@@ -52,8 +52,11 @@ fn a_setting_a_hello_refuses_reads_in_its_declared_form(#[case] form: &str, #[ca
     let message = refused["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains(spelled), "{refused}");
     assert_eq!(
-        refused["error"]["data"]["key"],
-        json!("timeout.first_byte"),
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["key"]
+        ),
+        (&json!("setting_invalid"), &json!("timeout.first_byte")),
         "{refused}"
     );
 }

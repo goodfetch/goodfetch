@@ -129,7 +129,10 @@ fn a_signed_request_verifies_against_the_directory_its_agent_names() {
 
     assert_eq!(
         verify("identity.test:8443", headers),
-        (true, Some(signer.key_id().to_owned()))
+        (
+            true,
+            Some(public_key(&private_jwk(&RFC_KEY)).expect("a key").kid)
+        )
     );
 }
 

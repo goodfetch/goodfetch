@@ -33,7 +33,9 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::politeness::PolitenessOptions;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::secrets::Keychain;
-use goodfetch_engine::settings::{SettingsFiles, deployment_variable};
+use goodfetch_engine::settings::{
+    SettingsError, SettingsFiles, check_environment, deployment_variable,
+};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
 use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
@@ -41,13 +43,17 @@ use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::connection::{
     EngineExitedDetails, HelloParams, HelloResult, ProductVersion, Surface,
 };
-use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE, TIMEOUT_CLOSE};
+use goodfetch_protocol::settings::{
+    BROWSERS_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES, HOME_VARIABLE,
+    SettingInvalidDetails, SettingUnknownDetails, TIMEOUT_CLOSE,
+};
 use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
 
 use crate::engine_choice::{self, DaemonReach, EngineChoice, EngineInfo, EngineKind, Reach};
 use crate::runtime::{self, Threads};
+use crate::trace_context;
 
 /// What a connection opens with, in either Product's SDK. Its `Debug`
 /// output names the environment's variables without their values, which
@@ -90,7 +96,10 @@ impl ConnectOptions {
 
     /// The environment variables the connection and its linked engine
     /// read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the
-    /// process's own.
+    /// process's own. A `GOODFETCH_` variable off the closed list of
+    /// deployment variables fails the connect with `setting_unknown`, naming
+    /// the closest, and an empty one or one that is no Unicode with
+    /// `setting_invalid`, before any engine is reached (ADR 0083).
     #[must_use]
     pub fn environment(mut self, environment: BTreeMap<OsString, OsString>) -> Self {
         self.environment = Some(environment);
@@ -166,6 +175,7 @@ impl ConnectOptions {
         let environment = self
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
+        check_environment(&environment).map_err(environment_refused)?;
         Ok(Parts {
             environment,
             asked: Asked {
@@ -176,6 +186,45 @@ impl ConnectOptions {
             engine: self.engine,
             settings,
         })
+    }
+}
+
+/// The connect's error for a deployment variable `check_environment`
+/// refused, as the TypeScript and Python SDKs raise it.
+fn environment_refused(error: SettingsError) -> Error {
+    let message = error.to_string();
+    match error {
+        SettingsError::Unknown { key, closest, .. } => {
+            let fix = match &closest {
+                Some(closest) => format!("Rename {key} to {closest}, or unset it."),
+                None => format!(
+                    "Unset {key}: the {DEPLOYMENT_PREFIX} prefix is reserved for the deployment variables, {}.",
+                    DEPLOYMENT_VARIABLES.join(", ")
+                ),
+            };
+            Error::setting_unknown(
+                message,
+                &SettingUnknownDetails {
+                    key,
+                    layer: None,
+                    closest,
+                },
+                fix,
+            )
+        }
+        SettingsError::Invalid { key, reason, .. } => Error::setting_invalid(
+            message,
+            &SettingInvalidDetails {
+                fix: Some(format!(
+                    "Set {key} to a non-empty Unicode value, or unset it."
+                )),
+                key,
+                layer: None,
+                reason,
+                limit: None,
+            },
+        ),
+        other => unreachable!("invariant: check_environment refuses no variable with {other:?}"),
     }
 }
 
@@ -402,6 +451,7 @@ impl ProductConnection {
             hello,
             asked.timeout,
             asked.listener_queue,
+            trace_context::source(),
         )
         .await?;
         let opened = Self {
@@ -437,6 +487,7 @@ impl ProductConnection {
             hello,
             asked.timeout,
             asked.listener_queue,
+            trace_context::source(),
         )
         .await
         .map_err(|error| daemon.unreached(error, home.as_ref()))?;

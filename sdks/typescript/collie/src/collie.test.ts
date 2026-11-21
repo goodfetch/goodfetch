@@ -504,6 +504,69 @@ describe("Collie.connect()", () => {
   );
 
   test(
+    "fails on a GOODFETCH_ variable off the closed list, naming the closest",
+    { tags: ["story:11-73", "error:setting_unknown"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_HOEM: "/home/goodfetch" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_unknown",
+        group: "program",
+        message:
+          "`GOODFETCH_HOEM` in the environment is no deployment variable; did you mean `GOODFETCH_HOME`?",
+        fix: "Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.",
+        details: { key: "GOODFETCH_HOEM", closest: "GOODFETCH_HOME" },
+      });
+    },
+  );
+
+  test(
+    "fails on a GOODFETCH_ variable close to none on the list, naming none",
+    { tags: ["story:11-73", "error:setting_unknown"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_TELEMETRY: "1" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_unknown",
+        details: { key: "GOODFETCH_TELEMETRY" },
+      });
+      expect(error).not.toHaveProperty("details.closest");
+    },
+  );
+
+  test(
+    "fails on an empty deployment variable rather than taking it for unset",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_URL: "" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        fix: "Set GOODFETCH_URL to a non-empty Unicode value, or unset it.",
+        details: { key: "GOODFETCH_URL", reason: "it is empty; unset it instead" },
+      });
+    },
+  );
+
+  test(
+    "fails on a deployment variable whose value is no well-formed Unicode",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_HOME: "/home/\uDCFF" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        details: { key: "GOODFETCH_HOME", reason: "it is not Unicode" },
+      });
+    },
+  );
+
+  test(
     "reads only Collie's engine-path variable, never Foxhound's",
     { tags: ["story:11-2"] },
     async () => {

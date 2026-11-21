@@ -132,22 +132,15 @@ fn export(collector: &Collector, url: &str) -> Result<u16, ExportFailure> {
 }
 
 /// Story 4-16: a collector on loopback is reached by default, as a model
-/// on localhost is; under an Operator policy that sets
-/// `egress.no_private_endpoints` it is refused with `egress_refused`
-/// naming the address and the setting, and no connection reaches it.
-/// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
-#[rstest]
-#[case::by_default(false)]
-#[case::under_no_private_endpoints(true)]
-fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private_endpoints(
-    #[case] refused: bool,
-) {
+/// on localhost is.
+/// Covers: story:4-16, setting:egress.no_private_endpoints
+#[test]
+fn a_collector_on_loopback_is_reached_by_default() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let target = target(&proving_ground);
-    let url = format!("http://{target}/v1/traces");
+    let url = format!("http://{}/v1/traces", target(&proving_ground));
     let collector = Collector::of(
-        &machine_settings(no_private_endpoints(refused), json!({})),
+        &machine_settings(no_private_endpoints(false), json!({})),
         Clock::system(),
         inline(),
     );
@@ -155,25 +148,44 @@ fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private
     let exported = export(&collector, &url);
 
     let connections = target_connections(&proving_ground.observations().unwrap());
-    if refused {
-        let Err(ExportFailure::Refused(refusal)) = exported else {
-            panic!("the collector is refused: {exported:?}");
-        };
-        assert_eq!(
-            (refusal.details(), connections),
-            (
-                EgressRefusedDetails {
-                    url: url.clone(),
-                    rule: EgressRule::PrivateAddress,
-                    address: Some(target.ip().to_string()),
-                    setting: Some("egress.no_private_endpoints".to_owned()),
-                },
-                0
-            )
-        );
-    } else {
-        assert_eq!((exported.unwrap(), connections), (200, 1));
-    }
+    assert_eq!((exported.unwrap(), connections), (200, 1));
+}
+
+/// Story 4-16: under an Operator policy that sets
+/// `egress.no_private_endpoints`, a collector on loopback is refused with
+/// `egress_refused` naming the address and the setting, and no connection
+/// reaches it.
+/// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
+#[test]
+fn a_collector_on_loopback_is_refused_under_an_operator_policy_refusing_private_endpoints() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let target = target(&proving_ground);
+    let url = format!("http://{target}/v1/traces");
+    let collector = Collector::of(
+        &machine_settings(no_private_endpoints(true), json!({})),
+        Clock::system(),
+        inline(),
+    );
+
+    let exported = export(&collector, &url);
+
+    let connections = target_connections(&proving_ground.observations().unwrap());
+    let Err(ExportFailure::Refused(refusal)) = exported else {
+        panic!("the collector is refused: {exported:?}");
+    };
+    assert_eq!(
+        (refusal.details(), connections),
+        (
+            EgressRefusedDetails {
+                url: url.clone(),
+                rule: EgressRule::PrivateAddress,
+                address: Some(target.ip().to_string()),
+                setting: Some("egress.no_private_endpoints".to_owned()),
+            },
+            0
+        )
+    );
 }
 
 /// An endpoint's reply is a body the engine itself reads, so
@@ -373,30 +385,11 @@ fn authority(proving_ground: &ProvingGround) -> String {
         .to_string()
 }
 
-/// Story 4-41 (ADR 0042): a domain `tls.accept_invalid_certs` lists, for
-/// trust on first use or with `any`, makes no exception for the
-/// Operator-configured endpoint at that domain, whose unknown issuer is
-/// refused with `certificate_invalid` before anything is sent; the
-/// endpoint's own `tls.trusted_cas` entry trusts its authority (positive
-/// control).
-/// Covers: story:4-41, error:certificate_invalid, setting:tls.accept_invalid_certs, setting:tls.trusted_cas
-#[rstest]
-#[case::listed_for_trust_on_first_use(false, json!({ "accept_invalid_certs": { "catalog.test": null } }))]
-#[case::listed_with_any(false, json!({ "accept_invalid_certs": { "catalog.test": "any" } }))]
-#[case::its_own_trusted_authority(true, json!(null))]
-fn an_endpoint_takes_its_own_trusted_authority_and_no_certificate_exception(
-    #[case] trusted: bool,
-    #[case] tls: Value,
-) {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let tls = if trusted {
-        json!({ "trusted_cas": { "catalog.test": [authority(&proving_ground)] } })
-    } else {
-        tls
-    };
+/// Exports an empty batch to the collector at `catalog.test` under `tls`:
+/// the collector's status, or why it gave none.
+fn export_to_catalog(proving_ground: &ProvingGround, tls: &Value) -> Result<u16, ExportFailure> {
     let collector = Collector::of(
-        &machine_settings(json!({}), at_catalog(&proving_ground, &tls)),
+        &machine_settings(json!({}), at_catalog(proving_ground, tls)),
         Clock::system(),
         inline(),
     );
@@ -404,27 +397,53 @@ fn an_endpoint_takes_its_own_trusted_authority_and_no_certificate_exception(
         "https://catalog.test:{}/v1/traces",
         proving_ground.address().port()
     );
+    export(&collector, &url)
+}
 
-    let exported = export(&collector, &url);
+/// Story 4-41 (ADR 0042): a domain `tls.accept_invalid_certs` lists, for
+/// trust on first use or with `any`, makes no exception for the
+/// Operator-configured endpoint at that domain, whose unknown issuer is
+/// refused with `certificate_invalid` before anything is sent.
+/// Covers: story:4-41, error:certificate_invalid, setting:tls.accept_invalid_certs
+#[rstest]
+#[case::listed_for_trust_on_first_use(json!({ "accept_invalid_certs": { "catalog.test": null } }))]
+#[case::listed_with_any(json!({ "accept_invalid_certs": { "catalog.test": "any" } }))]
+fn an_endpoint_takes_no_certificate_exception(#[case] tls: Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let exported = export_to_catalog(&proving_ground, &tls);
 
     let hosts = requested_hosts(&proving_ground.observations().unwrap());
-    if trusted {
-        assert_eq!(
-            (exported.is_ok(), hosts),
-            (true, vec!["catalog.test".to_owned()]),
-            "{exported:?}"
-        );
-    } else {
-        let Err(ExportFailure::CertificateInvalid(invalid)) = exported else {
-            panic!("the endpoint's certificate is refused: {exported:?}");
-        };
-        assert_eq!(
-            (invalid.host.as_str(), invalid.failure, hosts),
-            (
-                "catalog.test",
-                CertificateFailure::Known(KnownCertificateFailure::UnknownIssuer),
-                Vec::<String>::new()
-            )
-        );
-    }
+    let Err(ExportFailure::CertificateInvalid(invalid)) = exported else {
+        panic!("the endpoint's certificate is refused: {exported:?}");
+    };
+    assert_eq!(
+        (invalid.host.as_str(), invalid.failure, hosts),
+        (
+            "catalog.test",
+            CertificateFailure::Known(KnownCertificateFailure::UnknownIssuer),
+            Vec::<String>::new()
+        )
+    );
+}
+
+/// Story 4-41 (ADR 0042): the endpoint's own `tls.trusted_cas` entry trusts
+/// its authority, so the export reaches it (the positive control of
+/// [`an_endpoint_takes_no_certificate_exception`]).
+/// Covers: story:4-41, setting:tls.trusted_cas
+#[test]
+fn an_endpoint_takes_its_own_trusted_authority() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let tls = json!({ "trusted_cas": { "catalog.test": [authority(&proving_ground)] } });
+
+    let exported = export_to_catalog(&proving_ground, &tls);
+
+    let hosts = requested_hosts(&proving_ground.observations().unwrap());
+    assert_eq!(
+        (exported.is_ok(), hosts),
+        (true, vec!["catalog.test".to_owned()]),
+        "{exported:?}"
+    );
 }

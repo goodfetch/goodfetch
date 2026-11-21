@@ -1,0 +1,37 @@
+# What the Collie client crate takes (ADR 0132): cargo-deny's bans, rooted
+# at `goodfetch-collie-client` with `--all-features` and `--exclude-dev`
+# (the justfile's `cargo-deny-client` step). The workspace-wide rules are
+# deny.toml's.
+#
+# The client crate declares the seam a program's Trace context is read
+# through and depends on no OpenTelemetry crate: the SDK reads the context
+# behind its `opentelemetry` feature, so a program that never turns it on
+# builds none of them.
+
+[[bans.deny]]
+crate = "opentelemetry"
+reason = "the client crate reads no Trace context itself; the SDK's `opentelemetry` feature does (ADR 0132)"
+
+[[bans.deny]]
+crate = "opentelemetry_sdk"
+reason = "the client crate reads no Trace context itself; the SDK's `opentelemetry` feature does (ADR 0132)"
+
+[[bans.deny]]
+crate = "tracing-opentelemetry"
+reason = "the client crate reads no Trace context itself; the SDK's `opentelemetry` feature does (ADR 0132)"
+
+[[bans.deny]]
+crate = "opentelemetry-otlp"
+reason = "the client crate exports no telemetry (ADR 0132)"
+
+[[bans.deny]]
+crate = "opentelemetry-http"
+reason = "the client crate exports no telemetry (ADR 0132)"
+
+[[bans.deny]]
+crate = "opentelemetry-prometheus"
+reason = "the client crate exports no telemetry (ADR 0132)"
+
+[[bans.deny]]
+crate = "opentelemetry-proto"
+reason = "the client crate exports no telemetry (ADR 0132)"

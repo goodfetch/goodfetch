@@ -13,6 +13,7 @@ use crate::workspace::{Finding, Workspace, finding};
 
 const TYPESCRIPT: &str = "sdks/typescript/manifest.toml";
 const FOXHOUND: &str = "crates/foxhound/goodfetch-foxhound/manifest.toml";
+const PYTHON: &str = "sdks/python/manifest.toml";
 /// The line of a member its other SDKs lack, so that a case shows one
 /// finding alone.
 const ONLY: &str = "only = \"Its other SDK has no such member.\"\n";
@@ -142,6 +143,9 @@ fn check_refuses_two_members_of_one_receiver_for_one_entry(
 #[case::rust_method_in_camel_case(FOXHOUND, "goodfetch-foxhound", "Foxhound", "connectOver", &["connect", "over"], "opener")]
 #[case::rust_constant_in_lowercase(FOXHOUND, "goodfetch-foxhound", "(crate)", "free_fetches", &["free", "fetches"], "constant")]
 #[case::rust_member_of_other_words(FOXHOUND, "goodfetch-foxhound", "Foxhound", "open", &["connect"], "opener")]
+#[case::python_method_in_camel_case(PYTHON, "goodfetch_collie", "Collie", "connectOver", &["connect", "over"], "opener")]
+#[case::python_type_in_snake_case(PYTHON, "goodfetch_collie", "(module)", "call_options", &["call", "options"], "type")]
+#[case::python_keyword_without_its_underscore(PYTHON, "goodfetch_collie", "Identities", "import", &["import"], "round_trip")]
 fn check_refuses_a_member_with_no_entry_not_spelled_from_its_words(
     #[case] manifest: &str,
     #[case] package: &str,
@@ -201,6 +205,7 @@ fn check_refuses_a_form_no_manifest_declares() {
 #[rstest]
 #[case::typescript(TYPESCRIPT, "@goodfetch/collie-client", "Run", "abort")]
 #[case::rust_blocking_twin(FOXHOUND, "goodfetch-foxhound", "blocking::Run", "abort")]
+#[case::python(PYTHON, "goodfetch_collie", "Run", "abort")]
 fn check_refuses_a_line_naming_a_member_the_generator_writes(
     #[case] manifest: &str,
     #[case] package: &str,
@@ -297,10 +302,10 @@ fn line(
     form: &str,
     extra: &str,
 ) -> String {
-    let key = if package.starts_with('@') {
-        "package"
-    } else {
+    let key = if package.starts_with("goodfetch-") {
         "crate"
+    } else {
+        "package"
     };
     let words = words
         .iter()

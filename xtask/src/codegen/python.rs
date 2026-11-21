@@ -21,7 +21,10 @@ use serde_json::Value;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
-use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
+use goodfetch_protocol::settings::{
+    COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
+    FOXHOUND_ENGINE_PATH_VARIABLE,
+};
 
 use super::handles;
 use super::layer::{Deprecation, ErrorCode, Layer, Stability};
@@ -433,8 +436,15 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n",
-                layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+                "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n\nDEPLOYMENT_PREFIX: Final = {DEPLOYMENT_PREFIX:?}\n\"\"\"The prefix every deployment variable has, which ADR 0034 reserves.\"\"\"\n\nDEPLOYMENT_VARIABLES: Final = (\n{}\n)\n\"\"\"The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083).\"\"\"\n",
+                layer.protocol_version,
+                layer.product_version,
+                ATTACHED_ENGINE,
+                DEPLOYMENT_VARIABLES
+                    .iter()
+                    .map(|variable| format!("    {variable:?},"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             ),
             "Collie",
             "COLLIE",

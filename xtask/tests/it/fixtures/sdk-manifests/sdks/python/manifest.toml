@@ -1,0 +1,17 @@
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "JSONValue"
+entry = "none"
+reason = "A JSON value."
+words = ["json", "value"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "connect_over"
+entry = "none"
+reason = "Opens a Connection over a transport a test holds."
+words = ["connect", "over"]
+form = "opener"

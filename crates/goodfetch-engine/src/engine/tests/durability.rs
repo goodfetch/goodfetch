@@ -66,18 +66,52 @@ fn configure(env: &TestEnv, text: &str) {
 
 /// Each Durability level below `full` commits as it says, and its run
 /// report's `weakened` names the sync its preset sets, and `off` itself
-/// (ADRs 0138 and 0142): `fast` with `synchronous=NORMAL`, `off` with `OFF`;
-/// `periodic` commits on either of its writer's connections, as its
-/// interval says.
+/// (ADRs 0138 and 0142): `fast` with `synchronous=NORMAL`, `off` with `OFF`.
+/// `periodic` commits on either of its writer's connections as its interval
+/// says, which no one pragma shows, so its case asserts the report only.
 /// Covers: story:3-27, setting:run_state.durability, setting:run_state.batch.sync
 #[rstest::rstest]
-#[case::fast("fast", Some(1), "never")]
-#[case::periodic("periodic", None, "interval")]
-#[case::off("off", Some(0), "off")]
+#[case::fast(
+    "fast",
+    Some(1),
+    json!([{
+        "key": "run_state.batch.sync",
+        "value": "never",
+        "layer": "user_configuration",
+        "preset": { "key": "run_state.durability", "value": "fast" },
+    }])
+)]
+#[case::periodic(
+    "periodic",
+    None,
+    json!([{
+        "key": "run_state.batch.sync",
+        "value": "interval",
+        "layer": "user_configuration",
+        "preset": { "key": "run_state.durability", "value": "periodic" },
+    }])
+)]
+#[case::off(
+    "off",
+    Some(0),
+    json!([
+        {
+            "key": "run_state.batch.sync",
+            "value": "off",
+            "layer": "user_configuration",
+            "preset": { "key": "run_state.durability", "value": "off" },
+        },
+        {
+            "key": "run_state.durability",
+            "value": "off",
+            "layer": "user_configuration",
+        },
+    ])
+)]
 fn a_run_below_full_commits_as_its_level_says_and_its_report_says_so(
     #[case] level: &str,
     #[case] synchronous: Option<i64>,
-    #[case] sync: &str,
+    #[case] weakened: Value,
 ) {
     let env = TestEnv::new();
     configure(
@@ -109,30 +143,8 @@ fn a_run_below_full_commits_as_its_level_says_and_its_report_says_so(
             synchronous.map(|_| read["result"].clone()),
             &finished["result"]["weakened"]
         ),
-        (
-            synchronous.map(|synchronous| json!(synchronous)),
-            &weakened(level, sync)
-        )
+        (synchronous.map(|synchronous| json!(synchronous)), &weakened)
     );
-}
-
-/// The `weakened` list a Run at `level`, set in user configuration, reports:
-/// the sync its preset sets, and the level itself when it is `off`.
-fn weakened(level: &str, sync: &str) -> Value {
-    let mut listed = vec![json!({
-        "key": "run_state.batch.sync",
-        "value": sync,
-        "layer": "user_configuration",
-        "preset": { "key": "run_state.durability", "value": level },
-    })];
-    if level == "off" {
-        listed.push(json!({
-            "key": "run_state.durability",
-            "value": level,
-            "layer": "user_configuration",
-        }));
-    }
-    Value::Array(listed)
 }
 
 /// A Run that sets nothing commits with `synchronous=FULL` and names no
@@ -171,12 +183,13 @@ fn a_run_in_default_durability_commits_with_full_synchronous() {
 /// level itself only at `off` (ADRs 0138 and 0142).
 /// Covers: story:3-27, setting:run_state.batch.sync
 #[rstest::rstest]
-#[case::fast("fast", "never")]
-#[case::periodic("periodic", "interval")]
-#[case::off("off", "off")]
+#[case::fast("fast", "never", false)]
+#[case::periodic("periodic", "interval", false)]
+#[case::off("off", "off", true)]
 fn config_explain_labels_each_level_below_full_as_weakening(
     #[case] level: &str,
     #[case] sync: &str,
+    #[case] weakens: bool,
 ) {
     let env = TestEnv::new();
     configure(
@@ -219,7 +232,7 @@ fn config_explain_labels_each_level_below_full_as_weakening(
                 "applied": true,
                 "value": level,
                 "layer": "user_configuration",
-                "weakens": level == "off",
+                "weakens": weakens,
                 "user_settable": true,
             },
         ])

@@ -107,7 +107,7 @@ The absolute ceilings and Performance targets these rules serve are in [ADR 0134
 ### Lints, formatting and toolchain
 
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**
-- **Warnings fail CI.** Clippy runs with `--all-targets --all-features`, on the workspace and on each first-party crate it excludes (the Kennel, the libraries tests use), each from its own folder (`ci/clippy-excluded.sh`); the forks under `vendor/` are not linted.
+- **Warnings fail CI.** Clippy runs with `--all-targets --all-features`, on the workspace and on each first-party crate it excludes (the Kennel, the library Foxhound's tests use), each from its own folder (`ci/clippy-excluded.sh`); the forks under `vendor/` are not linted.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
 - **`too_many_lines` (100) and `too_many_arguments` (7) stay at their defaults** and never join that allow-list (ADR 0126); a function that needs more takes an `#[expect]` with its reason.
 - **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062) and bench target roots (ADR 0071).

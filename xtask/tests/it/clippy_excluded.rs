@@ -238,8 +238,10 @@ fn on_linux_without_gtk_the_kennel_is_linted_without_its_graphical_crate_which_i
         run.calls
     );
     let skipped = workspace.read_text("target/skipped.txt");
-    assert!(skipped.contains("goodfetch-kennel-app"), "{skipped}");
-    assert!(skipped.contains("gtk+-3.0"), "{skipped}");
+    assert!(
+        skipped.contains("pkg-config finds no gtk+-3.0 dbus-1:"),
+        "{skipped}"
+    );
 }
 
 #[cfg(target_os = "linux")]

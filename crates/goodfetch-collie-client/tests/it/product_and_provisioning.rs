@@ -17,7 +17,7 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
-use crate::start::failure;
+use crate::start::{code_group_retryable, failure};
 
 /// Foxhound's install command on the engine's channel, npm.
 const INSTALL: &str = "npm install @goodfetch/foxhound";
@@ -66,11 +66,6 @@ async fn refused_calls(endpoint: DaemonEndpoint) -> Refused {
         offline,
         download_failed,
     }
-}
-
-/// `error`'s code, group and whether it is retryable.
-fn code_group_retryable(error: &Error) -> (ErrorCode, ErrorGroup, bool) {
-    (error.code(), error.group(), error.retryable())
 }
 
 /// The build every refused page needs.

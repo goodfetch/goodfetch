@@ -21,13 +21,11 @@ use goodfetch_protocol::connection::{
 };
 use goodfetch_protocol::page::TargetNotUniqueDetails;
 use goodfetch_protocol::secrets::{SecretInputRefusedDetails, SecretUnavailableDetails};
-use goodfetch_test_support::{Canaries, Canary, Output, SecretKind, TestEnv, capturing};
+use goodfetch_test_support::{Canaries, Canary, Output, SecretKind, TestEnv, logged};
 use serde_json::{Value, json};
-use tracing::Level;
-use tracing::subscriber::with_default;
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
-use crate::start::failure;
+use crate::start::{code_group_retryable, failure};
 
 /// The Run the script starts.
 const RUN_ID: &str = "01ke6p4ym0j8x3v5wq2rtbn7hc";
@@ -79,11 +77,6 @@ async fn played(endpoint: DaemonEndpoint, hello: HelloParams) -> Played {
         missing: (missing.status(), missing.url().to_owned()),
         errors,
     }
-}
-
-/// `error`'s code, group and whether it is retryable.
-fn code_group_retryable(error: &Error) -> (ErrorCode, ErrorGroup, bool) {
-    (error.code(), error.group(), error.retryable())
 }
 
 /// The timeout the script's page failures outlived, set by the call's
@@ -303,14 +296,14 @@ fn assert_no_secret_rendered(env: &TestEnv, errors: &[Error], logged: &[u8]) {
 /// The `errors-and-outcomes` client conformance case, played by the
 /// Scripted engine's Daemon: the 404 is returned, and each failure carries
 /// its code, group, fields and typed details, rendering no Secret.
-/// Covers: story:11-28, story:11-30, story:11-187
+///
+/// Covers: story:11-28, story:11-30, story:11-36, story:11-187
 #[test]
 fn an_outcome_is_returned_and_each_failure_carries_its_code_rendering_no_secret() {
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
-    let (subscriber, recorded) = capturing(&[("goodfetch", Level::DEBUG)]);
 
-    let (process, played) = with_default(subscriber, || {
+    let ((process, played), log) = logged(|| {
         let hello = HelloParams {
             log_level: Some(engine_log_level()),
             ..daemon_hello()
@@ -356,7 +349,7 @@ fn an_outcome_is_returned_and_each_failure_carries_its_code_rendering_no_secret(
     assert_program_and_refused(unbound, input_refused);
     assert_page_and_deadline(not_unique, deadline);
     assert_unavailable_model_and_internal(unavailable, from_outside, panicked);
-    assert_no_secret_rendered(&env, &played.errors, &recorded.written());
+    assert_no_secret_rendered(&env, &played.errors, &log);
     assert!(
         status.success(),
         "the Scripted engine played its script whole"

@@ -12,7 +12,7 @@ import {
   Collie,
   DeadlineExceededError,
   EnginePanickedError,
-  GoodfetchError,
+  type GoodfetchError,
   InternalError,
   type Logger,
   ModelError,
@@ -27,7 +27,7 @@ import {
 } from "@goodfetch/collie";
 import {
   type Canary,
-  failure,
+  goodfetchFailure,
   scriptedEngineEnv,
   searchCanaries,
   test,
@@ -46,15 +46,6 @@ const CANARY: Canary = {
 
 /** The timeout the script's page failures outlived, set by the call's argument. */
 const ACTION_TIMEOUT = { key: "timeout.action", value: 5000, layer: "run", origin: "argument" };
-
-/** The `GoodfetchError` `call` fails with. */
-async function goodfetchFailure(call: Promise<unknown>): Promise<GoodfetchError> {
-  const error = await failure(call);
-  if (!(error instanceof GoodfetchError)) {
-    throw new Error(`the call failed with something else than a GoodfetchError: ${String(error)}`);
-  }
-  return error;
-}
 
 /**
  * A host logger at `debug` that keeps every line the SDK logs, at any
@@ -94,7 +85,6 @@ describe("A Collie Connection on the Scripted engine", () => {
         "story:11-28",
         "story:11-30",
         "story:11-187",
-        "error:secret_unbound",
         "error:secret_input_refused",
         "error:target_not_unique",
         "error:deadline_exceeded",
@@ -136,19 +126,15 @@ describe("A Collie Connection on the Scripted engine", () => {
         expect(missing).toMatchObject({ status: 404, url: "https://shop.test/missing" });
       });
       await clientCase.check("each failure carries its operation, call ID and Run ID", () => {
-        expect(
-          errors.map(({ operation, callId, runId }) => ({ operation, callId, runId })),
-        ).toEqual(
-          [
-            "locator.fill",
-            "locator.fill",
-            "locator.click",
-            "locator.fill",
-            "locator.fill",
-            "locator.click",
-            "locator.click",
-          ].map((operation, index) => ({ operation, callId: `call-${index + 1}`, runId: RUN_ID })),
-        );
+        expect(errors.map(({ operation, callId, runId }) => [operation, callId, runId])).toEqual([
+          ["locator.fill", "call-1", RUN_ID],
+          ["locator.fill", "call-2", RUN_ID],
+          ["locator.click", "call-3", RUN_ID],
+          ["locator.fill", "call-4", RUN_ID],
+          ["locator.fill", "call-5", RUN_ID],
+          ["locator.click", "call-6", RUN_ID],
+          ["locator.click", "call-7", RUN_ID],
+        ]);
       });
       await clientCase.check(
         "an unbound placeholder raises SecretUnboundError, a ProgramError naming the placeholders bound",
@@ -162,7 +148,10 @@ describe("A Collie Connection on the Scripted engine", () => {
             target: "#user",
             url: "https://shop.test/login",
             fix: "Bind `shop_user` to a Secret reference in the Run's `secrets`, or use a placeholder it binds",
-            details: { placeholder: "shop_user", bound: ["shop_password", "shop_otp"] },
+          });
+          expect(unbound.details).toEqual({
+            placeholder: "shop_user",
+            bound: ["shop_password", "shop_otp"],
           });
         },
       );
@@ -176,12 +165,12 @@ describe("A Collie Connection on the Scripted engine", () => {
             group: "refused",
             retryable: false,
             target: "#password",
-            details: {
-              placeholder: "shop_password",
-              reference: "env:SHOP_PASSWORD",
-              domain: "shop.test",
-              reason: "invalid_certificate_exception",
-            },
+          });
+          expect(inputRefused.details).toEqual({
+            placeholder: "shop_password",
+            reference: "env:SHOP_PASSWORD",
+            domain: "shop.test",
+            reason: "invalid_certificate_exception",
           });
         },
       );
@@ -198,19 +187,19 @@ describe("A Collie Connection on the Scripted engine", () => {
             url: "https://shop.test/cart",
             limit: ACTION_TIMEOUT,
             callLog: ["waiting for #buy", "#buy matched 2 elements"],
-            details: {
-              matches: [
-                {
-                  element: '<button id="buy">Buy now</button>',
-                  locator: "getByRole('button', { name: 'Buy now' })",
-                },
-                {
-                  element: '<button id="buy">Buy later</button>',
-                  locator: "getByRole('button', { name: 'Buy later' })",
-                },
-              ],
-              elapsed: 5000,
-            },
+          });
+          expect(notUnique.details).toEqual({
+            matches: [
+              {
+                element: '<button id="buy">Buy now</button>',
+                locator: "getByRole('button', { name: 'Buy now' })",
+              },
+              {
+                element: '<button id="buy">Buy later</button>',
+                locator: "getByRole('button', { name: 'Buy later' })",
+              },
+            ],
+            elapsed: 5000,
           });
         },
       );
@@ -226,8 +215,8 @@ describe("A Collie Connection on the Scripted engine", () => {
             observed: "the field stayed disabled",
             limit: ACTION_TIMEOUT,
             fix: "Wait for #card to be enabled first, or raise the call's timeout",
-            details: { elapsed: 5000, waited_for: "target_editable" },
           });
+          expect(deadline.details).toEqual({ elapsed: 5000, waited_for: "target_editable" });
         },
       );
       await clientCase.check(
@@ -240,12 +229,12 @@ describe("A Collie Connection on the Scripted engine", () => {
             group: "unavailable",
             retryable: false,
             fix: "Set SHOP_OTP in the engine's environment",
-            details: {
-              placeholder: "shop_otp",
-              reference: "env:SHOP_OTP",
-              provider: "env",
-              failure: "missing",
-            },
+          });
+          expect(unavailable.details).toEqual({
+            placeholder: "shop_otp",
+            reference: "env:SHOP_OTP",
+            provider: "env",
+            failure: "missing",
           });
         },
       );
@@ -258,8 +247,8 @@ describe("A Collie Connection on the Scripted engine", () => {
             group: "model",
             retryable: true,
             target: "#next",
-            details: { attempts: 2 },
           });
+          expect(fromOutside.details).toEqual({ attempts: 2 });
         },
       );
       await clientCase.check("an engine panic raises EnginePanickedError, an InternalError", () => {
@@ -269,11 +258,11 @@ describe("A Collie Connection on the Scripted engine", () => {
           code: "engine_panicked",
           group: "internal",
           retryable: false,
-          details: {
-            ended: "call",
-            id: "panic-1",
-            crash_report: "/srv/goodfetch/crashes/panic-1.json",
-          },
+        });
+        expect(panicked.details).toEqual({
+          ended: "call",
+          id: "panic-1",
+          crash_report: "/srv/goodfetch/crashes/panic-1.json",
         });
       });
       await clientCase.check(

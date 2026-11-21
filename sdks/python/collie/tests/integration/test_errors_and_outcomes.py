@@ -13,10 +13,9 @@ traceback, nor anything the SDK logged, holds it. TypeScript's
 
 import logging
 import traceback
-from typing import TYPE_CHECKING
 
 import pytest
-from collie_calls import engine_warnings, failure, open_collie
+from collie_calls import engine_warnings, failure, locator_on, open_collie
 from goodfetch_collie import (
     DeadlineExceededError,
     RefusedError,
@@ -45,9 +44,6 @@ from goodfetch_test_support import (
 )
 from goodfetch_test_support import Product as ToolProduct
 
-if TYPE_CHECKING:
-    from goodfetch_collie_client.generated.handles import AsyncLocator, AsyncPage
-
 RUN_ID = "01ke6p4ym0j8x3v5wq2rtbn7hc"
 """The Run the script starts."""
 
@@ -62,21 +58,10 @@ ACTION_TIMEOUT = ("timeout.action", 5000, "run", "argument")
 """The timeout the script's page failures outlived, set by the call's argument."""
 
 
-def locator_on(way: Way, page: "AsyncPage", selector: str) -> "AsyncLocator":
-    """`page`'s locator for `selector`, its methods async whatever the way.
-
-    A builder is a plain method in both APIs (ADR 0099), so the sync way's
-    proxy hands the sync `Locator` itself, which `way.api` wraps.
-    """
-    built = page.locator(selector)
-    return way.api(built, built)
-
-
 @pytest.mark.covers(
     "story:11-28",
     "story:11-30",
     "story:11-187",
-    "error:secret_unbound",
     "error:secret_input_refused",
     "error:target_not_unique",
     "error:deadline_exceeded",
@@ -131,19 +116,13 @@ async def test_returns_an_outcome_and_raises_each_failure_as_its_codes_class(
         )
     with client_case.check("each failure carries its operation, call ID and Run ID"):
         assert [(error.operation, error.call_id, error.run_id) for error in errors] == [
-            (operation, f"call-{index}", RUN_ID)
-            for index, operation in enumerate(
-                [
-                    "locator.fill",
-                    "locator.fill",
-                    "locator.click",
-                    "locator.fill",
-                    "locator.fill",
-                    "locator.click",
-                    "locator.click",
-                ],
-                start=1,
-            )
+            ("locator.fill", "call-1", RUN_ID),
+            ("locator.fill", "call-2", RUN_ID),
+            ("locator.click", "call-3", RUN_ID),
+            ("locator.fill", "call-4", RUN_ID),
+            ("locator.fill", "call-5", RUN_ID),
+            ("locator.click", "call-6", RUN_ID),
+            ("locator.click", "call-7", RUN_ID),
         ]
     with client_case.check(
         "an unbound placeholder raises SecretUnboundError, a ProgramError naming"

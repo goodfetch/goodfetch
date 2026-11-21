@@ -28,6 +28,11 @@ max_decompression_ratio = 4
 max_json_depth = 4
 resolve = { "example.test" = ["127.0.0.1"] }
 
+[settings.connection]
+max_pending_calls = 4
+max_queued_write_bytes = 4
+max_listener_queue = 4
+
 [settings.log]
 level = "example"
 output = "stdout"
@@ -427,6 +432,11 @@ max_body_size = 4
 max_decompression_ratio = 4
 max_json_depth = 4
 resolve = { "example.test" = ["127.0.0.1"] }
+
+[lock.connection]
+max_pending_calls = 4
+max_queued_write_bytes = 4
+max_listener_queue = 4
 
 [lock.log]
 level = "example"

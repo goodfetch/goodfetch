@@ -1288,6 +1288,13 @@ number = 11
 kind = "error"
 prefix = "connection_overloaded"
 
+# A Client's own bounds on its transport, set in `connect()`'s own
+# `settings` (issue 2518).
+[[area]]
+number = 11
+kind = "setting"
+prefix = "connection.max_"
+
 # The Error code an SDK's `json()` raises itself for a body that is not
 # the JSON asked for (ADR 0085; issue 2803).
 [[area]]

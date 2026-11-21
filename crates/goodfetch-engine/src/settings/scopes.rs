@@ -6,8 +6,11 @@
 //! The Connection's own `settings` also take a Client's transport bounds
 //! only from a Client that applies them (issue 2518).
 
-use goodfetch_protocol::catalog::{Authority, Product, SettingScope};
-use goodfetch_protocol::connection::{Surface, applies_client_bounds};
+use goodfetch_protocol::catalog::{Product, Setting, SettingScope};
+use goodfetch_protocol::connection::{
+    CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    Surface, applies_client_bounds,
+};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::{Map, Value};
@@ -15,6 +18,15 @@ use serde_json::{Map, Value};
 use super::error::SettingsError;
 use super::setting;
 use super::values::Values;
+
+/// The settings a Client applies to its own transport, of
+/// `Authority::ConnectionAlone`, which the engine takes only from a Client
+/// that applies them.
+const CLIENT_BOUNDS: [&Setting; 3] = [
+    &CONNECTION_MAX_PENDING_CALLS,
+    &CONNECTION_MAX_QUEUED_WRITE_BYTES,
+    &CONNECTION_MAX_LISTENER_QUEUE,
+];
 
 /// Refuses `own`, a scope's own `settings` as `engine` reads them, when
 /// one sets a key that a program's code sets only at other scopes, as
@@ -67,9 +79,9 @@ pub fn check_client_bounds(
         return Ok(());
     }
     let own = Values::read(SettingsLayer::Run, own, engine)?;
-    let applied_by_the_client = own.keys().find(|key| {
-        setting(key).is_some_and(|known| matches!(known.authority, Authority::ConnectionAlone))
-    });
+    let applied_by_the_client = own
+        .keys()
+        .find(|key| CLIENT_BOUNDS.iter().any(|bound| bound.name == *key));
     match applied_by_the_client {
         Some(key) => Err(SettingsError::NotApplicable {
             key: key.to_owned(),

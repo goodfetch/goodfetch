@@ -50,6 +50,7 @@ details! {
     crate::checkpoint::SessionBoundToMachineDetails => ErrorCode::SESSION_BOUND_TO_MACHINE,
     crate::connection::CallCancelledDetails => ErrorCode::CALL_CANCELLED,
     crate::connection::DeadlineExceededDetails => ErrorCode::DEADLINE_EXCEEDED,
+    crate::connection::EdgeHandlersUnsupportedDetails => ErrorCode::EDGE_HANDLERS_UNSUPPORTED,
     crate::connection::InternalDetails => ErrorCode::INTERNAL,
     crate::connection::NotInProductDetails => ErrorCode::NOT_IN_PRODUCT,
     crate::connection::ProtocolVersionUnsupportedDetails => ErrorCode::PROTOCOL_VERSION_UNSUPPORTED,

@@ -477,6 +477,15 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "refuseHandlersOnEdge"
+entry = "none"
+reason = "Fails a Product's member that hands the engine code to call after the request, such as Foxhound's `startCrawl`, with `edge_handlers_unsupported` on an edge runtime, before anything is sent (ADR 0049)."
+words = ["refuse", "handlers", "on", "edge"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "startRun"
 entry = "none"

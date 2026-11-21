@@ -20,7 +20,7 @@ export function checkDeploymentVariables(env: Readonly<Record<string, string>>):
       continue;
     }
     if (!deploymentVariables.has(name)) {
-      throw unknown(name);
+      throw unknownVariable(name);
     }
     const value = env[name] ?? "";
     const reason =
@@ -31,14 +31,15 @@ export function checkDeploymentVariables(env: Readonly<Record<string, string>>):
           : "it is not Unicode";
     if (reason !== undefined) {
       throw new SettingInvalidError(`\`${name}\` is not valid in the environment: ${reason}`, {
-        fix: `Give ${name} a value, or unset it.`,
+        fix: `Set ${name} to a non-empty Unicode value, or unset it.`,
         details: { key: name, reason },
       });
     }
   }
 }
 
-function unknown(name: string): SettingUnknownError {
+/** The error for `name`, a `GOODFETCH_` variable off the list. */
+function unknownVariable(name: string): SettingUnknownError {
   const closest = nearest(name);
   if (closest === undefined) {
     return new SettingUnknownError(`\`${name}\` in the environment is no deployment variable.`, {

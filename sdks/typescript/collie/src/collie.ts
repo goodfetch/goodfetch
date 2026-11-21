@@ -45,8 +45,10 @@ export class Collie implements Connection {
 
   /**
    * Starts Collie's engine as an Attached engine and completes `hello`
-   * before returning, so a missing executable (`engine_not_found`) or a
-   * refused Product or version fails here, with a `fix`. An aborted
+   * before returning, so a `GOODFETCH_` variable off the closed list
+   * (`setting_unknown`) or one set but empty (`setting_invalid`), a missing
+   * executable (`engine_not_found`) or a refused Product or version fails
+   * here, with a `fix`. An aborted
    * `signal` fails it with the signal's reason, leaving no engine behind.
    */
   static async connect(options: ConnectOptions = {}): Promise<Collie> {

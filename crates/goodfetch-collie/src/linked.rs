@@ -214,7 +214,9 @@ fn environment_refused(error: SettingsError) -> Error {
         SettingsError::Invalid { key, reason, .. } => Error::setting_invalid(
             message,
             &SettingInvalidDetails {
-                fix: Some(format!("Give {key} a value, or unset it.")),
+                fix: Some(format!(
+                    "Set {key} to a non-empty Unicode value, or unset it."
+                )),
                 key,
                 layer: None,
                 reason,

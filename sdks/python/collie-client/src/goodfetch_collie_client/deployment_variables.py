@@ -36,17 +36,17 @@ def check_deployment_variables(env: Mapping[str, str]) -> None:
         if not name.startswith(DEPLOYMENT_PREFIX):
             continue
         if name not in DEPLOYMENT_VARIABLES:
-            raise _unknown(name)
-        reason = _invalid(env[name])
+            raise _unknown_variable(name)
+        reason = _invalid_reason(env[name])
         if reason is not None:
             raise SettingInvalidError(
                 f"`{name}` is not valid in the environment: {reason}",
-                fix=f"Give {name} a value, or unset it.",
+                fix=f"Set {name} to a non-empty Unicode value, or unset it.",
                 details={"key": name, "reason": reason},
             )
 
 
-def _invalid(value: str) -> str | None:
+def _invalid_reason(value: str) -> str | None:
     """Why `value` cannot be a deployment variable's, or `None`."""
     if not value:
         return "it is empty; unset it instead"
@@ -58,7 +58,7 @@ def _invalid(value: str) -> str | None:
     return None
 
 
-def _unknown(name: str) -> SettingUnknownError:
+def _unknown_variable(name: str) -> SettingUnknownError:
     closest = _nearest(name)
     if closest is None:
         return SettingUnknownError(

@@ -591,7 +591,7 @@ async def test_fails_connect_when_a_deployment_variable_is_set_but_empty(
     assert summary(error) == {
         "code": "setting_invalid",
         "group": "program",
-        "fix": f"Give {variable} a value, or unset it.",
+        "fix": f"Set {variable} to a non-empty Unicode value, or unset it.",
         "details": {"key": variable, "reason": "it is empty; unset it instead"},
     }
 

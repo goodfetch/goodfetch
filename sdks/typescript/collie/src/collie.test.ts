@@ -515,6 +515,7 @@ describe("Collie.connect()", () => {
         group: "program",
         message:
           "`GOODFETCH_HOEM` in the environment is no deployment variable; did you mean `GOODFETCH_HOME`?",
+        fix: "Rename GOODFETCH_HOEM to GOODFETCH_HOME, or unset it.",
         details: { key: "GOODFETCH_HOEM", closest: "GOODFETCH_HOME" },
       });
     },
@@ -545,7 +546,22 @@ describe("Collie.connect()", () => {
       expect(error).toMatchObject({
         code: "setting_invalid",
         group: "program",
+        fix: "Set GOODFETCH_URL to a non-empty Unicode value, or unset it.",
         details: { key: "GOODFETCH_URL", reason: "it is empty; unset it instead" },
+      });
+    },
+  );
+
+  test(
+    "fails on a deployment variable whose value is no well-formed Unicode",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async () => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { GOODFETCH_HOME: "/home/\uDCFF" } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        details: { key: "GOODFETCH_HOME", reason: "it is not Unicode" },
       });
     },
   );

@@ -13,14 +13,15 @@
 //! interactive CLI prompt, and refused elsewhere with `person_required`.
 
 use crate::point_in_time::PointInTime;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, SharedType, SharedTypeValue, Stability, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
+    wire_millis,
 };
 use crate::run::{LimitScope, LimitSetter, Period};
 
@@ -401,6 +402,30 @@ pub const LIMIT_RAISE_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// `usage.ledger_read_interval`'s default: one second.
+pub const LEDGER_READ_INTERVAL_DEFAULT: Duration = Duration::from_secs(1);
+
+fn one_second() -> serde_json::Value {
+    serde_json::Value::from(wire_millis(LEDGER_READ_INTERVAL_DEFAULT))
+}
+
+/// `usage.ledger_read_interval` (issue 2602): how long a going Run charges
+/// on the Limits it holds before it reads them again for another
+/// process's changes (ADRs 0041 and 0140).
+pub const LEDGER_READ_INTERVAL: Setting = Setting {
+    name: "usage.ledger_read_interval",
+    description: "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+    kind: ValueKind::Duration,
+    default: one_second,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -410,7 +435,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD, LIMIT_RAISE_REFUSED],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[LEDGER_READ_INTERVAL],
     hook_stages: &[],
     shared_type_values: &[
         SharedTypeValue {

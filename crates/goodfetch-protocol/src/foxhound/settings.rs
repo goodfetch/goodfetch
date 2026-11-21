@@ -494,7 +494,7 @@ pub const FETCH_BLOCK_CLASSIFICATION: Setting = Setting {
 pub const FEATURE_SWITCHED_OFF: SharedTypeValue = SharedTypeValue {
     shared_type: SharedType::AuditKind,
     name: "feature_switched_off",
-    description: "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its values `learned` and `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
+    description: "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
     arrived_in: ARRIVED_IN,
 };
 

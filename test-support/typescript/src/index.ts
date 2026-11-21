@@ -11,7 +11,7 @@ export {
 } from "./canaries.ts";
 export { ClientCaseRecord } from "./case-log.ts";
 export { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
-export { failure } from "./failure.ts";
+export { failure, goodfetchFailure } from "./failure.ts";
 export { recordingLogger } from "./recording-logger.ts";
 export { test, type TestSupportFixtures } from "./fixtures.ts";
 export { locales, timeZones, type TimeZoneCase } from "./locales.ts";

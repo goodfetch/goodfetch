@@ -192,8 +192,9 @@ fn later_requests(proving_ground: &ProvingGround, kind: &str, skip: usize) -> (u
     (count, all.len())
 }
 
-/// A crawl of the lists of `kind` under `fetch.tier`, `tier`, as
-/// `run_id`, read by [`read_the_list`].
+/// A crawl of the lists of `kind` under `fetch.tier`, `tier`, its HTTP
+/// sent from the browser (`fetch.http_from: browser`), as `run_id`, read
+/// by [`read_the_list`].
 fn crawl(
     env: &TestEnv,
     proving_ground: &ProvingGround,
@@ -208,7 +209,10 @@ fn crawl(
         run_id,
         &seeds,
         &json!({ kind: {} }),
-        &settings(proving_ground, &json!({ "fetch": { "tier": tier } })),
+        &settings(
+            proving_ground,
+            &json!({ "fetch": { "tier": tier, "http_from": "browser" } }),
+        ),
         &mut read_the_list(kind),
     );
     assert!(engine.finished());

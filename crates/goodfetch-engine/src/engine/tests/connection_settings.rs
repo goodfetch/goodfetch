@@ -301,6 +301,12 @@ fn config_explain_naming_a_run_fails_on_anything_but_a_live_run_alone(
     "governor.blocking_threads",
     json!("per_core")
 )]
+/// Covers: setting:usage.ledger_read_interval
+#[case::usage(
+    json!({ "usage": { "ledger_read_interval": 1_000 } }),
+    "usage.ledger_read_interval",
+    json!(1_000)
+)]
 fn a_configuration_only_key_in_connect_is_refused_and_still_explained(
     #[case] settings: Value,
     #[case] key: &'static str,

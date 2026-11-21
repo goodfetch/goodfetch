@@ -93,7 +93,7 @@ rows! {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses => "F1.parses", "page_analysis", "parses";
     /// `F1.selector_compilations`: a selector, glob or regular expression
-    /// compiled for a fetched page.
+    /// compiled, or an `XPath` locator parsed, for a fetched page.
     PageSelectorCompilations => "F1.selector_compilations", "page_analysis", "selector_compilations";
     /// `F1.readability_runs`: a run of the main-content step on a fetched page.
     PageReadabilityRuns => "F1.readability_runs", "page_analysis", "readability_runs";

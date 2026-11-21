@@ -222,3 +222,6 @@ fn io_error(error: Error) -> io::Error {
         error => io::Error::other(error),
     }
 }
+
+#[cfg(test)]
+mod tests;

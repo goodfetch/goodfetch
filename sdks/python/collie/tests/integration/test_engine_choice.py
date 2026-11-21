@@ -17,6 +17,7 @@ TypeScript's `engine-choice.test.ts` is its twin.
 
 import json
 import logging
+import socket
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -373,6 +374,32 @@ async def test_fails_with_daemon_unreachable_when_nothing_answers_at_the_url(
     assert error.group == "unavailable"
     assert "ws://127.0.0.1:1" in (error.fix or "")
     assert search_canaries_in([shown(error), logs(caplog)]) == []
+
+
+@pytest.mark.covers("story:11-5", "error:deadline_exceeded")
+@three_ways
+async def test_fails_with_deadline_exceeded_when_the_handshake_outlasts_the_connect(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """A port that takes the connection and never answers the handshake."""
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    # The OS takes the connection into the backlog; nothing ever answers it.
+    with socket.create_server(("127.0.0.1", 0)) as silent:
+        port = silent.getsockname()[1]
+        error = await failure(
+            open_collie(
+                way,
+                env,
+                engine=RemoteDaemon(f"ws://127.0.0.1:{port}", CANARY.value),
+                connect_timeout=timedelta(milliseconds=300),
+            )
+        )
+
+    assert isinstance(error, DeadlineExceededError)
+    assert error.limit is not None
+    assert (error.limit.key, error.limit.value) == ("timeout.connect", 300)
+    assert error.details["waited_for"] == "hello"
+    assert f"ws://127.0.0.1:{port}" in (error.fix or "")
 
 
 @pytest.mark.covers("story:11-5", "error:daemon_unreachable")

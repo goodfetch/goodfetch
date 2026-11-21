@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from urllib.parse import urlsplit
 import anyio
 
 from goodfetch_collie_client.attached_engine import is_executable_file
+from goodfetch_collie_client.connection import connect_limit, phase_exceeded
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     WEBSOCKET_SUBPROTOCOL,
@@ -44,6 +46,8 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream, SocketStream
 
+    from goodfetch_collie_client.generated.models import SettingLimit
+    from goodfetch_collie_client.handle import NotGiven
     from goodfetch_collie_client.product_connection import EngineLocation
 
 if sys.platform != "win32":
@@ -139,15 +143,22 @@ async def reach_engine(
     choice: EngineChoice,
     env: Mapping[str, str],
     executable: Callable[[], EngineLocation],
+    *,
+    connect_timeout: int | NotGiven | None,
+    started_at: float,
 ) -> Reach:
     """Chooses the engine `choice` names, and opens the bytes to a Daemon.
 
     `GOODFETCH_URL` and `GOODFETCH_TOKEN` are read from `env` at `auto`
     alone. `executable` gives the executable a Daemon is started with, when
     `choice` is `daemon` and none runs, and the fix `engine_not_found` gives
-    when it is missing.
+    when it is missing. A remote Daemon's WebSocket handshake ends within
+    `connect_timeout` of `started_at`, on anyio's clock, as `hello` does.
 
     Raises:
+        DeadlineExceededError: A remote Daemon's handshake outlasted
+            `connect_timeout`, naming `timeout.connect` and `waited_for`
+            `hello`.
         SettingInvalidError: `choice` is no engine choice, a remote Daemon's
             URL names no loopback `ws://` address, or `GOODFETCH_URL` comes
             without `GOODFETCH_TOKEN`.
@@ -156,8 +167,9 @@ async def reach_engine(
         DaemonUnreachableError: Nothing answers where a remote Daemon's URL
             says, or a Daemon cannot be started or its runtime file read.
     """
+    deadline = _Deadline(connect_limit(connect_timeout), started_at)
     if isinstance(choice, RemoteDaemon):
-        return await _reach_remote(choice, "engine")
+        return await _reach_remote(choice, "engine", deadline)
     if choice == "attached":
         return AttachedReach(_home_of(env))
     if choice == "daemon":
@@ -165,7 +177,7 @@ async def reach_engine(
     if choice == "auto":
         remote = _remote_of_environment(env)
         if remote is not None:
-            return await _reach_remote(remote, URL_VARIABLE)
+            return await _reach_remote(remote, URL_VARIABLE, deadline)
         home = _home_of(env)
         daemon = None if home is None else await _running_daemon(home)
         return AttachedReach(home) if daemon is None else daemon
@@ -207,17 +219,50 @@ def _remote_of_environment(env: Mapping[str, str]) -> RemoteDaemon | None:
     return RemoteDaemon(url, token)
 
 
-async def _reach_remote(remote: RemoteDaemon, source: str) -> DaemonReach:
+@dataclass(frozen=True)
+class _Deadline:
+    """`timeout.connect`'s milliseconds and setting, counted from `started_at`."""
+
+    connect: tuple[int, SettingLimit] | None
+    started_at: float
+
+    def at(self) -> float:
+        """When it passes, on anyio's clock."""
+        if self.connect is None:
+            return math.inf
+        return self.started_at + self.connect[0] / 1000
+
+
+async def _reach_remote(
+    remote: RemoteDaemon, source: str, deadline: _Deadline
+) -> DaemonReach:
     """Opens the bytes to the remote Daemon `remote` names, which `source` gave.
 
-    `source` is `engine` or `GOODFETCH_URL`.
+    `source` is `engine` or `GOODFETCH_URL`. The handshake ends by
+    `deadline`, which `hello` shares.
     """
     url = remote.url
     host, port, origin = _remote_address(url, source)
-    socket = await _open_tcp(host, port)
-    stream = (
-        None if socket is None else await open_websocket(socket, url, origin=origin)
-    )
+    stream: ByteStream | None = None
+    connect = deadline.connect
+    with anyio.CancelScope(deadline=deadline.at()) as handshake:
+        socket = await _open_tcp(host, port)
+        stream = (
+            None if socket is None else await open_websocket(socket, url, origin=origin)
+        )
+    if handshake.cancelled_caught and connect is not None:
+        value, limit = connect
+        raise phase_exceeded(
+            f"timeout.connect ({value} ms) passed before the Daemon at {url} "
+            "answered the WebSocket handshake",
+            fix=(
+                "Raise connect()'s timeout, or find why the Daemon at "
+                f"{url} does not answer."
+            ),
+            limit=limit,
+            started_at=deadline.started_at,
+            waited_for="hello",
+        )
     if stream is None:
         # A WebSocket tells none of these apart: a Daemon of another protocol
         # major answers no subprotocol this Client offered, so its handshake
@@ -305,7 +350,9 @@ def _remote_address(url: str, source: str) -> tuple[str, int, str]:
             "names an address beyond loopback, where its token would cross the "
             "network in the clear until the Daemon terminates TLS"
         )
-    return host, port, f"http://{parsed.netloc}"
+    # A host's name is the same in any case; the Daemon's own Origin is
+    # sent as the Rust and TypeScript SDKs send it, in lowercase.
+    return host, port, f"http://{parsed.netloc.lower()}"
 
 
 def _is_loopback(host: str) -> bool:

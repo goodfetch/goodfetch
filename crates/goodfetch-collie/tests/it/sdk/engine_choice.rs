@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use goodfetch_collie::{
     Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, ErrorCode, RemoteDaemon, blocking,
@@ -408,6 +409,44 @@ fn a_remote_daemon_nothing_answers_for_is_unreachable() {
     assert_eq!(error.code(), ErrorCode::DAEMON_UNREACHABLE, "{error:?}");
     assert!(error.fix().is_some(), "{error:?}");
     assert!(!format!("{error:?}").contains(CANARY), "{error:?}");
+}
+
+/// A remote Daemon whose port takes the connection and never answers the
+/// WebSocket handshake fails the connect with `deadline_exceeded` once
+/// `timeout.connect` passes, as one that never answers `hello` does.
+/// Covers: story:11-5, setting:timeout.connect
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test holds a loopback port outside the engine, which takes connections and never answers (ADR 0060)"
+)]
+fn a_remote_daemon_silent_in_the_handshake_fails_past_the_connect_timeout() {
+    let env = TestEnv::new();
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = silent.local_addr().unwrap();
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
+            ConnectOptions::default()
+                .environment(env.env_os())
+                .engine(EngineChoice::Remote(RemoteDaemon::new(
+                    format!("ws://{address}"),
+                    CANARY,
+                )))
+                .timeout(Duration::from_millis(200)),
+        )
+        .await
+    });
+
+    let error = refused.unwrap_err();
+    assert_eq!(
+        (error.code(), error.limit().map(|limit| limit.key)),
+        (
+            ErrorCode::DEADLINE_EXCEEDED,
+            Some("timeout.connect".to_owned())
+        ),
+        "{error:?}"
+    );
 }
 
 /// A remote Daemon that answers no subprotocol the SDK offers, as one of

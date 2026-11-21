@@ -102,23 +102,25 @@ class _WebSocketStream(ByteStream):
         self._events: deque[Event] = deque(events)
         self._message: list[bytes] = []
         """The bytes of the message being received, frame by frame."""
+        self._unread = b""
+        """What `receive` has not returned yet of the last line."""
         self._unsent = bytearray()
         """What was written past its last full line."""
         self._ended = False
         self._send_lock = anyio.Lock()
 
     async def receive(self, max_bytes: int = 65536) -> bytes:
-        """The next message received, as one line.
+        """Up to `max_bytes` of the next message received, as one line.
 
         Raises:
             anyio.EndOfStream: The Daemon closed the WebSocket, or its stream ended.
             anyio.BrokenResourceError: The Daemon broke the WebSocket's framing.
         """
-        del max_bytes  # A message is one line, whatever its length.
         while True:
-            line = self._next_line()
+            line = self._unread or self._next_line()
             if line is not None:
-                return line
+                self._unread = line[max_bytes:]
+                return line[:max_bytes]
             if self._ended:
                 raise anyio.EndOfStream
             if self._protocol.parser_exc is not None:
@@ -176,22 +178,32 @@ class _WebSocketStream(ByteStream):
     async def send_eof(self) -> None:
         """Closes the WebSocket with 1000.
 
-        The Daemon's messages until its own close still arrive.
+        The Daemon's messages until its own close still arrive. While a
+        send is under way, it sends the close after its own bytes, and this
+        returns at once: a send stuck on a Daemon that reads nothing holds
+        no close back from `aclose`.
         """
         if self._protocol.state is State.OPEN:
             self._protocol.send_close(1000)
-        await self._flush()
+        if not self._send_lock.locked():
+            await self._flush()
 
     async def aclose(self) -> None:
         """Closes the stream under the WebSocket at once."""
         await self._stream.aclose()
 
     async def _flush(self) -> None:
-        """Sends what the protocol queued, in its order, never cut short."""
-        with anyio.CancelScope(shield=True):
-            async with self._send_lock:
-                # Taken under the lock, so concurrent flushes keep the order.
-                await _send_all(self._stream, self._protocol.data_to_send())
+        """Sends what the protocol queued, in its order, until nothing is.
+
+        Waiting for the send under way can be cancelled; a send, once
+        started, is never cut short, which would break the framing.
+        """
+        async with self._send_lock:
+            with anyio.CancelScope(shield=True):
+                # Taken under the lock, so concurrent flushes keep the order,
+                # and again until empty, so what was queued meanwhile goes too.
+                while writes := self._protocol.data_to_send():
+                    await _send_all(self._stream, writes)
 
 
 async def _send_all(stream: ByteStream, writes: list[bytes]) -> None:

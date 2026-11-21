@@ -8310,7 +8310,7 @@
     {
       "id": "setting:connection.max_listener_queue",
       "kind": "setting",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8321,7 +8321,7 @@
     {
       "id": "setting:connection.max_pending_calls",
       "kind": "setting",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8332,7 +8332,7 @@
     {
       "id": "setting:connection.max_queued_write_bytes",
       "kind": "setting",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

@@ -26,6 +26,7 @@ from goodfetch_collie_client.generated.models import (
     ProjectSettings,
     RecordingReport,
     RunId,
+    RunLimit,
     RunUsage,
     RunWarning,
     SampleEchoed,
@@ -2422,6 +2423,12 @@ class CrawlStartParams(BaseModel):
     `label_unknown`, and so does a start under the ID of a Run with
     pending requests of a Label no longer declared, before any work; a
     code-free crawl declares its own Label.
+    """
+    limits: list[RunLimit] | None = None
+    """
+    The Run's own Limits, as `run.start` takes them (ADRs 0041 and
+    0080): at most one per Usage kind and currency. A start that names
+    the Run again lowers them and never raises them (ADR 0102).
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""

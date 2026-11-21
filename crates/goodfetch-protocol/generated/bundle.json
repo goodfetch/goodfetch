@@ -3004,6 +3004,14 @@
           "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue. A seed, a sitemap rule or an enqueue\nnaming a Label the crawl does not declare fails with\n`label_unknown`, and so does a start under the ID of a Run with\npending requests of a Label no longer declared, before any work; a\ncode-free crawl declares its own Label.",
           "type": "object"
         },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "The Run's own Limits, as `run.start` takes them (ADRs 0041 and\n0080): at most one per Usage kind and currency. A start that names\nthe Run again lowers them and never raises them (ADR 0102).",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": "array"
+        },
         "project": {
           "anyOf": [
             {

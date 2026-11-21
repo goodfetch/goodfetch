@@ -6,7 +6,9 @@
 //! its value's ID (`run_id` for `run`) as its first positional argument,
 //! a `timeout` param being `--timeout <duration>` or `--timeout none`
 //! (ADR 0080), and `--json` printing the result as JSON; an operation that
-//! takes `settings` takes them as its `--set` and `--settings` flags. A sequence's
+//! takes `settings` takes them as its `--set` and `--settings` flags, and
+//! one that takes a start's `limits` as its repeatable `--limit
+//! <kind>=<amount>` ([`LimitFlags`]). A sequence's
 //! command takes `--follow`. Help comes from the catalog's descriptions.
 //! Foxhound's executable carries Collie's commands unchanged and adds its
 //! crawl's (ADR 0090): a sequence of what a crawl committed, such as `run
@@ -66,6 +68,7 @@ use super::engine_choice::{
     self, Answer, Choice, CommandCall, EngineChoice, Failed, Follower, Input, Lifetime, Next,
     Pager, ReadValues, Values,
 };
+use super::limit_flags::LimitFlags;
 use super::operation::failed;
 use super::output::text;
 use super::output::{ColourFlag, Human};
@@ -169,6 +172,10 @@ const NO_TIMEOUT: &str = "none";
 /// The param that takes the run layer's settings (ADR 0083), which a
 /// command takes as its [`SettingsFlags`].
 const SETTINGS: &str = "settings";
+
+/// The param that takes a start's Run Limits (ADRs 0041 and 0080), which
+/// a command takes as its [`LimitFlags`].
+const LIMITS: &str = "limits";
 
 /// A namespace of the catalog with commands: the group of its commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -566,6 +573,7 @@ fn command(operation: &'static Operation, own: Option<&'static OwnCommand>) -> C
     let command = generated_parameters(operation, own).fold(command, |command, parameter| {
         match parameter.form {
             Form::Settings => SettingsFlags::augment_args(command),
+            Form::Limits => LimitFlags::augment_args(command),
             _ => command.arg(parameter.arg()),
         }
     });
@@ -676,6 +684,8 @@ enum Form {
     /// The run layer's `settings`: `--set` and `--settings`, the
     /// [`SettingsFlags`].
     Settings,
+    /// A start's Run Limits: `--limit`, the [`LimitFlags`].
+    Limits,
 }
 
 impl Parameter {
@@ -696,7 +706,7 @@ impl Parameter {
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Set),
-            Form::Repeated { .. } | Form::Settings => arg
+            Form::Repeated { .. } | Form::Settings | Form::Limits => arg
                 .long(spelled(&self.name))
                 .required(self.required)
                 .action(ArgAction::Append),
@@ -738,6 +748,7 @@ impl Parameter {
                 let run_layer = SettingsFlags::from_arg_matches(matches).ok()?.run_layer();
                 (!run_layer.is_empty()).then_some(Value::Object(run_layer))
             }
+            Form::Limits => LimitFlags::from_arg_matches(matches).ok()?.limits(),
         }
     }
 }
@@ -769,6 +780,8 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
                 Form::Timeout
             } else if name == SETTINGS {
                 Form::Settings
+            } else if name == LIMITS {
+                Form::Limits
             } else {
                 match type_name(type_of) {
                     // An optional boolean has three states, so its flag

@@ -482,6 +482,14 @@ class NotInProductError(UnavailableError):
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False, **fields)
 
 
+class NotVerifiedError(PageError):
+    """The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="not_verified", group="page", retryable=False, **fields)
+
+
 class PageCheckFailedError(PageError):
     """The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status."""
 
@@ -970,6 +978,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
+    "not_verified": NotVerifiedError,
     "page_check_failed": PageCheckFailedError,
     "page_crashed": PageCrashedError,
     "page_events_lost": PageEventsLostError,

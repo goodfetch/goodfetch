@@ -22,6 +22,7 @@ use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, META, ProtocolFailure};
 use goodfetch_protocol::naming;
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
+use goodfetch_protocol::page::ai_work::{NOT_VERIFIED, NotVerifiedDetails};
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
 use goodfetch_protocol::settings::{
     SETTING_INVALID, SETTING_UNKNOWN, SettingInvalidDetails, SettingLimit, SettingUnknownDetails,
@@ -356,6 +357,20 @@ impl Error {
                 details: self.0.data.clone(),
             },
         }
+    }
+
+    /// A program asked AI work for an output its checks did not prove:
+    /// `not_verified`, with `details` (ADR 0079).
+    pub(crate) fn not_verified(details: &NotVerifiedDetails) -> Self {
+        Self::of_runtime(
+            &NOT_VERIFIED,
+            &format!(
+                "the AI work's Verdict is `{}`, so its output is not verified",
+                details.verdict.as_str()
+            ),
+            "Read the result's `ended` and `verdict` to use an output its checks did not prove, or fix what the details' `reasons` name; the model's claim is never proof.",
+        )
+        .with_details(details)
     }
 
     /// The Connection, or the value the call was made on, is closed, so

@@ -93,6 +93,7 @@ details! {
     crate::page::ResponseTruncatedDetails => ErrorCode::RESPONSE_TRUNCATED,
     crate::page::SitePreferencesRefusedDetails => ErrorCode::SITE_PREFERENCES_REFUSED,
     crate::page::TargetNotUniqueDetails => ErrorCode::TARGET_NOT_UNIQUE,
+    crate::page::ai_work::NotVerifiedDetails => ErrorCode::NOT_VERIFIED,
     crate::page::TooManyRedirectsDetails => ErrorCode::TOO_MANY_REDIRECTS,
     crate::page::cdp_url::CdpUrlNotBrowserDetails => ErrorCode::CDP_URL_NOT_BROWSER,
     crate::page::cdp_url::CdpUrlUnauthorizedDetails => ErrorCode::CDP_URL_UNAUTHORIZED,

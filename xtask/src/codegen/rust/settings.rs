@@ -20,6 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::path::Path;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use goodfetch_protocol::catalog::{ValueKind, ValueShape};
@@ -32,11 +33,12 @@ use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
 use goodfetch_protocol::tls::CLIENT_CERTIFICATE_SHAPE;
 use serde_json::Value;
 
+use super::super::cdp::rustfmt;
 use super::super::handles::Member;
-use super::super::layer::Setting;
+use super::super::layer::{Layer, Setting};
 use super::super::naming::{rust_snake, rust_type};
 use super::super::settings_tree::{Node, SETTINGS, opened_scope, tree};
-use super::{Setter, comment};
+use super::{HEADER, Setter, comment};
 
 /// The protocol's type of each shape a key of the crate takes (ADR 0028's
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
@@ -158,6 +160,33 @@ pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
         );
     }
     Ok(text)
+}
+
+/// The folder of Foxhound's crate's generated settings keys.
+pub(in super::super) const FOXHOUND_FOLDER: &str =
+    "crates/foxhound/goodfetch-foxhound/src/generated";
+
+/// Foxhound's crate's manifest: without it, the workspace has no Foxhound
+/// crate to generate into.
+const FOXHOUND_MANIFEST: &str = "crates/foxhound/goodfetch-foxhound/Cargo.toml";
+
+/// The keys of Foxhound's own settings, `settings.rs` under
+/// [`FOXHOUND_FOLDER`], beside the Collie ones of `collie`'s layer that
+/// Foxhound's crate re-exports, or nothing when the workspace has no
+/// Foxhound crate.
+pub(in super::super) fn generate_foxhound(
+    root: &Path,
+    collie: &Layer,
+    foxhound: &Layer,
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    if !root.join(FOXHOUND_MANIFEST).is_file() {
+        return Ok(BTreeMap::new());
+    }
+    let text = foxhound_module(HEADER, &foxhound.settings, &collie.settings)?;
+    Ok(BTreeMap::from([(
+        format!("{FOXHOUND_FOLDER}/settings.rs"),
+        rustfmt(&text).context("formatting Foxhound's Rust settings' keys")?,
+    )]))
 }
 
 /// The keys of Foxhound's catalog that Collie's lacks, the text Foxhound's

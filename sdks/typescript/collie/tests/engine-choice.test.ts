@@ -683,8 +683,6 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
 
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const connecting = Collie.connect({ env, logger });
-      // Held until awaited below, so a rejection before it is no unhandled one.
-      connecting.catch(() => {});
       expect(await handing.exit).toMatchObject({ code: 0 });
       // The pick starts once the Daemon that handed over has stopped.
       const pick = await startScriptedDaemon(

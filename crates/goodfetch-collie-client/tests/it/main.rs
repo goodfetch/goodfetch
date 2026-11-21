@@ -10,6 +10,7 @@
 mod attached;
 mod call_cancelled;
 mod cancellation;
+mod cdp_url_errors;
 mod closing;
 mod compile_fail;
 mod connection;

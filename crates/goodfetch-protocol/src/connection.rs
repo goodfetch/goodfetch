@@ -27,6 +27,7 @@ use crate::catalog::{
 };
 use crate::jsonrpc::RequestId;
 use crate::log::LogLevel;
+use crate::open_value::UnknownValue;
 use crate::settings::SettingLimit;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -852,22 +853,70 @@ impl fmt::Display for WaitedFor {
     }
 }
 
-/// Who stopped a call (ADR 0113).
+/// Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+/// call the stop cancels names it as its `by` (ADR 0113).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {
-    /// A Client, such as through `$/cancel`.
+    /// A Client, through `run.abort`.
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
     Program,
-    /// The browser, outside every Client: a page's window closed there, or
-    /// the browser quit (ADR 0113).
+    /// The browser, outside every Client.
     Browser,
 }
 
-/// What was closed under a call that `call_cancelled` ended (ADR 0113).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Who stopped a call that `call_cancelled` ended (ADR 0113): the
+/// vocabulary of an Agent's `abort` (ADR 0100), plus `browser`. A value a
+/// newer engine adds is kept as received (ADR 0079).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum CancelledBy {
+    /// A person, through a Client that acts for them (ADR 0031).
+    Person,
+    /// Another Client, such as through `$/cancel`.
+    Client,
+    /// The program, closing a parent value from another task or thread.
+    Program,
+    /// The browser, outside every Client: a page's window closed there, or
+    /// the browser quit.
+    Browser,
+    /// Who a newer engine names that this reader does not know, kept as
+    /// received.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl CancelledBy {
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
+    }
+}
+
+/// Whoever stopped a Run stopped the calls in flight under it.
+impl From<StoppedBy> for CancelledBy {
+    fn from(by: StoppedBy) -> Self {
+        match by {
+            StoppedBy::Client => Self::Client,
+            StoppedBy::Program => Self::Program,
+            StoppedBy::Browser => Self::Browser,
+        }
+    }
+}
+
+/// What was closed or stopped under a call that `call_cancelled` ended
+/// (ADR 0113). A value a newer engine adds is kept as received (ADR 0079).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum ClosedValue {
     /// Its page.
     Page,
@@ -875,19 +924,42 @@ pub enum ClosedValue {
     Session,
     /// Its page's browser.
     Browser,
+    /// Its Run, stopped.
+    Run,
+    /// Its Connection.
+    Connection,
+    /// What a newer engine names that this reader does not know, kept as
+    /// received.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
-/// What `call_cancelled` details.
+impl ClosedValue {
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
+    }
+}
+
+/// What `call_cancelled` details (ADR 0113).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CallCancelledDetails {
     /// Who stopped the call.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub by: StoppedBy,
-    /// What was closed under it, when something was rather than the call
-    /// itself cancelled.
+    pub by: CancelledBy,
+    /// What was closed or stopped under it, when something was rather than
+    /// the call itself cancelled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub closed: Option<ClosedValue>,
+    /// Whom the stopping Client acts for (ADR 0031), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub person: Option<String>,
 }
 
 /// A call on a value its program already closed (ADR 0078), raised by the

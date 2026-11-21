@@ -567,11 +567,11 @@
         "open": true
       },
       "StoppedBy": {
-        "description": "Who stopped a call (ADR 0113).",
+        "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
         "oneOf": [
           {
             "const": "client",
-            "description": "A Client, such as through `$/cancel`.",
+            "description": "A Client, through `run.abort`.",
             "type": "string"
           },
           {
@@ -581,7 +581,7 @@
           },
           {
             "const": "browser",
-            "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+            "description": "The browser, outside every Client.",
             "type": "string"
           }
         ]

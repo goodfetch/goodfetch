@@ -343,6 +343,7 @@ impl Plan {
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
             rust::FOLDER,
+            rust::FOXHOUND_FOLDER,
             test_support::FOLDER,
             facts::TEST_SUPPORT_FOLDER,
             facts::XTASK_FOLDER,
@@ -453,8 +454,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(cdp::generate(root)?);
 
     let version = product_version(root)?;
-    let collie_layer = Layer::new(&bundle, &collie, &foxhound, Product::Collie, &version)?;
-    files.extend(rust::generate(root, &collie_layer)?);
+    files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
     let mut externals = Vec::new();
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
@@ -477,6 +477,26 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     }
     helpers::add(&bundle, &mut files, &mut externals)?;
     Ok(Plan { files, externals })
+}
+
+/// Collie's Rust client crate's files, then Foxhound's crate's own settings
+/// keys beside Collie's.
+fn rust_files(
+    root: &Path,
+    bundle: &Value,
+    collie: &Value,
+    foxhound: &Value,
+    version: &str,
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    let collie_layer = Layer::new(bundle, collie, foxhound, Product::Collie, version)?;
+    let foxhound_layer = Layer::new(bundle, collie, foxhound, Product::Foxhound, version)?;
+    let mut files = rust::generate(root, &collie_layer)?;
+    files.extend(rust::generate_foxhound(
+        root,
+        &collie_layer,
+        &foxhound_layer,
+    )?);
+    Ok(files)
 }
 
 /// The schema the bundle's `files` gives `key`, on its own: the bundle's

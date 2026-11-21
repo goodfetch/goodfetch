@@ -713,7 +713,7 @@ pub const CRAWL_MAX_SITEMAP_NESTING: Setting = Setting {
 /// One entry of `crawl.path_budgets` (CO-08): a pattern, a glob read as
 /// Playwright reads one and matched in the engine against a URL's path and
 /// query, and how many requests it admits.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PathBudget {
     /// The glob, such as `/shop?*`, matched against the path and query.
     pub pattern: String,

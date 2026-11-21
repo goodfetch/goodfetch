@@ -4,7 +4,9 @@
 //! own `settings` set, in modules that mirror its dotted name
 //! (`timeout::NAVIGATION` for `timeout.navigation`), with the scopes that
 //! set it, which the crate checks at run time, since its one `Settings`
-//! type serves every scope.
+//! type serves every scope. Foxhound's crate gets those of its own keys,
+//! a crawl's and a Label's among them, the same way, in modules that
+//! re-export Collie's of the same path.
 //!
 //! `T` comes from the key's value schema: `Duration` for a duration, `u64`
 //! for a whole number, `bool`, `String`, an enum of its own for a choice of
@@ -22,6 +24,8 @@ use std::fmt::Write as _;
 use anyhow::{Context as _, Result, bail, ensure};
 use goodfetch_protocol::catalog::{ValueKind, ValueShape};
 use goodfetch_protocol::egress::LOCAL_ADDRESSES_SHAPE;
+use goodfetch_protocol::foxhound::fetch::SAMPLE_REFRESH_SHAPE;
+use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
 use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
@@ -38,10 +42,18 @@ use super::{Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 5] = [
+const SHAPES: [(&ValueShape, &str); 7] = [
     (
         &LOCAL_ADDRESSES_SHAPE,
         "::goodfetch_protocol::egress::LocalAddresses",
+    ),
+    (
+        &PATH_BUDGET_SHAPE,
+        "::goodfetch_protocol::foxhound::frontier::PathBudget",
+    ),
+    (
+        &SAMPLE_REFRESH_SHAPE,
+        "::goodfetch_protocol::foxhound::fetch::SampleRefresh",
     ),
     (
         &BATCH_THRESHOLD_SHAPE,
@@ -65,7 +77,7 @@ const SHAPES: [(&ValueShape, &str); 5] = [
 /// instead: the types and traits of Rust's prelude, which a public type of
 /// the same name would make rustc spell in full in every message that
 /// names them (`std::marker::Sync`), and the `settings` module's own.
-const TAKEN: [&str; 31] = [
+const TAKEN: [&str; 32] = [
     "AsMut",
     "AsRef",
     "Box",
@@ -97,6 +109,7 @@ const TAKEN: [&str; 31] = [
     "String",
     "Sync",
     "Vec",
+    "Word",
 ];
 
 /// The setter of `member`'s parameter `name` when it is the `settings` of
@@ -126,14 +139,14 @@ pub(super) fn setter(
 }
 
 /// The module's constants and enums, `xtask codegen`'s header first, then
-/// how each protocol type the keys take goes on the wire: the text the
-/// crate's `settings` module includes.
+/// how each protocol type of [`SHAPES`] goes on the wire, those only
+/// Foxhound's keys take included, since only this crate implements the
+/// sealed `Wire`: the text the crate's `settings` module includes.
 pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
     let root = tree(settings, None)?;
     let mut text = format!("{header}\n");
-    let mut shapes = BTreeSet::new();
-    level(&mut text, &mut shapes, &root, "")?;
-    for shape in shapes {
+    level(&mut text, &root, &Area::default(), None)?;
+    for (_, shape) in SHAPES {
         let _ = write!(
             text,
             "\n{}{}",
@@ -147,19 +160,62 @@ pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
     Ok(text)
 }
 
-/// The items of one level of the tree at `path`: its settings' constants
-/// and enums, then a module for each of its areas. `shapes` gathers the
-/// protocol's types their values take.
+/// The keys of Foxhound's catalog that Collie's lacks, the text Foxhound's
+/// crate's `settings` module includes beside its re-export of Collie's
+/// (ADR 0084): each area module Collie's crate has too re-exports that
+/// one's items first, so `fetch::TIER` and `timeout::NAVIGATION` are both
+/// reached from the one module. A key both catalogs list is Collie's
+/// constant, and fails the generation unless both list it alike.
+pub(super) fn foxhound_module(
+    header: &str,
+    settings: &[Setting],
+    collie: &[Setting],
+) -> Result<String> {
+    let theirs: BTreeMap<&str, &Setting> = collie
+        .iter()
+        .map(|setting| (setting.name.as_str(), setting))
+        .collect();
+    let mut own = Vec::new();
+    for setting in settings {
+        match theirs.get(setting.name.as_str()) {
+            Some(collies) => ensure!(
+                collies.scopes == setting.scopes
+                    && collies.value == setting.value
+                    && collies.clearable == setting.clearable,
+                "`{}` is a key of both Collie's and Foxhound's catalogs, with other scopes or values in each",
+                setting.name
+            ),
+            None => own.push(setting.clone()),
+        }
+    }
+    let collie_root = tree(collie, None)?;
+    let root = tree(&own, None)?;
+    let mut text = format!("{header}\n");
+    level(&mut text, &root, &Area::default(), Some(&collie_root))?;
+    Ok(text)
+}
+
+/// Where a level of the tree is: its dotted key prefix and its Rust module
+/// path under `settings`, both empty at the root.
+#[derive(Default)]
+struct Area {
+    dotted: String,
+    module: String,
+}
+
+/// The items of one level of the tree at `area`: its settings' constants
+/// and enums, then a module for each of its areas. `collie` is the same
+/// level of Collie's tree, for Foxhound's module, whose area modules
+/// re-export the Collie ones of their path.
 fn level(
     text: &mut String,
-    shapes: &mut BTreeSet<&'static str>,
     level: &BTreeMap<String, Node<'_>>,
-    path: &str,
+    area: &Area,
+    collie: Option<&BTreeMap<String, Node<'_>>>,
 ) -> Result<()> {
     let mut enums = Enums {
         names: BTreeSet::new(),
         text: String::new(),
-        shapes,
     };
     for (segment, node) in level {
         if let Node::Setting(setting) = node {
@@ -168,23 +224,40 @@ fn level(
         }
     }
     text.push_str(&enums.text);
-    let shapes = enums.shapes;
     for (segment, node) in level {
         if let Node::Area(children) = node {
-            let at = if path.is_empty() {
-                segment.clone()
-            } else {
-                format!("{path}.{segment}")
+            let joined = |prefix: &str, separator: &str, last: &str| {
+                if prefix.is_empty() {
+                    last.to_owned()
+                } else {
+                    format!("{prefix}{separator}{last}")
+                }
             };
+            let dotted = joined(&area.dotted, ".", segment);
             let ident = rust_snake(segment)
                 .filter(|ident| ident == segment || ident.strip_prefix("r#") == Some(segment))
-                .with_context(|| format!("`{at}` has a segment Rust cannot name a module"))?;
+                .with_context(|| format!("`{dotted}` has a segment Rust cannot name a module"))?;
+            let inner = Area {
+                module: joined(&area.module, "::", &ident),
+                dotted,
+            };
             let _ = write!(
                 text,
                 "\n{}pub mod {ident} {{\n",
-                comment(&format!("The `{at}.*` settings."))
+                comment(&format!("The `{}.*` settings.", inner.dotted))
             );
-            self::level(text, shapes, children, &at)?;
+            let collies = collie.and_then(|collie| match collie.get(segment) {
+                Some(Node::Area(collies)) => Some(collies),
+                _ => None,
+            });
+            if collies.is_some() {
+                let _ = writeln!(
+                    text,
+                    "pub use ::goodfetch_collie_client::settings::{}::*;",
+                    inner.module
+                );
+            }
+            self::level(text, children, &inner, collies)?;
             text.push_str("}\n");
         }
     }
@@ -263,15 +336,13 @@ fn constant(text: &mut String, enums: &mut Enums, segment: &str, setting: &Setti
     Ok(())
 }
 
-/// The enums of one module's choices, by name, and their text, and the
-/// protocol's types the whole tree's values take.
-struct Enums<'shapes> {
+/// The enums of one module's choices, by name, and their text.
+struct Enums {
     names: BTreeSet<String>,
     text: String,
-    shapes: &'shapes mut BTreeSet<&'static str>,
 }
 
-impl Enums<'_> {
+impl Enums {
     /// The Rust type of the values `schema` accepts, `None` for a schema
     /// it has none for; a choice of words is the enum `hint`, which this
     /// module then defines.
@@ -280,7 +351,6 @@ impl Enums<'_> {
             return Ok(Some("::std::time::Duration".to_owned()));
         }
         if let Some((_, ty)) = SHAPES.iter().find(|(shape, _)| (shape.schema)() == *schema) {
-            self.shapes.insert(ty);
             return Ok(Some((*ty).to_owned()));
         }
         if let Some(alternatives) = schema
@@ -376,21 +446,20 @@ impl Enums<'_> {
             let _ = writeln!(body, "{}{variant},", comment(&format!("`{word}`.")));
             let _ = writeln!(arms, "Self::{variant} => {word:?},");
         }
+        // `Word`, not the sealed `Wire`, which Foxhound's crate cannot
+        // implement for its own choices.
         let _ = write!(
             self.text,
-            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\n{}",
+            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\nimpl crate::settings::Word for {name} {{\n    fn word(&self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n",
             comment("A word a setting of this module takes, as the catalog spells it."),
-            wire(
-                name,
-                &format!("::serde_json::Value::from(match self {{\n{arms}        }})")
-            )
         );
         Ok(Some(name.to_owned()))
     }
 }
 
-/// How the values of `value_type` go on the wire, `body` making the JSON
-/// of `self`: the crate's sealed `Wire` and its `SettingValue`.
+/// How the values of the protocol's `value_type` go on the wire, `body`
+/// making the JSON of `self`: the crate's sealed `Wire` and its
+/// `SettingValue`.
 fn wire(value_type: &str, body: &str) -> String {
     format!(
         "impl crate::settings::sealed::Wire for {value_type} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        {body}\n    }}\n}}\n\nimpl crate::settings::SettingValue for {value_type} {{}}\n"

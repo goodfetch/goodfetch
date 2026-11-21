@@ -1,10 +1,12 @@
 use goodfetch_protocol::catalog::ValueKind;
+use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
+use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
 use goodfetch_protocol::tls::CLIENT_CERTIFICATE_SHAPE;
 use serde_json::{Value, json};
 
-use super::module;
+use super::{foxhound_module, module};
 use crate::codegen::layer::Setting;
 
 fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Setting {
@@ -142,7 +144,7 @@ fn a_choice_of_words_is_an_enum_of_the_module_that_sends_each_word() {
             text.contains("Self::DomSmoothie => \"dom_smoothie\","),
             text.contains("pub enum KindsItem {\n/// `ai-input`.\nAiInput,\n"),
             text.contains("Self::AiInput => \"ai-input\","),
-            text.contains("impl crate::settings::SettingValue for KindsItem {}"),
+            text.contains("impl crate::settings::Word for KindsItem {\n    fn word(&self) -> &'static str {\n        match self {\nSelf::AiInput => \"ai-input\","),
         ),
         (true, true, true, true, true, true, true)
     );
@@ -251,8 +253,100 @@ fn each_protocol_type_a_setting_takes_is_sent_as_its_json_once() {
             text.matches("impl crate::settings::sealed::Wire for ::goodfetch_protocol::run::durability::BatchThreshold {").count(),
             text.matches("impl crate::settings::SettingValue for ::goodfetch_protocol::run::durability::BatchThreshold {}").count(),
             text.matches("impl crate::settings::sealed::Wire for ::goodfetch_protocol::settings::page_check::PageCheck {").count(),
+            // No key of this module takes it, but Foxhound's crate, which
+            // cannot implement the sealed `Wire`, has one that does.
+            text.matches("impl crate::settings::sealed::Wire for ::goodfetch_protocol::foxhound::frontier::PathBudget {").count(),
             text.contains("::serde_json::to_value(self)"),
         ),
-        (1, 1, 1, true)
+        (1, 1, 1, 1, true)
+    );
+}
+
+#[test]
+fn foxhounds_own_keys_join_collies_areas_and_take_its_shapes_wire() {
+    let collie = [
+        setting(
+            "session.source",
+            ValueKind::Shape(&SESSION_SOURCE_SHAPE).schema(),
+            true,
+            &["run", "label", "session"],
+        ),
+        setting(
+            "timeout.navigation",
+            ValueKind::Duration.schema(),
+            false,
+            &["run"],
+        ),
+    ];
+    let mut foxhound = collie.to_vec();
+    foxhound.extend([
+        setting(
+            "fetch.tier",
+            json!({ "enum": ["auto", "http", "browser"] }),
+            false,
+            &["connection", "run", "label"],
+        ),
+        setting(
+            "session.pool.size",
+            ValueKind::Count.schema(),
+            false,
+            &["run"],
+        ),
+        setting(
+            "crawl.path_budgets",
+            ValueKind::List(&ValueKind::Shape(&PATH_BUDGET_SHAPE)).schema(),
+            false,
+            &["run"],
+        ),
+    ]);
+
+    let text = foxhound_module("// header\n", &foxhound, &collie).unwrap();
+
+    assert_eq!(
+        (
+            text.starts_with("// header\n"),
+            text.contains(
+                "pub mod session {\npub use ::goodfetch_collie_client::settings::session::*;\n"
+            ),
+            text.contains("pub mod pool {\n\n"),
+            text.contains("pub mod fetch {\n\n"),
+            text.contains("pub mod timeout"),
+            text.contains("pub const SOURCE"),
+            text.contains("impl crate::settings::Word for Tier {"),
+            text.contains("impl crate::settings::sealed::Wire"),
+        ),
+        (true, true, true, true, false, false, true, false)
+    );
+    assert_eq!(
+        constant(&text, "TIER"),
+        "pub const TIER: crate::settings::Setting<Tier> = crate::settings::Setting::new(\"fetch.tier\", &[::goodfetch_protocol::catalog::SettingScope::Connection, ::goodfetch_protocol::catalog::SettingScope::Run, ::goodfetch_protocol::catalog::SettingScope::Label]);"
+    );
+    assert!(
+        constant(&text, "PATH_BUDGETS")
+            .contains("Setting<Vec<::goodfetch_protocol::foxhound::frontier::PathBudget>>"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_key_both_catalogs_list_differently_fails_naming_it() {
+    let collie = [setting(
+        "content.extractor",
+        json!({ "enum": ["trafilatura"] }),
+        false,
+        &["run"],
+    )];
+    let foxhound = [setting(
+        "content.extractor",
+        json!({ "enum": ["trafilatura"] }),
+        false,
+        &["run", "label"],
+    )];
+
+    let error = foxhound_module("", &foxhound, &collie).unwrap_err();
+
+    assert!(
+        format!("{error:#}").contains("`content.extractor`"),
+        "{error:#}"
     );
 }

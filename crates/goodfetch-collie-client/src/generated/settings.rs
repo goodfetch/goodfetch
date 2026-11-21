@@ -90,17 +90,15 @@ pub mod browser {
         Stealth,
     }
 
-    impl crate::settings::sealed::Wire for AccessMode {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for AccessMode {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Standard => "standard",
                 Self::Identified => "identified",
                 Self::Stealth => "stealth",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for AccessMode {}
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -115,18 +113,16 @@ pub mod browser {
         Stylesheet,
     }
 
-    impl crate::settings::sealed::Wire for BlockResourcesItem {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for BlockResourcesItem {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Image => "image",
                 Self::Media => "media",
                 Self::Font => "font",
                 Self::Stylesheet => "stylesheet",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for BlockResourcesItem {}
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -137,16 +133,14 @@ pub mod browser {
         Block,
     }
 
-    impl crate::settings::sealed::Wire for ServiceWorkers {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for ServiceWorkers {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Allow => "allow",
                 Self::Block => "block",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for ServiceWorkers {}
 }
 
 /// The `checkpoint.*` settings.
@@ -213,17 +207,15 @@ pub mod clean_up {
         Upstream,
     }
 
-    impl crate::settings::sealed::Wire for Update {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Update {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Release => "release",
                 Self::Daily => "daily",
                 Self::Upstream => "upstream",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Update {}
 }
 
 /// The `consent.*` settings.
@@ -273,17 +265,15 @@ pub mod consent {
         Off,
     }
 
-    impl crate::settings::sealed::Wire for Handling {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Handling {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Answer => "answer",
                 Self::Detect => "detect",
                 Self::Off => "off",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Handling {}
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -294,16 +284,14 @@ pub mod consent {
         Ask,
     }
 
-    impl crate::settings::sealed::Wire for OnWall {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for OnWall {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Report => "report",
                 Self::Ask => "ask",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for OnWall {}
 }
 
 /// The `content.*` settings.
@@ -332,16 +320,14 @@ pub mod content {
         Trafilatura,
     }
 
-    impl crate::settings::sealed::Wire for Extractor {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Extractor {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::DomSmoothie => "dom_smoothie",
                 Self::Trafilatura => "trafilatura",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Extractor {}
 }
 
 /// The `effect.*` settings.
@@ -486,16 +472,14 @@ pub mod extraction {
         SingleAttempt,
     }
 
-    impl crate::settings::sealed::Wire for Readability {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Readability {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Retry => "retry",
                 Self::SingleAttempt => "single_attempt",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Readability {}
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -506,16 +490,14 @@ pub mod extraction {
         Exact,
     }
 
-    impl crate::settings::sealed::Wire for RemovalShare {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for RemovalShare {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Estimate => "estimate",
                 Self::Exact => "exact",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for RemovalShare {}
 }
 
 /// The `filter_lists.*` settings.
@@ -734,17 +716,15 @@ pub mod live_view {
         Always,
     }
 
-    impl crate::settings::sealed::Wire for Hiding {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Hiding {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Auto => "auto",
                 Self::Off => "off",
                 Self::Always => "always",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Hiding {}
 }
 
 /// The `network.*` settings.
@@ -822,17 +802,15 @@ pub mod politeness {
         Run,
     }
 
-    impl crate::settings::sealed::Wire for Sharing {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Sharing {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Shared => "shared",
                 Self::PerDaemon => "per_daemon",
                 Self::Run => "run",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Sharing {}
 
     /// The `politeness.proxy.*` settings.
     pub mod proxy {
@@ -975,18 +953,16 @@ pub mod proxy {
         Mobile,
     }
 
-    impl crate::settings::sealed::Wire for Kind {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Kind {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Datacenter => "datacenter",
                 Self::Isp => "isp",
                 Self::Residential => "residential",
                 Self::Mobile => "mobile",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Kind {}
 }
 
 /// The `resolver.*` settings.
@@ -1069,19 +1045,17 @@ pub mod run_state {
         Off,
     }
 
-    impl crate::settings::sealed::Wire for Durability {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Durability {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Full => "full",
                 Self::Fast => "fast",
                 Self::Periodic => "periodic",
                 Self::Batch => "batch",
                 Self::Off => "off",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Durability {}
 
     /// The `run_state.batch.*` settings.
     pub mod batch {
@@ -1160,18 +1134,16 @@ pub mod run_state {
             Off,
         }
 
-        impl crate::settings::sealed::Wire for SyncChoice {
-            fn into_wire(self) -> ::serde_json::Value {
-                ::serde_json::Value::from(match self {
+        impl crate::settings::Word for SyncChoice {
+            fn word(&self) -> &'static str {
+                match self {
                     Self::Each => "each",
                     Self::Interval => "interval",
                     Self::Never => "never",
                     Self::Off => "off",
-                })
+                }
             }
         }
-
-        impl crate::settings::SettingValue for SyncChoice {}
     }
 
     /// The `run_state.memory.*` settings.
@@ -1369,18 +1341,16 @@ pub mod site_preferences {
         Collect,
     }
 
-    impl crate::settings::sealed::Wire for Purpose {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for Purpose {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Search => "search",
                 Self::AiInput => "ai-input",
                 Self::AiTrain => "ai-train",
                 Self::Collect => "collect",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for Purpose {}
 }
 
 /// The `stealth.*` settings.
@@ -1447,17 +1417,15 @@ pub mod stealth {
         Clearcote,
     }
 
-    impl crate::settings::sealed::Wire for ChromiumBuild {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for ChromiumBuild {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::Goodfetch => "goodfetch",
                 Self::FingerprintChromium => "fingerprint_chromium",
                 Self::Clearcote => "clearcote",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for ChromiumBuild {}
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1472,18 +1440,16 @@ pub mod stealth {
         Engine,
     }
 
-    impl crate::settings::sealed::Wire for FingerprintMethod {
-        fn into_wire(self) -> ::serde_json::Value {
-            ::serde_json::Value::from(match self {
+    impl crate::settings::Word for FingerprintMethod {
+        fn word(&self) -> &'static str {
+            match self {
                 Self::None => "none",
                 Self::JsInjection => "js_injection",
                 Self::Basic => "basic",
                 Self::Engine => "engine",
-            })
+            }
         }
     }
-
-    impl crate::settings::SettingValue for FingerprintMethod {}
 
     /// The `stealth.identity.*` settings.
     pub mod identity {
@@ -1761,6 +1727,24 @@ impl crate::settings::sealed::Wire for ::goodfetch_protocol::egress::LocalAddres
 }
 
 impl crate::settings::SettingValue for ::goodfetch_protocol::egress::LocalAddresses {}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::foxhound::frontier::PathBudget {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::foxhound::frontier::PathBudget {}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::foxhound::fetch::SampleRefresh {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::foxhound::fetch::SampleRefresh {}
 
 /// The protocol's own JSON of the value.
 impl crate::settings::sealed::Wire for ::goodfetch_protocol::run::durability::BatchThreshold {

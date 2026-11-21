@@ -54,9 +54,13 @@ pub struct Setting<T> {
     value: PhantomData<fn(T)>,
 }
 
+// Public for Foxhound's crate's generated keys alone (ADR 0084), which
+// mirror these; a program's code uses the constants.
 impl<T> Setting<T> {
     /// The setting `name`, which the settings of `scopes` set.
-    pub(crate) const fn new(name: &'static str, scopes: &'static [SettingScope]) -> Self {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn new(name: &'static str, scopes: &'static [SettingScope]) -> Self {
         Self {
             name,
             scopes,
@@ -67,7 +71,9 @@ impl<T> Setting<T> {
 
     /// The deprecated setting `name`, which the settings of `scopes` set,
     /// with its deprecation's one text.
-    pub(crate) const fn deprecated(
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn deprecated(
         name: &'static str,
         scopes: &'static [SettingScope],
         deprecation: &'static str,
@@ -236,6 +242,24 @@ pub trait SettingValue: sealed::Wire {}
     label = "the key's values are `{T}`"
 )]
 pub trait IntoSettingValue<T>: sealed::IntoValue<T> {}
+
+/// A choice of words a setting takes, which goes on the wire as its word:
+/// what each generated choice enum implements, Foxhound's crate's too,
+/// which cannot implement the sealed `Wire` itself.
+#[doc(hidden)]
+pub trait Word {
+    /// The word, as the catalog spells it.
+    fn word(&self) -> &'static str;
+}
+
+/// Its word.
+impl<T: Word> sealed::Wire for T {
+    fn into_wire(self) -> Value {
+        Value::from(self.word())
+    }
+}
+
+impl<T: Word> SettingValue for T {}
 
 /// What turns a value into the JSON the wire carries, and what `set`
 /// takes into a key's value, which only this crate implements.

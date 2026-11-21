@@ -469,6 +469,267 @@ describe("Collie.connect() finds the engine", () => {
   );
 });
 
+/** The tags of a test of the `auto` fallback's case in `mode` (ADR 0098). */
+function fallbackCase(mode: "attached" | "daemon"): string[] {
+  return [
+    "client_case/connect-falls-back-when-the-daemon-refuses",
+    mode,
+    "story:11-9",
+    "story:11-290",
+    "story:11-291",
+    "story:11-292",
+    "story:11-293",
+    "story:11-295",
+  ];
+}
+
+/** The `fix` `connect/daemon-refused-protocol-version-unsupported.json`'s refusal gives. */
+const VERSION_FIX =
+  "Upgrade the engine to a version that speaks protocol 0.1, or use a Client of the engine's own version.";
+
+/**
+ * What a refusal's `fix` adds for a Collie Client whose executable is at
+ * `path` (ADR 0098): its `daemon restart`, and Foxhound at its version or
+ * newer, since a Foxhound of the major would still be the pick.
+ */
+function restartFix(path: string): string {
+  const shown = /\s/.test(path) ? `"${path}"` : path;
+  return `Run \`${shown} daemon restart\` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
+}
+
+describe("Collie.connect() when the Daemon refuses it by Product or protocol version", () => {
+  test(
+    "with engine auto, runs an Attached engine, says why in engine().fallback and warns once",
+    { tags: fallbackCase("attached") },
+    async ({ testEnv, processes, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-refused-protocol-version-unsupported.json",
+        "socket",
+      );
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const engine = collie.engine();
+      await collie.close();
+      const exit = await daemon.exit;
+
+      await clientCase.check(
+        "the Daemon played its script through: hello carried its token, and it refused it",
+        () => expect(exit).toMatchObject({ code: 0 }),
+      );
+      const fallback = {
+        cause: expect.stringContaining("protocol_version_unsupported"),
+        fix: `${VERSION_FIX} ${restartFix(env["GOODFETCH_COLLIE_ENGINE_PATH"] ?? "")}`,
+      };
+      await clientCase.check(
+        "engine() reports the Attached engine, and the fallback's cause and fix",
+        () =>
+          expect(engine).toEqual({
+            kind: "attached",
+            product: "collie",
+            version: "0.0.0",
+            protocolVersion: "0.1",
+            projectFile: null,
+            home: testEnv.home,
+            enginePath: env["GOODFETCH_COLLIE_ENGINE_PATH"],
+            url: null,
+            fallback,
+          }),
+      );
+      await clientCase.check(
+        "the fallback is logged once at warning, before the engine reached at info",
+        () =>
+          expect(logged).toEqual([
+            {
+              level: "warn",
+              message: expect.stringContaining(daemon.address),
+              fields: { fallback },
+            },
+            {
+              level: "info",
+              message: expect.stringContaining("Attached engine"),
+              fields: { engine },
+            },
+          ]),
+      );
+    },
+  );
+
+  test(
+    "with engine auto and no logger, falls back writing nothing to stdout or stderr",
+    { tags: ["story:11-9", "story:11-290"] },
+    async ({ testEnv, processes }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-refused-protocol-version-unsupported.json",
+        "socket",
+      );
+      const program = processes.spawn(
+        process.execPath,
+        [join(import.meta.dirname, "fixtures", "unlogged.ts")],
+        { env },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      program.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
+      program.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+      program.child.stdin.end();
+
+      const exit = await program.exit;
+
+      expect({
+        daemon: await daemon.exit,
+        exit,
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+      }).toEqual({
+        daemon: expect.objectContaining({ code: 0 }),
+        exit: { code: 0, signal: null },
+        stdout: "",
+        stderr: "",
+      });
+    },
+  );
+
+  test(
+    "with engine daemon, fails with the refusal, whose fix adds this executable's daemon restart by its path",
+    { tags: [...fallbackCase("daemon"), "error:protocol_version_unsupported"] },
+    async ({ testEnv, processes, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-refused-protocol-version-unsupported.json",
+        "socket",
+      );
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, logger, engine: "daemon" }));
+      const exit = await daemon.exit;
+
+      await clientCase.check("the Daemon played its script through", () =>
+        expect(exit).toMatchObject({ code: 0 }),
+      );
+      await clientCase.check(
+        "connect() raises the refusal, its fix naming this executable's daemon restart and Foxhound",
+        () =>
+          expect(error).toMatchObject({
+            name: "ProtocolVersionUnsupportedError",
+            code: "protocol_version_unsupported",
+            fix: `${VERSION_FIX} ${restartFix(env["GOODFETCH_COLLIE_ENGINE_PATH"] ?? "")}`,
+            details: { client_protocol_version: "0.1", engine_protocol_version: "0.0" },
+          }),
+      );
+      await clientCase.check("nothing is logged, and no Attached engine started", () =>
+        expect(logged).toEqual([]),
+      );
+    },
+  );
+
+  test.for([
+    { way: "{ url, token } written in code", inEnv: false },
+    { way: "GOODFETCH_URL", inEnv: true },
+  ])(
+    "fails with a remote Daemon's refusal through $way, which it never falls back from",
+    { tags: ["story:11-293", "error:protocol_version_unsupported"] },
+    async ({ inEnv }, { testEnv, processes }) => {
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-refused-protocol-version-unsupported.json",
+        "tcp",
+      );
+      const url = `ws://${daemon.address}`;
+      const attached = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const env = inEnv
+        ? { ...attached, GOODFETCH_URL: url, GOODFETCH_TOKEN: "scripted-daemon-token" }
+        : attached;
+      const { logger, logged } = keepingLogger();
+
+      const error = await failure(
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        Collie.connect({
+          env,
+          logger,
+          ...(inEnv ? {} : { engine: { url, token: "scripted-daemon-token" } }),
+        }),
+      );
+
+      expect(await daemon.exit).toMatchObject({ code: 0 });
+      expect(error).toMatchObject({ code: "protocol_version_unsupported", fix: VERSION_FIX });
+      expect(logged).toEqual([]);
+    },
+  );
+
+  test(
+    "waits for the pick an idle Daemon hands over to, and reaches it",
+    { tags: ["story:11-291", "story:11-292"] },
+    async ({ testEnv, processes }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const handing = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-hands-over.json",
+        "socket",
+      );
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const connecting = Collie.connect({ env, logger });
+      // Held until awaited below, so a rejection before it is no unhandled one.
+      connecting.catch(() => {});
+      expect(await handing.exit).toMatchObject({ code: 0 });
+      // The pick starts once the Daemon that handed over has stopped.
+      const pick = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-daemon.json",
+        "socket",
+      );
+      const collie = await connecting;
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(await pick.exit).toMatchObject({ code: 0 });
+      expect(engine).toMatchObject({ kind: "daemon", url: pick.address, fallback: null });
+      expect(logged).toEqual([
+        { level: "info", message: expect.stringContaining("Daemon"), fields: { engine } },
+      ]);
+    },
+  );
+
+  test(
+    "fails with deadline_exceeded naming timeout.connect when no pick follows a handover in time",
+    { tags: ["story:11-291", "error:deadline_exceeded"] },
+    async ({ testEnv, processes }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const handing = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/daemon-hands-over.json",
+        "socket",
+      );
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, timeout: 300 }));
+
+      expect(await handing.exit).toMatchObject({ code: 0 });
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        limit: { key: "timeout.connect", value: 300, layer: "run", origin: "argument" },
+        details: { waited_for: "hello" },
+      });
+    },
+  );
+});
+
 describe("Collie.connect() and the Daemon of the same commit", () => {
   test.override("withDaemon", true);
 

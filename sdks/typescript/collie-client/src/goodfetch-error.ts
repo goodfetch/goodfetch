@@ -149,6 +149,21 @@ export function runtimeMessage(
 }
 
 /**
+ * A copy of `error` whose `fix` is `fix`: it keeps the error's class,
+ * message, stack, other fields and cause, as `inCall`'s does.
+ */
+export function withFix<Failure extends GoodfetchError>(error: Failure, fix: string): Failure {
+  // The stack is read as text, which V8 may hold behind an accessor of the original alone.
+  const { stack } = error;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of `error`'s own properties on its prototype is an instance of its class.
+  return Object.create(Object.getPrototypeOf(error), {
+    ...Object.getOwnPropertyDescriptors(error),
+    stack: { writable: true, configurable: true, enumerable: false, value: stack },
+    fix: { writable: true, configurable: true, enumerable: true, value: fix },
+  }) as Failure;
+}
+
+/**
  * `error`, raised by the runtime, as the call `operation` fails with it: a
  * copy whose message is headed by the operation in TypeScript form and
  * whose `operation` holds its catalog name, unless it already names one.

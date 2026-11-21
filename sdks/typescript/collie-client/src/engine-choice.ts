@@ -18,6 +18,7 @@ import { connect, type Socket } from "node:net";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { Duplex } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   DaemonUnreachableError,
   EngineNotFoundError,
@@ -70,7 +71,16 @@ export type Reach =
       readonly token: string;
       /** What fails `connect()` when the Daemon closes the Connection before it answers `hello`. */
       readonly closedAtHello: () => DaemonUnreachableError;
+      /**
+       * The text of the runtime file this machine's Daemon was found by,
+       * which tells it from the Daemon it hands over to; `null` for a
+       * remote one.
+       */
+      readonly runtimeFile: string | null;
     };
+
+/** How a Daemon, this machine's or a remote one, is reached. */
+export type DaemonReach = Exclude<Reach, { kind: "attached" }>;
 
 /** What choosing an engine needs. */
 export interface EngineChoiceContext {
@@ -170,6 +180,7 @@ async function reachRemote(
     url,
     transport: transportOf(socket),
     token: remote.token,
+    runtimeFile: null,
     closedAtHello: () =>
       unreachable(
         `The Daemon at ${url} closed the Connection before it answered hello, as one does for a token it does not take`,
@@ -349,20 +360,60 @@ function refusalOf(
   };
 }
 
+/** How often the wait for the Daemon an idle one hands over to reads the runtime file. */
+const HANDOVER_POLL = 50;
+
+/**
+ * The Daemon an idle Daemon of `home`, found by the runtime file whose text
+ * is `handedOver`, hands over to once it refused `hello` with `handover`
+ * (ADR 0098): its major's pick, which publishes its own runtime file once
+ * it serves. A Node program cannot wait on the Daemon's start lock as the
+ * CLI does, so the runtime file is read again every 50 ms; the one the
+ * Daemon that handed over leaves until it stops is not taken.
+ *
+ * @returns `undefined` when none serves by `until`, a time as `Date.now()`
+ * gives it; `null` waits with no end.
+ * @throws {DaemonUnreachableError} when the runtime file cannot be read.
+ * @throws the signal's reason once `signal` aborts.
+ */
+export async function handedOverTo(
+  home: string,
+  handedOver: string | null,
+  until: number | null,
+  signal: AbortSignal | undefined,
+): Promise<DaemonReach | undefined> {
+  for (;;) {
+    const pick = await runningDaemon(home, signal, handedOver);
+    if (pick !== undefined) {
+      return pick;
+    }
+    if (until !== null && Date.now() >= until) {
+      return undefined;
+    }
+    try {
+      await delay(HANDOVER_POLL, undefined, { signal });
+    } catch (cause) {
+      // An aborted wait rejects with Node's own `AbortError`; `connect()` with the signal's reason.
+      throw signal?.aborted === true ? signal.reason : cause;
+    }
+  }
+}
+
 /**
  * The Daemon whose runtime file is in `home`'s folder of the SDK's line,
- * when its endpoint answers; `undefined` when there is no runtime file, it
- * holds no endpoint and token, as a dead Daemon's half-written or older
- * one, or nothing listens where it says, as for a Daemon that died. A Node
- * program cannot ask the Daemon's lock, so whether the endpoint answers
- * says whether it runs.
+ * when its endpoint answers; `undefined` when there is no runtime file, its
+ * text is `skipped`, it holds no endpoint and token, as a dead Daemon's
+ * half-written or older one, or nothing listens where it says, as for a
+ * Daemon that died. A Node program cannot ask the Daemon's lock, so whether
+ * the endpoint answers says whether it runs.
  *
  * @throws {DaemonUnreachableError} when the runtime file cannot be read.
  */
 async function runningDaemon(
   home: string,
   signal: AbortSignal | undefined,
-): Promise<Reach | undefined> {
+  skipped: string | null = null,
+): Promise<DaemonReach | undefined> {
   const file = join(home, lineOf(PRODUCT_VERSION), "daemon.json");
   let text: string;
   try {
@@ -372,6 +423,9 @@ async function runningDaemon(
       return undefined;
     }
     throw unreadable(file, cause);
+  }
+  if (text === skipped) {
+    return undefined;
   }
   const runtime = runtimeFileOf(text);
   if (runtime === undefined) {
@@ -392,6 +446,7 @@ async function runningDaemon(
     url,
     transport: transportOf(socket),
     token,
+    runtimeFile: text,
     closedAtHello: () =>
       unreachable(
         `The Daemon at ${url} closed the Connection before it answered hello, as one does for a token it does not take`,

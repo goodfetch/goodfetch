@@ -11,9 +11,7 @@
 //! 30 requests a minute; then a crawl of `hold.test` with one request in flight
 //! at a time, at `politeness.delegation: false`, leaves its first request
 //! unanswered, so its Permit stays in the file and its second waits for a
-//! wake without a take (#1899), while a second crawl of `hold.test` alike
-//! finds the key full and waits in the file for a wake, and a crawl of
-//! `lend.test` alike, at the default, holds that key's
+//! wake, and a crawl of `lend.test` alike, at the default, holds that key's
 //! Delegation (ADR 0142). A Collie Run's navigation through a proxy then has met the proxy's
 //! own 429, which halved that proxy's learned ceiling under its key. The
 //! crawls' shared robots.txt copy then keeps `shop.test`'s file, whose
@@ -329,15 +327,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     4,
                     "crawl.start",
                     &crawl(
-                        "waiting",
-                        "hold.test",
-                        &json!({ "delegation": false, "domain": { "concurrency": 1 } }),
-                    ),
-                ),
-                call(
-                    5,
-                    "crawl.start",
-                    &crawl(
                         "lending",
                         "lend.test",
                         &json!({ "domain": { "concurrency": 1 } }),
@@ -351,7 +340,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             proxy_refusal(home.path())?;
             robots_txt_copies(home.path()).await?;
             copy_of(home.path(), &copy)?;
-            for (id, run_id) in [(6, "holding"), (7, "waiting"), (8, "lending")] {
+            for (id, run_id) in [(5, "holding"), (6, "lending")] {
                 let abort = call(id, "run.abort", &json!({ "run_id": run_id }));
                 exchange(&mut writer, &mut messages, &abort).await?;
             }

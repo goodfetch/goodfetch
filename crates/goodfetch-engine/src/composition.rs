@@ -44,7 +44,7 @@ use crate::run_state::RunStateTables;
 use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
-use goodfetch_protocol::run::RunKind;
+use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
@@ -340,6 +340,22 @@ pub type Driver = Arc<
     dyn Fn(Run, CallContext, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
 >;
 
+/// What finds the Run a call names by its page or its Session, IDs only
+/// the contribution that makes them reads: the Run whose trace records a
+/// raw call (ADR 0099) that names no Run ID.
+pub trait RunOfCall: Send + Sync {
+    /// The Run of the page `page_id`, open or crashed, if it is one of
+    /// this contribution's.
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>>;
+
+    /// The Run of the Session `session_id`, if it is one of this
+    /// contribution's.
+    fn session_run(&self, session_id: &str) -> Option<RunId>;
+}
+
 /// A call's answer as a [`Guard`] gives it in place of its handler's: the
 /// result, encoded, or its error.
 pub type GuardAnswer = Answer;
@@ -569,6 +585,7 @@ pub struct Contribution {
     needs_you_sources: Vec<NeedsYouSource>,
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
+    runs_of_calls: Vec<Arc<dyn RunOfCall>>,
 }
 
 impl Contribution {
@@ -576,6 +593,7 @@ impl Contribution {
     pub fn new(name: &'static str) -> Self {
         Self {
             secret_providers: Vec::new(),
+            runs_of_calls: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
@@ -652,6 +670,14 @@ impl Contribution {
     #[must_use]
     pub fn with_driver(mut self, kind: RunKind, driver: Driver, driving: Driving) -> Self {
         self.drivers.push((kind, driver, driving));
+        self
+    }
+
+    /// The same, finding with `runs` the Run a call names by one of its
+    /// pages or Sessions, whose trace records a raw call (ADR 0099).
+    #[must_use]
+    pub fn with_run_of_call(mut self, runs: Arc<dyn RunOfCall>) -> Self {
+        self.runs_of_calls.push(runs);
         self
     }
 
@@ -850,6 +876,15 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.report_parts.iter().cloned())
+            .collect()
+    }
+
+    /// What finds the Run a call names by a page or a Session, each
+    /// contribution's in order.
+    pub(crate) fn runs_of_calls(&self) -> Arc<[Arc<dyn RunOfCall>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.runs_of_calls.iter().cloned())
             .collect()
     }
 

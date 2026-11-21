@@ -41,6 +41,7 @@ mod panics;
 mod pauses;
 mod preamble;
 mod progress;
+mod raw_calls;
 mod refetch_stops;
 mod refusals;
 mod report;

@@ -41,10 +41,12 @@ fn entry(product: Product, path: &Path) -> InstalledExecutable {
         product_version: ProductVersion::parse("0.1.0").unwrap(),
         path: path.to_string_lossy().into_owned(),
         size: metadata.len(),
-        modified_at: jiff::Timestamp::from_second(modified.as_second()).unwrap(),
+        modified_at: jiff::Timestamp::from_second(modified.as_second())
+            .unwrap()
+            .into(),
         pins: Vec::new(),
         copy: None,
-        last_seen: modified,
+        last_seen: modified.into(),
     }
 }
 

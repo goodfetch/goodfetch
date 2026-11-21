@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable, InstalledExecutables};
@@ -70,12 +71,16 @@ fn still_at_path(entry: &InstalledExecutable) -> bool {
     let Ok(metadata) = std::fs::metadata(&entry.path) else {
         return false;
     };
-    let modified = metadata
-        .modified()
+    let modified = metadata.modified().ok().and_then(whole_seconds);
+    metadata.len() == entry.size
+        && modified.is_some_and(|modified| Some(modified) == whole_seconds(entry.modified_at))
+}
+
+/// `at` in whole seconds since the Unix epoch.
+fn whole_seconds(at: SystemTime) -> Option<i64> {
+    jiff::Timestamp::try_from(at)
         .ok()
-        .and_then(|modified| jiff::Timestamp::try_from(modified).ok())
-        .map(jiff::Timestamp::as_second);
-    metadata.len() == entry.size && modified == Some(entry.modified_at.as_second())
+        .map(jiff::Timestamp::as_second)
 }
 
 /// Runs `product`'s `daemon start` and waits for it to end: the command

@@ -21,6 +21,7 @@ use tokio::sync::oneshot;
 
 use crate::error::Error;
 use crate::rpc::{CallId, Outgoing, Sender};
+use crate::trace_context::{self, TraceContext};
 
 /// A call's reply, as `.await` gives it.
 pub type Reply<T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>;
@@ -171,9 +172,10 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
             Timeout::After(after) if !wire => Some(after),
             _ => None,
         };
+        let traced = request.sender.trace_context();
         Box::pin(async move {
             let reply = request
-                .send(timer, |params| {
+                .send(traced, timer, |params| {
                     if wire {
                         set_wire_timeout(params, timeout);
                     }
@@ -255,7 +257,8 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Query<T, P
 
     fn into_future(self) -> Self::IntoFuture {
         let Self { request, read } = self;
-        Box::pin(async move { read(request.send(None, |_| ()).await?) })
+        let traced = request.sender.trace_context();
+        Box::pin(async move { read(request.send(traced, None, |_| ()).await?) })
     }
 }
 
@@ -282,12 +285,14 @@ impl<P> Request<P> {
 
 impl<P: Serialize> Request<P> {
     /// Sends the request, its params as JSON once `edit` changed them,
-    /// and answers its reply's JSON once the handle noted it; a timer of
-    /// the client's fails it past `timeout`. A request its handle settles
+    /// carrying `traced`, the Trace context its caller's thread had, and
+    /// answers its reply's JSON once the handle noted it; a timer of the
+    /// client's fails it past `timeout`. A request its handle settles
     /// first is not sent, and a cancellable one dropped before its reply is
     /// cancelled.
     async fn send(
         self,
+        traced: Option<TraceContext>,
         timeout: Option<Duration>,
         edit: impl FnOnce(&mut Value),
     ) -> Result<Value, Error> {
@@ -302,6 +307,9 @@ impl<P: Serialize> Request<P> {
         let params = self.params.map_err(|error| error.in_call(&self.method))?;
         let mut params = serde_json::to_value(params).map_err(Error::shape)?;
         edit(&mut params);
+        if let Some(traced) = traced {
+            trace_context::carry(&mut params, traced);
+        }
         let (reply, replied) = oneshot::channel();
         let call = Outgoing {
             method: self.method,

@@ -1,0 +1,79 @@
+{
+  "description": "A Rust Client's hello accepted, sent outside any span and carrying no `_meta`; then, inside a span of the program's whose parent is a remote span with a `tracestate` and Baggage, `config.explain` and the raw `run.list`, each carrying that span's `traceparent` and the `tracestate` in its `_meta`, the raw call beside its raw mark, and never the Baggage (ADR 0132); then `config.explain` outside any span, with no `_meta`. The `trace-context` client conformance case.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_rust",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "_meta": {
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01",
+            "tracestate": "vendor=value"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "files": [],
+          "settings": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.list",
+        "params": {
+          "_meta": {
+            "raw": true,
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01",
+            "tracestate": "vendor=value"
+          },
+          "lifecycle": "running"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "runs": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "files": [],
+          "settings": []
+        }
+      }
+    }
+  ]
+}

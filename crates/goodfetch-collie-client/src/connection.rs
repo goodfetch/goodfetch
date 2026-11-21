@@ -45,6 +45,7 @@ use crate::published::Published;
 use crate::raw_call::RawCall;
 use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
+use crate::trace_context::{self, TraceContextSource};
 use crate::transport::{self, Endpoint, Network};
 
 /// How many `$/chunk` notifications a save takes ahead of those it has
@@ -163,6 +164,7 @@ impl ClientConnection {
             hello,
             ConnectTimeout::Off,
             ListenerQueue::DEFAULT,
+            None,
         )
         .await
     }
@@ -170,7 +172,9 @@ impl ClientConnection {
     /// Opens a Connection as [`ClientConnection::open`] does, waiting for
     /// `hello`'s answer within `timeout` (ADR 0083); past it, the
     /// Connection is closed. Each stream of its own Subscription, such as a
-    /// Session's, holds at most `listener_queue` unread events.
+    /// Session's, holds at most `listener_queue` unread events. Each call,
+    /// `hello`'s included, carries the Trace context `traces` reads on the
+    /// thread that makes it, and none without it (ADR 0132).
     ///
     /// # Errors
     ///
@@ -185,6 +189,7 @@ impl ClientConnection {
         hello: HelloParams,
         timeout: ConnectTimeout,
         listener_queue: ListenerQueue,
+        traces: Option<Arc<dyn TraceContextSource>>,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
         let (handle, owned) = runtime.split();
@@ -199,7 +204,7 @@ impl ClientConnection {
             logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
         let streams = Streams::new();
-        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
+        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone(), traces);
         let published = Published::new(
             sender.clone(),
             handle.clone(),
@@ -586,9 +591,12 @@ impl ClientConnection {
     /// Sends the call of `method` with `params` without waiting for its
     /// reply, which is dropped: a `Drop` that must never block sends it.
     pub(crate) fn send_and_forget(&self, method: &str, params: &impl Serialize) {
-        let Ok(params) = serde_json::to_value(params) else {
+        let Ok(mut params) = serde_json::to_value(params) else {
             return;
         };
+        if let Some(traced) = self.0.sender.trace_context() {
+            trace_context::carry(&mut params, traced);
+        }
         let (reply, _dropped) = oneshot::channel();
         self.0.sender.call(Outgoing {
             method: method.to_owned(),
@@ -696,6 +704,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
             timeout,
             reply: _,
         } = self;
+        let traced = connection.0.sender.trace_context();
         Box::pin(async move {
             let path = file_saving::absolute(&given, &call)?;
             let mut params = params?;
@@ -705,6 +714,9 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
                 )));
             };
             fields.insert("path".to_owned(), to_value(&path)?);
+            if let Some(traced) = traced {
+                trace_context::carry(&mut params, traced);
+            }
             let saving = Saving {
                 given,
                 path,

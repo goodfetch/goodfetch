@@ -31,6 +31,7 @@ use crate::handler::Streams;
 use crate::line;
 use crate::logging;
 use crate::opening_process::OpeningProcess;
+use crate::trace_context::{TraceContext, TraceContextSource};
 use crate::transport::{Exit, Link};
 
 /// How long a Connection whose engine ended it waits to hear how, before
@@ -132,9 +133,18 @@ pub(crate) struct Sender {
     /// How the Connection ended, set before it takes no more calls.
     ended: Arc<OnceLock<Ended>>,
     opener: OpeningProcess,
+    /// What reads the Trace context each call carries, when the SDK has
+    /// one (ADR 0132).
+    traces: Option<Arc<dyn TraceContextSource>>,
 }
 
 impl Sender {
+    /// The calling thread's Trace context, which a call reads as it
+    /// becomes a future, on the thread that makes it (ADR 0132).
+    pub(crate) fn trace_context(&self) -> Option<TraceContext> {
+        self.traces.as_ref().and_then(|traces| traces.current())
+    }
+
     /// `connection_forked` unless the calling process opened the
     /// Connection.
     pub(crate) fn ensure_opener(&self) -> Result<(), Error> {
@@ -226,12 +236,14 @@ impl Sender {
 }
 
 /// Starts the Connection's tasks over `link` on `runtime`, tracked by
-/// `tracker`; the engine's requests go to `streams`.
+/// `tracker`; the engine's requests go to `streams`, and each call carries
+/// the Trace context `traces` reads.
 pub(crate) fn start(
     link: Link,
     runtime: &Handle,
     tracker: &TaskTracker,
     streams: Streams,
+    traces: Option<Arc<dyn TraceContextSource>>,
 ) -> Sender {
     let (reader, writer, exit) = link.split();
     let (commands, commands_in) = mpsc::unbounded_channel();
@@ -251,6 +263,7 @@ pub(crate) fn start(
         commands,
         ended,
         opener: OpeningProcess::current(),
+        traces,
     }
 }
 

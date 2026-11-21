@@ -3,8 +3,9 @@
 // the Daemon whose runtime file is in the Goodfetch home, else an Attached
 // engine; `attached`, `daemon` and `{ url, token }` choose one, beating
 // `GOODFETCH_URL`. Each plays a Scripted engine's script (ADR 0069), as an
-// Attached engine, as a Daemon on a Unix socket, or on loopback TCP, and
-// the Daemons of the same commit's executable. A Scripted Daemon exits 0
+// Attached engine, as a Daemon on a Unix socket or on loopback TCP, or as
+// a remote Daemon's WebSocket, and the Daemons of the same commit's
+// executable. A Scripted Daemon exits 0
 // only once every step played, so its exit says the Client sent exactly
 // what the script holds, the Daemon's token in `hello` included.
 import { Collie, type Logger } from "@goodfetch/collie";
@@ -168,14 +169,14 @@ describe("Collie.connect() finds the engine", () => {
   );
 
   test(
-    "reaches the remote Daemon GOODFETCH_URL names on loopback TCP, and its token shows nowhere",
+    "reaches the remote Daemon GOODFETCH_URL names over a WebSocket of subprotocol goodfetch.v<major>, and its token shows nowhere",
     { tags: ["story:11-4", "story:11-5"] },
     async ({ testEnv, processes }) => {
       const daemon = await startScriptedDaemon(
         testEnv,
         processes,
         "connect/reached-remote-with-a-canary-token.json",
-        "tcp",
+        "websocket",
       );
       const url = `ws://${daemon.address}`;
       const env = {
@@ -222,7 +223,7 @@ describe("Collie.connect() finds the engine", () => {
         testEnv,
         processes,
         "connect/reached-remote-with-a-canary-token.json",
-        "tcp",
+        "websocket",
       );
       const env = {
         ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
@@ -307,7 +308,7 @@ describe("Collie.connect() finds the engine", () => {
         testEnv,
         processes,
         "connect/reached-remote-with-a-canary-token.json",
-        "tcp",
+        "websocket",
       );
       const env = {
         ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
@@ -328,6 +329,38 @@ describe("Collie.connect() finds the engine", () => {
       expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(
         "a-token-it-does-not-take",
       );
+    },
+  );
+
+  test(
+    "fails with daemon_unreachable, never sending hello, when the Daemon answers no subprotocol this Client offers",
+    { tags: ["story:11-5", "error:daemon_unreachable"] },
+    async ({ testEnv, processes }) => {
+      // A Daemon of another protocol major answers its own subprotocol only.
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-remote-with-a-canary-token.json",
+        "websocket",
+        testEnv.home,
+        "goodfetch.v9999",
+      );
+      const url = `ws://${daemon.address}`;
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+
+      const error = await failure(
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        Collie.connect({ env, engine: { url, token: CANARY.value } }),
+      );
+      // The script expected `hello`: the Scripted engine fails its play.
+      const exit = await daemon.exit;
+
+      expect(error).toMatchObject({
+        code: "daemon_unreachable",
+        group: "unavailable",
+        fix: expect.stringContaining(url),
+      });
+      expect(exit.code).not.toBe(0);
     },
   );
 
@@ -644,7 +677,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
         testEnv,
         processes,
         "connect/daemon-refused-protocol-version-unsupported.json",
-        "tcp",
+        "websocket",
       );
       const url = `ws://${daemon.address}`;
       const attached = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");

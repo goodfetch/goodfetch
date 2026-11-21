@@ -1351,3 +1351,11 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 172
+title = "As a developer, I want a start under my Run's ID or a resume that changes a key the settings schema fixes for the Run's life, such as `crawl.scope.*` or `crawl.keep_url_fragment`, refused with `setting_not_applicable` naming the key and a new Run, while a resume that leaves the key out goes on, so that a Run's committed results never mix two scopes (ADRs 0102 and 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

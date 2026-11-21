@@ -17,6 +17,7 @@
 
 mod admission;
 mod finishing;
+mod fixed;
 mod given_back;
 mod hooks;
 mod keep_alive;

@@ -4,8 +4,15 @@
 
 /** The options of a call that can be cancelled (ADR 0038). */
 export interface CallOptions {
-  /** Cancels the call in flight when it aborts. */
+  /** Cancels the call in flight when it aborts; a call the Client still queues is never sent. */
   readonly signal?: AbortSignal | undefined;
+  /**
+   * The call's own timeout and the setting it overrides, which also bounds
+   * its wait in the Client's queue under the engine's cap (issue 2529).
+   */
+  readonly deadline?:
+    | { readonly key: string; readonly value: number | null | undefined }
+    | undefined;
 }
 
 /** The params and result of one operation. */

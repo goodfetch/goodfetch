@@ -293,7 +293,10 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
         (
             json!({
                 "jsonrpc": "2.0", "id": 0,
-                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+                "result": {
+                    "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0",
+                    "max_calls_in_flight": super::IN_FLIGHT_CAP,
+                },
             }),
             true
         )

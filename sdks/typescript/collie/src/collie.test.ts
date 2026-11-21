@@ -280,6 +280,73 @@ describe("connect() over a transport whose writes the engine's side rejects", ()
 });
 
 /**
+ * An engine played by hand whose `hello` result caps its calls in flight
+ * at `cap`: each later request it reads waits in `calls` for `answer`.
+ */
+function cappingEngine(cap: number): {
+  transport: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
+  calls: { readonly id: unknown; readonly method: unknown }[];
+  answer(id: unknown, result: unknown): void;
+} {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const calls: { readonly id: unknown; readonly method: unknown }[] = [];
+  let replies: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const reply = (id: unknown, result: unknown): void =>
+    replies?.enqueue(encoder.encode(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`));
+  const readable = new ReadableStream<Uint8Array>({
+    start(controller) {
+      replies = controller;
+    },
+  });
+  const writable = new WritableStream<Uint8Array>({
+    write(bytes) {
+      const lines = decoder.decode(bytes).split("\n");
+      for (const line of lines.filter((text) => text !== "")) {
+        const message: unknown = JSON.parse(line);
+        if (typeof message !== "object" || message === null || !("id" in message)) {
+          continue;
+        }
+        const method = "method" in message ? message.method : undefined;
+        if (method === "hello") {
+          reply(message.id, {
+            protocol_version: "0.1",
+            product: "collie",
+            product_version: "0.0.0",
+            engine_instance: "0123456789abcdef",
+            max_calls_in_flight: cap,
+          });
+        } else {
+          calls.push({ id: message.id, method });
+        }
+      }
+    },
+  });
+  return { transport: { readable, writable }, calls, answer: reply };
+}
+
+describe("a Connection whose engine caps its calls in flight (issue 2529)", () => {
+  test("sends at most the cap its hello result names, then each queued call in order as an answer frees a place", async () => {
+    const engine = cappingEngine(2);
+    const collie = await connectOver(engine.transport);
+    const calls = [0, 1, 2].map(() => collie.call("run.list", {}));
+    await new Promise((resolve) => setImmediate(resolve));
+    const sentAtOnce = engine.calls.length;
+
+    engine.answer(engine.calls[0]?.id, { runs: [] });
+    await expect.poll(() => engine.calls).toHaveLength(3);
+    for (const call of engine.calls.slice(1)) {
+      engine.answer(call.id, { runs: [] });
+    }
+    const answers = await Promise.all(calls);
+
+    expect(sentAtOnce).toBe(2);
+    expect(engine.calls.map((call) => call.id)).toEqual([1, 2, 3]);
+    expect(answers).toEqual([{ runs: [] }, { runs: [] }, { runs: [] }]);
+  });
+});
+
+/**
  * The transport of `played`, which takes only the first message written,
  * `hello`: each later one goes to `write` instead.
  */

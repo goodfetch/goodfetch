@@ -666,10 +666,21 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
         )
     };
     let (declared, sent) = signature_of(Overload::Every);
-    let call_options = if operation.cancellable {
-        "{ signal: options.signal }"
+    // A call's own timeout also bounds its wait in the Client's queue under
+    // the engine's cap on calls in flight (ADR 0038; issue 2529).
+    let mut options = Vec::new();
+    if operation.cancellable {
+        options.push("signal: options.signal".to_owned());
+    }
+    if let Some(setting) = &member.timeout_setting {
+        options.push(format!(
+            "deadline: {{ key: {setting:?}, value: options.{TIMEOUT} }}"
+        ));
+    }
+    let call_options = if options.is_empty() {
+        "{}".to_owned()
     } else {
-        "{}"
+        format!("{{ {} }}", options.join(", "))
     };
     let call = format!(
         "this.#host.call({:?}, {sent}, {call_options})",

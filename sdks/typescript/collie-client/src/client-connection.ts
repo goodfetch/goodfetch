@@ -601,6 +601,11 @@ export class ClientConnection implements AsyncDisposable {
       { type: "HelloResult" satisfies CollieWireType },
       collieWire.types,
     ) as HelloResult;
+    // The engine refuses a call past its cap with `too_many_calls`: the
+    // Channel queues the rest under it (ADR 0038; issue 2529).
+    if (result.maxCallsInFlight !== undefined && result.maxCallsInFlight !== null) {
+      this.#channel.capCallsInFlight(result.maxCallsInFlight);
+    }
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,

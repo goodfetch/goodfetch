@@ -23,6 +23,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::settings::TIMEOUT_CONNECT;
 use tokio::runtime::Handle;
 use tokio::time::Instant;
+use tokio_util::task::TaskTracker;
 
 use super::{Asked, Composed, ProductConnection, dependencies, version};
 use crate::engine_choice::{self, DaemonReach, EngineFallback};
@@ -49,9 +50,10 @@ pub(super) struct Refusable {
 
 impl Refusable {
     /// Opens the connection to `daemon`, or to the pick it hands over to,
-    /// all within one `timeout.connect`. When this machine's Daemon
+    /// both within one `timeout.connect`. When this machine's Daemon
     /// refuses it by Product or protocol version and cannot hand over, it
     /// links its own engine in its place at [`EngineChoice::Auto`](crate::EngineChoice::Auto),
+    /// whose `hello` waits a whole `timeout.connect` of its own,
     /// warning once on [`CLIENT`], and fails with the refusal otherwise,
     /// its `fix` naming what installs and restarts this Product's
     /// executable. A remote Daemon's refusal fails it unchanged.
@@ -83,18 +85,18 @@ impl Refusable {
                 daemon = self.pick_of(home, handed_over, started).await?;
                 continue;
             }
-            return self.instead_of(&daemon, refused, started).await;
+            return self.instead_of(&daemon, refused).await;
         }
     }
 
     /// Links this Product's engine in place of `daemon`, which `refused`
     /// it, at [`EngineChoice::Auto`](crate::EngineChoice::Auto); fails with the refusal, its `fix`
-    /// completed, otherwise.
+    /// completed, otherwise. The linked engine's `hello` waits a whole
+    /// `timeout.connect`, as it would with no Daemon.
     async fn instead_of(
         self,
         daemon: &DaemonReach,
         refused: Error,
-        started: Instant,
     ) -> Result<ProductConnection, Error> {
         let product = self.engine.product;
         let given = refused.fix().unwrap_or_default();
@@ -102,6 +104,7 @@ impl Refusable {
         let Some(environment) = self.auto.clone() else {
             return Err(refused.with_fix(fix));
         };
+        let dependencies = dependencies(environment)?;
         let url = daemon.url();
         let (code, message) = (refused.code(), refused.message());
         tracing::warn!(
@@ -113,45 +116,66 @@ impl Refusable {
             cause: format!("The Daemon at {url} refused this Client with {code}: {message}"),
             fix,
         };
-        let dependencies = dependencies(environment)?;
-        let connect = self.asked.timeout;
-        let asked = Asked {
-            timeout: self.rest(started)?,
-            ..self.asked
-        };
-        let opened = ProductConnection::open(
+        ProductConnection::open(
             self.runtime,
             self.handle,
             self.engine,
             self.hello,
             dependencies,
-            asked,
+            self.asked,
             Some(fallback),
         )
-        .await;
-        opened.map_err(|error| past_deadline(connect, error))
+        .await
     }
 
     /// The Daemon of `home` that the idle one of process `handed_over`
-    /// hands over to, its major's pick, once it serves.
+    /// hands over to, its major's pick, once it serves. Taking the
+    /// Daemon's start lock, as the CLI does, would hold a blocking thread
+    /// with no deadline, since the lock has no timed wait; so, as the
+    /// TypeScript Client does, the runtime file is read again every 50 ms,
+    /// each read on a blocking thread of the connection's runtime.
     ///
     /// # Errors
     ///
     /// `deadline_exceeded` naming `timeout.connect` when none serves within
-    /// it, and `daemon_unreachable` when the Daemon's files cannot be read.
+    /// it, its `fix` the Daemon's log, and `daemon_unreachable` when the
+    /// Daemon's files cannot be read.
     async fn pick_of(
         &self,
         home: &Home,
         handed_over: u32,
         started: Instant,
     ) -> Result<DaemonReach, Error> {
+        let tasks = TaskTracker::new();
         loop {
-            let pick = engine_choice::running(home, &version())?
+            let read = tasks.spawn_blocking_on(
+                {
+                    let home = home.clone();
+                    move || engine_choice::running(&home, &version())
+                },
+                &self.handle,
+            );
+            // The read ends without an answer only when the runtime shut
+            // down.
+            let pick = read
+                .await
+                .unwrap_or_else(|_| Err(Error::closed()))?
                 .filter(|pick| pick.pid() != Some(handed_over));
             if let Some(pick) = pick {
                 return Ok(pick);
             }
-            self.rest(started)?;
+            if let Err(exceeded) = self.rest(started) {
+                let fix = format!(
+                    "Raise `connect`'s timeout, or find why the Daemon did not start in its log in {}.",
+                    home.logs().display()
+                );
+                let awaited = "the Daemon an idle one handed over to served";
+                return Err(self
+                    .asked
+                    .timeout
+                    .exceeded_awaiting(awaited, fix)
+                    .unwrap_or(exceeded));
+            }
             // The timer is the connection's runtime's, so the wait runs on
             // any executor (ADR 0081).
             let poll = {

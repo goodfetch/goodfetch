@@ -94,6 +94,21 @@ impl ConnectTimeout {
         self.deadline().map(|(after, limit)| exceeded(after, limit))
     }
 
+    /// [`ConnectTimeout::exceeded`] for a step of an opening that passed
+    /// it waiting for `awaited` rather than for the engine's answer, such
+    /// as the Daemon an idle one hands over to (ADR 0098): its message
+    /// names what it waited for, and its `fix` is `fix`.
+    #[must_use]
+    pub fn exceeded_awaiting(self, awaited: &str, fix: impl Into<String>) -> Option<Error> {
+        self.deadline().map(|(after, limit)| {
+            let message = format!(
+                "`{}` ({} ms) passed before {awaited}.",
+                limit.key, limit.value
+            );
+            deadline_exceeded(after, limit, message).with_fix(fix)
+        })
+    }
+
     /// The deadline of `hello`'s answer and the setting that set it; none
     /// for [`ConnectTimeout::Off`].
     pub(crate) fn deadline(self) -> Option<(Duration, SettingLimit)> {
@@ -128,6 +143,12 @@ pub(crate) fn exceeded(after: Duration, limit: SettingLimit) -> Error {
         "`{}` ({} ms) passed before the engine answered `hello`; raise it, or find why the engine does not answer.",
         limit.key, limit.value,
     );
+    deadline_exceeded(after, limit, message)
+}
+
+/// The `deadline_exceeded` with `message` of an opening that waited
+/// `after`, set by `limit`, for `hello`'s answer.
+fn deadline_exceeded(after: Duration, limit: SettingLimit, message: String) -> Error {
     let details = DeadlineExceededDetails {
         limit,
         elapsed: wire_millis(after),

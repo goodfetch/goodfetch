@@ -120,7 +120,7 @@ pub(super) fn played_whole(process: &Process) {
 
 /// A subscriber recording every Goodfetch event at every level, the SDK's
 /// and its engine's, and what it writes.
-pub(super) fn goodfetch_log() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
+fn goodfetch_log() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
     capturing(&[("goodfetch", Level::TRACE)])
 }
 

@@ -674,7 +674,10 @@ impl Opening {
             }
             Reach::Daemon(daemon) => {
                 // Only this machine's Daemon is fallen back from, onto a
-                // linked engine sized as the executable's.
+                // linked engine sized as the executable's. That engine
+                // runs on this runtime, which the opening itself runs on
+                // and so cannot replace, so it is sized here, before the
+                // Daemon is asked.
                 let auto = (auto && daemon.pid().is_some()).then_some(environment);
                 let runtime = match (&auto, &found) {
                     (Some(_), Some(found)) => production_runtime(engine.product, found),
@@ -867,10 +870,7 @@ fn record(product: Product, home: &Home, clock: Clock) -> std::io::Result<()> {
         path: path.display().to_string(),
         size,
         modified_at,
-        pins: crate::pinned_artifacts()
-            .into_iter()
-            .map(|artifact| artifact.id)
-            .collect(),
+        pins: crate::pins::pinned_artifact_ids(),
         copy: None,
         last_seen: clock.wall(),
     })

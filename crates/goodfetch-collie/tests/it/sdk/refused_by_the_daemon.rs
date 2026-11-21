@@ -21,12 +21,15 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{DeadlineExceededDetails, WaitedFor};
 use goodfetch_protocol::executables::ExecutableKind;
 use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
-use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
+use goodfetch_test_support::{
+    CapturedLog, SCRIPTED_DAEMON_TOKEN, TestEnv, capturing, real_time_runtime,
+};
 use rstest::rstest;
+use tracing::Level;
 use tracing::subscriber::with_default;
 
 use super::engine_choice::{
-    environment, goodfetch_log, hello, listening, played_whole, reached, scripted, text, version,
+    environment, hello, listening, played_whole, reached, scripted, text, version,
 };
 
 /// The Daemon refusing by protocol version, unable to hand over.
@@ -53,12 +56,10 @@ const PRODUCT_FIX: &str = "Connect to a Foxhound engine, or run with Foxhound, w
 /// major would still be the pick.
 const LINKED_FIX: &str = "Install Collie's executable at 0.0.0 (`cargo install goodfetch-collie --locked --features executable`), then run its `daemon restart` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (`cargo install goodfetch-foxhound --locked --features executable`) and run its `daemon restart`.";
 
-/// The lines `written` holds at warning on `goodfetch::client`.
-fn client_warnings(written: &str) -> Vec<&str> {
-    written
-        .lines()
-        .filter(|line| line.contains("WARN") && line.contains("goodfetch::client"))
-        .collect()
+/// A subscriber recording the warnings on `goodfetch::client` alone, with
+/// what it writes.
+fn client_warnings() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
+    capturing(&[("goodfetch::client", Level::WARN)])
 }
 
 /// The `connect-falls-back-when-the-daemon-refuses` case in `linked` mode:
@@ -76,7 +77,7 @@ fn auto_links_its_own_engine_when_the_daemon_refuses(
     #[case] given_fix: &str,
 ) {
     let env = TestEnv::new();
-    let (subscriber, log) = goodfetch_log();
+    let (subscriber, log) = client_warnings();
 
     let (process, url, engine) = with_default(subscriber, || {
         let (process, line) = scripted(&env, script, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
@@ -108,7 +109,7 @@ fn auto_links_its_own_engine_when_the_daemon_refuses(
         }
     );
     let written = text(&log);
-    let warned = client_warnings(&written);
+    let warned: Vec<&str> = written.lines().collect();
     assert_eq!(warned.len(), 1, "{written}");
     assert!(warned[0].contains(&url), "{}", warned[0]);
 }
@@ -143,7 +144,7 @@ fn a_blocking_connection_falls_back_too() {
 #[test]
 fn daemon_fails_with_the_refusal_whose_fix_names_the_install_command_first() {
     let env = TestEnv::new();
-    let (subscriber, log) = goodfetch_log();
+    let (subscriber, log) = client_warnings();
 
     let (process, refused) = with_default(subscriber, || {
         let (process, _) = scripted(
@@ -174,7 +175,7 @@ fn daemon_fails_with_the_refusal_whose_fix_names_the_install_command_first() {
         error.fix().unwrap_or_default(),
         format!("{VERSION_FIX} {LINKED_FIX}")
     );
-    assert_eq!(client_warnings(&text(&log)), Vec::<&str>::new());
+    assert_eq!(text(&log), "");
     let home = Home::new(env.home().to_owned());
     assert_eq!(InstalledList::of(&home).read().unwrap(), Vec::new());
 }
@@ -187,7 +188,7 @@ fn daemon_fails_with_the_refusal_whose_fix_names_the_install_command_first() {
 #[case::goodfetch_url(true)]
 fn a_remote_daemons_refusal_fails_the_connect_unchanged(#[case] in_environment: bool) {
     let env = TestEnv::new();
-    let (subscriber, log) = goodfetch_log();
+    let (subscriber, log) = client_warnings();
 
     let (process, refused) =
         with_default(subscriber, || {
@@ -224,7 +225,7 @@ fn a_remote_daemons_refusal_fails_the_connect_unchanged(#[case] in_environment: 
         "{error:?}"
     );
     assert_eq!(error.fix(), Some(VERSION_FIX));
-    assert_eq!(client_warnings(&text(&log)), Vec::<&str>::new());
+    assert_eq!(text(&log), "");
 }
 
 /// An idle Daemon that refuses and hands over is waited past until its
@@ -267,7 +268,8 @@ fn a_daemon_that_hands_over_is_waited_past_until_the_pick_serves() {
 }
 
 /// No pick serving within `timeout.connect` of a handover fails the
-/// connect with `deadline_exceeded` naming it.
+/// connect with `deadline_exceeded` naming it, whose `fix` points at the
+/// Daemon's log.
 /// Covers: story:11-292
 #[test]
 fn no_pick_serving_in_time_after_a_handover_fails_with_deadline_exceeded() {
@@ -302,6 +304,9 @@ fn no_pick_serving_in_time_after_a_handover_fails_with_deadline_exceeded() {
             Some(RunOrigin::Argument)
         )
     );
+    let logs = Home::new(env.home().to_owned()).logs();
+    let fix = error.fix().unwrap_or_default();
+    assert!(fix.contains(&logs.display().to_string()), "{fix}");
 }
 
 /// A program linking the engine records itself in the home's list of

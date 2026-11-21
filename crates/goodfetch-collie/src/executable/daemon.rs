@@ -658,10 +658,7 @@ impl Machine<'_> {
                 path: path.display().to_string(),
                 size,
                 modified_at,
-                pins: crate::pinned_artifacts()
-                    .into_iter()
-                    .map(|artifact| artifact.id)
-                    .collect(),
+                pins: crate::pins::pinned_artifact_ids(),
                 copy: None,
                 last_seen: SystemTime::from(self.now()),
             })

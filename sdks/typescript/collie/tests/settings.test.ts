@@ -2,9 +2,10 @@
 // engine: `connect()`'s own reach the engine in `hello`, a Run's own sit
 // over them in their three states, a key left out inheriting, `null`
 // clearing and a value setting, and `explainSettings()` on the Connection
-// and on the Run answers what each runs with; each setting the engine
-// refuses says how to fix it, a configuration-only key passed in code
-// naming the file that sets it.
+// and on the Run answers what each runs with, naming each key's layer,
+// origin, the Durability level whose preset gave it and the layer that
+// locked it; each setting the engine refuses says how to fix it, a
+// configuration-only key passed in code naming the file that sets it.
 import { Collie } from "@goodfetch/collie";
 import {
   type ExplainedSetting,
@@ -27,6 +28,34 @@ const POLICY = "/home/user/.config/goodfetch/1/operator-policy.toml";
 /** Each explained setting as its key, value and layer. */
 function keyed(settings: readonly ExplainedSetting[]): unknown[] {
   return settings.map(({ key, value, layer }) => [key, value, layer]);
+}
+
+/** A Durability level, a key of its preset and a key set in code. */
+const SOURCED = ["run_state.batch.sync", "run_state.durability", "timeout.wait"];
+
+/** Each explained setting as its key, value, layer, origin, preset and lock. */
+function sourced(settings: readonly ExplainedSetting[]): unknown[] {
+  return settings.map(({ key, value, layer, origin, preset, lockedBy }) => [
+    key,
+    value,
+    layer,
+    origin ?? null,
+    preset ?? null,
+    lockedBy ?? null,
+  ]);
+}
+
+/**
+ * What both explanations answer under the Operator policy's lock on
+ * `run_state.durability`, with `timeout.wait` at `wait`.
+ */
+function underTheLock(wait: number): unknown[] {
+  const level = { key: "run_state.durability", value: "full" };
+  return [
+    ["run_state.batch.sync", "each", "operator_policy", null, level, "operator_policy"],
+    ["run_state.durability", "full", "operator_policy", null, null, "operator_policy"],
+    ["timeout.wait", wait, "run", "settings", null, null],
+  ];
 }
 
 describe("A scope's settings on the Scripted engine as the Attached engine", () => {
@@ -66,6 +95,35 @@ describe("A scope's settings on the Scripted engine as the Attached engine", () 
             ["timeout.navigation", 1_000, "run"],
             ["timeout.wait", 5_000, "run"],
           ]),
+      );
+    },
+  );
+
+  test(
+    "explainSettings() names each key's layer, origin, the preset that gave it and the layer that locked it",
+    { tags: ["client_case/settings-explained-with-their-source", "attached", "story:11-74"] },
+    async ({ testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(
+        testEnv,
+        "collie",
+        "run/settings-explained-with-their-source.json",
+      );
+      const { logger } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger, settings: { timeout: { wait: 3_000 } } });
+
+      const connection = await collie.explainSettings(SOURCED);
+      const run = await collie.start({ settings: { timeout: { wait: 5_000 } } });
+      const own = await run.explainSettings(SOURCED);
+      await run.finish();
+      await collie.close();
+
+      await clientCase.check(
+        "the Connection names the preset a key came from, the lock on its level and a key's origin",
+        () => expect(sourced(connection.settings)).toEqual(underTheLock(3_000)),
+      );
+      await clientCase.check("the Run explains the same sources over its own value", () =>
+        expect(sourced(own.settings)).toEqual(underTheLock(5_000)),
       );
     },
   );

@@ -2,7 +2,7 @@
 //! member its packages export, once however many entries export it, and no
 //! member they do not export or the generator writes (ADRs 0069, 0099). The
 //! fixture's TypeScript package is read by the repository's TypeScript, its
-//! Rust crate from its source.
+//! Rust crate and its Python packages from their source.
 //! Covers: story:11-186
 
 use rstest::rstest;
@@ -13,6 +13,10 @@ const MANIFEST: &str = "sdks/typescript/manifest.toml";
 const COLLIE: &str = "sdks/typescript/collie/src/collie.ts";
 const RUST_MANIFEST: &str = "crates/foxhound/goodfetch-foxhound/manifest.toml";
 const RUST_SOURCE: &str = "crates/foxhound/goodfetch-foxhound/src";
+const PYTHON_MANIFEST: &str = "sdks/python/manifest.toml";
+const PYTHON_ENTRY: &str = "sdks/python/collie/src/goodfetch_collie/__init__.py";
+const PYTHON_COLLIE: &str = "sdks/python/collie/src/goodfetch_collie/collie.py";
+const PYTHON_HANDLE: &str = "sdks/python/collie-client/src/goodfetch_collie_client/handle.py";
 
 fn workspace() -> Workspace {
     let workspace = Workspace::from_fixture("sdk-exports");
@@ -282,6 +286,144 @@ fn check_refuses_a_rust_line_naming_no_public_hand_written_item(
         vec![finding(
             "unused-line",
             &format!("{RUST_MANIFEST} {receiver}.{member}")
+        )],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A dunder is the language's own protocol, as `__enter__` is, so a line
+/// may name it and none has to.
+#[test]
+fn check_passes_a_line_naming_a_python_dunder() {
+    let workspace = workspace();
+    workspace.append(
+        PYTHON_MANIFEST,
+        "\n[[member]]\npackage = \"goodfetch_collie\"\nreceiver = \"Collie\"\nmember = \"__enter__\"\nentry = \"none\"\nreason = \"The scoped form.\"\nwords = [\"close\"]\nform = \"closer\"\n",
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// A public member of a Python entry: a name of a module's `__all__`, and
+/// each public member of a class it names, its own or one a base the SDK
+/// declares gives it, method or field.
+#[rstest]
+#[case::name_in_all(
+    PYTHON_ENTRY,
+    "__all__ = [\"Collie\",",
+    "__all__ = [\"helper\", \"Collie\",",
+    "(module)",
+    "helper"
+)]
+#[case::method_of_an_exported_class(
+    PYTHON_COLLIE,
+    "    def close(self) -> None:",
+    "    async def abort(self) -> None:\n        \"\"\"Aborts.\"\"\"\n\n    def close(self) -> None:",
+    "Collie",
+    "abort"
+)]
+#[case::method_of_a_base_the_sdk_declares(
+    PYTHON_HANDLE,
+    "    def close(self) -> None:",
+    "    def flush(self) -> None:\n        \"\"\"Flushes.\"\"\"\n\n    def close(self) -> None:",
+    "Subscription",
+    "flush"
+)]
+#[case::field_of_a_class_with_methods(
+    PYTHON_COLLIE,
+    "    @classmethod",
+    "    timeout: float = 0.0\n\n    @classmethod",
+    "Collie",
+    "timeout"
+)]
+#[case::field_its_constructor_sets(
+    PYTHON_COLLIE,
+    "    @classmethod",
+    "    def __init__(self) -> None:\n        self.engine = None\n\n    @classmethod",
+    "Collie",
+    "engine"
+)]
+fn check_refuses_a_public_python_member_no_line_lists(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] receiver: &str,
+    #[case] member: &str,
+) {
+    let workspace = workspace();
+    workspace.edit(file, from, to);
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unlisted",
+            &format!("{PYTHON_MANIFEST} {receiver}.{member}")
+        )],
+        "{}",
+        outcome.stdout
+    );
+    assert!(
+        outcome.stdout.contains(&format!(
+            "package = \"goodfetch_collie\", receiver = \"{receiver}\", member = \"{member}\""
+        )),
+        "the finding names the line to add: {}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A Python entry exports only its `__all__`: not a name it leaves out, not
+/// a module with no `__all__`, not a private member, not a field of a shape
+/// of data, and nothing the generator writes, even on a hand-written class.
+#[rstest]
+#[case::member_no_entry_exports("goodfetch_collie", "Collie", "begin", "[\"begin\"]", "opener")]
+#[case::name_left_out_of_all("goodfetch_collie", "(module)", "helper", "[\"helper\"]", "read")]
+#[case::name_of_a_module_with_no_all(
+    "goodfetch_collie.collie",
+    "(module)",
+    "open_over",
+    "[\"open\", \"over\"]",
+    "opener"
+)]
+#[case::private_member("goodfetch_collie", "Collie", "_flush", "[\"flush\"]", "closer")]
+#[case::field_of_a_shape_of_data(
+    "goodfetch_collie",
+    "StartOptions",
+    "timeout",
+    "[\"timeout\"]",
+    "read"
+)]
+#[case::generated_type("goodfetch_collie", "(module)", "Page", "[\"page\"]", "type")]
+#[case::member_the_generator_writes("goodfetch_collie", "Collie", "start", "[\"start\"]", "opener")]
+fn check_refuses_a_python_line_naming_no_public_hand_written_member(
+    #[case] package: &str,
+    #[case] receiver: &str,
+    #[case] member: &str,
+    #[case] words: &str,
+    #[case] form: &str,
+) {
+    let workspace = workspace();
+    workspace.append(
+        PYTHON_MANIFEST,
+        &format!(
+            "\n[[member]]\npackage = \"{package}\"\nreceiver = \"{receiver}\"\nmember = \"{member}\"\nentry = \"none\"\nreason = \"A member of the test.\"\nwords = {words}\nform = \"{form}\"\n"
+        ),
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unused-line",
+            &format!("{PYTHON_MANIFEST} {receiver}.{member}")
         )],
         "{}",
         outcome.stdout

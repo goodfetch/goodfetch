@@ -4,8 +4,9 @@
 //! a line names it on any entry that exports it, so a member that several
 //! entries re-export, or a subclass inherits, is listed once. TypeScript's
 //! members are read by TypeScript's checker (`typescript-exports.mjs` says
-//! which), a Rust crate's from its source ([`rust`] says which); Python's
-//! joins with its own reader (issue 2920).
+//! which), a Rust crate's from its source ([`rust`] says which), and the
+//! Python packages' from their source by the repository's interpreter
+//! (`python_exports.py` says which).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -25,18 +26,23 @@ mod rust;
 
 /// Prints the members the TypeScript packages of the SDK's folder export.
 const TYPESCRIPT_EXPORTS: &str = include_str!("typescript-exports.mjs");
+/// Prints the members the Python packages of the SDK's folder export.
+const PYTHON_EXPORTS: &str = include_str!("python_exports.py");
+/// The repository's interpreter, which `uv sync` installs.
+const PYTHON: &str = ".venv/bin/python";
 
 /// One member an SDK's entry exports.
 #[derive(Deserialize)]
 struct Exported {
-    /// The entry exporting it: an npm package and its subpath, or a crate.
+    /// The entry exporting it: an npm package and its subpath, a crate, or
+    /// a Python module.
     entry: String,
     receiver: String,
     member: String,
     /// The same for every entry exporting one declaration.
     id: String,
     /// The package whose entry exports it: a TypeScript package's folder,
-    /// or a crate's name.
+    /// a crate's name, or a Python package's import name.
     home: String,
     /// The package declaring it, named as `home` is, `None` for the
     /// language library's.
@@ -76,7 +82,34 @@ fn exports(root: &Path, manifest: &str, language: Language) -> Result<Vec<Export
                 .context("a Rust manifest sits in its crate's folder, named as the crate")?;
             rust::exports(&root.join(sdk), name)
         }
+        Language::Python => python_exports(root, sdk),
     }
+}
+
+/// The members the Python packages of the folder `sdk` export, read in an
+/// isolated interpreter that imports none of them.
+fn python_exports(root: &Path, sdk: &Path) -> Result<Vec<Exported>> {
+    let python = root.join(PYTHON);
+    if !python.is_file() {
+        bail!(
+            "{} is missing; run `uv sync` to read the Python SDK's exports",
+            python.display()
+        );
+    }
+    let output = Command::new(python)
+        .args(["-I", "-c", PYTHON_EXPORTS])
+        .arg(root.join(sdk))
+        .current_dir(root)
+        .output()
+        .context("running Python to read the Python SDK's exports")?;
+    if !output.status.success() {
+        bail!(
+            "reading the Python SDK's exports failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    serde_json::from_slice(&output.stdout).context("parsing the Python SDK's exports")
 }
 
 /// The members the TypeScript packages of the folder `sdk` export.
@@ -108,7 +141,7 @@ fn compare(
 ) {
     // The key a line names its package with.
     let package = match language {
-        Language::TypeScript => "package",
+        Language::TypeScript | Language::Python => "package",
         Language::Rust => "crate",
     };
     let mut by_key: BTreeMap<(&str, &str, &str), Vec<&Exported>> = BTreeMap::new();

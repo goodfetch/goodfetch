@@ -19,6 +19,10 @@ use super::artifact::BuildPlatform;
 /// The name Chrome for Testing's builds are pinned under.
 pub const CHROME_FOR_TESTING: &str = "chrome-for-testing";
 
+/// The name Chrome for Testing's `chrome-headless-shell` builds are pinned
+/// under: the same release, headless only (#3224).
+pub const CHROME_HEADLESS_SHELL: &str = "chrome-headless-shell";
+
 /// An operating system the engine runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Os {

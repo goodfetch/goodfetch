@@ -699,6 +699,26 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A full Chrome for Testing build asked to run headless by a macOS process
+/// with no GUI session, where it crashes at start-up (ADR 0115's amendment
+/// of 2026-11-21; #3224).
+pub const BROWSER_NEEDS_GUI_SESSION: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_needs_gui_session",
+    description: "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a LaunchDaemon, an SSH login or a CI runner, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `browser_needs_gui_session` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserNeedsGuiSessionDetails {
+    /// What to do instead: the setting that launches the headless shell.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// A Browser host older than the engine that reaches it can drive (ADRs
 /// 0035 and 0096).
 pub const BROWSER_HOST_OUTDATED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1018,7 +1038,7 @@ pub const PAGE_GO_FORWARD: Operation = Operation {
 /// `browser.headless` (ADRs 0083 and 0092; spec #577).
 pub const BROWSER_HEADLESS: Setting = Setting {
     name: "browser.headless",
-    description: "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+    description: "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
     kind: ValueKind::Boolean,
     default: headless,
     clearable: false,
@@ -1032,6 +1052,25 @@ pub const BROWSER_HEADLESS: Setting = Setting {
 
 fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
+}
+
+/// `browser.headless_shell` (ADRs 0037's SDK-10, 0092 and 0115; #3224).
+pub const BROWSER_HEADLESS_SHELL: Setting = Setting {
+    name: "browser.headless_shell",
+    description: "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
+    kind: ValueKind::Boolean,
+    default: headless_shell,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn headless_shell() -> serde_json::Value {
+    serde_json::Value::Bool(false)
 }
 
 /// `browser.cdp_command_log` (spec #577; ADR 0140's C1, #1891).
@@ -1872,6 +1911,7 @@ pub const ENTRIES: Entries = Entries {
         SITE_PREFERENCES_REFUSED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
+        BROWSER_NEEDS_GUI_SESSION,
         BROWSER_HOST_OUTDATED,
         BROWSER_HOST_UNREACHABLE,
         TARGET_NOT_UNIQUE,
@@ -1887,6 +1927,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         BROWSER_HEADLESS,
+        BROWSER_HEADLESS_SHELL,
         BROWSER_CDP_COMMAND_LOG,
         BROWSER_BLOCK_RESOURCES,
         BROWSER_SERVICE_WORKERS,

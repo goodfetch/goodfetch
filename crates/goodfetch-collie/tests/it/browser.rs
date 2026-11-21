@@ -20,7 +20,8 @@ use goodfetch_protocol::browser_cache::{
 };
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    TestEnv, assert_cli_snapshot, browser_cache, cli, lay_out_browser_entry,
+    TestEnv, assert_cli_snapshot, browser_cache, browser_cache_with_headless_shell, cli,
+    lay_out_browser_entry,
 };
 use serde_json::{Value, json};
 
@@ -83,6 +84,39 @@ fn browser_install_makes_sure_of_each_build_the_version_pins() {
     let mut settings = checked.output.settings();
     settings.add_filter(r#""version": "[^"]+""#, r#""version": "[build]""#);
     settings.bind(|| assert_cli_snapshot!(checked.output));
+}
+
+/// `browser install chrome-headless-shell` makes sure of the pinned
+/// release's headless shell alone, which `browser.headless_shell` launches
+/// and a bare `browser install` leaves out (#3224).
+///
+/// Covers: command:browser.install, setting:browser.headless_shell
+#[test]
+fn browser_install_of_the_headless_shell_makes_sure_of_that_build_alone() {
+    let env = TestEnv::new();
+    let cache = browser_cache_with_headless_shell(&env).unwrap();
+
+    let installed = run(
+        &env,
+        &["browser", "install", "chrome-headless-shell", "--json"],
+        &[("GOODFETCH_BROWSERS_PATH", &cache)],
+    );
+
+    let output: BrowserInstalled = serde_json::from_value(installed).unwrap();
+    let pins: Value = serde_json::from_str(PINS).unwrap();
+    assert_eq!(
+        output,
+        BrowserInstalled {
+            builds: vec![InstalledBuild {
+                name: "chrome-headless-shell".to_owned(),
+                version: pins["chrome_for_testing"]["build"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                outcome: InstallOutcome::AlreadyInstalled,
+            }],
+        }
+    );
 }
 
 /// `browser clean --dry-run` lists, with their bytes, the builds `browser

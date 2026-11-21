@@ -63,6 +63,19 @@ pub enum BrowserCacheError {
     Io(#[from] io::Error),
 }
 
+/// The name the full build is pinned under, and its entry's folder.
+const CHROME_FOR_TESTING: &str = "chrome-for-testing";
+
+/// The name the headless shell of the same release is pinned under, and
+/// its entry's folder (#3224).
+const CHROME_HEADLESS_SHELL: &str = "chrome-headless-shell";
+
+/// The folder the headless shell's archive unpacks to on this platform.
+fn shell_platform_folder() -> Option<String> {
+    let platform = platform_folder()?.strip_prefix("chrome-")?;
+    Some(format!("{CHROME_HEADLESS_SHELL}-{platform}"))
+}
+
 /// The folder Chrome for Testing's archive unpacks to on this platform.
 fn platform_folder() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
@@ -161,14 +174,14 @@ pub fn chrome_for_testing(cache: &Path) -> PathBuf {
         .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
 }
 
-/// Starts the pinned build of the Browser cache at `cache`, headless, to
-/// load `url` once, print the page's DOM once loaded, its scripts run
-/// (`--dump-dom`), and exit: a stock launch but for `switches`, for a test
-/// of what a site sees of the pinned browser. `host` resolves to `address`,
-/// and no certificate is checked, which changes nothing the ClientHello
-/// sends, so a site of the Proving ground is reached over TLS. Each call
-/// takes a profile of its own in `env`'s folder, so several may run at
-/// once.
+/// Starts the pinned build of the Browser cache at `cache` headless, as
+/// [`chrome_headless`] picks it, to load `url` once, print the page's DOM
+/// once loaded, its scripts run (`--dump-dom`), and exit: a stock launch
+/// but for `switches`, for a test of what a site sees of the pinned
+/// browser. `host` resolves to `address`, and no certificate is checked,
+/// which changes nothing the ClientHello sends, so a site of the Proving
+/// ground is reached over TLS. Each call takes a profile of its own in
+/// `env`'s folder, so several may run at once.
 ///
 /// # Errors
 ///
@@ -180,7 +193,7 @@ pub fn chrome_for_testing_dumping_dom(
     switches: &[&str],
     url: &str,
 ) -> io::Result<Process> {
-    let mut command = env.process_command(chrome_for_testing(cache));
+    let mut command = env.process_command(chrome_headless(cache));
     command.args([
         "--headless",
         "--no-first-run",
@@ -211,10 +224,11 @@ pub struct DebuggedBrowser {
     pub url: String,
 }
 
-/// Starts the pinned build of the Browser cache at `cache`, headless, on the
-/// profile at `profile`, with `switches` beside a stock headless launch's,
-/// listening for CDP on a loopback port it picks and reports; it opens
-/// `about:blank` and writes nothing to the test's output.
+/// Starts the pinned build of the Browser cache at `cache` headless, as
+/// [`chrome_headless`] picks it, on the profile at `profile`, with
+/// `switches` beside a stock headless launch's, listening for CDP on a
+/// loopback port it picks and reports; it opens `about:blank` and writes
+/// nothing to the test's output.
 ///
 /// # Errors
 ///
@@ -229,7 +243,7 @@ pub fn chrome_for_testing_debugged(
     profile: &Path,
     switches: impl IntoIterator<Item: AsRef<OsStr>>,
 ) -> io::Result<DebuggedBrowser> {
-    let mut command = env.process_command(chrome_for_testing(cache));
+    let mut command = env.process_command(chrome_headless(cache));
     command
         .args([
             "--headless",
@@ -286,36 +300,136 @@ pub fn reported_debugging_port(profile: &Path) -> u16 {
     }
 }
 
+/// The executable of the headless shell in the Browser cache at `cache`,
+/// which [`browser_cache_with_headless_shell`] lays out.
+pub fn chrome_headless_shell(cache: &Path) -> PathBuf {
+    let platform = shell_platform_folder().unwrap_or_default();
+    entry(cache, CHROME_HEADLESS_SHELL)
+        .join("files")
+        .join(platform)
+        .join(CHROME_HEADLESS_SHELL)
+}
+
+/// The executable a test starts headless itself from the Browser cache at
+/// `cache`: the pinned build's, or, where the tests run with no GUI
+/// session ([`Variables::no_gui_session`]), where the full build cannot
+/// start headless, the headless shell of the same release, which
+/// [`browser_cache`] then lays out too (#3224).
+pub fn chrome_headless(cache: &Path) -> PathBuf {
+    if Variables::from_process().no_gui_session() {
+        chrome_headless_shell(cache)
+    } else {
+        chrome_for_testing(cache)
+    }
+}
+
+/// Whether a test that needs the full build with a window, or a `stealth`
+/// Session, which launches its own build, skips here: where the tests run
+/// with no GUI session, as the Release suite's macOS cells do (#3224),
+/// saying so with `reason` on stderr. Asked before the test's [`TestEnv`],
+/// so a skipped test leaves no exercise record.
+pub fn skipped_without_gui_session(reason: &str) -> bool {
+    if !Variables::from_process().no_gui_session() {
+        return false;
+    }
+    #[expect(
+        clippy::print_stderr,
+        reason = "a skipped test says why in its own output, which the test harness keeps"
+    )]
+    {
+        eprintln!("skipped with no GUI session: {reason}");
+    }
+    true
+}
+
+/// [`browser_cache`], holding also the headless shell of the pinned
+/// release, laid out as a prepared copy holds it from Playwright's own
+/// (`pnpm exec playwright install chromium` installs both), for a test of
+/// `browser.headless_shell` (#3224).
+///
+/// # Errors
+///
+/// [`browser_cache`]'s, and [`BrowserCacheError::NotInstalled`] when
+/// Playwright has not installed the shell.
+pub fn browser_cache_with_headless_shell(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
+    let root = browser_cache(env)?;
+    headless_shell_at(&root, tests_folder(env))?;
+    Ok(root)
+}
+
 /// The pinned Chrome for Testing build's entry in the Browser cache at
 /// `cache`.
 fn chrome_for_testing_entry(cache: &Path) -> PathBuf {
+    entry(cache, CHROME_FOR_TESTING)
+}
+
+/// The entry of the pinned release's build `name` in the Browser cache at
+/// `cache`.
+fn entry(cache: &Path, name: &str) -> PathBuf {
     cache
         .join("browser")
-        .join("chrome-for-testing")
+        .join(name)
         .join(CHROME_FOR_TESTING_BUILD)
 }
 
 /// A Browser cache at `root` holding the pinned Chrome for Testing build,
 /// as [`browser_cache`] describes it, its files linked from Playwright's or
-/// from the build's copy in `tests_folder`; `root`.
+/// from the build's copy in `tests_folder`, and its headless shell too
+/// where the tests run with no GUI session; `root`.
 fn chrome_for_testing_at(root: PathBuf, tests_folder: &Path) -> Result<PathBuf, BrowserCacheError> {
     let platform = platform_folder().ok_or(BrowserCacheError::NoBuild)?;
-    let source = playwright_browsers(&Variables::from_process())
+    let variables = Variables::from_process();
+    let source = playwright_browsers(&variables)
         .unwrap_or_default()
         .join(format!("chromium-{PLAYWRIGHT_REVISION}"))
         .join(platform);
-    if !source.is_dir() {
-        return Err(BrowserCacheError::NotInstalled(source));
+    lay_out_entry(&root, tests_folder, CHROME_FOR_TESTING, &source, platform)?;
+    if variables.no_gui_session() {
+        headless_shell_at(&root, tests_folder)?;
     }
-    let entry = chrome_for_testing_entry(&root);
-    let build = linkable_build(&source, tests_folder, platform)?;
-    link_tree(&build, &chrome_for_testing_files(&root).join(platform))?;
+    Ok(root)
+}
+
+/// The headless shell of the pinned release in the Browser cache at
+/// `root`, linked as [`chrome_for_testing_at`] links the full build.
+fn headless_shell_at(root: &Path, tests_folder: &Path) -> Result<(), BrowserCacheError> {
+    let platform = shell_platform_folder().ok_or(BrowserCacheError::NoBuild)?;
+    let source = playwright_browsers(&Variables::from_process())
+        .unwrap_or_default()
+        .join(format!("chromium_headless_shell-{PLAYWRIGHT_REVISION}"))
+        .join(&platform);
+    lay_out_entry(
+        root,
+        tests_folder,
+        CHROME_HEADLESS_SHELL,
+        &source,
+        &platform,
+    )
+}
+
+/// The entry of the pinned release's build `name` in the Browser cache at
+/// `root`, its files at `files/<platform>` linked from Playwright's at
+/// `source` or from their copy in `tests_folder`, with its lock and its
+/// `entry.json`.
+fn lay_out_entry(
+    root: &Path,
+    tests_folder: &Path,
+    name: &str,
+    source: &Path,
+    platform: &str,
+) -> Result<(), BrowserCacheError> {
+    if !source.is_dir() {
+        return Err(BrowserCacheError::NotInstalled(source.to_owned()));
+    }
+    let entry = entry(root, name);
+    let build = linkable_build(source, tests_folder, platform)?;
+    link_tree(&build, &entry.join("files").join(platform))?;
     fs::write(entry.join("lock"), "")?;
     let installed = serde_json::json!({
         "format_version": "0.1",
         "artifact": {
             "kind": "browser",
-            "name": "chrome-for-testing",
+            "name": name,
             "build": CHROME_FOR_TESTING_BUILD,
         },
         "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -323,7 +437,7 @@ fn chrome_for_testing_at(root: PathBuf, tests_folder: &Path) -> Result<PathBuf, 
         "used_at": START_TIME,
     });
     fs::write(entry.join("entry.json"), installed.to_string())?;
-    Ok(root)
+    Ok(())
 }
 
 /// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the

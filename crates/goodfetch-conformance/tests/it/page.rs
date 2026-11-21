@@ -19,7 +19,8 @@ use goodfetch_conformance::{
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::result_document::{CapabilityResult, CaseOutcome, Outcome};
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, ProvingGround as LocalCopy, TestEnv, Tool, browser_cache, tools,
+    BROWSERS_PATH_VARIABLE, ProvingGround as LocalCopy, TestEnv, Tool, browser_cache,
+    skipped_without_gui_session, tools,
 };
 
 /// One part of the page suite: its name, which names its kept document,
@@ -205,6 +206,11 @@ fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
 /// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:page.wait_for_url, operation:page.wait_for_response, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:3-52, setting:timeout.navigation, error:deadline_exceeded
 #[test]
 fn the_page_suite_proves_navigation_against_collies_attached_engine() {
+    if skipped_without_gui_session(
+        "its download case needs a navigation to a PDF to be a download, which the headless shell does not make it",
+    ) {
+        return;
+    }
     prove(NAVIGATION);
 }
 
@@ -248,6 +254,11 @@ fn the_page_suite_proves_the_extractor_against_collies_attached_engine() {
 /// Covers: story:5-56, story:5-11, operation:run.new_page, operation:page.goto
 #[test]
 fn the_page_suite_proves_launch_against_collies_attached_engine() {
+    if skipped_without_gui_session(
+        "its headless identity case reads the full build's identity, where the headless shell shows `HeadlessChrome`",
+    ) {
+        return;
+    }
     prove(LAUNCH);
 }
 
@@ -296,6 +307,11 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
 /// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, story:5-56, setting:browser.headless, operation:page.goto
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
+    if skipped_without_gui_session(
+        "its service-worker case reads the full build's window identity, where the headless shell shows `HeadlessChrome`",
+    ) {
+        return;
+    }
     prove(PAGE_STATES);
 }
 

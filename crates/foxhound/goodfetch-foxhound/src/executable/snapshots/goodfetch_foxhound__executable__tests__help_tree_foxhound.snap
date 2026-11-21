@@ -58,7 +58,7 @@ Manages the browser builds this version pins in the Browser cache
 Usage: goodfetch-foxhound browser [OPTIONS] <COMMAND>
 
 Commands:
-  install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+  install  Downloads the builds this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images: those named, else every one a Run launches by default, all but `chrome-headless-shell` (`browser.headless_shell`)
   clean    Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
 
 Options:
@@ -66,9 +66,12 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-foxhound browser install --help
-Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+Downloads the builds this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images: those named, else every one a Run launches by default, all but `chrome-headless-shell` (`browser.headless_shell`)
 
-Usage: goodfetch-foxhound browser install [OPTIONS]
+Usage: goodfetch-foxhound browser install [OPTIONS] [NAMES]...
+
+Arguments:
+  [NAMES]...  The builds to download, by the name they are pinned under [possible values: chrome-for-testing, chrome-headless-shell]
 
 Options:
       --json          Prints the result as JSON

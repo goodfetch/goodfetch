@@ -13,7 +13,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
-use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, PinnedArtifact};
+use goodfetch_engine::browser_cache::{
+    BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, PinnedArtifact,
+};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -59,8 +61,8 @@ pub(crate) const RUN: &str = "handler-pages";
 /// since this crate sits below Collie's executable crate.
 const PINS: &str = include_str!("../../../goodfetch-collie/src/pins.json");
 
-/// The pinned Chrome for Testing build the Browser cache holds, for this
-/// platform, never downloaded.
+/// The pinned Chrome for Testing build and its headless shell the Browser
+/// cache holds, for this platform, never downloaded.
 fn pins() -> Vec<PinnedArtifact> {
     let platform = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         BuildPlatform::MacArm64
@@ -77,22 +79,27 @@ fn pins() -> Vec<PinnedArtifact> {
     let pins: Value = serde_json::from_str(PINS).expect("invariant: Collie's pins are JSON");
     let chrome = &pins["chrome_for_testing"];
     assert_eq!(chrome["build"], json!(CHROME_FOR_TESTING_BUILD));
-    vec![PinnedArtifact {
+    let pin = |artifact: &str, digest: &Value| PinnedArtifact {
         id: ArtifactId {
             kind: ArtifactKind::Browser,
-            name: CHROME_FOR_TESTING.to_owned(),
+            name: artifact.to_owned(),
             build: CHROME_FOR_TESTING_BUILD.to_owned(),
         },
         platform: Some(platform),
         url: "https://storage.googleapis.com/chrome-for-testing-public/unused.zip".to_owned(),
         archive_digest: None,
         application_settings: std::collections::BTreeMap::new(),
-        digest: chrome["platforms"][name]["digest"]
+        digest: digest
             .as_str()
             .expect("Collie pins this platform's build")
             .parse()
             .expect("invariant: Collie's digests read"),
-    }]
+    };
+    let build = &chrome["platforms"][name];
+    vec![
+        pin(CHROME_FOR_TESTING, &build["digest"]),
+        pin(CHROME_HEADLESS_SHELL, &build["headless_shell"]["digest"]),
+    ]
 }
 
 /// A Connection to the engine, as a program holds it.

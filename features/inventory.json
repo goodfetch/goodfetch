@@ -1074,6 +1074,17 @@
       ]
     },
     {
+      "id": "error:browser_needs_gui_session",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:browser_not_installed",
       "kind": "error",
       "area": 3,
@@ -8243,6 +8254,17 @@
     },
     {
       "id": "setting:browser.headless",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:browser.headless_shell",
       "kind": "setting",
       "area": 5,
       "milestone": null,

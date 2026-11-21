@@ -33,7 +33,7 @@ use goodfetch_protocol::home::DaemonFile;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, ProvingGround,
-    TestEnv, browser_cache, cli,
+    TestEnv, Variables, browser_cache, cli,
 };
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message as _;
@@ -257,12 +257,19 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
         .map(|(name, labels, _)| format!("{name}{labels:?}"))
         .collect();
     let lines: BTreeSet<&str> = text.lines().collect();
+    // Where the tests run with no GUI session, Runs launch the headless
+    // shell (#3224).
+    let running = if Variables::from_process().no_gui_session() {
+        r#"goodfetch_browser_running{browser="chrome_headless_shell"} 1"#
+    } else {
+        r#"goodfetch_browser_running{browser="chrome_for_testing"} 1"#
+    };
     assert_eq!(
         (
             status,
             undeclared,
             [
-                r#"goodfetch_browser_running{browser="chrome_for_testing"} 1"#,
+                running,
                 r#"goodfetch_client_connected{surface="sdk_typescript"} 1"#,
                 "goodfetch_daemon_draining 0",
                 r#"goodfetch_run_active{run_kind="collie"} 1"#,

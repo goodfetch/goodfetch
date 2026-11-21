@@ -31,6 +31,11 @@
 #   - macOS: the extra loopback addresses as `lo0` aliases, which needs sudo.
 #     The owner's machine's runner user has none: its aliases come from
 #     ci/runner/loopback-aliases.sh, which the owner installs once (#1562).
+#   - macOS also, in CI only: when the user's default keychain is locked, as
+#     a runner's user with no login session has it, a keychain of the job's
+#     own in $RUNTIME, made and unlocked with a throwaway password drawn
+#     here, becomes the default, as GitHub's hosted macOS runners do (#3142).
+#     A local run keeps the user's own keychain.
 #   - Linux also: `tc netem` on the loopback interface, which the Proving
 #     ground's netem tests set (iproute2's `tc`, with CAP_NET_ADMIN): the
 #     job's container gets the capability from ci/vm/start.sh; on a runner's
@@ -223,6 +228,35 @@ setup_linux() {
   if [[ -n "${GITHUB_ENV:-}" ]]; then cat "$RUNTIME/env" >>"$GITHUB_ENV"; fi
 }
 
+# Makes the job's keychain the user's default where the default is locked.
+setup_macos_keychain() {
+  local keychain=$RUNTIME/goodfetch-ci.keychain-db password line listed=()
+  local probe=goodfetch-os-services-check
+  [[ -n "${CI:-}" ]] || return 0
+  if security show-keychain-info >/dev/null 2>&1; then
+    echo "The default keychain is unlocked."
+    return 0
+  fi
+  mkdir -p "$RUNTIME"
+  security delete-keychain "$keychain" >/dev/null 2>&1 || true
+  password=$(openssl rand -hex 16)
+  security create-keychain -p "$password" "$keychain"
+  security set-keychain-settings "$keychain"
+  security unlock-keychain -p "$password" "$keychain"
+  # The user's search list, without the earlier jobs' keychains gone since.
+  while IFS= read -r line; do
+    line=${line//\"/}
+    line=${line#"${line%%[![:space:]]*}"}
+    [[ -e "$line" && "$line" != */goodfetch-ci.keychain-db ]] && listed+=("$line")
+  done < <(security list-keychains -d user)
+  security list-keychains -d user -s "$keychain" ${listed[@]+"${listed[@]}"}
+  security default-keychain -d user -s "$keychain"
+  security add-generic-password -U -s "$probe" -a probe -w probe
+  security find-generic-password -s "$probe" -a probe -w >/dev/null
+  security delete-generic-password -s "$probe" -a probe >/dev/null
+  echo "The job's keychain, $keychain, is the default and unlocked."
+}
+
 setup_macos() {
   local address
   for address in "${addresses[@]}"; do
@@ -233,6 +267,7 @@ setup_macos() {
     }
   done
   echo "lo0 answers on ${addresses[0]} to ${addresses[${#addresses[@]} - 1]}."
+  setup_macos_keychain
 }
 
 case "${1:-}" in

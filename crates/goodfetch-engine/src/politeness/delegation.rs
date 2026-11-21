@@ -398,7 +398,9 @@ impl FileBackend {
     /// [`Politeness::change`](super::Politeness::change) does: in memory
     /// while the engine holds the Delegation it is kept under, a site's
     /// ask then written to the file; otherwise in one transaction of the
-    /// file, counted on [`KeyState::TRANSACTIONS`].
+    /// file, counted on [`KeyState::TRANSACTIONS`], or with the
+    /// Delegation's asks when it reads a site's ask
+    /// ([`KeyState::read_an_ask`]).
     pub(super) fn change<S: KeyState, T>(
         &mut self,
         context: &Context,
@@ -410,12 +412,18 @@ impl FileBackend {
         let delegated =
             S::delegated_under(key).is_some_and(|under| self.delegations.contains_key(under));
         if !delegated {
-            return transaction(
-                &self.connection,
-                &self.commits,
-                S::TRANSACTIONS,
-                |transaction| changed(transaction, key, reads, change),
-            )
+            let commits = &self.commits;
+            return transaction(&self.connection, commits, S::TRANSACTIONS, |transaction| {
+                changed(transaction, key, reads, |state: &mut S| {
+                    let (answer, writes) = change(state);
+                    if S::read_an_ask(&writes) {
+                        // A site's ask is no Permit's work, as under a
+                        // Delegation (#1899).
+                        commits.count_on(Row::PolitenessOtherTransactions);
+                    }
+                    (answer, writes)
+                })
+            })
             .map_err(failed);
         }
         let mut state =

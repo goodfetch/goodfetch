@@ -5999,7 +5999,8 @@ export interface RunMigrating {
   runId: RunId;
 }
 /**
- * What `run.usage`, `run.pause` and `run.migrate` take: the Run.
+ * What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
+ * the Run.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "RunParams".
@@ -6432,6 +6433,19 @@ export interface RunStarted {
    * The Run's ID.
    */
   runId: RunId;
+  /**
+   * Whether the start began it.
+   */
+  startedAs: StartedAs;
+}
+/**
+ * What `run.started_as` answers: how the start that opened the Run's
+ * handle reached it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStartedAs".
+ */
+export interface RunStartedAs {
   /**
    * Whether the start began it.
    */

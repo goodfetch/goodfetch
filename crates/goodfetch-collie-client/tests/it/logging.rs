@@ -10,19 +10,33 @@
 //! These are Rust's `daemon` mode plays; `goodfetch-collie`'s
 //! `sdk::logging` tests play the cases `linked`.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use goodfetch_collie_client::logging::{self, engine_log_level};
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{CapturedLog, Process, TestEnv, capturing};
+use goodfetch_test_support::{
+    CASE_LOGS_VARIABLE, CapturedLog, Process, TestEnv, Variables, capturing,
+};
 use tracing::Level;
 use tracing::subscriber::with_default;
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
+
+/// Starts running the client conformance `case` in `daemon` mode: its
+/// entry joins the case log `just test` names (ADR 0069), which `xtask
+/// clients check` is to read for `sdk-rust` (issue 3158).
+fn daemon_case(case: &str) -> ClientCaseRun {
+    let folder = Variables::from_process()
+        .get(CASE_LOGS_VARIABLE)
+        .map(PathBuf::from);
+    ClientCaseRun::start(folder.as_deref(), case, RustMode::Daemon).unwrap()
+}
 
 /// This crate's `hello` to the Scripted engine's Daemon, carrying the
 /// level the program's subscriber records for the engine.
@@ -77,6 +91,7 @@ fn recording(level: Level) -> (impl tracing::Subscriber + Send + Sync + use<>, C
 /// Covers: story:11-26
 #[test]
 fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_changed() {
+    let mut case = daemon_case("log-level-follows-the-logger");
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_debug, _) = recording(Level::DEBUG);
@@ -84,7 +99,9 @@ fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_change
 
     let process = with_default(at_debug, || {
         let hello = hello_at_the_recorded_level();
-        assert_eq!(hello.log_level, Some(LogLevel::Debug));
+        case.check("hello carries the recorded level", || {
+            assert_eq!(hello.log_level, Some(LogLevel::Debug));
+        });
         let (process, endpoint) =
             scripted_daemon_hearing(&env, "run/log-level-follows-the-logger.json", &hello);
         let connection = runtime.block_on(connect(endpoint, hello));
@@ -99,7 +116,9 @@ fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_change
         process
     });
 
-    assert_played_whole(&process);
+    case.check("the crate sent exactly the script's messages", || {
+        assert_played_whole(&process);
+    });
 }
 
 /// The `log-level-follows-the-logger` client conformance case's refusal,
@@ -110,6 +129,7 @@ fn a_start_tells_the_engine_the_level_the_subscriber_records_only_when_it_change
 /// Covers: story:11-26
 #[test]
 fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
+    let mut case = daemon_case("log-level-follows-the-logger");
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_debug, _) = recording(Level::DEBUG);
@@ -137,10 +157,14 @@ fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
             line.contains(&format!(" {}:", logging::CLIENT)) && line.contains("log_level=")
         })
         .collect();
-    assert_eq!(refusals.len(), 1, "{warned}");
-    assert!(refusals[0].contains("WARN"), "{warned}");
-    assert!(refusals[0].contains(r#"log_level="warn""#), "{warned}");
-    assert_played_whole(&process);
+    case.check("the refusal is warned once under goodfetch::client", || {
+        assert_eq!(refusals.len(), 1, "{warned}");
+        assert!(refusals[0].contains("WARN"), "{warned}");
+        assert!(refusals[0].contains(r#"log_level="warn""#), "{warned}");
+    });
+    case.check("the crate sent exactly the script's messages", || {
+        assert_played_whole(&process);
+    });
 }
 
 /// The `engine-logs-reach-the-logger` client conformance case, played by
@@ -152,13 +176,16 @@ fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
 /// Covers: story:11-25
 #[test]
 fn each_engine_log_event_reaches_the_subscriber_under_goodfetch_engine() {
+    let mut case = daemon_case("engine-logs-reach-the-logger");
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (at_trace, log) = recording(Level::TRACE);
 
     let process = with_default(at_trace, || {
         let hello = hello_at_the_recorded_level();
-        assert_eq!(hello.log_level, Some(LogLevel::Trace));
+        case.check("hello carries the recorded level", || {
+            assert_eq!(hello.log_level, Some(LogLevel::Trace));
+        });
         let (process, endpoint) =
             scripted_daemon_hearing(&env, "connect/engine-logs-reach-the-logger.json", &hello);
         runtime.block_on(async {
@@ -201,18 +228,25 @@ fn each_engine_log_event_reaches_the_subscriber_under_goodfetch_engine() {
             "",
         ),
     ];
-    assert_eq!(relayed.len(), expected.len(), "{relayed:#?}");
-    for (line, (level, target, engine_target, detail)) in relayed.iter().zip(expected) {
-        assert!(line.contains(&format!("{level} {target}:")), "{line}");
-        assert!(
-            line.contains(&format!(r#"target="{engine_target}""#)),
-            "{line}"
-        );
-        assert!(line.contains(detail), "{line}");
-    }
-    assert!(!relayed[0].contains("dropped="), "{}", relayed[0]);
-    assert!(!relayed[2].contains("fields="), "{}", relayed[2]);
-    assert_played_whole(&process);
+    case.check(
+        "each event reaches the subscriber under goodfetch::engine",
+        || {
+            assert_eq!(relayed.len(), expected.len(), "{relayed:#?}");
+            for (line, (level, target, engine_target, detail)) in relayed.iter().zip(expected) {
+                assert!(line.contains(&format!("{level} {target}:")), "{line}");
+                assert!(
+                    line.contains(&format!(r#"target="{engine_target}""#)),
+                    "{line}"
+                );
+                assert!(line.contains(detail), "{line}");
+            }
+            assert!(!relayed[0].contains("dropped="), "{}", relayed[0]);
+            assert!(!relayed[2].contains("fields="), "{}", relayed[2]);
+        },
+    );
+    case.check("the crate sent exactly the script's messages", || {
+        assert_played_whole(&process);
+    });
 }
 
 /// The lines `log` holds under `goodfetch::engine`, in order.

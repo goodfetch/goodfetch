@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
-use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+use goodfetch_protocol::run::{RunId, RunReport, Tags};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -587,11 +587,6 @@ impl Exchange {
 }
 
 impl Run {
-    /// Whether the start began the Run, went on with it, or found it ended.
-    pub fn started_as(&self) -> StartedAs {
-        self.inner.started_as()
-    }
-
     /// What the Run runs with, as [`crate::Run::explain_settings`] says,
     /// which `send()` asks.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {

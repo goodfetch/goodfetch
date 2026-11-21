@@ -235,7 +235,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 91] = [
+    const COLLIE: [&str; 92] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -295,6 +295,7 @@ mod tests {
         "signing_key.create",
         "signing_key.directory",
         "run.start",
+        "run.started_as",
         "run.finish",
         "run.stop",
         "run.abort",

@@ -11,7 +11,9 @@ and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
 explaining them answers (`SettingsExplanation`), the
 JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
 `JSONObject`, `JSONSchema`), and `AsyncConnection` and
-`Connection`, which both Products' Connections extend, all of which this
+`Connection`, which both Products' Connections extend, and AI work's
+`AIWorkResult`, matched on `Finished` and `Stopped`, whose
+`require_verified()` raises `NotVerifiedError`, all of which this
 package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
 `goodfetch_collie.testing` opens a Connection over a transport a test holds.
@@ -22,6 +24,14 @@ The Connection reaches a Daemon or finds Collie's executable, reading
 nothing (ADR 0078).
 """
 
+from goodfetch_collie_client.ai_work import (
+    AIWorkResult,
+    Claim,
+    Ended,
+    Finished,
+    Reported,
+    Stopped,
+)
 from goodfetch_collie_client.connection import EngineFallback, EngineInfo
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
 from goodfetch_collie_client.engine_choice import EngineChoice, RemoteDaemon
@@ -84,6 +94,7 @@ from goodfetch_collie_client.generated.errors import (
     NavigationInterruptedError,
     NotADaemonError,
     NotInProductError,
+    NotVerifiedError,
     PageCheckFailedError,
     PageCrashedError,
     PageError,
@@ -168,6 +179,7 @@ from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
 
 __all__ = [
+    "AIWorkResult",
     "AddressFamilyUnavailableError",
     "ArtifactDownloadFailedError",
     "ArtifactUnavailableOfflineError",
@@ -193,6 +205,7 @@ __all__ = [
     "CertificateChangedError",
     "CertificateInvalidError",
     "ChallengeUnsolvedError",
+    "Claim",
     "ClosedError",
     "Collie",
     "ConfinementUnavailableError",
@@ -210,6 +223,7 @@ __all__ = [
     "EffectOutputInvalidError",
     "EffectUncertainError",
     "EgressRefusedError",
+    "Ended",
     "EngineChoice",
     "EngineExitedError",
     "EngineFallback",
@@ -220,6 +234,7 @@ __all__ = [
     "ExecutableBlockedBySmartAppControlError",
     "ExplainedSetting",
     "FileWriteFailedError",
+    "Finished",
     "FormatVersionUnsupportedError",
     "GoodfetchError",
     "HeaderValueInvalidError",
@@ -245,6 +260,7 @@ __all__ = [
     "NavigationInterruptedError",
     "NotADaemonError",
     "NotInProductError",
+    "NotVerifiedError",
     "PageCheckFailedError",
     "PageCrashedError",
     "PageError",
@@ -270,6 +286,7 @@ __all__ = [
     "ProxyUnavailableError",
     "RefusedError",
     "RemoteDaemon",
+    "Reported",
     "ResourcesExhaustedError",
     "ResponseLimitExceededError",
     "ResponseNotJSONError",
@@ -309,6 +326,7 @@ __all__ = [
     "SettingsLayer",
     "SitePreferencesRefusedError",
     "StartedAs",
+    "Stopped",
     "Subscription",
     "TargetNotUniqueError",
     "TooManyCallsError",

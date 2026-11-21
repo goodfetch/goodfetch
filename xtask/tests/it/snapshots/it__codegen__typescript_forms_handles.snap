@@ -25,11 +25,13 @@ export class Run extends Handle {
   }
 
   readonly #host: HandleHost<types.RunId, CollieOperationTypes>;
+  readonly #opened: types.RunStarted;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
-  constructor(host: HandleHost<types.RunId, CollieOperationTypes>) {
+  constructor(host: HandleHost<types.RunId, CollieOperationTypes>, opened: types.RunStarted) {
     super(host, "run", "run_id", { type: "RunId" });
     this.#host = host;
+    this.#opened = opened;
   }
 
   /**
@@ -38,6 +40,20 @@ export class Run extends Handle {
   async newPage(options: { readonly viewport?: types.NewPageParams["viewport"] | undefined } = {}): Promise<Page> {
     const opened = await this.#host.call("run.new_page", defined({ runId: this.#host.id, viewport: options.viewport }), {});
     return new Page(this.#host.child(opened.pageId));
+  }
+
+  /**
+   * Whether the start resumed a Run, from the start's answer.
+   */
+  isResumed(): types.RunStarted["isResumed"] {
+    return this.#opened.isResumed;
+  }
+
+  /**
+   * The Run's label, from the start's answer.
+   */
+  label(): types.RunStarted["label"] {
+    return this.#opened.label;
   }
 }
 

@@ -25,9 +25,10 @@ from . import models
 class AsyncRun(AsyncHandle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: AsyncHandleHost[models.RunId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: AsyncHandleHost[models.RunId], opened: models.RunStarted) -> None:
+        """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
+        self._opened = opened
         super().__init__(host, "run", "run_id")
 
     async def new_page(self, *, viewport: str | None | NotGiven = not_given) -> AsyncPage:
@@ -37,6 +38,15 @@ class AsyncRun(AsyncHandle):
             params.viewport = viewport
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
+
+    def is_resumed(self) -> bool:
+        """Whether the start resumed a Run, from the start's answer."""
+        return self._opened.is_resumed
+
+    @property
+    def label(self) -> str:
+        """The Run's label, from the start's answer."""
+        return self._opened.label
 
 
 class AsyncPageKeyboard:
@@ -161,9 +171,10 @@ class AsyncLocator(AsyncHandle):
 class Run(Handle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: HandleHost[models.RunId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: HandleHost[models.RunId], opened: models.RunStarted) -> None:
+        """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
+        self._opened = opened
         super().__init__(host, "run", "run_id")
 
     def new_page(self, *, viewport: str | None | NotGiven = not_given) -> Page:
@@ -173,6 +184,15 @@ class Run(Handle):
             params.viewport = viewport
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
+
+    def is_resumed(self) -> bool:
+        """Whether the start resumed a Run, from the start's answer."""
+        return self._opened.is_resumed
+
+    @property
+    def label(self) -> str:
+        """The Run's label, from the start's answer."""
+        return self._opened.label
 
 
 class PageKeyboard:

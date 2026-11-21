@@ -13521,7 +13521,7 @@
     },
     "RunParams": {
       "additionalProperties": false,
-      "description": "What `run.usage`, `run.pause` and `run.migrate` take: the Run.",
+      "description": "What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:\nthe Run.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
@@ -14276,6 +14276,20 @@
         "started_as",
         "lifecycle",
         "needs"
+      ],
+      "type": "object"
+    },
+    "RunStartedAs": {
+      "description": "What `run.started_as` answers: how the start that opened the Run's\nhandle reached it.",
+      "properties": {
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "started_as"
       ],
       "type": "object"
     },

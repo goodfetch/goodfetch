@@ -325,6 +325,12 @@ fn operations(layer: &Layer) -> String {
         .iter()
         .flat_map(|operation| [operation.params.0.clone(), operation.result.0.clone()])
         .collect();
+    // A read sends nothing, so it has no method of the class (issue 2798).
+    let sending: Vec<_> = layer
+        .operations
+        .iter()
+        .filter(|operation| operation.sends())
+        .collect();
     let mut text = format!("{HEADER}\n");
     match layer.product {
         Product::Collie => {
@@ -333,7 +339,7 @@ fn operations(layer: &Layer) -> String {
                 "import type {{ CallOptions, Caller }} from \"{CALLER_MODULE}\";"
             );
             text.push_str(&markers_import(
-                &layer.operations,
+                sending.iter().copied(),
                 MARKERS_MODULE,
                 &[ENTRY_MARKERS],
             ));
@@ -349,7 +355,7 @@ fn operations(layer: &Layer) -> String {
                 "import type {{ CallOptions, Caller }} from \"{CLIENT_PACKAGE}\";"
             );
             text.push_str(&markers_import(
-                &layer.operations,
+                sending.iter().copied(),
                 CLIENT_RUNTIME,
                 &[ENTRY_MARKERS],
             ));
@@ -384,9 +390,9 @@ fn operations(layer: &Layer) -> String {
     operation_names(&mut text, layer, product);
     let _ = write!(
         text,
-        "/** {product}'s operations, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
+        "/** {product}'s operations that send a message, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
     );
-    for operation in &layer.operations {
+    for operation in sending {
         text.push('\n');
         text.push_str(&doc(
             "  ",
@@ -763,6 +769,7 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
                 .iter()
                 .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
                 .map(|member| member.operation)
+                .chain(handle.reads().iter().map(|read| read.operation))
                 .chain(
                     handle
                         .listener
@@ -796,6 +803,25 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
     ))
 }
 
+/// `read`, a sync method that answers its value of the answer that opened
+/// its handle, `opened`, which the handle holds: it sends nothing (issue
+/// 2798).
+fn read_member(read: &handles::Read<'_>, opened: &str) -> String {
+    let operation = read.operation;
+    let property = camel(&read.property);
+    format!(
+        "{}  {}(): types.{opened}[{property:?}] {{\n{}    return this.#opened.{property};\n  }}\n",
+        doc(
+            "  ",
+            &operation.description,
+            operation.stability,
+            operation.deprecated.as_ref(),
+        ),
+        camel(read.name),
+        warnings(operation)
+    )
+}
+
 /// The classes of `handle`'s sub-objects (ADR 0099), each holding the
 /// host of the `class` it belongs to.
 fn sub_object_classes(class: &str, host: &str, handle: &Handle<'_>) -> Result<String> {
@@ -814,6 +840,41 @@ fn sub_object_classes(class: &str, host: &str, handle: &Handle<'_>) -> Result<St
         text.push_str("}\n");
     }
     Ok(text)
+}
+
+/// The methods of `handle` that build a value without a call (ADR 0099).
+fn builder_members(handle: &Handle<'_>) -> String {
+    let mut text = String::new();
+    for builder in &handle.builders {
+        let built = pascal(&builder.builds);
+        let (declared, value) = signature(
+            &builder.parameters,
+            &builder.type_name,
+            false,
+            &handle.id.param,
+            None,
+            None,
+            None,
+            Overload::Every,
+        );
+        text.push('\n');
+        text.push_str(&doc(
+            "  ",
+            &format!(
+                "{}\n\nBuilt without a call (ADR 0099).",
+                builder.description
+            ),
+            Stability::Stable,
+            None,
+        ));
+        let _ = write!(
+            text,
+            "  {}({declared}): {built} {{\n    return new {built}(this.#host.child<types.{}>({value}));\n  }}\n",
+            camel(&builder.builds),
+            builder.type_name
+        );
+    }
+    text
 }
 
 /// The handles of Collie's client package (ADR 0099): one class a
@@ -847,6 +908,10 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
             "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class} extends Handle{implements} {{\n  static {{\n    idIn{class} = (handle) => handle.#host.id;\n  }}\n\n  readonly #host: {host};\n",
             handle.namespace
         );
+        let opened = handle.reads.as_ref().map(|reads| &reads.opened);
+        if let Some(opened) = opened {
+            let _ = writeln!(text, "  readonly #opened: types.{opened};");
+        }
         for sub_object in &handle.sub_objects {
             let _ = writeln!(
                 text,
@@ -855,11 +920,16 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
                 name = camel(sub_object.name)
             );
         }
+        let opened_param =
+            opened.map_or(String::new(), |opened| format!(", opened: types.{opened}"));
         let _ = write!(
             text,
-            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    super(host, {:?}, {:?}, {{ type: {:?} }});\n    this.#host = host;\n",
+            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}{opened_param}) {{\n    super(host, {:?}, {:?}, {{ type: {:?} }});\n    this.#host = host;\n",
             handle.namespace, handle.id.param, handle.id.type_name
         );
+        if opened.is_some() {
+            text.push_str("    this.#opened = opened;\n");
+        }
         for sub_object in &handle.sub_objects {
             let _ = writeln!(
                 text,
@@ -873,36 +943,14 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
             text.push('\n');
             text.push_str(&member(held, &handle.id)?);
         }
-        text.push_str(&on);
-        for builder in &handle.builders {
-            let built = pascal(&builder.builds);
-            let (declared, value) = signature(
-                &builder.parameters,
-                &builder.type_name,
-                false,
-                &handle.id.param,
-                None,
-                None,
-                None,
-                Overload::Every,
-            );
-            text.push('\n');
-            text.push_str(&doc(
-                "  ",
-                &format!(
-                    "{}\n\nBuilt without a call (ADR 0099).",
-                    builder.description
-                ),
-                Stability::Stable,
-                None,
-            ));
-            let _ = write!(
-                text,
-                "  {}({declared}): {built} {{\n    return new {built}(this.#host.child<types.{}>({value}));\n  }}\n",
-                camel(&builder.builds),
-                builder.type_name
-            );
+        if let Some(reads) = &handle.reads {
+            for read in &reads.members {
+                text.push('\n');
+                text.push_str(&read_member(read, &reads.opened));
+            }
         }
+        text.push_str(&on);
+        text.push_str(&builder_members(handle));
         if handle.closes() {
             text.push_str(
                 "\n  async [Symbol.asyncDispose](): Promise<void> {\n    await this.close();\n  }\n",

@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { errorOfReply, replyOfError } from "./errors.ts";
 import { isGoodfetchError } from "./goodfetch-error.ts";
 import {
+  BlockedError,
   collieErrorClasses,
   errorGroupClasses,
   InternalError,
@@ -190,6 +191,30 @@ describe("errorOfReply", () => {
       usage: undefined,
       details: { [key]: value },
     });
+  });
+
+  // ADRs 0092 and 0118: `blocked`'s `retry_after` is the time the site's
+  // `Retry-After` asks for, sent in any offset and read as a `Date`; `null`
+  // when it asks for none. The details keep it as sent.
+  test.for([
+    { sent: "2026-11-21T10:00:00+02:00", retryAfter: new Date("2026-11-21T08:00:00Z") },
+    { sent: null, retryAfter: null },
+    { sent: undefined, retryAfter: null },
+  ])("reads blocked's retry_after $sent as a point in time", ({ sent, retryAfter }) => {
+    const error = errorOfReply(
+      {
+        code: -32003,
+        message: "blocked",
+        data: { code: "blocked", retryable: false, cause: "rate_limit", retry_after: sent },
+      },
+      collieErrorClasses,
+    );
+
+    expect(error).toBeInstanceOf(BlockedError);
+    expect({
+      retryAfter: error instanceof BlockedError ? error.retryAfter : "not blocked",
+      sent: error.details["retry_after"],
+    }).toEqual({ retryAfter, sent });
   });
 
   test("gives an error with no call log an empty one", () => {

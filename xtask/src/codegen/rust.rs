@@ -40,6 +40,7 @@
 mod index;
 mod listeners;
 mod raw_call;
+mod reads;
 mod settings;
 
 use std::collections::BTreeMap;
@@ -50,6 +51,7 @@ use anyhow::{Context as _, Result, bail};
 
 use self::index::{Field, Index};
 use self::listeners::ListenerModel;
+use self::reads::ReadsModel;
 pub(super) use self::settings::{FOXHOUND_FOLDER, generate_foxhound};
 use super::cdp::rustfmt;
 use super::handles::{self, Builder, Form, Handle, HandleId, Member, Parameters};
@@ -370,6 +372,8 @@ struct HandleModel {
     sub_objects: Vec<SubObjectModel>,
     /// Its `events`, when it has a listener.
     listener: Option<ListenerModel>,
+    /// Its reads, when it has any.
+    reads: Option<ReadsModel>,
     /// The setters each builder of each params type gains.
     setters: BTreeMap<(Builds, String), BTreeMap<String, Setter>>,
 }
@@ -423,6 +427,7 @@ impl HandleModel {
             builders,
             sub_objects,
             listener: ListenerModel::new(index, handle)?,
+            reads: ReadsModel::new(index, handle)?,
             setters,
         })
     }
@@ -440,12 +445,13 @@ fn ident(name: &str, what: &str) -> Result<String> {
 }
 
 /// The doc comment of an entry: its description, a paragraph for each
-/// marker it carries, then its `errors` section.
+/// marker it carries, then its `errors` section, which a read, sending
+/// nothing, has none of.
 fn doc(
     description: &str,
     stability: Stability,
     deprecated: Option<&Deprecation>,
-    errors: &str,
+    errors: Option<&str>,
 ) -> String {
     let mut paragraphs = vec![description.trim().to_owned()];
     if stability == Stability::Experimental {
@@ -454,7 +460,7 @@ fn doc(
     if let Some(deprecated) = deprecated {
         paragraphs.push(format!("Deprecated. {}", deprecated.message()));
     }
-    paragraphs.push(errors.to_owned());
+    paragraphs.extend(errors.map(str::to_owned));
     comment(&paragraphs.join("\n\n"))
 }
 
@@ -473,6 +479,15 @@ fn warning(name: &str, stability: Stability, deprecated: Option<&Deprecation>) -
     Some(format!(
         "crate::markers::warn({name:?}, {experimental}, {deprecation});"
     ))
+}
+
+/// The `#[deprecated]` attribute of a deprecated member, on its own line.
+fn deprecated_attribute(deprecated: &Deprecation) -> String {
+    format!(
+        "#[deprecated(since = {:?}, note = {:?})]\n",
+        deprecated.since.to_string(),
+        deprecated.message()
+    )
 }
 
 /// `text` as `///` lines.
@@ -656,23 +671,17 @@ fn member_model(
             &operation.description,
             operation.stability,
             operation.deprecated.as_ref(),
-            match builds {
+            Some(match builds {
                 Builds::Call => CALL_ERRORS,
                 Builds::Query => QUERY_ERRORS,
-            },
+            }),
         ),
         warning: warning(
             &operation.name,
             operation.stability,
             operation.deprecated.as_ref(),
         ),
-        deprecated: operation.deprecated.as_ref().map(|deprecated| {
-            format!(
-                "#[deprecated(since = {:?}, note = {:?})]\n",
-                deprecated.since.to_string(),
-                deprecated.message()
-            )
-        }),
+        deprecated: operation.deprecated.as_ref().map(deprecated_attribute),
         form: match &member.form {
             Form::RoundTrip => Form::RoundTrip,
             Form::Query => Form::Query,
@@ -798,16 +807,19 @@ impl Module {
         text
     }
 
-    /// The struct of a handle or sub-object, whose ID is `id`, and the
-    /// head of its `impl`.
-    fn open(&mut self, doc: &str, type_name: &str, id: &str) {
+    /// The struct of a handle or sub-object, whose ID is `id`, with the
+    /// field of its reads' answer if any, and the head of its `impl`.
+    fn open(&mut self, doc: &str, type_name: &str, id: &str, reads: Option<&ReadsModel>) {
         let held = match self.twin {
             Twin::Async => format!("host: crate::host::Host<{id}>"),
             Twin::Blocking => format!("inner: crate::generated::handles::{type_name}"),
         };
+        let opened = reads
+            .and_then(|reads| reads.field(self.twin))
+            .map_or_else(String::new, |field| format!("    {field},\n"));
         let _ = write!(
             self.body,
-            "\n{doc}#[derive(Clone, Debug)]\npub struct {type_name} {{\n    pub(crate) {held},\n}}\n\nimpl {type_name} {{\n"
+            "\n{doc}#[derive(Clone, Debug)]\npub struct {type_name} {{\n    pub(crate) {held},\n{opened}}}\n\nimpl {type_name} {{\n"
         );
     }
 
@@ -839,6 +851,7 @@ impl Module {
                 )),
                 &sub_object.type_name,
                 &model.id,
+                None,
             );
             for member in &sub_object.members {
                 self.member(member);
@@ -852,6 +865,7 @@ impl Module {
             )),
             &model.type_name,
             &model.id,
+            model.reads.as_ref(),
         );
         let id = match self.twin {
             Twin::Async => "self.host.id()",
@@ -877,6 +891,9 @@ impl Module {
         }
         for member in &model.members {
             self.member(member);
+        }
+        if let Some(reads) = &model.reads {
+            self.body.push_str(&reads.members(self.twin));
         }
         if let Some(listener) = &model.listener {
             self.body.push_str(&listener.member(self.twin));

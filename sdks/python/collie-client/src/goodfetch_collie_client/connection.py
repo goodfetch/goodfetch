@@ -661,9 +661,19 @@ class ClientConnection:
         return failure
 
     def _cancel_calls(self) -> list[int]:
+        """Fails every call in flight as the program's close cancelled it.
+
+        `call_cancelled`, by the program, its Connection closed under it
+        (ADRs 0078 and 0113); a call made once it is closed fails with
+        `closed`.
+
+        Returns:
+            The ids of the calls it cancelled, as `cancel_all` returns them.
+        """
         return self._channel.cancel_all(
             CallCancelledError(
-                "the call's Connection was closed", details={"by": "client"}
+                "the call's Connection was closed",
+                details={"by": "program", "closed": "connection"},
             )
         )
 

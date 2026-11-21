@@ -2365,7 +2365,10 @@ class RunOwner(RootModel[RunOwner1 | RunOwner2]):
 
 
 class RunParams(BaseModel):
-    """What `run.usage`, `run.pause` and `run.migrate` take: the Run."""
+    """
+    What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
+    the Run.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -5694,6 +5697,19 @@ class RunStarted(BaseModel):
     """
     run_id: RunId
     """The Run's ID."""
+    started_as: StartedAs
+    """Whether the start began it."""
+
+
+class RunStartedAs(BaseModel):
+    """
+    What `run.started_as` answers: how the start that opened the Run's
+    handle reached it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
     started_as: StartedAs
     """Whether the start began it."""
 

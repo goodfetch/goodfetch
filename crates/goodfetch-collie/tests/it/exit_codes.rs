@@ -5,8 +5,10 @@
 //! the code and group coming from the Scripted engine run as a Daemon, which
 //! answers `config explain --daemon` with them; a Run that ended `stopped`
 //! exits `20` and resumes by its Run ID; a start's `--limit` above the
-//! Run's own Limit is refused, exit `4`; and `SIGTERM` exits `143` once the
-//! call it interrupted is cancelled. A failure before any call, as a
+//! Run's own Limit is refused, exit `4`, and a start naming a Run its
+//! Limit stopped fails `limit_reached`, exit `16`; and `SIGTERM` exits
+//! `143` once the call it interrupted is cancelled. A failure before any
+//! call, as a
 //! Daemon nothing answers for or a deployment variable the executable
 //! cannot take, prints as every failure does, `{ "error" }` under
 //! `--json`, and exits by its code's row.
@@ -22,12 +24,13 @@
 use std::process::Stdio;
 
 use goodfetch_test_support::{
-    Process, ProvingGround, TestEnv, cli, engine_script, reported_address, tools,
+    Process, ProvingGround, TestEnv, browser_cache, cli, engine_script, reported_address, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::daemon::scripted_daemon;
+use crate::page::{opened, started};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -398,6 +401,60 @@ fn run_start_gives_its_limits_and_a_restart_only_lowers_them() {
         (given.exit, lowered.exit, failed_with(&raised)),
         (Some(0), Some(0), (Some(4), json!("limit_raise_refused"))),
         "{given}\n{lowered}\n{raised}"
+    );
+}
+
+/// `run start --limit` holds the Run to its Limit: once its program's
+/// navigations used it up and the Run stopped for it, a start that names
+/// the Run again fails `limit_reached`, exit `16`, naming the Run's own
+/// Limit (ADR 0102).
+///
+/// Covers: story:11-206, command:run.start, exit:limit_reached
+#[test]
+fn a_run_start_naming_a_run_its_limit_stopped_exits_16() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let start = || {
+        cli(&env, COLLIE)
+            .args(["run", "start", "--run-id", "capped", "--attached", "--json"])
+            .args(["--limit", "requests=1"])
+            .run()
+            .unwrap()
+    };
+    let given = start();
+    let mut program = started(&env, &cache, &proving_ground, "capped");
+    let page = opened(&program.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    let url = proving_ground.url("catalog.test", "/catalog/1");
+    for id in [3, 4] {
+        program.ask(
+            id,
+            "page.goto",
+            &json!({ "page_id": page.page_id, "url": url }),
+        );
+    }
+    let finished = program.ask(5, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = program.finish();
+
+    let restarted = start();
+    let refused: Value = serde_json::from_str(&restarted.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            given.exit,
+            &finished["result"]["stop_reason"]["scope"],
+            restarted.exit,
+            &refused["error"]["code"],
+            &refused["error"]["details"]["scope"],
+        ),
+        (
+            Some(0),
+            &json!({ "kind": "run", "id": "capped" }),
+            Some(16),
+            &json!("limit_reached"),
+            &json!({ "kind": "run", "id": "capped" }),
+        ),
+        "{given}\n{finished}\n{restarted}"
     );
 }
 

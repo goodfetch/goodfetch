@@ -61,11 +61,11 @@ pub(super) struct Store {
     waiters: HashMap<String, Vec<Waiter>>,
     /// How many Permits under each key were given back.
     generations: HashMap<String, i64>,
-    tables: MemoryTables,
+    pub(super) tables: MemoryTables,
 }
 
 impl Store {
-    fn in_flight(&self, key: &str) -> u64 {
+    pub(super) fn in_flight(&self, key: &str) -> u64 {
         self.in_flight.get(key).copied().unwrap_or_default()
     }
 
@@ -143,6 +143,7 @@ impl Store {
                     id,
                     key: key.to_owned(),
                     send_at,
+                    delegated: false,
                 })
             }
             Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
@@ -200,6 +201,7 @@ impl Store {
             },
             generation,
             now,
+            recall: false,
         })
     }
 
@@ -227,6 +229,40 @@ impl Store {
         };
         let turn = self.next_turn(&permit.key, generation, now);
         (ready_at, turn)
+    }
+
+    /// Drops what it keeps of `key`'s Permits and waiters, once a
+    /// Delegation of it, with none left, was given back.
+    pub(super) fn forget(&mut self, key: &str) {
+        self.in_flight.remove(key);
+        self.waiters.remove(key);
+        self.generations.remove(key);
+    }
+
+    /// The IDs of `key`'s Permits in flight, and the Runs that wait for
+    /// one in their turns' order, as its Delegation is recalled.
+    pub(super) fn recall_view(&self, key: &str) -> (Vec<i64>, Vec<String>) {
+        let mut permits: Vec<i64> = self
+            .permits
+            .iter()
+            .filter(|(_, of)| *of == key)
+            .map(|(id, _)| *id)
+            .collect();
+        permits.sort_unstable();
+        let mut waiters: Vec<&Waiter> = self.waiters.get(key).into_iter().flatten().collect();
+        waiters.sort_by_key(|waiter| waiter.turn);
+        let waiting = waiters
+            .into_iter()
+            .map(|waiter| waiter.run_id.clone())
+            .collect();
+        (permits, waiting)
+    }
+
+    /// Drops all it keeps of `key`, its Permits in flight included, once
+    /// its recalled Delegation wrote them to the file.
+    pub(super) fn recall(&mut self, key: &str) {
+        self.permits.retain(|_, of| of != key);
+        self.forget(key);
     }
 
     /// Withdraws `run_id` as a waiter of every key, and forgets a key left

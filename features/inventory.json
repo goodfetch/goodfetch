@@ -9643,6 +9643,17 @@
       ]
     },
     {
+      "id": "setting:politeness.delegation",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.domain.adaptive_delay",
       "kind": "setting",
       "area": 3,

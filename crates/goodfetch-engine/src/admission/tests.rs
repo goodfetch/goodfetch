@@ -191,6 +191,7 @@ async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) ->
         run_id: "crawl".to_owned(),
         epoch: 1,
         run_folder: "crawl".into(),
+        delegates: true,
     };
     let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
     let before_the_delay = SharedRule::new(Rule {
@@ -439,6 +440,7 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
             run_id: "crawl".to_owned(),
             epoch: 1,
             run_folder: "crawl".into(),
+            delegates: true,
         };
         let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
         let mut admission = Admission::new(Box::new(gate), &settings).sharing(
@@ -577,6 +579,7 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
             run_id: "crawl".to_owned(),
             epoch: 1,
             run_folder: "crawl".into(),
+            delegates: true,
         };
         let clock = Clock::paused(start);
         let mut admission = Admission::new(Box::new(gate), &settings).sharing(

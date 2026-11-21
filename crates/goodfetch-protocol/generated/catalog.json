@@ -2065,6 +2065,8 @@
             "declaration_reads",
             "decodes",
             "deep_copies",
+            "delegation_transactions",
+            "delegations",
             "detection_reads",
             "document_encodes",
             "document_loads",
@@ -2093,6 +2095,7 @@
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "other_transactions",
             "page_learning",
             "page_waits",
             "parses",
@@ -8126,6 +8129,29 @@
         "type": "integer"
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+      "fixed_for_run": false,
+      "name": "politeness.delegation",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
     },
     {
       "arrived_in": "0.1",

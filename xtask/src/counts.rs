@@ -206,7 +206,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 134] = [
+const ROWS: [Row; 138] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -787,11 +787,14 @@ const ROWS: [Row; 134] = [
         happens: true,
         valgrind: None,
     },
+    // The default cell's Run serves each Permit from its engine's
+    // Delegation and takes none in a transaction (ADR 0142, #2172): its
+    // figure is 0, and `E6.undelegated_transactions` counts the work.
     Row {
         name: "E6.transactions",
         family: "B1",
         unit: "attempts",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {
@@ -843,6 +846,45 @@ const ROWS: [Row; 134] = [
         family: "B1",
         unit: "private_attempts",
         happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell whose Run takes each Permit in
+    // the Politeness file (`politeness.delegation: false`): none in any
+    // other cell, where `E6.transactions` counts the rest (#2172).
+    Row {
+        name: "E6.undelegated_transactions",
+        family: "B1",
+        unit: "undelegated_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // The Delegations a Run's engine takes, per Run: one for the site's
+    // key, given back at the Run's end (ADR 0142, #2172).
+    Row {
+        name: "E6.delegations",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    // The transactions that take Delegations, per Delegation taken: at most
+    // one, fewer when a group asks for several keys.
+    Row {
+        name: "E6.delegation_transactions",
+        family: "B1",
+        unit: "delegations",
+        happens: true,
+        valgrind: None,
+    },
+    // The file's other transactions, per attempt, as ADR 0140's E6 counts
+    // the file's work: a Run's open, its robots.txt copy, a site's ask, a
+    // Delegation given back and the Run's end, which a Run of more attempts
+    // spreads thinner.
+    Row {
+        name: "E6.other_transactions",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
         valgrind: None,
     },
     Row {

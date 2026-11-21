@@ -270,7 +270,7 @@ describe("a Channel", () => {
   });
 });
 
-describe("a Channel under the engine's cap on calls in flight (issue 2529)", () => {
+describe("a Channel under the engine's cap on calls in flight", () => {
   test("keeps 300 calls at most at the cap in flight, sends the rest in the order they were made, and answers them all", async () => {
     const engine = playedEngine();
     const channel = new Channel(engine.transport, owner);
@@ -320,11 +320,38 @@ describe("a Channel under the engine's cap on calls in flight (issue 2529)", () 
         code: "deadline_exceeded",
         retryable: true,
         limit: { key: "timeout.navigation", value: 1, layer: "run", origin: "argument" },
-        details: { waited_for: "call_slot" },
+        details: { waited_for: "calls_in_flight" },
       });
       expect(engine.written).toEqual([expect.objectContaining({ id: 0 })]);
     },
   );
+
+  test("keeps a queued call whose timeout is past the longest timer waiting, rather than failing it at once", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    let failed = false;
+    const queued = channel.call(
+      "run.finish",
+      {},
+      { deadline: { key: "timeout.run", value: thirtyDays } },
+    );
+    queued.catch(() => {
+      failed = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const failedWhileQueued = failed;
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 1, result: "finished" });
+
+    expect(failedWhileQueued).toBe(false);
+    await expect(queued).resolves.toBe("finished");
+  });
 
   test("never sends a queued call its signal aborts, and sends the next one in its place", async () => {
     const engine = playedEngine();

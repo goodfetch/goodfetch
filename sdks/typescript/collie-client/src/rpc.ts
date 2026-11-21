@@ -8,11 +8,12 @@
 // which `hello`'s result advertises, are in flight; the rest wait in a
 // queue, sent in the order they were made as answers free their places,
 // each failing alone when its own timeout passes or its signal aborts
-// there, never sent (ADR 0038; issue 2529). What waits is bounded: past
-// its bound on calls waiting, sent or queued, or on bytes waiting to be
-// written, a new call is refused at once.
+// there, never sent (ADR 0038). What waits is bounded: past its bound on
+// calls waiting, sent or queued, or on bytes waiting to be written, a new
+// call is refused at once.
+import type { CallDeadline } from "./caller.ts";
 import { replyOfError } from "./errors.ts";
-import { inCall, type OperationNames } from "./goodfetch-error.ts";
+import { inCall, type ErrorLimit, type OperationNames } from "./goodfetch-error.ts";
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import {
   CallCancelledError,
@@ -24,6 +25,33 @@ import {
 
 /** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
 const CANCEL = "$/cancel";
+
+/** The longest delay a timer keeps, in milliseconds: a longer one fires at once. */
+const LONGEST_TIMER = 2 ** 31 - 1;
+
+/**
+ * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
+ * `waitedFor` started at `startedAt` (ADR 0080).
+ */
+export function phaseExceeded(
+  message: string,
+  fix: string,
+  limit: ErrorLimit,
+  startedAt: number,
+  waitedFor: "hello" | "close" | "calls_in_flight",
+): DeadlineExceededError {
+  return new DeadlineExceededError(message, {
+    code: "deadline_exceeded",
+    group: "deadline_exceeded",
+    retryable: true,
+    fix,
+    limit,
+    details: {
+      elapsed: Date.now() - startedAt,
+      waited_for: waitedFor,
+    },
+  });
+}
 
 /**
  * The bytes a Connection runs over: the engine's to read and the Client's
@@ -158,22 +186,6 @@ interface Waiting {
   notified: ((method: string, params: unknown) => void) | undefined;
 }
 
-/**
- * A call's own timeout, which also bounds its wait in the Client's queue
- * (issue 2529).
- */
-export interface CallDeadline {
-  /** The setting its `timeout` overrides, such as `timeout.navigation`. */
-  readonly key: string;
-  /**
-   * Its `timeout` in milliseconds, already checked by `timeoutOf`: `null`
-   * for none, and left out for the setting's own, which the engine alone
-   * knows, so a call queued without one waits for its place for as long as
-   * it takes.
-   */
-  readonly value: number | null | undefined;
-}
-
 /** The options of one call. */
 export interface ChannelCallOptions {
   /** Cancels the call in flight, rejecting it with the signal's reason; a queued call is never sent. */
@@ -187,7 +199,7 @@ interface Queued {
   /** Its encoded request, sent once a place frees. */
   readonly request: Uint8Array;
   /** Fails it once its own timeout passes in the queue. */
-  readonly timer: ReturnType<typeof setTimeout> | undefined;
+  timer: ReturnType<typeof setTimeout> | undefined;
   /** The encoded notifications naming it, such as its `$/credit`, sent right after it. */
   readonly notes: Uint8Array[];
 }
@@ -331,15 +343,33 @@ export class Channel {
     deadline: CallDeadline | undefined,
   ): void {
     this.#queuedWriteBytes += request.length;
+    const queued: Queued = { request, timer: undefined, notes: [] };
+    this.#queued.set(id, queued);
     const value = deadline?.value;
-    const startedAt = Date.now();
-    const timer =
-      deadline === undefined || value === undefined || value === null
-        ? undefined
-        : setTimeout(() => {
-            this.#expire(id, method, { key: deadline.key, value }, startedAt);
-          }, value);
-    this.#queued.set(id, { request, timer, notes: [] });
+    if (deadline !== undefined && value !== undefined && value !== null) {
+      const startedAt = Date.now();
+      this.#arm(queued, startedAt + value, () => {
+        this.#expire(id, method, { key: deadline.key, value }, startedAt);
+      });
+    }
+  }
+
+  /**
+   * Arms `queued`'s timer to `expire` it at `expiresAt`, in steps no longer
+   * than a timer keeps.
+   */
+  #arm(queued: Queued, expiresAt: number, expire: () => void): void {
+    const left = expiresAt - Date.now();
+    queued.timer = setTimeout(
+      () => {
+        if (left > LONGEST_TIMER) {
+          this.#arm(queued, expiresAt, expire);
+        } else {
+          expire();
+        }
+      },
+      Math.min(left, LONGEST_TIMER),
+    );
   }
 
   /** Takes the call `id` out of the queue: what was queued, if it was. */
@@ -372,16 +402,12 @@ export class Channel {
       return;
     }
     this.#waiting.delete(id);
-    const exceeded = new DeadlineExceededError(
+    const exceeded = phaseExceeded(
       `the call waited ${limit.value} ms, its \`${limit.key}\`, for a place among the engine's calls in flight, so it was not sent`,
-      {
-        code: "deadline_exceeded",
-        group: "deadline_exceeded",
-        retryable: true,
-        fix: `Make fewer calls at once on this Connection, or give the call a longer \`timeout\`.`,
-        limit: { key: limit.key, value: limit.value, layer: "run", origin: "argument" },
-        details: { elapsed: Date.now() - startedAt, waited_for: "call_slot" },
-      },
+      "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+      { key: limit.key, value: limit.value, layer: "run", origin: "argument" },
+      startedAt,
+      "calls_in_flight",
     );
     waiting.reject(this.#inCall(exceeded, method));
   }

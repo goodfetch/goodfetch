@@ -826,8 +826,8 @@ impl WaitedFor {
     pub const HELLO: Self = Self::named("hello");
     /// A place among the Connection's calls in flight, which a call the
     /// Client queued past the engine's cap waits for before it is sent
-    /// (ADR 0038; issue 2529).
-    pub const CALL_SLOT: Self = Self::named("call_slot");
+    /// (ADR 0038).
+    pub const CALLS_IN_FLIGHT: Self = Self::named("calls_in_flight");
     /// A locator's matches to number what its count allows.
     pub const TARGET_COUNT: Self = Self::named("target_count");
     /// A locator's target to be detached.

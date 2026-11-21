@@ -79,7 +79,7 @@ const SHAPES: [(&ValueShape, &str); 7] = [
 /// instead: the types and traits of Rust's prelude, which a public type of
 /// the same name would make rustc spell in full in every message that
 /// names them (`std::marker::Sync`), and the `settings` module's own.
-const TAKEN: [&str; 32] = [
+const TAKEN: [&str; 31] = [
     "AsMut",
     "AsRef",
     "Box",
@@ -111,7 +111,6 @@ const TAKEN: [&str; 32] = [
     "String",
     "Sync",
     "Vec",
-    "Word",
 ];
 
 /// The setter of `member`'s parameter `name` when it is the `settings` of
@@ -140,25 +139,13 @@ pub(super) fn setter(
     }))
 }
 
-/// The module's constants and enums, `xtask codegen`'s header first, then
-/// how each protocol type of [`SHAPES`] goes on the wire, those only
-/// Foxhound's keys take included, since only this crate implements the
-/// sealed `Wire`: the text the crate's `settings` module includes.
+/// The module's constants and enums, `xtask codegen`'s header first: the
+/// text the crate's `settings` module includes. The protocol's types of
+/// [`SHAPES`] already give their JSON through its `SettingJson`.
 pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
     let root = tree(settings, None)?;
     let mut text = format!("{header}\n");
     level(&mut text, &root, &Area::default(), None)?;
-    for (_, shape) in SHAPES {
-        let _ = write!(
-            text,
-            "\n{}{}",
-            comment("The protocol's own JSON of the value."),
-            wire(
-                shape,
-                "::serde_json::to_value(self).expect(\"invariant: a value of the protocol's shapes is JSON\")"
-            )
-        );
-    }
     Ok(text)
 }
 
@@ -475,24 +462,13 @@ impl Enums {
             let _ = writeln!(body, "{}{variant},", comment(&format!("`{word}`.")));
             let _ = writeln!(arms, "Self::{variant} => {word:?},");
         }
-        // `Word`, not the sealed `Wire`, which Foxhound's crate cannot
-        // implement for its own choices.
         let _ = write!(
             self.text,
-            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\nimpl crate::settings::Word for {name} {{\n    fn word(&self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n",
+            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\nimpl ::goodfetch_protocol::catalog::SettingWord for {name} {{\n    fn word(&self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n",
             comment("A word a setting of this module takes, as the catalog spells it."),
         );
         Ok(Some(name.to_owned()))
     }
-}
-
-/// How the values of the protocol's `value_type` go on the wire, `body`
-/// making the JSON of `self`: the crate's sealed `Wire` and its
-/// `SettingValue`.
-fn wire(value_type: &str, body: &str) -> String {
-    format!(
-        "impl crate::settings::sealed::Wire for {value_type} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        {body}\n    }}\n}}\n\nimpl crate::settings::SettingValue for {value_type} {{}}\n"
-    )
 }
 
 /// The one alternative of `alternatives` besides null, when there are

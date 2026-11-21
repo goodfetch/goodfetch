@@ -26,16 +26,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::marker::PhantomData;
-use std::time::Duration;
 
-use goodfetch_protocol::catalog::SettingScope;
+use goodfetch_protocol::catalog::{SettingJson, SettingScope};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_protocol::settings::{
     SETTING_NOT_APPLICABLE, SettingNotApplicableDetails, SettingsLayer,
 };
 use serde_json::{Map, Value};
 
-use crate::call::wire_millis;
 use crate::error::Error;
 use crate::markers;
 
@@ -145,7 +143,7 @@ impl Settings {
             setting.name,
             Given {
                 scopes: setting.scopes,
-                value: value.into_value().into_wire(),
+                value: value.into_value().into_setting_json(),
             },
         );
         self
@@ -228,10 +226,13 @@ fn not_applicable(key: &str, scope: SettingScope, scopes: &[SettingScope]) -> Er
 }
 
 /// A type a [`Setting`]'s values take: `bool`, `u64`, `String`, a
-/// [`Duration`], a choice's own enum, the protocol's type of a shape it
-/// defines once, a `Vec` or a `BTreeMap` of them, and an `Option` of any
-/// for a setting that can be cleared.
-pub trait SettingValue: sealed::Wire {}
+/// [`Duration`](std::time::Duration), a choice's own enum, the protocol's
+/// type of a shape it defines once, a `Vec` or a `BTreeMap` of them, and
+/// an `Option` of any for a setting that can be cleared: each type whose
+/// JSON the protocol's [`SettingJson`] gives, which owns the wire formats.
+pub trait SettingValue: SettingJson {}
+
+impl<T: SettingJson> SettingValue for T {}
 
 /// What [`Settings::set`] takes for a key whose values are `T`: a `T`, a
 /// `T` for a key that can be cleared, whose values are `Option<T>`, and a
@@ -243,35 +244,8 @@ pub trait SettingValue: sealed::Wire {}
 )]
 pub trait IntoSettingValue<T>: sealed::IntoValue<T> {}
 
-/// A choice of words a setting takes, which goes on the wire as its word:
-/// what each generated choice enum implements, Foxhound's crate's too,
-/// which cannot implement the sealed `Wire` itself.
-#[doc(hidden)]
-pub trait Word {
-    /// The word, as the catalog spells it.
-    fn word(&self) -> &'static str;
-}
-
-/// Its word.
-impl<T: Word> sealed::Wire for T {
-    fn into_wire(self) -> Value {
-        Value::from(self.word())
-    }
-}
-
-impl<T: Word> SettingValue for T {}
-
-/// What turns a value into the JSON the wire carries, and what `set`
-/// takes into a key's value, which only this crate implements.
+/// What `set` takes into a key's value, which only this crate implements.
 mod sealed {
-    use serde_json::Value;
-
-    /// A value as the wire carries it.
-    pub trait Wire {
-        /// The value's JSON.
-        fn into_wire(self) -> Value;
-    }
-
     /// A value `set` takes for a key whose values are `T`.
     pub trait IntoValue<T> {
         /// The key's value.
@@ -313,68 +287,6 @@ impl sealed::IntoValue<Option<String>> for &str {
 
 #[diagnostic::do_not_recommend]
 impl IntoSettingValue<Option<String>> for &str {}
-
-impl sealed::Wire for bool {
-    fn into_wire(self) -> Value {
-        Value::Bool(self)
-    }
-}
-
-impl SettingValue for bool {}
-
-impl sealed::Wire for u64 {
-    fn into_wire(self) -> Value {
-        Value::from(self)
-    }
-}
-
-impl SettingValue for u64 {}
-
-impl sealed::Wire for String {
-    fn into_wire(self) -> Value {
-        Value::String(self)
-    }
-}
-
-impl SettingValue for String {}
-
-/// Whole milliseconds, rounded up, so that no duration but zero sends 0.
-impl sealed::Wire for Duration {
-    fn into_wire(self) -> Value {
-        Value::from(wire_millis(self))
-    }
-}
-
-impl SettingValue for Duration {}
-
-/// Null for `None`.
-impl<T: SettingValue> sealed::Wire for Option<T> {
-    fn into_wire(self) -> Value {
-        self.map_or(Value::Null, sealed::Wire::into_wire)
-    }
-}
-
-impl<T: SettingValue> SettingValue for Option<T> {}
-
-impl<T: SettingValue> sealed::Wire for Vec<T> {
-    fn into_wire(self) -> Value {
-        Value::Array(self.into_iter().map(sealed::Wire::into_wire).collect())
-    }
-}
-
-impl<T: SettingValue> SettingValue for Vec<T> {}
-
-impl<T: SettingValue> sealed::Wire for BTreeMap<String, T> {
-    fn into_wire(self) -> Value {
-        Value::Object(
-            self.into_iter()
-                .map(|(name, entry)| (name, entry.into_wire()))
-                .collect(),
-        )
-    }
-}
-
-impl<T: SettingValue> SettingValue for BTreeMap<String, T> {}
 
 #[cfg(test)]
 mod tests;

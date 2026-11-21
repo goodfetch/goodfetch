@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::SettingScope;
+use goodfetch_protocol::foxhound::frontier::PathBudget;
 use goodfetch_protocol::settings::{SettingNotApplicableDetails, SettingsLayer};
 use serde_json::json;
 
@@ -60,6 +61,13 @@ fn a_crawl_sets_collies_run_keys_beside_foxhounds() {
     let crawl = Settings::new()
         .set(timeout::NAVIGATION, Duration::from_secs(30))
         .set(crawl::MAX_DEPTH, 3)
+        .set(
+            crawl::PATH_BUDGETS,
+            vec![PathBudget {
+                pattern: "/shop?*".to_owned(),
+                max_requests: 50,
+            }],
+        )
         .set(fetch::TIER, fetch::Tier::Auto);
 
     let sent = crawl.within(SettingScope::Run).unwrap();
@@ -67,7 +75,10 @@ fn a_crawl_sets_collies_run_keys_beside_foxhounds() {
     assert_eq!(
         serde_json::Value::Object(sent),
         json!({
-            "crawl": { "max_depth": 3 },
+            "crawl": {
+                "max_depth": 3,
+                "path_budgets": [{ "pattern": "/shop?*", "max_requests": 50 }],
+            },
             "fetch": { "tier": "auto" },
             "timeout": { "navigation": 30000 },
         })

@@ -73,6 +73,12 @@ impl Serialize for LocalAddresses {
     }
 }
 
+impl crate::catalog::SettingJson for LocalAddresses {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 impl LocalAddresses {
     /// Reads `egress.local_addresses`' value: a list of IP addresses, an
     /// IPv6 prefix such as `2001:db8:1::/48`, or an interface's name.

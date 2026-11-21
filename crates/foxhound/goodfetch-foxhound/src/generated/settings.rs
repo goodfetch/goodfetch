@@ -185,7 +185,7 @@ pub mod crawl {
         RoundRobin,
     }
 
-    impl crate::settings::Word for DomainOrder {
+    impl ::goodfetch_protocol::catalog::SettingWord for DomainOrder {
         fn word(&self) -> &'static str {
             match self {
                 Self::FewestInFlight => "fewest_in_flight",
@@ -311,7 +311,7 @@ pub mod crawl {
             All,
         }
 
-        impl crate::settings::Word for Strategy {
+        impl ::goodfetch_protocol::catalog::SettingWord for Strategy {
             fn word(&self) -> &'static str {
                 match self {
                     Self::SameHostname => "same_hostname",
@@ -413,7 +413,7 @@ pub mod export {
             Flatten,
         }
 
-        impl crate::settings::Word for Nested {
+        impl ::goodfetch_protocol::catalog::SettingWord for Nested {
             fn word(&self) -> &'static str {
                 match self {
                     Self::Json => "json",
@@ -512,7 +512,7 @@ pub mod export {
             None,
         }
 
-        impl crate::settings::Word for Compression {
+        impl ::goodfetch_protocol::catalog::SettingWord for Compression {
             fn word(&self) -> &'static str {
                 match self {
                     Self::Zstd => "zstd",
@@ -659,7 +659,7 @@ pub mod fetch {
         Transport,
     }
 
-    impl crate::settings::Word for HttpFrom {
+    impl ::goodfetch_protocol::catalog::SettingWord for HttpFrom {
         fn word(&self) -> &'static str {
             match self {
                 Self::Browser => "browser",
@@ -686,7 +686,7 @@ pub mod fetch {
         Browser,
     }
 
-    impl crate::settings::Word for Tier {
+    impl ::goodfetch_protocol::catalog::SettingWord for Tier {
         fn word(&self) -> &'static str {
             match self {
                 Self::Auto => "auto",

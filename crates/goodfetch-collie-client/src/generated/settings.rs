@@ -90,7 +90,7 @@ pub mod browser {
         Stealth,
     }
 
-    impl crate::settings::Word for AccessMode {
+    impl ::goodfetch_protocol::catalog::SettingWord for AccessMode {
         fn word(&self) -> &'static str {
             match self {
                 Self::Standard => "standard",
@@ -113,7 +113,7 @@ pub mod browser {
         Stylesheet,
     }
 
-    impl crate::settings::Word for BlockResourcesItem {
+    impl ::goodfetch_protocol::catalog::SettingWord for BlockResourcesItem {
         fn word(&self) -> &'static str {
             match self {
                 Self::Image => "image",
@@ -133,7 +133,7 @@ pub mod browser {
         Block,
     }
 
-    impl crate::settings::Word for ServiceWorkers {
+    impl ::goodfetch_protocol::catalog::SettingWord for ServiceWorkers {
         fn word(&self) -> &'static str {
             match self {
                 Self::Allow => "allow",
@@ -207,7 +207,7 @@ pub mod clean_up {
         Upstream,
     }
 
-    impl crate::settings::Word for Update {
+    impl ::goodfetch_protocol::catalog::SettingWord for Update {
         fn word(&self) -> &'static str {
             match self {
                 Self::Release => "release",
@@ -265,7 +265,7 @@ pub mod consent {
         Off,
     }
 
-    impl crate::settings::Word for Handling {
+    impl ::goodfetch_protocol::catalog::SettingWord for Handling {
         fn word(&self) -> &'static str {
             match self {
                 Self::Answer => "answer",
@@ -284,7 +284,7 @@ pub mod consent {
         Ask,
     }
 
-    impl crate::settings::Word for OnWall {
+    impl ::goodfetch_protocol::catalog::SettingWord for OnWall {
         fn word(&self) -> &'static str {
             match self {
                 Self::Report => "report",
@@ -320,7 +320,7 @@ pub mod content {
         Trafilatura,
     }
 
-    impl crate::settings::Word for Extractor {
+    impl ::goodfetch_protocol::catalog::SettingWord for Extractor {
         fn word(&self) -> &'static str {
             match self {
                 Self::DomSmoothie => "dom_smoothie",
@@ -472,7 +472,7 @@ pub mod extraction {
         SingleAttempt,
     }
 
-    impl crate::settings::Word for Readability {
+    impl ::goodfetch_protocol::catalog::SettingWord for Readability {
         fn word(&self) -> &'static str {
             match self {
                 Self::Retry => "retry",
@@ -490,7 +490,7 @@ pub mod extraction {
         Exact,
     }
 
-    impl crate::settings::Word for RemovalShare {
+    impl ::goodfetch_protocol::catalog::SettingWord for RemovalShare {
         fn word(&self) -> &'static str {
             match self {
                 Self::Estimate => "estimate",
@@ -716,7 +716,7 @@ pub mod live_view {
         Always,
     }
 
-    impl crate::settings::Word for Hiding {
+    impl ::goodfetch_protocol::catalog::SettingWord for Hiding {
         fn word(&self) -> &'static str {
             match self {
                 Self::Auto => "auto",
@@ -802,7 +802,7 @@ pub mod politeness {
         Run,
     }
 
-    impl crate::settings::Word for Sharing {
+    impl ::goodfetch_protocol::catalog::SettingWord for Sharing {
         fn word(&self) -> &'static str {
             match self {
                 Self::Shared => "shared",
@@ -953,7 +953,7 @@ pub mod proxy {
         Mobile,
     }
 
-    impl crate::settings::Word for Kind {
+    impl ::goodfetch_protocol::catalog::SettingWord for Kind {
         fn word(&self) -> &'static str {
             match self {
                 Self::Datacenter => "datacenter",
@@ -1045,7 +1045,7 @@ pub mod run_state {
         Off,
     }
 
-    impl crate::settings::Word for Durability {
+    impl ::goodfetch_protocol::catalog::SettingWord for Durability {
         fn word(&self) -> &'static str {
             match self {
                 Self::Full => "full",
@@ -1134,7 +1134,7 @@ pub mod run_state {
             Off,
         }
 
-        impl crate::settings::Word for SyncChoice {
+        impl ::goodfetch_protocol::catalog::SettingWord for SyncChoice {
             fn word(&self) -> &'static str {
                 match self {
                     Self::Each => "each",
@@ -1341,7 +1341,7 @@ pub mod site_preferences {
         Collect,
     }
 
-    impl crate::settings::Word for Purpose {
+    impl ::goodfetch_protocol::catalog::SettingWord for Purpose {
         fn word(&self) -> &'static str {
             match self {
                 Self::Search => "search",
@@ -1417,7 +1417,7 @@ pub mod stealth {
         Clearcote,
     }
 
-    impl crate::settings::Word for ChromiumBuild {
+    impl ::goodfetch_protocol::catalog::SettingWord for ChromiumBuild {
         fn word(&self) -> &'static str {
             match self {
                 Self::Goodfetch => "goodfetch",
@@ -1440,7 +1440,7 @@ pub mod stealth {
         Engine,
     }
 
-    impl crate::settings::Word for FingerprintMethod {
+    impl ::goodfetch_protocol::catalog::SettingWord for FingerprintMethod {
         fn word(&self) -> &'static str {
             match self {
                 Self::None => "none",
@@ -1718,71 +1718,3 @@ pub mod wall {
             ],
         );
 }
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::egress::LocalAddresses {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::egress::LocalAddresses {}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::foxhound::frontier::PathBudget {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::foxhound::frontier::PathBudget {}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::foxhound::fetch::SampleRefresh {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::foxhound::fetch::SampleRefresh {}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::run::durability::BatchThreshold {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::run::durability::BatchThreshold {}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::settings::page_check::PageCheck {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::settings::page_check::PageCheck {}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire
-    for ::goodfetch_protocol::settings::session_source::SessionSource
-{
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue
-    for ::goodfetch_protocol::settings::session_source::SessionSource
-{
-}
-
-/// The protocol's own JSON of the value.
-impl crate::settings::sealed::Wire for ::goodfetch_protocol::tls::ClientCertificateConfiguration {
-    fn into_wire(self) -> ::serde_json::Value {
-        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
-    }
-}
-
-impl crate::settings::SettingValue for ::goodfetch_protocol::tls::ClientCertificateConfiguration {}

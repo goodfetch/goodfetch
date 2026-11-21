@@ -721,6 +721,12 @@ pub struct PathBudget {
     pub max_requests: u64,
 }
 
+impl crate::catalog::SettingJson for PathBudget {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 /// The fields of a `crawl.path_budgets` entry.
 const PATH_BUDGET_FIELDS: [&str; 2] = ["pattern", "max_requests"];
 

@@ -409,6 +409,12 @@ pub struct SampleRefresh {
     pub after: u64,
 }
 
+impl crate::catalog::SettingJson for SampleRefresh {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 impl SampleRefresh {
     /// The value `value` holds, or what is wrong with it.
     ///

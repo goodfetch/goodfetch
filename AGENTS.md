@@ -87,7 +87,7 @@ GitHub Issues, with sub-issues, native dependencies and milestones. See `docs/ag
 
 ### Triage labels
 
-The default triage label vocabulary. See `docs/agents/triage-labels.md`.
+The default triage label vocabulary, and what an issue needs before `ready-for-agent`: its `Existing code` list and the load-proofs check. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

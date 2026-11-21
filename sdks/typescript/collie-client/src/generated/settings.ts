@@ -1869,6 +1869,9 @@ const SPELLING: Spelling = {
     clientCertificates: "client_certificates",
     trustedCas: "trusted_cas",
   }],
+  usage: ["usage", {
+    ledgerReadInterval: "ledger_read_interval",
+  }],
   version: ["version", {
     ageNotice: "age_notice",
   }],

@@ -11055,6 +11055,28 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
+      "default": 1000,
+      "deprecated": null,
+      "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "usage.ledger_read_interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
       "default": true,
       "deprecated": null,
       "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",

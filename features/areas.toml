@@ -458,6 +458,11 @@ number = 3
 kind = "format"
 prefix = "usage-ledger"
 
+[[area]]
+number = 3
+kind = "setting"
+prefix = "usage."
+
 # Area 3's person-only marker (#232): the refusal of a person's answer
 # asked by any surface but a person's, such as the CLI's interactive prompt.
 [[area]]

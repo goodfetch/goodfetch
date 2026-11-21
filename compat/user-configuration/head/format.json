@@ -2919,6 +2919,17 @@
             },
             "type": "object"
           },
+          "usage": {
+            "additionalProperties": false,
+            "properties": {
+              "ledger_read_interval": {
+                "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "version": {
             "additionalProperties": false,
             "properties": {

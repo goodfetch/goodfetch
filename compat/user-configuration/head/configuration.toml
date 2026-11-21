@@ -261,6 +261,9 @@ signing = true
 [settings.admission]
 max_requests_per_minute = 4
 
+[settings.usage]
+ledger_read_interval = 30000
+
 [settings.version]
 age_notice = true
 

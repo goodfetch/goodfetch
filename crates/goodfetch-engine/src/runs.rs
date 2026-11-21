@@ -84,7 +84,7 @@ use goodfetch_protocol::settings::{
     ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
 };
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
-use goodfetch_protocol::usage::Limit;
+use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
 use rusqlite::Connection;
 use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
@@ -2853,6 +2853,12 @@ fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
     get_or_default(settings.map(RunSettings::resolved), &TIMEOUT_SECRET)
 }
 
+/// The `usage.ledger_read_interval` of a Run whose settings resolved as
+/// `settings`, its catalog default when none did.
+fn ledger_read_interval(settings: Option<&RunSettings>) -> Duration {
+    get_or_default(settings.map(RunSettings::resolved), &LEDGER_READ_INTERVAL)
+}
+
 /// What a Run whose settings resolved as `settings` resolves its Secret
 /// references through: each provider the composition builds for each Run
 /// built from them, bounded by its `timeout.secret` and masked by its
@@ -5437,17 +5443,23 @@ impl Registry {
     /// something left, and none it cannot be placed outside of is one this
     /// engine cannot evaluate (ADR 0041). A ledger that cannot be read
     /// refuses it. The Run then holds the Limits this read, on the
-    /// connection it opened, so its charges open nothing (ADR 0140's E3).
+    /// connection it opened, so its charges open nothing (ADR 0140's E3),
+    /// and reads them again as its resolved `settings` say.
     async fn may_start(
         &self,
         run_id: &RunId,
         folder: &Path,
         connection: Option<ConnectionId>,
+        settings: Option<&RunSettings>,
     ) -> Result<Charging, StartError> {
         let now = self.limits.now();
-        let mut charging =
-            self.limits
-                .charging(run_id, folder, 1, self.limits.placement(run_id, connection));
+        let mut charging = self.limits.charging(
+            run_id,
+            folder,
+            1,
+            self.limits.placement(run_id, connection),
+            ledger_read_interval(settings),
+        );
         let may_start = self
             .owner
             .blocking(move || charging.may_start(now).map(|()| charging))
@@ -5489,8 +5501,12 @@ impl Registry {
         if !stopped_by_limit {
             return Ok(());
         }
+        // Only whether it may start: its charging, and the interval it
+        // would read at, go with this check.
         let folder = self.folder(run_id);
-        self.may_start(run_id, &folder, connection).await.map(drop)
+        self.may_start(run_id, &folder, connection, None)
+            .await
+            .map(drop)
     }
 
     async fn begin(
@@ -5508,7 +5524,9 @@ impl Registry {
             error,
         };
         self.check_index().await?;
-        let charging = self.may_start(&run_id, &folder, connection).await?;
+        let charging = self
+            .may_start(&run_id, &folder, connection, start.settings.as_ref())
+            .await?;
         let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(
@@ -5817,6 +5835,7 @@ impl Registry {
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
+        let read_interval = ledger_read_interval(settings.as_ref());
         // A kind whose contribution names no setting for it logs its
         // Provenance (ADR 0138).
         let logs_provenance = self
@@ -5849,6 +5868,7 @@ impl Registry {
                     folder,
                     epoch,
                     self.limits.placement(run_id, connection),
+                    read_interval,
                 ))),
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),

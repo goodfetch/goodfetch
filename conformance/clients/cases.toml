@@ -277,11 +277,11 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # hand over (ADR 0098): under `auto` the Client runs an Attached engine,
 # reports why in `engine().fallback` and warns once; under `daemon` it
 # raises the refusal, whose fix adds the executable's `daemon restart`.
-# TypeScript runs it; Python and Rust follow (issue 1261's sub-issues).
+# TypeScript and Python run it; Rust follows (issue 1261's sub-issues).
 [[capability.case]]
 id = "connect-falls-back-when-the-daemon-refuses"
 covers = ["story:11-9", "story:11-290", "story:11-293"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 
 [[capability]]
 name = "product-conformance"

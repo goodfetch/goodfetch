@@ -206,7 +206,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 138] = [
+const ROWS: [Row; 139] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -855,6 +855,17 @@ const ROWS: [Row; 138] = [
         name: "E6.undelegated_transactions",
         family: "B1",
         unit: "undelegated_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell where two engines crawl the
+    // site, each its own Run, and its count every transaction on the
+    // Politeness file they share: none in any other cell, where its count
+    // is 0 (#2173).
+    Row {
+        name: "E6.shared_transactions",
+        family: "B1",
+        unit: "shared_attempts",
         happens: false,
         valgrind: None,
     },

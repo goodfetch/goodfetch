@@ -111,7 +111,8 @@ impl PermitRule for Reserves {
     }
 }
 
-/// A Run of the test's: live unless its folder's name says it is gone.
+/// A Run of the test's: live unless its folder's name says it is gone, or
+/// says it is dying and was looked at before.
 fn holder(env: &TestEnv, run_id: &str) -> Holder {
     Holder {
         run_id: run_id.to_owned(),
@@ -122,9 +123,18 @@ fn holder(env: &TestEnv, run_id: &str) -> Holder {
 }
 
 fn gone_unless_live(folder: &Path, _epoch: u64) -> bool {
-    folder
+    let name = folder
         .file_name()
-        .is_some_and(|name| name.to_string_lossy().starts_with("gone"))
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    name.starts_with("gone") || (name.starts_with("dying") && !first_look(folder))
+}
+
+/// Whether `folder` is looked at for the first time: a dying Run ends
+/// between its first look and the next.
+fn first_look(folder: &Path) -> bool {
+    std::fs::create_dir_all(folder).unwrap();
+    std::fs::File::create_new(folder.join("looked")).is_ok()
 }
 
 async fn engine(env: &TestEnv, name: &str, owner: &TaskOwner) -> Politeness {
@@ -1356,6 +1366,59 @@ fn a_recalled_delegations_waiters_keep_their_turn_ahead_of_the_recaller() {
             "behind@shop.test".to_owned(),
             true,
             Taken::Wait(None)
+        )
+    );
+}
+
+/// A recall that finds its holder's engine gone falls back to the
+/// dead-holder reclaim: the recaller is woken at once, and its retake
+/// reclaims the Delegation of the Run that ended, the key's delay
+/// counted from the reclaim, rather than waiting for its own deadline.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn a_recall_to_a_holder_that_is_gone_falls_back_to_the_dead_holder_reclaim() {
+    let env = TestEnv::new();
+    let delay = Duration::from_secs(10);
+    let rule = spaced(1, delay);
+
+    let answers = run(async |owner| {
+        let ended_owner = TaskOwner::root(BlockingPolicy::Inline);
+        let first = delegating_engine(&env, "first", &CountedWork::default(), &ended_owner).await;
+        let second = delegating_engine(&env, "second", &CountedWork::default(), owner).await;
+        let mut wakes = second.wakes();
+        let other = Holder {
+            delegates: false,
+            ..holder(&env, "other")
+        };
+        granted(
+            first
+                .take("shop.test", &holder(&env, "dying"), rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        ended_owner.cancel();
+        drop(first);
+        ended_owner.wait().await;
+
+        let held = second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        let woken = next_wake(&mut wakes).await;
+        let retaken = second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        (held, woken, retaken)
+    });
+
+    assert_eq!(
+        answers,
+        (
+            Taken::Wait(None),
+            "other@shop.test".to_owned(),
+            Taken::Wait(Some((at(1) + delay, Hold::Delay)))
         )
     );
 }

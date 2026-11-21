@@ -770,6 +770,7 @@ const OTHER_B1_ROWS: &str = "\
 | `E6.delegations` | Delegations taken per Run | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E6.delegation_transactions` | transactions per Delegation taken | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E6.other_transactions` | other Politeness transactions per Run | 4 | 4 | B1 | must not grow | `just counts` | implementer done |
+| `E6.shared_transactions` | Politeness transactions per attempt of two engines crawling one site | ≤ 3 | 3 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
@@ -861,13 +862,14 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("E6.delegations", 1),
         ("E6.delegation_transactions", 1),
         ("E6.other_transactions", 4),
+        ("E6.shared_transactions", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"second_copies\":0,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"private_attempts\":0,\"undelegated_attempts\":0,\"delegations\":1,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"held_links_batches\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"second_copies\":0,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"private_attempts\":0,\"undelegated_attempts\":0,\"delegations\":1,\"shared_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"held_links_batches\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

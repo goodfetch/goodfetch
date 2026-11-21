@@ -41,8 +41,13 @@ pub(crate) mod exports;
 const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 /// Each SDK's manifest and its language; an SDK that lists its hand-written
 /// members adds its own here.
-const MANIFESTS: [(&str, Language); 3] = [
+const MANIFESTS: [(&str, Language); 5] = [
     ("sdks/typescript/manifest.toml", Language::TypeScript),
+    (
+        "crates/goodfetch-collie-client/manifest.toml",
+        Language::Rust,
+    ),
+    ("crates/goodfetch-collie/manifest.toml", Language::Rust),
     (
         "crates/foxhound/goodfetch-foxhound/manifest.toml",
         Language::Rust,

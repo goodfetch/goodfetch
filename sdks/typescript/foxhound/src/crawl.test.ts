@@ -341,7 +341,7 @@ describe("a Crawl", () => {
 
   test(
     "keeps the Records a handler pushed when it catches a list's record_invalid, naming the failing Record by its position",
-    { tags: ["story:6-267", "error:record_invalid"] },
+    { tags: ["story:6-267", "story:11-35", "error:record_invalid"] },
     async () => {
       const played = playScript("run/foxhound-crawl-push-list-record-invalid.json");
       const foxhound = await connectOver(played.transport);

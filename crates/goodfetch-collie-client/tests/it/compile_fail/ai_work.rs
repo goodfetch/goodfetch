@@ -6,6 +6,6 @@
 //! Covers: story:11-34, story:11-35
 
 #[test]
-fn reading_an_output_before_how_the_work_ended_does_not_compile() {
+fn taking_an_answer_without_how_the_work_ended_does_not_compile() {
     trybuild::TestCases::new().compile_fail("tests/ui/ai_work/*.rs");
 }

@@ -27,10 +27,10 @@ use serde_json::Number;
 use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
 use crate::start::{code_group_retryable, failure};
 
-/// The product's fields as the program's type reads them: each one the
+/// The kettle's fields as the program's type reads them: each one the
 /// page may not give is an `Option`.
 #[derive(Debug, Deserialize, PartialEq)]
-struct Product {
+struct Kettle {
     title: Option<String>,
     price: Option<Number>,
     rating: Option<Number>,
@@ -40,8 +40,8 @@ struct Product {
 struct Played {
     /// The navigation into the redirect loop's failure.
     looping: Error,
-    /// The read of the product's three fields.
-    read: FieldValues<Product>,
+    /// The read of the kettle's three fields.
+    read: FieldValues<Kettle>,
 }
 
 /// The field `selector` finds, read by `transform`.
@@ -58,7 +58,7 @@ fn field(selector: &str, transform: FieldTransform) -> PageField {
 }
 
 /// The three fields the script's read declares.
-fn product_fields() -> BTreeMap<String, PageField> {
+fn kettle_fields() -> BTreeMap<String, PageField> {
     let number = || FieldTransform::Number {
         locale: "en".to_owned(),
     };
@@ -82,11 +82,7 @@ async fn played(endpoint: DaemonEndpoint, hello: HelloParams) -> Played {
     let run = connection.start().await.unwrap();
     let page = run.new_page().await.unwrap();
     let looping = failure(page.goto("https://shop.test/loop").await);
-    let read = page
-        .read(product_fields())
-        .typed::<Product>()
-        .await
-        .unwrap();
+    let read = page.read(kettle_fields()).typed::<Kettle>().await.unwrap();
     run.finish().await.unwrap();
     connection.close().await.unwrap();
     Played { looping, read }
@@ -126,7 +122,7 @@ fn a_failure_carries_what_it_gathered_and_a_read_answers_each_field() {
     );
     assert_eq!(
         played.read.values,
-        Product {
+        Kettle {
             title: Some("Blue kettle".to_owned()),
             price: None,
             rating: None,

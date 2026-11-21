@@ -469,20 +469,6 @@ describe("Collie.connect() finds the engine", () => {
   );
 });
 
-/** The tags of a test of the `auto` fallback's case in `mode` (ADR 0098). */
-function fallbackCase(mode: "attached" | "daemon"): string[] {
-  return [
-    "client_case/connect-falls-back-when-the-daemon-refuses",
-    mode,
-    "story:11-9",
-    "story:11-290",
-    "story:11-291",
-    "story:11-292",
-    "story:11-293",
-    "story:11-295",
-  ];
-}
-
 /** The `fix` `connect/daemon-refused-protocol-version-unsupported.json`'s refusal gives. */
 const VERSION_FIX =
   "Upgrade the engine to a version that speaks protocol 0.1, or use a Client of the engine's own version.";
@@ -493,14 +479,20 @@ const VERSION_FIX =
  * newer, since a Foxhound of the major would still be the pick.
  */
 function restartFix(path: string): string {
-  const shown = /\s/.test(path) ? `"${path}"` : path;
-  return `Run \`${shown} daemon restart\` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
+  return `Run \`${path} daemon restart\` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
 }
 
 describe("Collie.connect() when the Daemon refuses it by Product or protocol version", () => {
   test(
     "with engine auto, runs an Attached engine, says why in engine().fallback and warns once",
-    { tags: fallbackCase("attached") },
+    {
+      tags: [
+        "client_case/connect-falls-back-when-the-daemon-refuses",
+        "attached",
+        "story:11-9",
+        "story:11-290",
+      ],
+    },
     async ({ testEnv, processes, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
       const daemon = await startScriptedDaemon(
@@ -561,7 +553,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
 
   test(
     "with engine auto and no logger, falls back writing nothing to stdout or stderr",
-    { tags: ["story:11-9", "story:11-290"] },
+    { tags: ["story:11-291"] },
     async ({ testEnv, processes }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
       const daemon = await startScriptedDaemon(
@@ -599,7 +591,15 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
 
   test(
     "with engine daemon, fails with the refusal, whose fix adds this executable's daemon restart by its path",
-    { tags: [...fallbackCase("daemon"), "error:protocol_version_unsupported"] },
+    {
+      tags: [
+        "client_case/connect-falls-back-when-the-daemon-refuses",
+        "daemon",
+        "story:11-9",
+        "story:11-293",
+        "error:protocol_version_unsupported",
+      ],
+    },
     async ({ testEnv, processes, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
       const daemon = await startScriptedDaemon(
@@ -638,7 +638,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
     { way: "GOODFETCH_URL", inEnv: true },
   ])(
     "fails with a remote Daemon's refusal through $way, which it never falls back from",
-    { tags: ["story:11-293", "error:protocol_version_unsupported"] },
+    { tags: ["story:11-295", "error:protocol_version_unsupported"] },
     async ({ inEnv }, { testEnv, processes }) => {
       const daemon = await startScriptedDaemon(
         testEnv,
@@ -670,7 +670,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
 
   test(
     "waits for the pick an idle Daemon hands over to, and reaches it",
-    { tags: ["story:11-291", "story:11-292"] },
+    { tags: ["story:11-292"] },
     async ({ testEnv, processes }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
       const handing = await startScriptedDaemon(
@@ -707,7 +707,7 @@ describe("Collie.connect() when the Daemon refuses it by Product or protocol ver
 
   test(
     "fails with deadline_exceeded naming timeout.connect when no pick follows a handover in time",
-    { tags: ["story:11-291", "error:deadline_exceeded"] },
+    { tags: ["story:11-292", "error:deadline_exceeded"] },
     async ({ testEnv, processes }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
       const handing = await startScriptedDaemon(

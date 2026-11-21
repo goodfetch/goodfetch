@@ -15,7 +15,13 @@ import {
   type EngineInfo,
   type Reached,
 } from "./client-connection.ts";
-import { handedOverTo, reachEngine, type DaemonReach, type EngineChoice } from "./engine-choice.ts";
+import {
+  handedOverTo,
+  reachEngine,
+  type DaemonReach,
+  type EngineChoice,
+  type LocalDaemonReach,
+} from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
 import {
   isGoodfetchError,
@@ -222,7 +228,7 @@ export function locateEngine<S>(
  *
  * This machine's Daemon that refuses `hello` by Product or version
  * (ADR 0098) is waited past when it hands over, until its major's pick
- * serves within `timeout.connect`, whose `hello` then has its own; when it
+ * serves and answers `hello` within the same `timeout.connect`; when it
  * cannot hand over, `auto` runs an Attached engine, says why in
  * `engine().fallback` and warns once, and `daemon` fails with the refusal,
  * its fix naming this executable's `daemon restart`. A remote Daemon's
@@ -267,14 +273,14 @@ async function openRefusable<S>(
   let daemon = reach;
   for (;;) {
     try {
-      return await openDaemon(product, daemon, common);
+      return await openDaemon(product, daemon, common, startedAt);
     } catch (error) {
-      const { home } = daemon;
-      if (daemon.kind === "remote" || home === null || !refusesByProductOrVersion(error)) {
+      if (daemon.kind === "remote" || !refusesByProductOrVersion(error)) {
         throw error;
       }
+      const { home } = daemon;
       if (error.details["handover"] === true) {
-        daemon = await pickOf(home, daemon.runtimeFile, startedAt, common);
+        daemon = await pickOf(daemon, startedAt, common);
         continue;
       }
       const fix = `${error.fix ?? ""} ${refusalFix(product, env)}`.trim();
@@ -303,33 +309,27 @@ function refusesByProductOrVersion(error: unknown): error is GoodfetchError {
 }
 
 /**
- * The pick an idle Daemon of `home`, found by the runtime file `handedOver`,
- * hands over to, once it serves within `timeout.connect` of `startedAt`.
+ * The pick the idle Daemon `handedOver` hands over to, once it serves
+ * within `timeout.connect` of `startedAt`.
  *
  * @throws {DeadlineExceededError} naming `timeout.connect` and `waited_for` `hello` when none serves in time.
  */
 async function pickOf(
-  home: string,
-  handedOver: string | null,
+  handedOver: LocalDaemonReach,
   startedAt: number,
   common: Opening,
-): Promise<DaemonReach> {
+): Promise<LocalDaemonReach> {
   const connect = connectLimit(common.timeout);
-  const pick = await handedOverTo(
-    home,
-    handedOver,
-    connect === null ? null : startedAt + connect.value,
-    common.signal,
-  );
+  if (connect === null) {
+    return handedOverTo(handedOver, null, common.signal);
+  }
+  const pick = await handedOverTo(handedOver, startedAt + connect.value, common.signal);
   if (pick !== undefined) {
     return pick;
   }
-  if (connect === null) {
-    throw new TypeError("invariant: a wait with no end returns only once the pick serves");
-  }
   throw phaseExceeded(
     `timeout.connect (${connect.value} ms) passed before the Daemon an idle one handed over to served`,
-    `Raise connect()'s timeout, or find why the Daemon did not start in its log in ${home}.`,
+    `Raise connect()'s timeout, or find why the Daemon did not start in its log in ${handedOver.home}.`,
     connect.limit,
     startedAt,
     "hello",
@@ -342,14 +342,18 @@ async function pickOf(
  * and Foxhound at this version or newer for Collie, whose executable is no
  * major's pick while a Foxhound of the major is installed. The SDK does not
  * read which executables are installed, so it names Foxhound for every
- * Collie Client, as the sentence's own condition says.
+ * Collie Client, as the sentence's own condition says. With no executable
+ * to name, the remedy is installing it, as `engine_not_found`'s fix says.
  */
 function refusalFix<S>(product: ProductPackage<S>, env: Readonly<Record<string, string>>): string {
   let path: string;
   try {
     path = locateEngine(env, product).path;
-  } catch {
-    path = product.executable;
+  } catch (error) {
+    if (error instanceof EngineNotFoundError && error.fix !== undefined) {
+      return error.fix;
+    }
+    throw error;
   }
   const shown = /\s/.test(path) ? `"${path}"` : path;
   const restart = `Run \`${shown} daemon restart\` to restart the Daemon on its major's pick.`;
@@ -384,13 +388,15 @@ async function openAttached<S>(
 }
 
 /**
- * Finishes `hello` with a Daemon, its token in it: one that closes the
- * Connection before it answers fails with `daemon_unreachable`.
+ * Finishes `hello` with a Daemon, its token in it, within `timeout.connect`
+ * of `connectStartedAt`: one that closes the Connection before it answers
+ * fails with `daemon_unreachable`.
  */
 function openDaemon<S>(
   product: ProductPackage<S>,
   reach: DaemonReach,
   common: Opening,
+  connectStartedAt: number,
 ): Promise<ClientConnection> {
   return ClientConnection.open({
     transport: reach.transport,
@@ -400,6 +406,7 @@ function openDaemon<S>(
     errorClasses: product.errorClasses,
     operationNames: product.operationNames,
     ...common,
+    connectStartedAt,
   });
 }
 

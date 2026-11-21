@@ -280,7 +280,7 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # TypeScript runs it; Python and Rust follow (issue 1261's sub-issues).
 [[capability.case]]
 id = "connect-falls-back-when-the-daemon-refuses"
-covers = ["story:11-9", "story:11-290", "story:11-291", "story:11-292", "story:11-293", "story:11-295"]
+covers = ["story:11-9", "story:11-290", "story:11-293"]
 surfaces = ["sdk-typescript"]
 
 [[capability]]

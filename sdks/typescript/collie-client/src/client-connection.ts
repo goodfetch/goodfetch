@@ -177,6 +177,12 @@ export interface ClientConnectionOptions {
    */
   readonly timeout?: number | null | undefined;
   /**
+   * When `timeout` started counting, for a `hello` that follows a wait the
+   * same `timeout.connect` bounds, as for the pick a Daemon hands over to
+   * (ADR 0098); as `hello` is sent when left out.
+   */
+  readonly connectStartedAt?: number | undefined;
+  /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, and the engine's log events at the
    * level it records (`logLevelOf`), read at `open` and again when a Run
@@ -542,7 +548,7 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   async #hello(options: ClientConnectionOptions): Promise<void> {
-    const { needs, daemon, signal, timeout, settings } = options;
+    const { needs, daemon, signal, timeout, connectStartedAt, settings } = options;
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
@@ -560,7 +566,11 @@ export class ClientConnection implements AsyncDisposable {
         { type: "HelloParams" satisfies CollieWireType },
         collieWire.types,
       );
-      answer = await this.#answerWithin(this.#channel.call("hello", sent, { signal }), timeout);
+      answer = await this.#answerWithin(
+        this.#channel.call("hello", sent, { signal }),
+        timeout,
+        connectStartedAt ?? Date.now(),
+      );
     } catch (error) {
       throw daemon !== undefined &&
         (error instanceof EngineExitedError || error instanceof ClosedError)
@@ -606,7 +616,7 @@ export class ClientConnection implements AsyncDisposable {
 
   /**
    * `hello`'s answer, once `called` gives it within `timeout`, its
-   * `timeout.connect` (ADR 0083).
+   * `timeout.connect` (ADR 0083), counted from `startedAt`.
    *
    * @throws {DeadlineExceededError} past it, its `limit` naming
    * `timeout.connect` at the run layer, given as an argument, or at its
@@ -615,16 +625,16 @@ export class ClientConnection implements AsyncDisposable {
   async #answerWithin(
     called: Promise<unknown>,
     timeout: number | null | undefined,
+    startedAt: number,
   ): Promise<unknown> {
     const connect = connectLimit(timeout);
     if (connect === null) {
       return called;
     }
     const { value, limit } = connect;
-    const startedAt = Date.now();
     const answered = await within(
       called.then((answer) => ({ answer })),
-      value,
+      Math.max(0, startedAt + value - Date.now()),
     );
     if (answered !== "late") {
       return answered.answer;

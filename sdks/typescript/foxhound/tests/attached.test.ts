@@ -104,7 +104,6 @@ describe("Foxhound.connect() on an Attached engine", () => {
         "attached",
         "story:11-9",
         "story:11-290",
-        "story:11-295",
         "error:not_in_product",
       ],
     },

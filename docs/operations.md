@@ -48,7 +48,16 @@ What `daemon run` writes to stdout, and what a Lambda function's or a Cloud Run 
 
 ## When a Limit holds a Run already going
 
-A Limit set or raised while a Run is going (`usage set`, `usage raise`) holds the Run's next charge when the process that changed it is the one working the Run: the Daemon you asked, or a program's own engine. A Run another process works, such as an engine a program started itself while you ask the Daemon, reads the Limits again before it takes its next Slice, and one second after its last read at the latest. Until then it charges only what its Slices already hold, and a Run no Limit held goes on for at most that second.
+A Limit set or raised while a Run is going (`usage set`, `usage raise`) holds the Run's next charge when the process that changed it is the one working the Run: the Daemon you asked, or a program's own engine. A Run another process works, such as an engine a program started itself while you ask the Daemon, reads the Limits again before it takes its next Slice, and `usage.ledger_read_interval` after its last read at the latest: one second unless you set it. Until then it charges only what its Slices already hold, and a Run no Limit held goes on for at most that interval.
+
+To have such a Limit reach a going Run sooner, set `usage.ledger_read_interval`, in milliseconds, in the user configuration or an Operator policy (the files [the age notice](#the-age-notice) below names); a Run reads it as it opens. `0` reads the Limits at every charge, at the cost of one ledger read per charge:
+
+```toml
+version = "0.1"
+
+[settings.usage]
+ledger_read_interval = 100
+```
 
 ## The age notice
 

@@ -7,14 +7,15 @@
 //! and stops at its next safe point.
 //!
 //! A run holds the Limits that hold it in memory (ADR 0140's E3, #1888):
-//! it reads them from the ledger as it starts, and again only once the
-//! ledger changed them, before it takes a Slice, or after
-//! [`UNSEEN_CHANGES`] of its engine's clock. A charge its Slices cover is
-//! then a step in memory: no SQL, no file, no Limit evaluated again.
+//! it reads them from the ledger as it starts, and again only once an
+//! engine of its process changed them, before it takes a Slice, or after
+//! its read interval, `usage.ledger_read_interval` of its engine's clock
+//! (issue 2602). A charge its Slices cover is then a step in memory: no
+//! SQL, no file, no Limit evaluated again.
 
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
-use goodfetch_protocol::usage::Limit;
+use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit};
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
 
@@ -22,13 +23,6 @@ use super::{
     Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
     StoredLimit, TARGET, point_in_time,
 };
-
-/// How long a run charges on the Limits it holds in memory before it reads
-/// them again though no engine of its process changed them (ADR 0041): an
-/// engine of another process may have, which this process's ledgers cannot
-/// see. One read a second for each run, whatever it charges meanwhile, in
-/// place of one at each charge.
-const UNSEEN_CHANGES: SignedDuration = SignedDuration::from_secs(1);
 
 /// Why a run may not start, or may not charge more.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -350,6 +344,12 @@ pub struct Charging {
     holder: Holder,
     placement: Placement,
     sizing: SliceSizing,
+    /// How long it charges on the Limits it holds in memory before it
+    /// reads them again though no engine of its process changed them
+    /// (ADR 0041): an engine of another process may have, which this
+    /// process's ledgers cannot see. One read each interval, whatever it
+    /// charges meanwhile, in place of one at each charge.
+    read_interval: SignedDuration,
     held: Vec<Held>,
     uncapped: bool,
     /// The Limits that hold it, as it read them last.
@@ -364,17 +364,32 @@ pub struct Charging {
 impl Charging {
     /// The charging of the run `holder` names, placed at `placement`. It
     /// reads nothing yet: [`Charging::may_start`] reads its Limits as the
-    /// run starts, and its first charge does when nothing has.
+    /// run starts, and its first charge does when nothing has. It reads
+    /// them again for another process's changes each
+    /// `usage.ledger_read_interval`'s default, unless
+    /// [`Charging::reading_every`] sets another interval.
     pub fn new(ledger: Ledger, holder: Holder, placement: Placement, sizing: SliceSizing) -> Self {
         Self {
             ledger,
             holder,
             placement,
             sizing,
+            read_interval: read_interval(LEDGER_READ_INTERVAL_DEFAULT),
             held: Vec::new(),
             uncapped: false,
             limits: Limits::unread(),
             connection: None,
+        }
+    }
+
+    /// The same charging, reading its Limits again for another process's
+    /// changes each `interval` of its engine's clock, the Run's
+    /// `usage.ledger_read_interval`: at every charge when it is zero.
+    #[must_use]
+    pub fn reading_every(self, interval: std::time::Duration) -> Self {
+        Self {
+            read_interval: read_interval(interval),
+            ..self
         }
     }
 
@@ -457,13 +472,13 @@ impl Charging {
 
     /// Whether the Limits it holds in memory are still the ledger's, as
     /// far as its process can tell at `now`: no engine of the process
-    /// changed them since it read them, and it read them less than
-    /// [`UNSEEN_CHANGES`] ago.
+    /// changed them since it read them, and it read them less than its
+    /// read interval ago.
     fn current(&self, now: Timestamp) -> bool {
         self.limits.read.is_some_and(|read| {
             read.changes == self.ledger.changes()
                 && now >= read.at
-                && now.duration_since(read.at) < UNSEEN_CHANGES
+                && now.duration_since(read.at) < self.read_interval
         })
     }
 
@@ -941,6 +956,11 @@ impl Charging {
 /// `amount` as a change of a run's Usage.
 fn signed(amount: u64) -> i64 {
     i64::try_from(amount).unwrap_or(i64::MAX)
+}
+
+/// `interval` on the engine's clock, the longest it holds past its range.
+fn read_interval(interval: std::time::Duration) -> SignedDuration {
+    SignedDuration::try_from(interval).unwrap_or(SignedDuration::MAX)
 }
 
 fn reached(stored: &StoredLimit, now: Timestamp) -> Refusal {

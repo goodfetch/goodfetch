@@ -261,6 +261,9 @@ signing = true
 [settings.admission]
 max_requests_per_minute = 4
 
+[settings.usage]
+ledger_read_interval = 30000
+
 [settings.version]
 age_notice = true
 
@@ -661,6 +664,9 @@ signing = true
 [lock.admission]
 max_requests_per_minute = 4
 
+[lock.usage]
+ledger_read_interval = 30000
+
 [lock.version]
 age_notice = true
 
@@ -903,6 +909,9 @@ fetch_timeout = 30000
 
 [cap.admission]
 max_requests_per_minute = 4
+
+[cap.usage]
+ledger_read_interval = 30000
 
 [cap.politeness.proxy]
 concurrency = 4

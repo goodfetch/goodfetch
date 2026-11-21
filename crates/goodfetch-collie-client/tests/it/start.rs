@@ -116,6 +116,8 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
     let conflict = failure(connection.start().run_id(&id("crawled")).await);
     let reached = failure(connection.start().run_id(&id("capped")).await);
     connection.close().await.unwrap();
+    // `run.started_as` is a read (issue 2798): it answers once the
+    // Connection is closed, which it could not if it sent a message.
     Played {
         started_as: [begun.started_as(), resumed.started_as(), ended.started_as()],
         named,

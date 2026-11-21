@@ -93,6 +93,13 @@ async def async_forms(
     async with await run.new_page() as opened:
         assert_type(opened, AsyncPage)
 
+    # A read answers at once, unawaited, from the answer that opened its
+    # handle: a property, which the program cannot replace, or a method for
+    # an `is_` name.
+    assert_type(run.label, str)
+    run.label = "other"  # type: ignore[misc]
+    assert_type(run.is_resumed(), bool)
+
     # A handle's own close answers nothing: it is idempotent (ADR 0078).
     close: Callable[[], Awaitable[None]] = page.close
     await close()
@@ -143,6 +150,10 @@ def sync_forms(
     assert_type(run.new_page(), Page)
     with run.new_page() as opened:
         assert_type(opened, Page)
+
+    assert_type(run.label, str)
+    run.label = "other"  # type: ignore[misc]
+    assert_type(run.is_resumed(), bool)
 
     close: Callable[[], None] = page.close
     close()

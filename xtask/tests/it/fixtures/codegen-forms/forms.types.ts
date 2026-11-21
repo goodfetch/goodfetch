@@ -3,7 +3,14 @@
 // and oxlint's `no-deprecated` on a deprecated use without its directive.
 import { expectTypeOf } from "vitest";
 import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
-import type { Acted, Navigated, PageField, Readiness, ReadyState } from "./generated/types.ts";
+import type {
+  Acted,
+  Navigated,
+  PageField,
+  Readiness,
+  ReadyState,
+  RunStarted,
+} from "./generated/types.ts";
 
 declare const run: Run;
 declare const page: Page;
@@ -75,6 +82,14 @@ void page.waitForReady({ poll: anyPoll });
 // A `new` member returns the value it opens, which closes with its scope.
 expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();
 expectTypeOf<Page>().toExtend<AsyncDisposable>();
+
+// A read answers at once, by a sync method, the value of the answer that
+// opened its handle: it sends nothing, so it has no options.
+expectTypeOf(run.label).parameters.toEqualTypeOf<[]>();
+expectTypeOf(run.label).returns.toEqualTypeOf<RunStarted["label"]>();
+expectTypeOf(run.isResumed).returns.toEqualTypeOf<boolean>();
+// @ts-expect-error a read has no timeout
+void run.label({ timeout: 1 });
 
 // A handle's own close answers nothing: it is idempotent (ADR 0078).
 expectTypeOf(page.close).returns.toEqualTypeOf<Promise<void>>();

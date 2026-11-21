@@ -93,6 +93,13 @@ impl Operation {
     fn offered(&self) -> bool {
         self.reach.as_deref() != Some("person_only")
     }
+
+    /// Whether calling it sends the engine a message: every kind but a
+    /// read, which its handle answers from the answer that opened it (issue
+    /// 2798), so no client calls it by name.
+    pub(super) fn sends(&self) -> bool {
+        self.kind != Kind::Read
+    }
 }
 
 #[derive(Debug, Deserialize)]

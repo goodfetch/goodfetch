@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel, JsonValue
 
-    from goodfetch_collie_client.generated.models import RunStarted, StartedAs
+    from goodfetch_collie_client.generated.models import RunStarted
     from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
     from goodfetch_collie_client.handle import (
         AsyncHandleHost,
@@ -713,6 +713,9 @@ _hosts: weakref.WeakKeyDictionary[AsyncRun, _AsyncHost[RunId]] = (
 )
 """Each async Run's host, which its sync twin's host wraps."""
 
+_started: weakref.WeakKeyDictionary[AsyncRun, RunStarted] = weakref.WeakKeyDictionary()
+"""Each async Run's start answer, which its sync twin's reads answer from."""
+
 
 class AsyncRun(AsyncRunMembers):
     """A Run of the async API."""
@@ -724,11 +727,11 @@ class AsyncRun(AsyncRunMembers):
             # A start that found its Run ended: closing it stops nothing.
             scope.state = "ended"
         host = _AsyncHost(connection, scope, None, started.run_id)
-        super().__init__(host)
+        super().__init__(host, started)
         _hosts[self] = host
+        _started[self] = started
         self._connection = connection
         self._scope = scope
-        self._started_as = started.started_as
         self._closing = Once()
         self.key_value_store = AsyncKeyValueStore(
             lambda prefix: host.read(KEYS, keys_params(self.id, prefix), key_of)
@@ -739,12 +742,6 @@ class AsyncRun(AsyncRunMembers):
     def id(self) -> str:
         """Its Run ID."""
         return self._scope.id
-
-    @property
-    def started_as(self) -> StartedAs:
-        """Whether its start began it, resumed it or found it ended."""
-        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        return self._started_as
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None
@@ -828,7 +825,7 @@ class Run(RunMembers):
     def __init__(self, loop: PrivateLoop, run: AsyncRun) -> None:
         """Takes its Connection's private loop and the Run it drives there."""
         host = _SyncHost(loop, _hosts[run])
-        super().__init__(host)
+        super().__init__(host, _started[run])
         self._loop = loop
         self._run = run
         self.key_value_store = KeyValueStore(
@@ -840,12 +837,6 @@ class Run(RunMembers):
     def id(self) -> str:
         """Its Run ID."""
         return self._run.id
-
-    @property
-    def started_as(self) -> StartedAs:
-        """Whether its start began it, resumed it or found it ended."""
-        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        return self._run.started_as
 
     def explain_settings(
         self, keys: Iterable[str] | None = None

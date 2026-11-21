@@ -24,9 +24,10 @@ from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings
 class AsyncRun(AsyncHandle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: AsyncHandleHost[models.RunId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: AsyncHandleHost[models.RunId], opened: models.RunStarted) -> None:
+        """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
+        self._opened = opened
         super().__init__(host, "run", "run_id")
 
     async def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
@@ -166,6 +167,15 @@ class AsyncRun(AsyncHandle):
         """
         warn_experimental("run.usage")
         return result_of(models.RunUsage, await self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
+
+    @property
+    def started_as(self) -> models.StartedAs:
+        """Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.started_as")
+        return self._opened.started_as
 
 
 class AsyncSession(AsyncHandle):
@@ -602,9 +612,10 @@ class AsyncLocator(AsyncHandle):
 class Run(Handle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: HandleHost[models.RunId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: HandleHost[models.RunId], opened: models.RunStarted) -> None:
+        """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
+        self._opened = opened
         super().__init__(host, "run", "run_id")
 
     def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
@@ -744,6 +755,15 @@ class Run(Handle):
         """
         warn_experimental("run.usage")
         return result_of(models.RunUsage, self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
+
+    @property
+    def started_as(self) -> models.StartedAs:
+        """Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.started_as")
+        return self._opened.started_as
 
 
 class Session(Handle):

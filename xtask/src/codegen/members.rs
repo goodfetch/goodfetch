@@ -43,11 +43,21 @@ pub(crate) fn handle_members(root: &Path) -> Result<Vec<HandleMember>> {
     let mut members = Vec::new();
     for handle in handles::handles(&layer)? {
         let receiver = naming::pascal(handle.namespace);
-        for member in &handle.members {
+        let written = handle
+            .members
+            .iter()
+            .map(|member| (member.operation, member.name))
+            .chain(
+                handle
+                    .reads()
+                    .iter()
+                    .map(|read| (read.operation, read.name)),
+            );
+        for (operation, name) in written {
             members.push(HandleMember {
                 receiver: receiver.clone(),
-                entry: member.operation.name.clone(),
-                words: member.name.to_owned(),
+                entry: operation.name.clone(),
+                words: name.to_owned(),
             });
         }
     }

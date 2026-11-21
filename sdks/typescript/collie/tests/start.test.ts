@@ -39,12 +39,14 @@ describe("A start on the Scripted engine as the Attached engine", () => {
       const reached = await failure(collie.start({ runId: "capped" }));
       await collie.close();
 
-      await clientCase.check("each start answers how it reached the Run", () =>
-        expect([begun, resumed, ended].map((run) => run.startedAs())).toEqual([
-          "new",
-          "resumed",
-          "ended",
-        ]),
+      await clientCase.check(
+        "run.startedAs() answers how each start reached the Run, without a message to the engine",
+        () =>
+          expect([begun, resumed, ended].map((run) => run.startedAs())).toEqual([
+            "new",
+            "resumed",
+            "ended",
+          ]),
       );
       await clientCase.check("run.id() names the Run without a message to the engine", () =>
         expect(id).toBe("nightly"),

@@ -23,11 +23,13 @@ export class Run extends Handle {
   }
 
   readonly #host: HandleHost<types.RunId, CollieOperationTypes>;
+  readonly #opened: types.RunStarted;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
-  constructor(host: HandleHost<types.RunId, CollieOperationTypes>) {
+  constructor(host: HandleHost<types.RunId, CollieOperationTypes>, opened: types.RunStarted) {
     super(host, "run", "run_id", { type: "RunId" });
     this.#host = host;
+    this.#opened = opened;
   }
 
   /**
@@ -160,6 +162,16 @@ export class Run extends Handle {
   async usage(): Promise<types.RunUsage> {
     warnExperimental("run.usage");
     return this.#host.call("run.usage", { runId: this.#host.id }, {});
+  }
+
+  /**
+   * Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+   *
+   * @experimental
+   */
+  startedAs(): types.RunStarted["startedAs"] {
+    warnExperimental("run.started_as");
+    return this.#opened.startedAs;
   }
 }
 

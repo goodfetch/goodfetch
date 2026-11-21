@@ -226,8 +226,10 @@ pub enum Reach {
     AllSurfaces,
     /// The SDKs only, to the program's own code: a Session's cookies and a
     /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
-    /// `effect.close` (ADR 0106), and the routes and their answers, whose
-    /// handler is the program's own code (ADR 0085). No CLI command, MCP
+    /// `effect.close` (ADR 0106), the routes and their answers, whose
+    /// handler is the program's own code (ADR 0085), and each read, which
+    /// a handle answers from the answer that opened it without a message,
+    /// such as `run.started_as` (ADR 0099). No CLI command, MCP
     /// tool, skill, Code mode global or Framework adapter offers it.
     SdkOnly,
     /// A person's answer, given in the Kennel or an interactive
@@ -249,10 +251,11 @@ impl Reach {
 }
 
 /// The canonical names of the entries ADRs 0089, 0092 and 0106 keep to the
-/// SDKs, which the catalog marks [`Reach::SdkOnly`] when it defines them.
+/// SDKs, and of the reads an SDK's handle answers without a message (ADR
+/// 0099), which the catalog marks [`Reach::SdkOnly`] when it defines them.
 /// Each surface generator other than the SDKs' refuses to offer an entry of
 /// these names, so one added without the marker fails its checks.
-pub const SDK_ONLY: [&str; 8] = [
+pub const SDK_ONLY: [&str; 9] = [
     "session.cookies",
     "session.add_cookies",
     "session.clear_cookies",
@@ -261,6 +264,7 @@ pub const SDK_ONLY: [&str; 8] = [
     "page.lend",
     "effect.open",
     "effect.close",
+    "run.started_as",
 ];
 
 /// Whether an entry is under semver's promise (ADR 0030).

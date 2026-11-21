@@ -474,20 +474,23 @@ fn connection(layer: &Layer) -> String {
 
 fn operations(layer: &Layer) -> String {
     let product = layer.product.name();
-    let types: BTreeSet<String> = layer
-        .operations
-        .iter()
+    // A read sends nothing, so no client calls it by name: its handle
+    // answers it (issue 2798).
+    let sent = || {
+        layer
+            .operations
+            .iter()
+            .filter(|operation| operation.sends())
+    };
+    let types: BTreeSet<String> = sent()
         .flat_map(|operation| [operation.params.0.clone(), operation.result.0.clone()])
         .collect();
-    let deprecates = layer
-        .operations
-        .iter()
-        .any(|operation| operation.deprecated.is_some());
+    let deprecates = sent().any(|operation| operation.deprecated.is_some());
     let mut text = header(&format!(
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
     text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final\n\n");
-    let returns = !layer.operations.is_empty();
+    let returns = sent().next().is_some();
     if deprecates {
         text.push_str("from typing_extensions import deprecated\n\n");
     }
@@ -505,7 +508,7 @@ fn operations(layer: &Layer) -> String {
             "\n\nclass {prefix}{product}Operations:\n    \"\"\"{product}'s operations, each a{} {mode} method.\"\"\"\n\n    def __init__(self, caller: {caller}) -> None:\n        \"\"\"Takes the runtime that sends each call.\"\"\"\n        self._caller = caller\n",
             if asynchronous { "n" } else { "" }
         );
-        for operation in &layer.operations {
+        for operation in sent() {
             body.push('\n');
             if let Some(deprecated) = &operation.deprecated {
                 body.push_str(&deprecated_decorator(deprecated));

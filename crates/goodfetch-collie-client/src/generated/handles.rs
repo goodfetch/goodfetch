@@ -6,6 +6,7 @@
 #[derive(Clone, Debug)]
 pub struct Run {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::run::RunId>,
+    pub(crate) opened: ::std::sync::Arc<::goodfetch_protocol::run::RunStarted>,
 }
 
 impl Run {
@@ -330,6 +331,15 @@ impl Run {
                 run_id: self.host.id().clone(),
             },
         )
+    }
+
+    /// Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    #[must_use]
+    pub fn started_as(&self) -> ::goodfetch_protocol::run::StartedAs {
+        crate::markers::warn("run.started_as", true, None);
+        ::std::borrow::ToOwned::to_owned(&self.opened.started_as)
     }
 }
 

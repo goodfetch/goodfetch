@@ -402,7 +402,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
-    files.extend(catalog_lists(&catalog)?);
+    files.extend(error_codes::files(&catalog)?);
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
@@ -425,22 +425,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         json_text(&standalone(&bundle, JOURNEY_FILES)?)?,
     );
 
-    let deny_path = root.join(DENY);
-    let deny_text = std::fs::read_to_string(&deny_path)
-        .with_context(|| format!("reading {}", deny_path.display()))?;
-    let crates = deny::foxhound_crates(root)?;
-    let licenses = deny::crate_licenses(root)?;
-    files.insert(
-        DENY.to_owned(),
-        deny::render_workspace(&deny_text, &crates, &licenses).into_bytes(),
-    );
-    let collie_path = root.join(deny::COLLIE);
-    let collie_text = std::fs::read_to_string(&collie_path)
-        .with_context(|| format!("reading {}", collie_path.display()))?;
-    files.insert(
-        deny::COLLIE.to_owned(),
-        deny::render_collie(&collie_text, &crates).into_bytes(),
-    );
+    files.extend(deny_files(root)?);
 
     for (path, schema) in test_support::schemas(cargo, root)? {
         files.insert(path, json_text(&schema)?);
@@ -456,11 +441,15 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     let version = product_version(root)?;
     files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
     let mut externals = Vec::new();
+    let mut python_fields = Vec::new();
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer)?,
-            Language::Python => python::generate(&layer)?,
+            Language::Python => {
+                python_fields.push(python::deprecated_fields(&layer));
+                python::generate(&layer)?
+            }
         };
         for (name, text) in generated.files {
             files.insert(format!("{}/{name}", package.folder), text.into_bytes());
@@ -475,6 +464,12 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
             header: generated.types.header,
         });
     }
+    // The release notes' deprecated settings keys, each with the Python
+    // plain-data fields that declare it (ADR 0099).
+    files.insert(
+        deprecated_settings::path(),
+        deprecated_settings::generate(&catalog, &python_fields)?.into_bytes(),
+    );
     helpers::add(&bundle, &mut files, &mut externals)?;
     Ok(Plan { files, externals })
 }
@@ -530,15 +525,27 @@ fn standalone(bundle: &Value, key: &str) -> Result<Value> {
     Ok(Value::Object(schema))
 }
 
-/// The files listing what the catalog declares: Rust's Error codes and the
-/// release notes' deprecated settings keys.
-fn catalog_lists(catalog: &Value) -> Result<Vec<(String, Vec<u8>)>> {
-    let mut lists = Vec::from(error_codes::files(catalog)?);
-    lists.push((
-        deprecated_settings::path(),
-        deprecated_settings::generate(catalog)?.into_bytes(),
-    ));
-    Ok(lists)
+/// The workspace's and Collie's `cargo deny` configurations, each rendered
+/// over its committed text with Foxhound's crates and the licences in use.
+fn deny_files(root: &Path) -> Result<[(String, Vec<u8>); 2]> {
+    let deny_path = root.join(DENY);
+    let deny_text = std::fs::read_to_string(&deny_path)
+        .with_context(|| format!("reading {}", deny_path.display()))?;
+    let crates = deny::foxhound_crates(root)?;
+    let licenses = deny::crate_licenses(root)?;
+    let collie_path = root.join(deny::COLLIE);
+    let collie_text = std::fs::read_to_string(&collie_path)
+        .with_context(|| format!("reading {}", collie_path.display()))?;
+    Ok([
+        (
+            DENY.to_owned(),
+            deny::render_workspace(&deny_text, &crates, &licenses).into_bytes(),
+        ),
+        (
+            deny::COLLIE.to_owned(),
+            deny::render_collie(&collie_text, &crates).into_bytes(),
+        ),
+    ])
 }
 
 /// JSON as every generated file writes it: pretty, with a final newline.

@@ -1,7 +1,12 @@
+use std::collections::BTreeMap;
+
 use goodfetch_protocol::catalog::ValueKind;
 use serde_json::{Value, json};
 
-use super::{foxhound_settings_module, scope_type, settings_module};
+use super::{
+    COLLIE_SCOPES, FOXHOUND_SCOPES, deprecated_fields, foxhound_settings_module, scope_type,
+    settings_module,
+};
 use crate::codegen::layer::Setting;
 
 fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Setting {
@@ -395,4 +400,71 @@ fn a_deprecated_setting_carries_its_deprecation_in_its_docstring_and_the_registr
         )),
         "{module}"
     );
+}
+
+/// Covers: story:11-182
+#[test]
+fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as() {
+    let deprecation = goodfetch_protocol::catalog::Deprecation {
+        since: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+        replacement: None,
+        earliest_removal: goodfetch_protocol::catalog::ProtocolVersion { major: 1, minor: 0 },
+        note: "Gone.".to_owned(),
+    };
+    let mut old = setting(
+        "politeness.domain.wait",
+        json!({ "type": "integer" }),
+        false,
+        &["connection", "run", "session"],
+    );
+    old.deprecated = Some(deprecation);
+    let settings = [
+        old,
+        setting(
+            "timeout.navigation",
+            json!({ "type": "integer" }),
+            false,
+            &["run"],
+        ),
+    ];
+
+    for (module, scopes, expected) in [
+        (
+            settings_module(&settings).unwrap(),
+            &COLLIE_SCOPES[..],
+            [
+                "ConnectionPolitenessDomainSettings",
+                "RunPolitenessDomainSettings",
+                "SessionPolitenessDomainSettings",
+            ]
+            .as_slice(),
+        ),
+        (
+            foxhound_settings_module(&settings).unwrap(),
+            &FOXHOUND_SCOPES[..],
+            [
+                "ConnectionPolitenessDomainSettings",
+                "RunPolitenessDomainSettings",
+            ]
+            .as_slice(),
+        ),
+    ] {
+        let fields = deprecated_fields(&settings, scopes);
+
+        let expected: Vec<String> = expected
+            .iter()
+            .map(|class| format!("{class}.wait"))
+            .collect();
+        assert_eq!(
+            fields,
+            BTreeMap::from([("politeness.domain.wait".to_owned(), expected.clone())])
+        );
+        for field in &expected {
+            let (name, _) = field.split_once('.').unwrap();
+            assert!(
+                class(&module, name).contains("\n    wait: NotRequired[int]\n"),
+                "{field} in {module}"
+            );
+        }
+    }
 }

@@ -4,6 +4,7 @@ import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
 import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -105,6 +106,7 @@ export class FoxhoundOperations {
    */
   crawlStart(params: CrawlStartParams): Promise<RunStarted> {
     warnExperimental("crawl.start");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("crawl.start", params, {});
   }
 
@@ -225,6 +227,7 @@ export class FoxhoundOperations {
    */
   runExport(params: RunExportParams, options: CallOptions = {}): Promise<Export> {
     warnExperimental("run.export");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.export", params, options);
   }
 
@@ -275,6 +278,7 @@ export class FoxhoundOperations {
    */
   runRetryFailed(params: RunRetryFailedParams): Promise<RetriedFailed> {
     warnExperimental("run.retry_failed");
+    warnDeprecatedSettings(params.settings);
     return this.#caller.call("run.retry_failed", params, {});
   }
 

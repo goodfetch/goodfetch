@@ -19,7 +19,7 @@ use goodfetch_protocol::settings::{
 };
 
 use super::handles::{self, Form, Handle, HandleId, Member, Overload};
-use super::layer::{Deprecation, Layer, Stability};
+use super::layer::{Deprecation, Layer, Operation, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
@@ -331,6 +331,19 @@ fn operations(layer: &Layer) -> String {
         .iter()
         .filter(|operation| operation.sends())
         .collect();
+    // A run layer taken as raw JSON is checked for deprecated keys as a
+    // typed member's settings are (ADR 0099).
+    let raw_settings_import = if sending
+        .iter()
+        .any(|operation| layer.takes_raw_settings(operation))
+    {
+        format!(
+            "import {{ {} }} from \"./settings.ts\";\n",
+            settings::WARN_DEPRECATED_SETTINGS
+        )
+    } else {
+        String::new()
+    };
     let mut text = format!("{HEADER}\n");
     match layer.product {
         Product::Collie => {
@@ -344,6 +357,7 @@ fn operations(layer: &Layer) -> String {
                 &[ENTRY_MARKERS],
             ));
             text.push_str(&type_imports(layer, &types));
+            text.push_str(&raw_settings_import);
             let _ = writeln!(
                 text,
                 "\nexport type {{ CallOptions, Caller, OperationTypes }} from \"{CALLER_MODULE}\";"
@@ -360,6 +374,7 @@ fn operations(layer: &Layer) -> String {
                 &[ENTRY_MARKERS],
             ));
             text.push_str(&type_imports(layer, &types));
+            text.push_str(&raw_settings_import);
         }
     }
     let _ = write!(
@@ -394,30 +409,45 @@ fn operations(layer: &Layer) -> String {
     );
     for operation in sending {
         text.push('\n');
-        text.push_str(&doc(
-            "  ",
-            &operation.description,
-            operation.stability,
-            operation.deprecated.as_ref(),
-        ));
-        let method = camel(&operation.name);
-        let (params, result) = (&operation.params.0, &operation.result.0);
-        let warn = warnings(operation);
-        if operation.cancellable {
-            let _ = write!(
-                text,
-                "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, options);\n  }}\n",
-                operation.name
-            );
-        } else {
-            let _ = write!(
-                text,
-                "  {method}(params: {params}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, {{}});\n  }}\n",
-                operation.name
-            );
-        }
+        text.push_str(&method(layer, operation));
     }
     text.push_str("}\n");
+    text
+}
+
+/// The async method of the operations class sending `operation`, with its
+/// `TSDoc` and its warnings: its markers', and the deprecated keys of a run
+/// layer it takes as raw JSON, as a typed member's settings are (ADR 0099).
+fn method(layer: &Layer, operation: &Operation) -> String {
+    let mut text = doc(
+        "  ",
+        &operation.description,
+        operation.stability,
+        operation.deprecated.as_ref(),
+    );
+    let method = camel(&operation.name);
+    let (params, result) = (&operation.params.0, &operation.result.0);
+    let mut warn = warnings(operation);
+    if layer.takes_raw_settings(operation) {
+        let _ = writeln!(
+            warn,
+            "    {}(params.settings);",
+            settings::WARN_DEPRECATED_SETTINGS
+        );
+    }
+    if operation.cancellable {
+        let _ = write!(
+            text,
+            "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, options);\n  }}\n",
+            operation.name
+        );
+    } else {
+        let _ = write!(
+            text,
+            "  {method}(params: {params}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, {{}});\n  }}\n",
+            operation.name
+        );
+    }
     text
 }
 

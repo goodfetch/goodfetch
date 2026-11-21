@@ -81,6 +81,30 @@ start({"timeout": {"navigation": 1}})
 """
 
 
+RAW_RUN_LAYER_TWICE = """
+from goodfetch_collie_client.generated.operations import CollieOperations
+from goodfetch_collie_client.generated.models import RunResumeParams
+
+
+class Refused(Exception):
+    pass
+
+
+class Engine:
+    def call(self, operation, params):
+        raise Refused(operation)
+
+
+operations = CollieOperations(Engine())
+for repeats in (3, 2):
+    layer = {"sample": {"echo_repeats": repeats}}
+    try:
+        operations.run_resume(RunResumeParams(run_id="run-1", settings=layer))
+    except Refused:
+        pass
+"""
+
+
 def shown(program: str) -> list[str]:
     """The warning lines Python shows while `program` runs in its own process."""
     ran = subprocess.run(
@@ -151,6 +175,23 @@ def test_setting_a_deprecated_key_warns_once_per_process() -> None:
 
     assert lines == [
         "<string>:10: DeprecationWarning: The setting `sample.echo_repeats` is "
+        "deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, "
+        "which the real catalog replaces.",
+    ]
+
+
+@pytest.mark.covers("story:11-182")
+def test_a_deprecated_key_in_a_raw_run_layer_warns_once_per_process() -> None:
+    """Resuming twice with raw `settings` that set it warns once, at the caller's line.
+
+    `run.resume` takes the run layer as raw JSON, as `run.export`,
+    `run.retry_failed` and Foxhound's `crawl.start` do; the warning is the
+    typed path's.
+    """
+    lines = [line for line in shown(RAW_RUN_LAYER_TWICE) if "The setting" in line]
+
+    assert lines == [
+        "<string>:19: DeprecationWarning: The setting `sample.echo_repeats` is "
         "deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, "
         "which the real catalog replaces.",
     ]

@@ -5,6 +5,7 @@ import {
   onWire,
   type SettingsOnWire,
   type Spelling,
+  warnDeprecatedOnWire,
 } from "../settings.ts";
 
 /**
@@ -60,4 +61,9 @@ const DEPRECATED_SETTINGS: DeprecatedSettings = new Map();
 /** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */
 export function settingsOnWire(settings: Settings | undefined): SettingsOnWire | undefined {
   return onWire(settings, SPELLING, DEPRECATED_SETTINGS);
+}
+
+/** @internal Warns once per process of each deprecated setting `settings`, raw as the wire takes them, set (ADR 0099). */
+export function warnDeprecatedSettings(settings: SettingsOnWire | undefined): void {
+  warnDeprecatedOnWire(settings, DEPRECATED_SETTINGS);
 }

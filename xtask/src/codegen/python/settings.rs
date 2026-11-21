@@ -45,6 +45,12 @@ pub(super) const DEPRECATED_SETTINGS: &str = "DEPRECATED_SETTINGS";
 /// deprecated setting they set with, from [`DEPRECATED_SETTINGS`].
 pub(super) const WARN_DEPRECATED_SETTINGS: &str = "warn_deprecated_settings";
 
+/// The line of a generated operation taking a run layer as raw JSON that
+/// warns of each deprecated setting the layer sets, as a typed member does.
+pub(super) fn raw_settings_check() -> String {
+    format!("        {WARN_DEPRECATED_SETTINGS}(params.settings, {DEPRECATED_SETTINGS})\n")
+}
+
 /// A scope's settings type: the scope, its type's name, the prefix of its
 /// areas' classes and its docstring's summary.
 struct ScopeType {
@@ -196,6 +202,56 @@ fn module(settings: &[Setting], scopes: &[ScopeType]) -> Result<String> {
     Ok(text)
 }
 
+/// The plain-data fields that declare each deprecated one of `settings` in
+/// `scopes`' types, each as `Class.field`, outermost scope first, by its
+/// key: what the release notes' list names beside the key, since a
+/// `TypedDict` field cannot carry PEP 702's marker (ADR 0099). A key no
+/// scope sets has none.
+fn deprecated_fields(settings: &[Setting], scopes: &[ScopeType]) -> BTreeMap<String, Vec<String>> {
+    let mut fields = BTreeMap::<String, Vec<String>>::new();
+    for setting in settings
+        .iter()
+        .filter(|setting| setting.deprecated.is_some())
+    {
+        let (area, field) = setting
+            .name
+            .rsplit_once('.')
+            .unwrap_or(("", setting.name.as_str()));
+        for scope in scopes.iter().filter(|scope| {
+            setting
+                .scopes
+                .iter()
+                .any(|named| named == scope.scope.as_str())
+        }) {
+            fields
+                .entry(setting.name.clone())
+                .or_default()
+                .push(format!("{}.{field}", class_name(scope, area)));
+        }
+    }
+    fields
+}
+
+/// The deprecated fields of Collie's client package, by key.
+pub(super) fn collie_deprecated_fields(settings: &[Setting]) -> BTreeMap<String, Vec<String>> {
+    deprecated_fields(settings, &COLLIE_SCOPES)
+}
+
+/// The deprecated fields of Foxhound's package, by key.
+pub(super) fn foxhound_deprecated_fields(settings: &[Setting]) -> BTreeMap<String, Vec<String>> {
+    deprecated_fields(settings, &FOXHOUND_SCOPES)
+}
+
+/// The class of `scope`'s area at the dotted `path`, or the scope's own
+/// type when `path` is empty.
+fn class_name(scope: &ScopeType, path: &str) -> String {
+    if path.is_empty() {
+        scope.name.to_owned()
+    } else {
+        format!("{}{}Settings", scope.areas, pascal(path))
+    }
+}
+
 /// The type name of the settings `opened`'s option takes.
 fn scope_type(opened: &str) -> Result<&'static str> {
     COLLIE_SCOPES
@@ -265,16 +321,11 @@ impl Module {
         scope: &ScopeType,
         path: &str,
     ) -> Result<String> {
-        let (name, summary) = if path.is_empty() {
-            (
-                scope.name.to_owned(),
-                format!("{}\n\n{THREE_STATES}", scope.doc),
-            )
+        let name = class_name(scope, path);
+        let summary = if path.is_empty() {
+            format!("{}\n\n{THREE_STATES}", scope.doc)
         } else {
-            (
-                format!("{}{}Settings", scope.areas, pascal(path)),
-                format!("The `{path}` settings of `{}`.", scope.name),
-            )
+            format!("The `{path}` settings of `{}`.", scope.name)
         };
         let mut class = format!(
             "class {name}(TypedDict):\n{}",

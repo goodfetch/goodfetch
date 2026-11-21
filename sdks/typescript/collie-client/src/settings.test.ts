@@ -4,6 +4,7 @@
 import { setImmediate } from "node:timers/promises";
 import * as fc from "fast-check";
 import { describe, expect, test } from "vitest";
+import { CollieOperations } from "./generated/operations.ts";
 import { type DeprecatedSettings, onWire, type Spelling } from "./settings.ts";
 
 const SPELLING: Spelling = {
@@ -141,6 +142,42 @@ describe("onWire", () => {
           "The setting `session.page_check` is deprecated. Since 0.1, removed no earlier than 1.0: Gone.",
         ],
       ]);
+    },
+  );
+});
+
+describe("a raw run layer", () => {
+  test(
+    "a generated operation taking raw `settings` warns once per process of a deprecated key they set, `null` included",
+    { tags: ["story:11-182"] },
+    async () => {
+      const operations = new CollieOperations({
+        call: () => Promise.reject(new Error("refused")),
+      });
+      const warnings: Error[] = [];
+      const listen = (warning: Error): void => {
+        warnings.push(warning);
+      };
+      const resume = async (repeats: number | null): Promise<string[][]> => {
+        await expect(
+          operations.runResume({ runId: "run-1", settings: { sample: { echo_repeats: repeats } } }),
+        ).rejects.toThrow("refused");
+        await setImmediate();
+        return warnings
+          .filter((warning) => "code" in warning && warning.code === "GOODFETCH_DEPRECATED")
+          .map((warning) => [warning.name, warning.message]);
+      };
+      const deprecation = [
+        "DeprecationWarning",
+        "The setting `sample.echo_repeats` is deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces.",
+      ];
+      process.on("warning", listen);
+      try {
+        expect(await resume(null)).toEqual([deprecation]);
+        expect(await resume(3)).toEqual([deprecation]);
+      } finally {
+        process.off("warning", listen);
+      }
     },
   );
 });

@@ -4,6 +4,7 @@
 //! only, so the hand-written release notes of each minor take this list,
 //! each key with its replacement, from the catalog.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use anyhow::{Context as _, Result};
@@ -27,8 +28,13 @@ struct Setting {
     deprecated: Option<Deprecation<String>>,
 }
 
-/// The list's Markdown: a row for each deprecated key, in key order.
-pub(super) fn generate(catalog: &Value) -> Result<String> {
+/// The plain-data fields of one Python settings module that declare each
+/// deprecated key, `Class.field`, by key, beside the module's name.
+pub(super) type PythonFields = (String, BTreeMap<String, Vec<String>>);
+
+/// The list's Markdown: a row for each deprecated key, in key order, with
+/// the fields that declare it in each of the `python` settings modules.
+pub(super) fn generate(catalog: &Value, python: &[PythonFields]) -> Result<String> {
     let settings: Vec<Setting> = serde_json::from_value(
         catalog
             .get("settings")
@@ -46,7 +52,7 @@ pub(super) fn generate(catalog: &Value) -> Result<String> {
         text.push_str("\nNo settings key is deprecated.\n");
         return Ok(text);
     }
-    text.push_str("\n| Key | Products | Since | Removed no earlier than | Replacement | Note |\n| --- | --- | --- | --- | --- | --- |\n");
+    text.push_str("\n| Key | Products | Python fields | Since | Removed no earlier than | Replacement | Note |\n| --- | --- | --- | --- | --- | --- | --- |\n");
     for (setting, deprecation) in deprecated {
         let replacement = deprecation
             .replacement
@@ -54,15 +60,34 @@ pub(super) fn generate(catalog: &Value) -> Result<String> {
             .map_or_else(|| "none".to_owned(), |key| format!("`{key}`"));
         let _ = writeln!(
             text,
-            "| `{}` | {} | {} | {} | {replacement} | {} |",
+            "| `{}` | {} | {} | {} | {} | {replacement} | {} |",
             setting.name,
             setting.products.join(", "),
+            python_fields(python, &setting.name),
             deprecation.since,
             deprecation.earliest_removal,
             cell(&deprecation.note)
         );
     }
     Ok(text)
+}
+
+/// The cell of `key`'s Python fields: each module's, `none` when no module
+/// declares it.
+fn python_fields(python: &[PythonFields], key: &str) -> String {
+    let modules: Vec<String> = python
+        .iter()
+        .filter_map(|(module, fields)| {
+            let fields = fields.get(key).filter(|fields| !fields.is_empty())?;
+            let fields: Vec<String> = fields.iter().map(|field| format!("`{field}`")).collect();
+            Some(format!("`{module}`: {}", fields.join(", ")))
+        })
+        .collect();
+    if modules.is_empty() {
+        "none".to_owned()
+    } else {
+        modules.join("; ")
+    }
 }
 
 /// `text` as one cell of a Markdown table: on one line, its pipes escaped.

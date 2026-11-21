@@ -283,14 +283,6 @@ form = "read"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Run"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
-form = "read"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "Run"
 member = "key_value_store"
 entry = "none"
 reason = "The Run's Key-value store (ADR 0103), opened with the Run, with no round trip."
@@ -338,14 +330,6 @@ member = "id"
 entry = "none"
 reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
 words = ["id"]
-form = "read"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "AsyncRun"
-member = "started_as"
-entry = "run.start"
-words = ["started", "as"]
 form = "read"
 
 [[member]]

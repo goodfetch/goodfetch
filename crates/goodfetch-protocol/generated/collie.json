@@ -7131,7 +7131,7 @@
     },
     "RunParams": {
       "additionalProperties": false,
-      "description": "What `run.usage`, `run.pause` and `run.migrate` take: the Run.",
+      "description": "What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:\nthe Run.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
@@ -7695,6 +7695,20 @@
         "started_as",
         "lifecycle",
         "needs"
+      ],
+      "type": "object"
+    },
+    "RunStartedAs": {
+      "description": "What `run.started_as` answers: how the start that opened the Run's\nhandle reached it.",
+      "properties": {
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "started_as"
       ],
       "type": "object"
     },
@@ -13890,6 +13904,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.",
+      "events": [],
+      "kind": "read",
+      "name": "run.started_as",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunStartedAs"
       },
       "stability": "experimental"
     },

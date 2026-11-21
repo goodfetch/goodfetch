@@ -4162,6 +4162,17 @@
       ]
     },
     {
+      "id": "operation:run.started_as",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.stop",
       "kind": "operation",
       "area": 3,

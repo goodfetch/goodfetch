@@ -19,7 +19,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "sample.crawl": "sample.crawl",
 };
 
-/** Foxhound's operations, each an async method. */
+/** Foxhound's operations that send a message, each an async method. */
 export class FoxhoundOperations {
   readonly #caller: Caller<FoxhoundOperationTypes>;
 

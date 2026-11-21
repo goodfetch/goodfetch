@@ -167,7 +167,7 @@ impl ListenerModel {
                 &description,
                 operation.stability,
                 operation.deprecated.as_ref(),
-                errors,
+                Some(errors),
             ),
             warning: warning(
                 &operation.name,

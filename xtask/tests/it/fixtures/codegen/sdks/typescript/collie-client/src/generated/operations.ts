@@ -21,7 +21,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "sample.echo": "sample.echo",
 };
 
-/** Collie's operations, each an async method. */
+/** Collie's operations that send a message, each an async method. */
 export class CollieOperations {
   readonly #caller: Caller<CollieOperationTypes>;
 

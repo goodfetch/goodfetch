@@ -233,6 +233,14 @@ impl Run {
     > {
         crate::blocking::Call::new(self.inner.usage(), self.inner.host.connection())
     }
+
+    /// Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    #[must_use]
+    pub fn started_as(&self) -> ::goodfetch_protocol::run::StartedAs {
+        self.inner.started_as()
+    }
 }
 
 /// A `session` a program holds: the members the catalog gives it (ADR 0099).

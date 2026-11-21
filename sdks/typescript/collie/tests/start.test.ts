@@ -20,7 +20,15 @@ import { describe, expect } from "vitest";
 describe("A start on the Scripted engine as the Attached engine", () => {
   test(
     "reaches the Run its Run ID names, logs a resume and an ended Run, and raises each refusal's class",
-    { tags: ["client_case/start-reaches-its-run", "attached", "story:11-126", "story:11-127"] },
+    {
+      tags: [
+        "client_case/start-reaches-its-run",
+        "attached",
+        "story:11-126",
+        "story:11-127",
+        "operation:run.started_as",
+      ],
+    },
     async ({ testEnv, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "run/start-reaches-its-run.json");
       const { logger, logged, stderr } = recordingLogger();
@@ -39,12 +47,14 @@ describe("A start on the Scripted engine as the Attached engine", () => {
       const reached = await failure(collie.start({ runId: "capped" }));
       await collie.close();
 
-      await clientCase.check("each start answers how it reached the Run", () =>
-        expect([begun, resumed, ended].map((run) => run.startedAs())).toEqual([
-          "new",
-          "resumed",
-          "ended",
-        ]),
+      await clientCase.check(
+        "run.startedAs() answers how each start reached the Run, without a message to the engine",
+        () =>
+          expect([begun, resumed, ended].map((run) => run.startedAs())).toEqual([
+            "new",
+            "resumed",
+            "ended",
+          ]),
       );
       await clientCase.check("run.id() names the Run without a message to the engine", () =>
         expect(id).toBe("nightly"),

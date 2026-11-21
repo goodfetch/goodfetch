@@ -15,7 +15,7 @@ use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::page::session::{SESSION_CLOSE, SessionParams};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, PageCloseParams};
 use goodfetch_protocol::page::{Locator, PageId, SessionId};
-use goodfetch_protocol::run::{Lifecycle, RUN_ABORT, RunAbortParams, RunId, RunReport, StartedAs};
+use goodfetch_protocol::run::{Lifecycle, RUN_ABORT, RunAbortParams, RunId, RunReport};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize as _, Serialize};
 use serde_json::Value;
@@ -400,7 +400,6 @@ impl Held for Locator {
 pub(crate) struct HeldRun {
     connection: ClientConnection,
     run_id: RunId,
-    started_as: StartedAs,
     state: Mutex<State>,
 }
 
@@ -417,12 +416,7 @@ enum State {
 
 impl HeldRun {
     /// The Run `run.start` answered, on `connection`.
-    pub(crate) fn new(
-        connection: ClientConnection,
-        run_id: RunId,
-        started_as: StartedAs,
-        lifecycle: Lifecycle,
-    ) -> Self {
+    pub(crate) fn new(connection: ClientConnection, run_id: RunId, lifecycle: Lifecycle) -> Self {
         let state = if lifecycle == Lifecycle::Running {
             State::Running
         } else {
@@ -431,14 +425,8 @@ impl HeldRun {
         Self {
             connection,
             run_id,
-            started_as,
             state: Mutex::new(state),
         }
-    }
-
-    /// Whether the start began the Run, went on with it, or found it ended.
-    pub(crate) fn started_as(&self) -> StartedAs {
-        self.started_as
     }
 
     /// Closes the Run for every handle, as [`crate::Run::close`] says: it

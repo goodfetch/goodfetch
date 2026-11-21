@@ -141,6 +141,7 @@ export type CollieWireType =
   | "RunSetProgressMessageParams"
   | "RunStartParams"
   | "RunStarted"
+  | "RunStartedAs"
   | "RunStopParams"
   | "RunStopping"
   | "RunStorage"
@@ -315,6 +316,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
     "RunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
+    "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
@@ -413,6 +415,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.resume": { type: "RunResumeParams" },
     "run.set_progress_message": { type: "RunSetProgressMessageParams" },
     "run.start": { type: "RunStartParams" },
+    "run.started_as": { type: "RunParams" },
     "run.stop": { type: "RunStopParams" },
     "run.usage": { type: "RunParams" },
     "session.close": { type: "SessionParams" },
@@ -461,6 +464,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.resume": { type: "RunStarted" },
     "run.set_progress_message": { type: "RunProgress" },
     "run.start": { type: "RunStarted" },
+    "run.started_as": { type: "RunStartedAs" },
     "run.stop": { type: "RunReport" },
     "run.usage": { type: "RunUsage" },
     "session.new_page": { type: "PageOpened" },

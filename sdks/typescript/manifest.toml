@@ -296,14 +296,6 @@ form = "read"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "Run"
-member = "startedAs"
-entry = "run.start"
-words = ["started", "as"]
-form = "read"
-
-[[member]]
-package = "@goodfetch/collie-client"
-receiver = "Run"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]

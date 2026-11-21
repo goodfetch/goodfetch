@@ -19,12 +19,20 @@
 //!   parameter names the event `<namespace>.<value>`, whose payload the
 //!   listener gets, or the handle it names when it is what an opener of
 //!   another handle answers. A published event's payload names its handle
-//!   by the handle's ID. A read, a sequence and another event get their forms
+//!   by the handle's ID. A sequence and another event get their forms
 //!   with their own tickets (issue 1233), as does an opener, which opens its
 //!   own namespace's value.
+//! - A read answers a value of the answer that opened its handle, which
+//!   the handle holds, so it sends nothing (issue 2798): it takes nothing
+//!   but the handle's ID, its result's one property is required, and the
+//!   type each opener of its namespace answers holds that property with the
+//!   same type. A handle with reads is built only by its opener, never by
+//!   another handle or a listener. Reads that events update come with
+//!   their own ticket.
 //! - A prefix has one meaning: `new_` starts a round trip or an opener,
-//!   `wait_for` a waiter and every waiter, `is_` a query, `on` an event or
-//!   a sequence, and `get_by_` no operation, since it builds without I/O.
+//!   `wait_for` a waiter and every waiter, `is_` a query or a read, `on` an
+//!   event or a sequence, and `get_by_` no operation, since it builds
+//!   without I/O.
 //! - Required parameters are positional in the catalog's order, but a
 //!   boolean, which is named like every optional one.
 //! - A handle whose ID is a value that holds another handle's ID is built
@@ -49,10 +57,17 @@
 //!   union or an optional one, still resolves. A required
 //!   parameter, which every call passes, or every value of a choice, which
 //!   leaves no call free of it, is refused.
+//!
+//! Size: one concern, the rules that read the catalog's operations into
+//! the handles every generator writes, each refusal naming its entry; the
+//! reads' rules live in a module of their own.
+
+mod reads;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
+pub(super) use self::reads::{Read, Reads};
 use super::layer::{Deprecation, Kind, Layer, Operation, Stability};
 use super::naming;
 
@@ -320,9 +335,44 @@ pub(super) struct Handle<'a> {
     pub(super) listener: Option<Listener<'a>>,
     /// Its `on`, when its namespace is one of [`PUBLISHED_LISTENERS`].
     pub(super) published_listener: Option<Listener<'a>>,
+    /// Its reads, when it has any: the handle is then built with the
+    /// answer that opened it.
+    pub(super) reads: Option<Reads<'a>>,
 }
 
-impl Handle<'_> {
+impl<'a> Handle<'a> {
+    /// Adds `member`, to the sub-object `sub_object` names when one does,
+    /// which its first member opens.
+    fn push(&mut self, sub_object: Option<&'a str>, member: Member<'a>) {
+        let Some(sub_object) = sub_object else {
+            self.members.push(member);
+            return;
+        };
+        match self
+            .sub_objects
+            .iter_mut()
+            .find(|held| held.name == sub_object)
+        {
+            Some(held) => held.members.push(member),
+            None => self.sub_objects.push(SubObject {
+                name: sub_object,
+                members: vec![member],
+            }),
+        }
+    }
+
+    /// Adds `read`, of the answer of type `opened`, which its first read
+    /// names.
+    fn push_read(&mut self, opened: String, read: Read<'a>) {
+        self.reads
+            .get_or_insert_with(|| Reads {
+                opened,
+                members: Vec::new(),
+            })
+            .members
+            .push(read);
+    }
+
     /// The handle of `namespace`, named by `id`, before its members.
     fn of(namespace: &'static str, id: HandleId) -> Self {
         Self {
@@ -333,7 +383,15 @@ impl Handle<'_> {
             sub_objects: Vec::new(),
             listener: None,
             published_listener: None,
+            reads: None,
         }
+    }
+
+    /// Its reads, none when it has no answer to read from.
+    pub(super) fn reads(&self) -> &[Read<'_>] {
+        self.reads
+            .as_ref()
+            .map_or(&[], |reads| reads.members.as_slice())
     }
 
     /// Whether a program closes the value: its catalog has a `close` in
@@ -396,8 +454,8 @@ fn check_prefix(operation: &Operation, name: &str) -> Result<()> {
         Some("`wait_for` starts the name of a waiter, and of nothing else")
     } else if starts("new") && !matches!(kind, Kind::RoundTrip | Kind::Opener) {
         Some("`new_` opens a value the caller closes, which a round trip or an opener does")
-    } else if starts("is") && kind != Kind::Query {
-        Some("`is_` answers yes or no and never waits, which a query does")
+    } else if starts("is") && !matches!(kind, Kind::Query | Kind::Read) {
+        Some("`is_` answers yes or no and never waits, which a query or a read does")
     } else if starts("on") && !matches!(kind, Kind::Event | Kind::Sequence) {
         Some("`on` observes side activity, which an event or a sequence does")
     } else if starts("get_by") {
@@ -865,6 +923,14 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                     continue;
                 }
             }
+            if operation.kind == Kind::Read {
+                let (opened, read) =
+                    reads::read(layer, namespace, operation, name, sub_object, schema, &id)?;
+                found
+                    .get_or_insert_with(|| Handle::of(namespace, id))
+                    .push_read(opened, read);
+                continue;
+            }
             let Some(form) = form(operation, name, schema)? else {
                 continue;
             };
@@ -891,27 +957,14 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 timeout_setting,
                 unwrapped,
             };
-            let handle = found.get_or_insert_with(|| Handle::of(namespace, id));
-            match sub_object {
-                None => handle.members.push(member),
-                Some(sub_object) => {
-                    match handle
-                        .sub_objects
-                        .iter_mut()
-                        .find(|held| held.name == sub_object)
-                    {
-                        Some(held) => held.members.push(member),
-                        None => handle.sub_objects.push(SubObject {
-                            name: sub_object,
-                            members: vec![member],
-                        }),
-                    }
-                }
-            }
+            found
+                .get_or_insert_with(|| Handle::of(namespace, id))
+                .push(sub_object, member);
         }
         handles.extend(found);
     }
     check_opened_values(layer, &handles)?;
+    reads::check_opened(&handles)?;
     let builders = builders(layer, &handles)?;
     for (parent, builder) in builders {
         handles[parent].builders.push(builder);

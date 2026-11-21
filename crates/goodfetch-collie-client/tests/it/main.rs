@@ -8,6 +8,7 @@
 
 #[cfg(unix)]
 mod attached;
+mod call_cancelled;
 mod closing;
 mod compile_fail;
 mod connection;
@@ -20,6 +21,7 @@ mod limits;
 mod logging;
 mod navigations;
 mod points_in_time;
+mod product_and_provisioning;
 mod results;
 mod scripted_daemon;
 mod session_events;

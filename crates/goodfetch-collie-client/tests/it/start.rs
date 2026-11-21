@@ -71,7 +71,7 @@ fn daemon(env: &TestEnv) -> (goodfetch_test_support::Process, DaemonEndpoint) {
 }
 
 /// The failure `result` holds.
-fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
+pub(crate) fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
     let Err(failure) = result else {
         panic!("{result:?}");
     };

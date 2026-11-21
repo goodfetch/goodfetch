@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
 
-use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, ErrorResponse, ProtocolFailure, Request, RequestId, Response, Version,
 };
@@ -223,8 +223,9 @@ impl Drop for HandlerCall {
             return;
         }
         let details = CallCancelledDetails {
-            by: StoppedBy::Program,
+            by: CancelledBy::Program,
             closed: None,
+            person: None,
         };
         let details: Map<String, Value> = serde_json::to_value(details)
             .and_then(serde_json::from_value)

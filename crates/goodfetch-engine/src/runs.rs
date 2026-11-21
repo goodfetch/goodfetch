@@ -1319,7 +1319,8 @@ pub struct Run {
 
 /// What every handle of a live Run shares.
 struct Shared {
-    /// The reason it was asked to stop at its next safe point, once asked.
+    /// The reason it was asked to stop at its next safe point, once asked,
+    /// or the reason it stopped at once.
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
@@ -1891,6 +1892,19 @@ impl Run {
                 *stop = Some(reason);
             }
             unset
+        });
+    }
+
+    /// Keeps `reason`, unless one was asked before, as what a call in
+    /// flight reads once the Run's tasks are cancelled (ADR 0113), such as
+    /// the Client whose abort stops it at once, waking nothing that waits
+    /// for a safe point: the Run ends now, not at one.
+    fn stopped_at_once(&self, reason: StopReason) {
+        self.shared.stop.send_if_modified(|stop| {
+            if stop.is_none() {
+                *stop = Some(reason);
+            }
+            false
         });
     }
 
@@ -6960,6 +6974,9 @@ impl Closing {
             parts,
             governor,
         } = self;
+        if let End::Stopped(reason) = &end {
+            run.stopped_at_once(reason.clone());
+        }
         run.owner.stop().await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),

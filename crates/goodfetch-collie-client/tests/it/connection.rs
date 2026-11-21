@@ -215,7 +215,7 @@ pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
 }
 
 /// What a scripted peer's engine answers `hello` with.
-fn said() -> serde_json::Value {
+pub(crate) fn said() -> serde_json::Value {
     serde_json::json!({
         "protocol_version": "0.1",
         "product": "collie",
@@ -362,7 +362,9 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
 /// Dropping the future of a call the catalog says is cancellable, once the
 /// call is sent, cancels it with `$/cancel` naming its id, without waiting
 /// (ADR 0080); the peer's late reply to it and the next call then go as
-/// usual.
+/// usual: the program's own cancellation is never an error.
+///
+/// Covers: story:11-48
 #[test]
 fn a_dropped_cancellable_call_is_cancelled_by_its_id() {
     let read = after_a_dropped_call(PAGE_GOTO.name);

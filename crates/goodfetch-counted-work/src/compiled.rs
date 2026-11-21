@@ -29,7 +29,7 @@ pub(crate) const CAPACITY: u64 = 16_384;
 
 /// The most regular expressions, apart the most globs, and apart the most
 /// built values, the cache keeps: a Run's fields, Scope and Payload rules
-/// hold a few dozen, and its fields a few locales.
+/// hold a few dozen, and its fields a few locales and `XPath` locators.
 const PATTERN_CAPACITY: u64 = 1_024;
 
 /// A compilation's key: the Clean-up rules' digest for one of their

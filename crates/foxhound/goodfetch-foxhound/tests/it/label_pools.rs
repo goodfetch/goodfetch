@@ -217,7 +217,8 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
 
 /// A pool Session sends from one client for its life: in a crawl that
 /// mixes a Label forced onto `http`, which sends from a Session's own
-/// transport, and one left to the engine, which sends from its browser,
+/// transport, and one left to the engine whose HTTP leaves from the browser
+/// (`fetch.http_from: browser`), which sends from its browser,
 /// each Session ID the handlers are given goes with the requests of one
 /// Label only, though the pool holds one Session at a time.
 ///
@@ -241,7 +242,7 @@ fn each_pool_session_serves_one_client_when_a_forced_http_label_and_an_engine_la
         ],
         &json!({
             "forced": { "settings": { "fetch": { "tier": "http" } } },
-            "engine": {},
+            "engine": { "settings": { "fetch": { "http_from": "browser" } } },
         }),
         &settings(&proving_ground, "auto"),
         &mut handler(&mut seen, &set),

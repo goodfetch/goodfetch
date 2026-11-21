@@ -1,8 +1,9 @@
 """What the integration tests share to call an Attached engine and read its answers.
 
-A Connection opened one of the three ways, the Goodfetch error a call raises,
-and the lines the engine wrote on its stderr. TypeScript's `failure` and
-`recordingLogger` of `@goodfetch/test-support` are their twins.
+A Connection opened one of the three ways, a page's locator whatever the
+way, the Goodfetch error a call raises, and the lines the engine wrote on
+its stderr. TypeScript's `failure` and `recordingLogger` of
+`@goodfetch/test-support` are their twins.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from goodfetch_collie import EngineChoice, Limits
+    from goodfetch_collie_client.generated.handles import AsyncLocator, AsyncPage
     from goodfetch_test_support import Way
 
 CLIENT_LOGGER = "goodfetch.client"
@@ -41,6 +43,16 @@ async def open_collie(
             env=env, engine=engine, limits=limits, timeout=connect_timeout
         ),
     )
+
+
+def locator_on(way: Way, page: AsyncPage, selector: str) -> AsyncLocator:
+    """`page`'s locator for `selector`, its methods async whatever the way.
+
+    A builder is a plain method in both APIs (ADR 0099), so the sync way's
+    proxy hands the sync `Locator` itself, which `way.api` wraps.
+    """
+    built = page.locator(selector)
+    return way.api(built, built)
 
 
 def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:

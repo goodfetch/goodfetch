@@ -247,8 +247,8 @@ fn every_encodings_page_reads_the_oracles_text_under_a_forced_tier(
     }
 }
 
-/// Under `auto`, each page the first of its own Label and so a sample, it
-/// is read on browser-fetch and then in the browser, each reading the
+/// Under `auto` and `fetch.http_from: browser`, each page the first of its
+/// own Label and so a sample, it is read on browser-fetch and then in the browser, each reading the
 /// oracle's text; the page only a guess reads escalates before its
 /// handler runs on browser-fetch, its browser run recorded in Provenance
 /// as escalating at `fetch.encoding`, its encoding `detected`, and no page
@@ -271,7 +271,11 @@ fn every_encodings_page_reads_the_same_text_on_browser_fetch_and_in_the_browser(
         "encodings-auto",
         &seeds(&proving_ground, &[], ToOwned::to_owned),
         &Value::Object(labels),
-        &on(&proving_ground, "auto", &json!({})),
+        &on(
+            &proving_ground,
+            "auto",
+            &json!({ "fetch": { "http_from": "browser" } }),
+        ),
         &mut reading(&mut read),
     );
     let ended = ended(&mut engine, "encodings-auto");

@@ -1163,3 +1163,65 @@ fn an_engine_writes_the_install_limit_of_its_managed_operator_policy_when_it_sta
         (&json!(40), &json!("managed_policy"), &json!("1"))
     );
 }
+
+/// A Run reads its Limits again from the Usage ledger at the
+/// `usage.ledger_read_interval` its user configuration sets (issue 2602):
+/// at `0`, a Limit an engine of another process sets, as a row written
+/// straight into the file is here, refuses the Run's next charge; at an
+/// hour, the Slices the Run holds still cover it.
+///
+/// Covers: story:3-71, setting:usage.ledger_read_interval
+#[rstest]
+#[case::at_every_charge(0, Some(json!("limit_reached")))]
+#[case::an_hour_later(3_600_000, None)]
+fn a_run_reads_its_limits_again_at_the_interval_its_user_configuration_sets(
+    #[case] interval: u64,
+    #[case] refused: Option<Value>,
+) {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        format!("version = \"0.1\"\n\n[settings]\nusage.ledger_read_interval = {interval}\n"),
+    )
+    .unwrap();
+    let ledger = env.home().join("usage-ledger.sqlite");
+
+    let next = attached_on(
+        &engine_with(Product::Collie, Some(charging())),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "run.start",
+                json!({
+                    "run_id": "going",
+                    "limits": [{ "usage_kind": "requests", "amount": 1_000 }],
+                }),
+            )
+            .await;
+            let first = json!({ "run_id": "going", "amount": 1 });
+            call(&mut client, 2, "test.charge_live", first).await;
+            rusqlite::Connection::open(ledger)
+                .unwrap()
+                .execute(
+                    "INSERT INTO limits (scope_kind, scope_id, usage_kind, amount, must_understand, set_by, set_at)
+                     VALUES ('install', '', 'requests', 0, 1, 'person', '2026-01-05T09:00:00Z')",
+                    [],
+                )
+                .unwrap();
+            let next = json!({ "run_id": "going", "amount": 1 });
+            call(&mut client, 3, "test.charge_live", next).await
+        },
+    );
+
+    assert_eq!(
+        next["error"]["data"].get("code").cloned(),
+        refused,
+        "{next}"
+    );
+}

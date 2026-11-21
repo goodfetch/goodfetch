@@ -5,7 +5,7 @@
 //! shares one count, whichever engine made it. Engines that name one file
 //! by different paths count apart, as do engines of other processes: their
 //! changes reach a run when it reads its Limits again, before a Slice or
-//! after `UNSEEN_CHANGES` (ADR 0041).
+//! after its `usage.ledger_read_interval` (ADR 0041, issue 2602).
 
 #![expect(
     clippy::disallowed_types,

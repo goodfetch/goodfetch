@@ -499,7 +499,10 @@ fn a_marked_request_in_a_sampling_label_is_weighed_and_never_a_decoy() {
             "cards": { "settings": { "fetch": { "tier": "http" } } },
             "item": {},
         }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "auto", "http_from": "browser" } }),
+        ),
         &mut enqueuing("cards", "item", &mut answered),
     );
     let ended = endings(&mut engine, "trap-links-sampled");

@@ -174,6 +174,10 @@ impl KeyState for RobotsCopy {
     /// Whether a change wrote it.
     type Writes = bool;
 
+    /// A copy is the file's, shared by every engine, outside any
+    /// Delegation: its reads and writes count apart from Permits'.
+    const TRANSACTIONS: Row = Row::PolitenessOtherTransactions;
+
     fn load(connection: &Connection, location: &str, reads: bool) -> rusqlite::Result<Self> {
         Ok(Self(if reads {
             stored(connection, location)?

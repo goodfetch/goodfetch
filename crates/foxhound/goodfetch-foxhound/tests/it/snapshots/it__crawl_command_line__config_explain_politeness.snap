@@ -51,6 +51,18 @@ expression: "serde_json::to_string_pretty(&explained.documents[0]).unwrap()"
     },
     {
       "applied": true,
+      "key": "politeness.delegation",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": true,
+      "weakens": false
+    },
+    {
+      "applied": true,
       "key": "politeness.domain.adaptive_delay",
       "layer": "default",
       "products": [

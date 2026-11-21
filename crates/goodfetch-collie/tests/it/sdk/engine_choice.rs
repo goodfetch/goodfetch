@@ -38,7 +38,10 @@ const REACHED_DAEMON: &str = "connect/reached-daemon.json";
 const REACHED_REMOTE: &str = "connect/reached-remote-with-a-canary-token.json";
 
 /// The environment of `env` with `variables` added.
-fn environment(env: &TestEnv, variables: &[(&str, &str)]) -> BTreeMap<OsString, OsString> {
+pub(super) fn environment(
+    env: &TestEnv,
+    variables: &[(&str, &str)],
+) -> BTreeMap<OsString, OsString> {
     let mut environment = env.env_os();
     for (name, value) in variables {
         environment.insert(name.into(), value.into());
@@ -59,7 +62,7 @@ pub(super) fn hello(token: &str) -> HelloParams {
 }
 
 /// The Product version of the SDK and its engines.
-fn version() -> ProductVersion {
+pub(super) fn version() -> ProductVersion {
     ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap()
 }
 
@@ -99,7 +102,7 @@ pub(super) fn scripted(
 
 /// Where the Scripted engine, as the Daemon of the home, listens, as its
 /// runtime file names it.
-fn listening(line: &Value) -> String {
+pub(super) fn listening(line: &Value) -> String {
     let runtime_file = line["runtime_file"].as_str().unwrap();
     let found = RuntimeFile::read(runtime_file.as_ref()).unwrap();
     let endpoint: DaemonEndpoint =
@@ -122,13 +125,13 @@ fn goodfetch_log() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
 }
 
 /// The text `log` holds.
-fn text(log: &CapturedLog) -> String {
+pub(super) fn text(log: &CapturedLog) -> String {
     String::from_utf8(log.written()).unwrap()
 }
 
 /// What `engine()` reports of the engine reached as `kind` in `home`,
 /// listening at `url`.
-fn reached(kind: EngineKind, home: Option<PathBuf>, url: Option<String>) -> EngineInfo {
+pub(super) fn reached(kind: EngineKind, home: Option<PathBuf>, url: Option<String>) -> EngineInfo {
     EngineInfo {
         kind,
         product: Product::Collie,

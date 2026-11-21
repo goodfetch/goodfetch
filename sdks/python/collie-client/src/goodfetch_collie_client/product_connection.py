@@ -16,16 +16,28 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from goodfetch_collie_client.attached_engine import AttachedEngine
+import anyio
+
+from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
     CLOSE_TIMEOUT,
     ClientConnection,
     DaemonHello,
+    EngineFallback,
     EngineInfo,
     Reached,
+    connect_limit,
+    phase_exceeded,
 )
 from goodfetch_collie_client.deployment_variables import check_deployment_variables
-from goodfetch_collie_client.engine_choice import AttachedReach, reach_engine
+from goodfetch_collie_client.engine_choice import (
+    AttachedReach,
+    handed_over_to,
+    reach_engine,
+)
+from goodfetch_collie_client.generated.connection import PRODUCT_VERSION
+from goodfetch_collie_client.generated.models import Product
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.limits import limit_list
@@ -38,8 +50,12 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
 
-    from goodfetch_collie_client.engine_choice import DaemonReach, EngineChoice
-    from goodfetch_collie_client.generated.models import Product, RunLimit
+    from goodfetch_collie_client.engine_choice import (
+        DaemonReach,
+        EngineChoice,
+        RuntimeFile,
+    )
+    from goodfetch_collie_client.generated.models import RunLimit
     from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
@@ -130,7 +146,13 @@ async def open_engine(
     choice (`setting_invalid`), a missing executable (`engine_not_found`), a
     Daemon nothing reaches or that refuses the token (`daemon_unreachable`),
     a refused Product (`not_in_product`) or version, or a refused Limit
-    raises here, with a `fix`, leaving no Attached engine behind. The engine
+    raises here, with a `fix`, leaving no Attached engine behind. This
+    machine's Daemon refusing by Product or version is waited past when it
+    hands over to its major's pick, within `timeout.connect`; otherwise,
+    under `auto`, an Attached engine runs in its place, `EngineInfo.fallback`
+    saying why, logged once at warning with the record's `fallback`, and
+    under `daemon` the refusal raises, its `fix` naming this executable's
+    `daemon restart` (ADR 0098). The engine
     reached is logged at info on the `goodfetch.client` logger, its
     `EngineInfo` as the record's `engine`. `settings`, the Connection's own
     (ADR 0083), go in `hello`, and a key the engine refuses fails the opening
@@ -148,26 +170,16 @@ async def open_engine(
     reach = await reach_engine(
         engine, environment, lambda: locate_engine(environment, product)
     )
+    opening = _Opening(
+        close_timeout, connection_limits, checked, listener_queue, settings
+    )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
-            product,
-            environment,
-            reach.home,
-            close_timeout,
-            connection_limits,
-            checked,
-            listener_queue,
-            settings=settings,
+            product, environment, Reached("attached", reach.home, None), opening
         )
     else:
-        connection = await _open_daemon(
-            product,
-            reach,
-            close_timeout,
-            connection_limits,
-            checked,
-            listener_queue,
-            settings=settings,
+        connection = await _open_refusable(
+            product, environment, reach, opening, auto=engine == "auto"
         )
     info = connection.engine
     logging.getLogger(CLIENT_LOGGER).info(
@@ -176,16 +188,142 @@ async def open_engine(
     return connection
 
 
+@dataclass(frozen=True)
+class _Opening:
+    """What each `hello` of one `connect()` takes, whichever engine answers it."""
+
+    close_timeout: float
+    limits: Sequence[RunLimit]
+    connect_timeout: int | NotGiven | None
+    listener_queue: int
+    settings: Settings | None
+
+
+_REFUSALS = frozenset({"not_in_product", "protocol_version_unsupported"})
+"""The codes of a Daemon's refusal of `hello` by Product or protocol version."""
+
+
+async def _open_refusable(
+    product: ProductPackage,
+    env: Mapping[str, str],
+    reach: DaemonReach,
+    opening: _Opening,
+    *,
+    auto: bool,
+) -> ClientConnection:
+    """Finishes `hello` with the Daemon `reach` opened, or the pick it hands over to.
+
+    This machine's Daemon refusing by Product or protocol version (ADR
+    0098): when its refusal holds `handover`, the pick is waited for within
+    `timeout.connect` of this call's start; otherwise, under `auto`, an
+    Attached engine runs in its place, `EngineInfo.fallback` and one
+    warning on `goodfetch.client` saying why, and under `daemon` the
+    refusal raises, its `fix` adding this executable's `daemon restart`. A
+    remote Daemon's refusal raises unchanged.
+    """
+    started_at = anyio.current_time()
+    daemon = reach
+    while True:
+        try:
+            return await _open_daemon(product, daemon, opening, started_at)
+        except GoodfetchError as error:
+            runtime_file = daemon.runtime_file
+            if runtime_file is None or error.code not in _REFUSALS:
+                raise
+            if error.details.get("handover") is True:
+                daemon = await _pick_of(runtime_file, started_at, opening)
+                continue
+            fix = f"{error.fix or ''} {await _refusal_fix(product, env)}".strip()
+            if not auto:
+                error.fix = fix
+                raise
+            fallback = EngineFallback(
+                cause=(
+                    f"The Daemon at {daemon.url} refused this Client with "
+                    f"{error.code}: {error}"
+                ),
+                fix=fix,
+            )
+            logging.getLogger(CLIENT_LOGGER).warning(
+                "%s runs on an Attached engine instead of the Daemon at %s, which "
+                "refused it with %s: %s %s",
+                product.name,
+                daemon.url,
+                error.code,
+                error,
+                fix,
+                extra={"fallback": fallback},
+            )
+            return await _open_attached(
+                product,
+                env,
+                Reached("attached", daemon.home, None, fallback),
+                opening,
+            )
+
+
+async def _pick_of(
+    handed_over: RuntimeFile, started_at: float, opening: _Opening
+) -> DaemonReach:
+    """The pick the idle Daemon of `handed_over` hands over to, once it serves.
+
+    Within `timeout.connect` of `started_at`, on anyio's clock.
+
+    Raises:
+        DeadlineExceededError: No pick served in time, naming
+            `timeout.connect` and `waited_for` `hello`.
+    """
+    connect = connect_limit(opening.connect_timeout)
+    if connect is None:
+        return await handed_over_to(handed_over, None)
+    value, limit = connect
+    pick = await handed_over_to(handed_over, started_at + value / 1000)
+    if pick is not None:
+        return pick
+    raise phase_exceeded(
+        f"timeout.connect ({value} ms) passed before the Daemon an idle one "
+        "handed over to served",
+        fix=(
+            "Raise connect()'s timeout, or find why the Daemon did not start in "
+            f"its log in {handed_over.home}."
+        ),
+        limit=limit,
+        started_at=started_at,
+        waited_for="hello",
+    )
+
+
+async def _refusal_fix(product: ProductPackage, env: Mapping[str, str]) -> str:
+    """What a refusal's `fix` adds for `product`'s Client (ADR 0098).
+
+    As the engine words it: its executable's `daemon restart`, given by its
+    path, and Foxhound at this version or newer for Collie, whose executable
+    is no major's pick while a Foxhound of the major is installed. The SDK
+    does not read which executables are installed, so it names Foxhound for
+    every Collie Client, as the sentence's own condition says. With no
+    executable at its path, it is the fix that installs one.
+    """
+    location = locate_engine(env, product)
+    path = location.path
+    if not await is_executable_file(path):
+        return location.not_found_fix
+    shown = f'"{path}"' if any(character.isspace() for character in path) else path
+    restart = f"Run `{shown} daemon restart` to restart the Daemon on its major's pick."
+    if product.needs is Product.foxhound:
+        return restart
+    return (
+        f"{restart} {product.name}'s executable would still not run the Daemon "
+        "while a Foxhound of the major is installed: install Foxhound "
+        f"{PRODUCT_VERSION} or newer (`pip install goodfetch-foxhound`) and run "
+        "its `daemon restart`."
+    )
+
+
 async def _open_attached(
     product: ProductPackage,
     env: Mapping[str, str],
-    home: str | None,
-    close_timeout: float,
-    limits: Sequence[RunLimit],
-    connect_timeout: int | NotGiven | None,
-    listener_queue: int,
-    *,
-    settings: Settings | None,
+    reached: Reached,
+    opening: _Opening,
 ) -> ClientConnection:
     """Starts `product`'s engine as an Attached engine with `env`, then `hello`."""
     location = locate_engine(env, product)
@@ -195,29 +333,25 @@ async def _open_attached(
         needs=product.needs,
         error_classes=product.error_classes,
         engine=engine,
-        reached=Reached("attached", home, None),
-        close_timeout=close_timeout,
-        limits=limits,
-        connect_timeout=connect_timeout,
-        listener_queue=listener_queue,
-        settings=settings,
+        reached=reached,
+        close_timeout=opening.close_timeout,
+        limits=opening.limits,
+        connect_timeout=opening.connect_timeout,
+        listener_queue=opening.listener_queue,
+        settings=opening.settings,
     )
 
 
 async def _open_daemon(
     product: ProductPackage,
     reach: DaemonReach,
-    close_timeout: float,
-    limits: Sequence[RunLimit],
-    connect_timeout: int | NotGiven | None,
-    listener_queue: int,
-    *,
-    settings: Settings | None,
+    opening: _Opening,
+    connect_started_at: float,
 ) -> ClientConnection:
     """Finishes `hello` with a Daemon, its token in it.
 
-    One that closes the Connection before it answers fails with
-    `daemon_unreachable`.
+    Within `timeout.connect` of `connect_started_at`. One that closes the
+    Connection before it answers fails with `daemon_unreachable`.
     """
     return await ClientConnection.open(
         reach.stream,
@@ -225,11 +359,12 @@ async def _open_daemon(
         error_classes=product.error_classes,
         reached=Reached(reach.kind, reach.home, reach.url),
         daemon=DaemonHello(reach.token, reach.closed_at_hello),
-        close_timeout=close_timeout,
-        limits=limits,
-        connect_timeout=connect_timeout,
-        listener_queue=listener_queue,
-        settings=settings,
+        close_timeout=opening.close_timeout,
+        limits=opening.limits,
+        connect_timeout=opening.connect_timeout,
+        connect_started_at=connect_started_at,
+        listener_queue=opening.listener_queue,
+        settings=opening.settings,
     )
 
 

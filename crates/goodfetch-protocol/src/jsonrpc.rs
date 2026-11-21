@@ -120,8 +120,9 @@ impl RequestMeta {
 
 /// A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
 /// and `tracestate`, as the engine reads them from a request's
-/// [`RequestMeta`] and writes them as the `_meta` of a request it sends,
-/// which carries no raw mark.
+/// [`RequestMeta`] and writes them in the `_meta` of a request it sends,
+/// which is raw only when it sends a raw call's on to its Run's owner (ADR
+/// 0099).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct TraceContext {
     /// The caller's span, as W3C Trace Context's `traceparent` header

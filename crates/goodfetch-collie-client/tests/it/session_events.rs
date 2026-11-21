@@ -45,7 +45,7 @@ pub(crate) fn scripted_engine(env: &TestEnv, script: &str) -> Endpoint {
     clippy::disallowed_methods,
     reason = "the test writes the Scripted engine's script before any async worker runs"
 )]
-fn scripted_engine_changed(
+pub(crate) fn scripted_engine_changed(
     env: &TestEnv,
     script: &str,
     change: impl FnOnce(&mut Vec<Value>),

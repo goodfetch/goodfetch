@@ -10,7 +10,9 @@
 //! Trace context is ignored and none is sent. A Run is a root of its own,
 //! linked to the request that started or resumed it. Trace and span IDs
 //! come from the [`Entropy`](crate::entropy::Entropy) ([`EntropyIds`]), so a seeded test exports
-//! the same IDs every run (ADRs 0059 and 0060).
+//! the same IDs every run (ADRs 0059 and 0060). A raw call's handler runs
+//! under the raw mark (`raw_call`, ADR 0099), exported spans or not, so
+//! a request it sends on to its Run's owner is marked raw too.
 
 mod ids;
 
@@ -304,6 +306,23 @@ impl Link {
             span.add_link(linked.clone());
         }
     }
+}
+
+tokio::task_local! {
+    /// Set while a raw call's handler runs (ADR 0099).
+    static RAW_CALL: ();
+}
+
+/// Runs `handler`, a raw call's (ADR 0099), so that a request it sends on
+/// to its Run's owner is marked raw too. Only a raw call's handler runs
+/// under it: a generated call's pays nothing for the mark.
+pub(crate) async fn raw_call<F: Future>(handler: F) -> F::Output {
+    RAW_CALL.scope((), handler).await
+}
+
+/// Whether the current task runs a raw call's handler.
+pub(crate) fn in_raw_call() -> bool {
+    RAW_CALL.try_with(|()| ()).is_ok()
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "39"
+version = "40"
 
 [[capability]]
 name = "lifecycle"
@@ -277,11 +277,12 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # hand over (ADR 0098): under `auto` the Client runs an Attached engine,
 # reports why in `engine().fallback` and warns once; under `daemon` it
 # raises the refusal, whose fix adds the executable's `daemon restart`.
-# TypeScript runs it; Python and Rust follow (issue 1261's sub-issues).
+# Rust links its own engine in place of an Attached one, and its fix names
+# the install of its Product's executable first. All three SDKs run it.
 [[capability.case]]
 id = "connect-falls-back-when-the-daemon-refuses"
 covers = ["story:11-9", "story:11-290", "story:11-293"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 [[capability]]
 name = "product-conformance"
@@ -300,14 +301,33 @@ modes = ["attached"]
 # `fix` names; a page whose build is missing raises
 # `BrowserNotInstalledError` (not retryable), `ArtifactUnavailableOfflineError`
 # (a `RefusedError` whose `limit` names `egress.offline`) or
-# `ArtifactDownloadFailedError` (retryable), each naming the build, the
-# Product version that pins it and, in `fix`, that Product's `browser
-# install`. Played by the Scripted engine: attached in TypeScript and Python
+# `ArtifactDownloadFailedError` (retryable, its `failure` `http_status`,
+# `network` or `digest_mismatch`), each naming the build, the Product
+# version that pins it and, in `fix`, that Product's `browser install`.
+# Played by the Scripted engine: attached in TypeScript and Python
 # (asyncio, Trio and the sync API), and as the Daemon Rust's client crate
 # reaches.
 [[capability.case]]
 id = "product-and-provisioning-errors"
 covers = ["story:11-10", "story:11-13", "story:11-189", "story:11-294"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# A `cdp_url` the engine cannot use (ADR 0115; issue 3099): `connect()`
+# and the Run's start succeed, and the call that opens the default Session
+# raises one class per remedy, `CDPURLUnreachableError` (an
+# `UnavailableError`, retryable, naming its `failure`),
+# `CDPURLNotBrowserError` (a `ProgramError` whose `observed` says what
+# answered, naming the browser address `/json/version` lists),
+# `CDPURLUnauthorizedError` (a `RefusedError` naming each header sent and
+# its Secret reference, never its value) and `CDPURLNotAllowedError` (a
+# `RefusedError` naming ADR 0056's rule), each naming the address and the
+# settings layer that gave it, with its `fix`. Played by the Scripted
+# engine: attached in TypeScript and Python (asyncio, Trio and the sync
+# API), and as the Daemon Rust's client crate reaches.
+[[capability.case]]
+id = "cdp-url-errors"
+covers = ["story:11-294"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 

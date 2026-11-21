@@ -244,6 +244,7 @@ impl Collie {
             ProductConnection::hello(Composed::COLLIE.product),
             dependencies,
             crate::linked::Asked::default(),
+            None,
         )
         .await?;
         Ok(Self { linked })

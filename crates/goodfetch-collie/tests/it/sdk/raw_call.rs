@@ -17,6 +17,8 @@ use std::time::Duration;
 
 use goodfetch_collie::{Collie, EngineChoice, Error, ErrorCode, blocking};
 use goodfetch_collie_client::ClientConnection;
+use goodfetch_protocol::home::RUN_TRACE_CALLS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
 use serde_json::{Value, json};
 
@@ -271,14 +273,15 @@ fn the_blocking_raw_call_reaches_operations_the_sdk_does_not_generate() {
 
 /// The case's Collie part on Rust's `linked` mode: the Connection's call
 /// answers the engine's JSON, a Run's fills its own parameter, an
-/// operation of another namespace fails before it is sent, and a closed
-/// value's call fails with `closed`.
+/// operation of another namespace fails before it is sent, a closed
+/// value's call fails with `closed`, and the Run's trace records the Run's
+/// raw call, marked raw.
 /// Covers: story:11-181
 #[test]
 fn the_raw_call_reaches_a_linked_engine() {
     let env = TestEnv::new();
 
-    real_time_runtime().block_on(async {
+    let run_id = real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
         let run = collie.start().await.unwrap();
         let listed = collie
@@ -317,5 +320,26 @@ fn the_raw_call_reaches_a_linked_engine() {
             [ErrorCode::CLOSED; 2],
             "a call on a closed value fails with closed, unsent"
         );
+        run.id().to_string()
     });
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test reads the Run trace the engine wrote in its own Goodfetch home"
+    )]
+    let log =
+        std::fs::read_to_string(HomeLayout::of(env.home()).run_trace(&run_id, RUN_TRACE_CALLS))
+            .unwrap();
+    let lines: Vec<Value> = log
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| (&line["operation"], &line["raw"], &line["ended"]))
+            .collect::<Vec<_>>(),
+        [(&json!("run.usage"), &json!(true), &json!("answered"))],
+        "the Run trace records the Run's raw call, marked raw, and neither the generated calls nor the Connection's: {log}"
+    );
 }

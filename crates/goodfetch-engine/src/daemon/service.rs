@@ -326,6 +326,7 @@ fn launchd(
         &definition.arguments,
         &definition.working,
         definition.socket.as_deref().unwrap_or_default(),
+        LaunchdSession::of(domain),
     );
     Ok((
         vec![ServiceFile {
@@ -566,12 +567,40 @@ fn xml(text: &str) -> String {
     )
 }
 
+/// The session type of the launchd domain an agent registers in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchdSession {
+    /// `gui/<uid>`, a login session: launchd's default for an agent.
+    Aqua,
+    /// `user/<uid>`, with no login session (a launchd daemon's job, an SSH
+    /// login): launchd loads there only an agent limited to it (#3142).
+    Background,
+}
+
+impl LaunchdSession {
+    /// The session type of `domain`, such as `gui/501` or `user/501`.
+    pub fn of(domain: &str) -> Self {
+        if domain.starts_with("user/") {
+            Self::Background
+        } else {
+            Self::Aqua
+        }
+    }
+}
+
 /// The launch agent: the program and its arguments, Goodfetch home as its
 /// working folder, and a Unix socket, mode `0600`, that launchd listens on
 /// and hands over at the first connection. No `RunAtLoad` and no
 /// `KeepAlive`: the first connection starts the Daemon, and once it has
-/// stopped the next one starts it again.
-pub fn launchd_plist(label: &str, arguments: &[String], working: &str, socket: &str) -> String {
+/// stopped the next one starts it again. In a `Background` session, it is
+/// limited to that session type, without which launchd refuses it there.
+pub fn launchd_plist(
+    label: &str,
+    arguments: &[String],
+    working: &str,
+    socket: &str,
+    session: LaunchdSession,
+) -> String {
     let mut plist = String::from(concat!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
         "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n",
@@ -594,6 +623,9 @@ pub fn launchd_plist(label: &str, arguments: &[String], working: &str, socket: &
         xml(working)
     );
     plist.push_str("\t<key>ProcessType</key>\n\t<string>Background</string>\n");
+    if session == LaunchdSession::Background {
+        plist.push_str("\t<key>LimitLoadToSessionType</key>\n\t<string>Background</string>\n");
+    }
     let _ = writeln!(
         plist,
         concat!(

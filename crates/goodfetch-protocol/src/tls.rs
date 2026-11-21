@@ -152,6 +152,12 @@ impl Serialize for ClientCertificateConfiguration {
     }
 }
 
+impl crate::catalog::SettingJson for ClientCertificateConfiguration {
+    fn into_setting_json(self) -> serde_json::Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 /// A value of `tls.client_certificates`.
 pub const CLIENT_CERTIFICATE_SHAPE: ValueShape = ValueShape {
     name: "ClientCertificateConfiguration",

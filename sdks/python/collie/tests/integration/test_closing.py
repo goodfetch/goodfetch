@@ -10,9 +10,6 @@ that the close ended the engine's input. TypeScript's `closing.test.ts` is
 its twin.
 """
 
-import json
-from pathlib import Path
-
 import anyio
 import pytest
 from collie_calls import engine_warnings, failure, open_collie
@@ -29,35 +26,12 @@ from goodfetch_test_support import (
     TestEnv,
     Way,
     scripted_engine_env,
-    scripted_engine_record,
     three_ways,
+    until_scripted_engine_read,
 )
 from goodfetch_test_support import Product as ToolProduct
 
 SHOP_URL = "https://shop.test/"
-
-SENT_DEADLINE_SECONDS = 5.0
-"""How long a test waits for the Scripted engine to record a Client's call."""
-
-
-async def until_recorded(home: Path, method: str) -> None:
-    """Waits until the Scripted engine in `home` has read a Client's `method`.
-
-    The engine records each message as it reads it, one flushed JSON line
-    each, and signals nothing, so the wait polls its record.
-    """
-    record = scripted_engine_record(home)
-    with anyio.fail_after(SENT_DEADLINE_SECONDS):
-        while True:
-            if record.exists():
-                for line in record.read_text("utf-8").splitlines():
-                    entry = json.loads(line)
-                    if (
-                        entry.get("from") == "client"
-                        and entry.get("message", {}).get("method") == method
-                    ):
-                        return
-            await anyio.sleep(0.01)
 
 
 @pytest.mark.client_case(id="children-close-with-their-parent", mode="attached")
@@ -159,7 +133,7 @@ async def test_aborts_its_run_cancels_a_call_in_flight_and_waits_for_its_engine(
 
     async with anyio.create_task_group() as calls:
         calls.start_soon(finish)
-        await until_recorded(test_env.home, "run.finish")
+        await until_scripted_engine_read(test_env.home, "run.finish")
         await collie.close()
         warned_at_close = engine_warnings(caplog)
 

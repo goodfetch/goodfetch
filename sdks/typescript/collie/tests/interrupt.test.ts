@@ -7,21 +7,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { scriptedEngineClientMethods, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
-
-/** The methods of the Client's messages the Scripted engine recorded under `home`. */
-function clientMethods(home: string): unknown[] {
-  return readFileSync(join(home, "scripted-engine", "record.jsonl"), "utf8")
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line): unknown => JSON.parse(line))
-    .filter(
-      (entry): entry is { from: string; message: { method?: unknown } } =>
-        typeof entry === "object" && entry !== null && "from" in entry && entry.from === "client",
-    )
-    .map((entry) => entry.message.method);
-}
 
 describe("Ctrl+C sent to a host whose Run runs on an Attached engine", () => {
   test(
@@ -70,7 +57,11 @@ describe("Ctrl+C sent to a host whose Run runs on an Attached engine", () => {
       await clientCase.check(
         "the engine, in a group of its own, outlived the signal, got the Run's close, run.abort, and played its script to its end",
         () => {
-          expect(clientMethods(testEnv.home)).toEqual(["hello", "run.start", "run.abort"]);
+          expect(scriptedEngineClientMethods(testEnv.home)).toEqual([
+            "hello",
+            "run.start",
+            "run.abort",
+          ]);
           expect(JSON.parse(readFileSync(out, "utf8"))).toMatchObject({ warned: [] });
         },
       );

@@ -143,6 +143,12 @@ pub enum SessionSource {
     },
 }
 
+impl crate::catalog::SettingJson for SessionSource {
+    fn into_setting_json(self) -> serde_json::Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
 impl SessionSource {
     /// Its kind's name, as `kind` writes it.
     pub fn kind(&self) -> &'static str {

@@ -76,7 +76,7 @@ mod readers;
 pub mod run_row;
 mod wal_checkpointer;
 
-pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
+pub use batch::{BatchRows, BatchStatement, BatchWriter, SealedBatch};
 pub use batch_end::BatchEnd;
 pub(crate) use readers::RunStateReaders;
 

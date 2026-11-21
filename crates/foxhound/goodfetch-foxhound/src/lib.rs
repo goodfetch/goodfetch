@@ -43,6 +43,7 @@ mod composition;
 pub mod executable;
 mod foxhound;
 mod sample;
+pub mod settings;
 
 pub use composition::{composition, composition_with};
 pub use foxhound::{Foxhound, PAID_FETCHES};
@@ -52,7 +53,7 @@ pub use goodfetch_collie::{
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
     FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
-    SchemaError, Session, Start, UsageKind, events, schemars, settings,
+    SchemaError, Session, Start, UsageKind, events, schemars,
 };
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the

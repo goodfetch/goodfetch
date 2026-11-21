@@ -1,7 +1,10 @@
 # Which of goodfetch-foxhound's top-level modules may import which (ADR 0126).
+# `settings` is Collie's settings with Foxhound's own typed keys beside
+# them, which `xtask codegen` writes from Foxhound's catalog (ADR 0083).
 [modules]
 blocking = ["foxhound"]
 composition = ["sample"]
 executable = []
 foxhound = ["composition"]
 sample = []
+settings = []

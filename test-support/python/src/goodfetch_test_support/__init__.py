@@ -27,8 +27,10 @@ from goodfetch_test_support.environment import (
     Product,
     TestEnv,
     TestEnvError,
+    scripted_engine_client_methods,
     scripted_engine_env,
     scripted_engine_record,
+    until_scripted_engine_read,
 )
 from goodfetch_test_support.journey import (
     EngineVersionUnreported,
@@ -145,6 +147,7 @@ __all__ = [
     "play_script",
     "proving_ground_routes",
     "redact",
+    "scripted_engine_client_methods",
     "scripted_engine_env",
     "scripted_engine_record",
     "search_canaries",
@@ -153,5 +156,6 @@ __all__ = [
     "three_ways",
     "time_zones",
     "unicode_record",
+    "until_scripted_engine_read",
     "write_journey_document",
 ]

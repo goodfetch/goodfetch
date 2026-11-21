@@ -4,7 +4,8 @@
 //! without a call and its sub-objects, `blocking.rs`, its twin, which
 //! repeats it under the same type and method names, and `events.rs`, the
 //! marker types a handle's `events` reads its events by (ADR 0081), and
-//! `settings.rs`, the typed keys of the crate's `Settings` (`settings`).
+//! `settings.rs`, the typed keys of the crate's `Settings` (`settings`),
+//! with Foxhound's crate's own keys in its `src/generated/settings.rs`.
 //!
 //! - A round trip and a waiter return a `Call<T, P>` builder, a query a
 //!   `Query<T, P>`, which has no `timeout`; `P` is the operation's params
@@ -44,6 +45,7 @@ use anyhow::{Context as _, Result, bail};
 
 use self::index::{Field, Index};
 use self::listeners::ListenerModel;
+pub(super) use self::settings::{FOXHOUND_FOLDER, generate_foxhound};
 use super::cdp::rustfmt;
 use super::handles::{self, Builder, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};

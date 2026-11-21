@@ -6,8 +6,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import type { Product } from "./generated/types.ts";
-import { wouldBeThePick } from "./installed-executables.ts";
+import { type PickedClient, wouldBeThePick } from "./installed-executables.ts";
 
 const NOW = new Date("2026-11-21T12:00:00Z");
 /** Seen 29 days, 23 hours, 59 minutes and 59 seconds before `NOW`: it still counts. */
@@ -75,7 +74,7 @@ async function copyIn(root: string): Promise<void> {
   );
 }
 
-const collie = (version: string) => ({ product: "collie" as Product, version });
+const collie = (version: string): PickedClient => ({ product: "collie", version });
 
 describe("wouldBeThePick", () => {
   test(
@@ -91,6 +90,39 @@ describe("wouldBeThePick", () => {
     { tags: ["story:11-293"] },
     async () => {
       await list([entry()]);
+
+      expect(await wouldBeThePick(collie("0.4.0"), home, {}, NOW)).toBe(false);
+    },
+  );
+
+  test(
+    "is not the pick while an older Foxhound of the line is at its path, Foxhound before Collie",
+    { tags: ["story:11-293"] },
+    async () => {
+      await list([entry()]);
+
+      expect(await wouldBeThePick(collie("0.4.1"), home, {}, NOW)).toBe(false);
+    },
+  );
+
+  test(
+    "reads a file whose time has a fraction of a second as still at its path, cut to whole seconds",
+    { tags: ["story:11-293"] },
+    async () => {
+      const modified = new Date("2026-01-02T08:00:00.750Z");
+      await utimes(executable, modified, modified);
+      await list([entry({ last_seen: SEEN_30_DAYS_AGO })]);
+
+      expect(await wouldBeThePick(collie("0.4.0"), home, {}, NOW)).toBe(false);
+    },
+  );
+
+  test(
+    "reads a time at another offset as the same point in time",
+    { tags: ["story:11-293"] },
+    async () => {
+      await list([gone("2026-10-22T13:00:01+01:00", COPY)]);
+      await copyIn(join(home, "browsers"));
 
       expect(await wouldBeThePick(collie("0.4.0"), home, {}, NOW)).toBe(false);
     },
@@ -144,9 +176,21 @@ describe("wouldBeThePick", () => {
       "its file's time differs by a second and it was last seen 30 days ago",
       () => entry({ modified_at: "2026-01-02T07:59:59Z", last_seen: SEEN_30_DAYS_AGO }),
     ],
+    [
+      "its time was recorded with a fraction of a second and it was last seen 30 days ago",
+      () => entry({ modified_at: "2026-01-02T08:00:00.5Z", last_seen: SEEN_30_DAYS_AGO }),
+    ],
     ["it is of another line", () => entry({ product_version: "0.5.0" })],
     ["it is a linked program", () => entry({ kind: "linked_program" })],
     ["its entry cannot be read", () => entry({ product_version: "0.4" })],
+    [
+      "its time is on a day that does not exist",
+      () => entry({ last_seen: "2026-02-30T00:00:00Z" }),
+    ],
+    [
+      "its time has more than nine digits of fraction",
+      () => entry({ last_seen: "2026-10-22T12:00:01.0000000001Z" }),
+    ],
   ] as const)(
     "is the pick while a Foxhound is installed but %s",
     { tags: ["story:11-293"] },
@@ -162,6 +206,27 @@ describe("wouldBeThePick", () => {
     ["a list of another major", () => list([entry()], "1.0")],
     ["a list with no format version", () => list([entry()], null)],
     ["a list that is not JSON", () => writeFile(join(home, "installed-executables.json"), "{")],
+    [
+      "a list that is not UTF-8",
+      () =>
+        writeFile(
+          join(home, "installed-executables.json"),
+          Buffer.concat([
+            Buffer.from(
+              JSON.stringify({ format_version: "0.1", executables: [entry()] }).slice(0, -1),
+            ),
+            Buffer.from(',"note":"\xff"}', "latin1"),
+          ]),
+        ),
+    ],
+    [
+      "a list that starts with a byte order mark",
+      () =>
+        writeFile(
+          join(home, "installed-executables.json"),
+          `﻿${JSON.stringify({ format_version: "0.1", executables: [entry()] })}`,
+        ),
+    ],
   ] as const)("is the pick with %s", { tags: ["story:11-293"] }, async ([, write]) => {
     await write();
 

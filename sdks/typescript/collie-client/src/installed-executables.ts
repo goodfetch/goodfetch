@@ -8,13 +8,14 @@
  *
  * It differs from the engine's where ADR 0098's note of 2026-11-21 says:
  * `browser_cache.max_unused_age` is its default, the shared stores' lowest
- * minor is not read, a copy counts as present by its folder, and the cache
- * `GOODFETCH_BROWSERS_PATH` names is read even where it cannot be written.
+ * minor is not read, a copy counts as present by its folder, the cache
+ * `GOODFETCH_BROWSERS_PATH` names is read even where it cannot be written,
+ * and the list is read only in the form the engine writes it.
  */
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "./framing.ts";
-import type { Product } from "./generated/types.ts";
+import type { ArtifactId, ArtifactKind, Product } from "./generated/types.ts";
 
 /** The Client whose executable is asked about: its Product and its Product version. */
 export interface PickedClient {
@@ -25,15 +26,20 @@ export interface PickedClient {
 /** `browser_cache.max_unused_age`'s default, past which an executable gone from its path no longer counts. */
 const MAX_UNUSED_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const BROWSERS_PATH_VARIABLE = "GOODFETCH_BROWSERS_PATH";
-const ARTIFACT_KINDS: ReadonlySet<unknown> = new Set([
-  "browser",
-  "driver",
-  "executable_copy",
-  "engine_executable",
-  "clean_up_rules",
-  "mouse_movements",
-]);
+/** Every kind of the Browser cache's artifacts, which the compiler holds to the generated `ArtifactKind`. */
+const ARTIFACT_KINDS: ReadonlySet<unknown> = new Set(
+  Object.keys({
+    browser: true,
+    driver: true,
+    executable_copy: true,
+    engine_executable: true,
+    clean_up_rules: true,
+    mouse_movements: true,
+  } satisfies Record<ArtifactKind, true>),
+);
 const U64_MAX = 2n ** 64n - 1n;
+/** The list is read as UTF-8 that must be valid, with a byte order mark left in to fail as the engine's reader fails on it. */
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /**
  * Whether `client`'s executable, recorded in `home`'s list as it would be
@@ -77,15 +83,9 @@ interface Entry {
   readonly lastSeen: Instant;
 }
 
-interface ArtifactId {
-  readonly kind: string;
-  readonly name: string;
-  readonly build: string;
-}
-
-/** A point in time in RFC 3339: its whole seconds since the epoch, in milliseconds, and its fraction of a second. */
+/** A point in time in RFC 3339: its whole seconds since the epoch and its fraction of a second, without trailing zeros. */
 interface Instant {
-  readonly seconds: number;
+  readonly epochSeconds: number;
   readonly fraction: string;
 }
 
@@ -97,7 +97,7 @@ interface Instant {
 async function installed(home: string): Promise<readonly Entry[]> {
   let document: unknown;
   try {
-    document = JSON.parse(await readFile(join(home, "installed-executables.json"), "utf8"));
+    document = JSON.parse(UTF8.decode(await readFile(join(home, "installed-executables.json"))));
   } catch {
     return [];
   }
@@ -136,8 +136,9 @@ function entryOf(value: unknown): Entry | undefined {
     version === undefined ||
     typeof path !== "string" ||
     typeof size !== "number" ||
-    !Number.isSafeInteger(size) ||
+    !Number.isInteger(size) ||
     size < 0 ||
+    BigInt(size) > U64_MAX ||
     modifiedAt === undefined ||
     lastSeen === undefined ||
     !Array.isArray(pins) ||
@@ -158,25 +159,64 @@ function isArtifactId(value: unknown): value is ArtifactId {
   );
 }
 
-/** `value` read as RFC 3339; `undefined` when it is not. */
+/**
+ * `value` read as RFC 3339, as the engine reads it: a date and time that
+ * exist, a leap second read as the second before it, at most nine digits
+ * of fraction; `undefined` when it is not.
+ */
 function instant(value: unknown): Instant | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
   const match =
-    /^(\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2})(?:\.(\d+))?([Zz]|[+-]\d{2}:\d{2})$/.exec(value);
+    /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/.exec(
+      value,
+    );
   if (match === null) {
     return undefined;
   }
-  const seconds = Date.parse(`${match[1]?.replace(/[t ]/, "T")}${match[3]?.toUpperCase()}`);
-  return Number.isNaN(seconds)
-    ? undefined
-    : { seconds, fraction: (match[2] ?? "").replace(/0+$/, "") };
+  const part = (group: number) => Number(match[group] ?? 0);
+  const [year, month, day, hour, minute, second] = [
+    part(1),
+    part(2),
+    part(3),
+    part(4),
+    part(5),
+    part(6),
+  ];
+  const [offsetHours, offsetMinutes] = [part(9), part(10)];
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysIn(year, month) ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 60 ||
+    offsetHours > 23 ||
+    offsetMinutes > 59
+  ) {
+    return undefined;
+  }
+  const at = new Date(0);
+  at.setUTCFullYear(year, month - 1, day);
+  at.setUTCHours(hour, minute, Math.min(second, 59), 0);
+  const offset = (offsetHours * 60 + offsetMinutes) * 60 * (match[8] === "-" ? -1 : 1);
+  return {
+    epochSeconds: at.getTime() / 1000 - offset,
+    fraction: (match[7] ?? "").replace(/0+$/, ""),
+  };
+}
+
+/** The days of `month` (1 to 12) in `year` of the proleptic Gregorian calendar. */
+function daysIn(year: number, month: number): number {
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  return [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
 }
 
 /** `at` in milliseconds since the epoch. */
 function millisecondsOf(at: Instant): number {
-  return at.seconds + Number(`0.${at.fraction || "0"}`) * 1000;
+  return at.epochSeconds * 1000 + Number(`0.${at.fraction || "0"}`) * 1000;
 }
 
 /** Whether `entry`'s Product and version rank above `product` at `version`: Foxhound before Collie, then the newest version. */
@@ -206,15 +246,18 @@ async function startable(entry: Entry, cache: string, now: Date): Promise<boolea
   );
 }
 
-/** Whether the file at `entry`'s path has its size and its modification time in whole seconds. */
+/**
+ * Whether what is at `entry`'s path has its size and its modification
+ * time, cut to whole seconds as the engine cuts it, so a file system with
+ * coarser times reads the same.
+ */
 async function stillAtPath(entry: Entry): Promise<boolean> {
   try {
-    const found = await stat(entry.path);
+    const found = await stat(entry.path, { bigint: true });
     return (
-      found.isFile() &&
-      found.size === entry.size &&
+      found.size === BigInt(entry.size) &&
       entry.modifiedAt.fraction === "" &&
-      Math.floor(found.mtimeMs / 1000) * 1000 === entry.modifiedAt.seconds
+      found.mtimeNs / 1_000_000_000n === BigInt(entry.modifiedAt.epochSeconds)
     );
   } catch {
     return false;
@@ -284,9 +327,9 @@ function sameLine(left: ProductVersion, right: ProductVersion): boolean {
  */
 function compareVersions(left: ProductVersion, right: ProductVersion): number {
   return (
-    compareBig(left.major, right.major) ||
-    compareBig(left.minor, right.minor) ||
-    compareBig(left.patch, right.patch) ||
+    compareIntegers(left.major, right.major) ||
+    compareIntegers(left.minor, right.minor) ||
+    compareIntegers(left.patch, right.patch) ||
     comparePreReleases(left.preRelease, right.preRelease) ||
     compareText(left.text, right.text)
   );
@@ -312,7 +355,7 @@ function comparePreReleases(
 function compareIdentifiers(left: string, right: string): number {
   const [leftNumber, rightNumber] = [numberOf(left), numberOf(right)];
   if (leftNumber !== undefined && rightNumber !== undefined) {
-    return compareBig(leftNumber, rightNumber);
+    return compareIntegers(leftNumber, rightNumber);
   }
   if (leftNumber !== undefined || rightNumber !== undefined) {
     return leftNumber === undefined ? 1 : -1;
@@ -329,7 +372,7 @@ function numberOf(identifier: string): bigint | undefined {
   return number <= U64_MAX ? number : undefined;
 }
 
-function compareBig(left: bigint, right: bigint): number {
+function compareIntegers(left: bigint, right: bigint): number {
   return left === right ? 0 : left < right ? -1 : 1;
 }
 

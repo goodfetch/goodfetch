@@ -1,5 +1,7 @@
 //! The Python types of each scope's `settings` option (ADR 0083):
-//! `Settings`, `RunSettings`, `SessionSettings` and `PageSettings`, nested
+//! `Settings`, `RunSettings`, `SessionSettings` and `PageSettings` in
+//! Collie's client package, `FoxhoundSettings`, `CrawlSettings` and
+//! `LabelSettings` in Foxhound's (ADR 0093), nested
 //! `TypedDict`s with every key `NotRequired`, by the wire's own `snake_case`
 //! segments, so that a key outside its scope, a misspelled one or a wrong
 //! value fails pyright and mypy. A Duration setting takes a `timedelta`,
@@ -52,9 +54,9 @@ struct ScopeType {
     doc: &'static str,
 }
 
-/// The scopes a program's code opens with its own `settings`, outermost
-/// first.
-const SCOPES: [ScopeType; 4] = [
+/// The scopes a Collie program's code opens with its own `settings`,
+/// outermost first, which Collie's client package types.
+const COLLIE_SCOPES: [ScopeType; 4] = [
     ScopeType {
         scope: SettingScope::Connection,
         name: "Settings",
@@ -78,6 +80,31 @@ const SCOPES: [ScopeType; 4] = [
         name: "PageSettings",
         areas: "Page",
         doc: "The settings opening a page takes, over its Session's and its Run's (ADR 0083).",
+    },
+];
+
+/// The scopes a Foxhound program's code opens with its own `settings`,
+/// outermost first, which Foxhound's package types: its Connection's and
+/// its crawl's Run's, Collie's and Foxhound's keys, and each Label's (ADR
+/// 0093).
+const FOXHOUND_SCOPES: [ScopeType; 3] = [
+    ScopeType {
+        scope: SettingScope::Connection,
+        name: "FoxhoundSettings",
+        areas: "Connection",
+        doc: "The settings of a Foxhound Connection, Collie's and Foxhound's, which every Run it starts inherits (ADR 0083).",
+    },
+    ScopeType {
+        scope: SettingScope::Run,
+        name: "CrawlSettings",
+        areas: "Run",
+        doc: "The settings starting a crawl takes, Collie's and Foxhound's, which its Labels and requests inherit (ADRs 0083 and 0093).",
+    },
+    ScopeType {
+        scope: SettingScope::Label,
+        name: "LabelSettings",
+        areas: "Label",
+        doc: "The settings a crawl's Label takes, over its Run's, which its requests inherit (ADR 0093); a Label is refused every other key.",
     },
 ];
 
@@ -128,8 +155,19 @@ fn key(name: &str) -> bool {
 /// The settings module of Collie's client package: each scope's type, and
 /// [`DEPRECATED_SETTINGS`].
 pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
+    module(settings, &COLLIE_SCOPES)
+}
+
+/// The settings module of Foxhound's package: its Connection's, a crawl's
+/// and a Label's types, and [`DEPRECATED_SETTINGS`].
+pub(super) fn foxhound_settings_module(settings: &[Setting]) -> Result<String> {
+    module(settings, &FOXHOUND_SCOPES)
+}
+
+/// A settings module: each of `scopes`' types, and [`DEPRECATED_SETTINGS`].
+fn module(settings: &[Setting], scopes: &[ScopeType]) -> Result<String> {
     let mut module = Module::default();
-    for scope in &SCOPES {
+    for scope in scopes {
         let level = tree(settings, Some(scope.scope))?;
         module.area(&level, scope, "")?;
     }
@@ -160,7 +198,7 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
 
 /// The type name of the settings `opened`'s option takes.
 fn scope_type(opened: &str) -> Result<&'static str> {
-    SCOPES
+    COLLIE_SCOPES
         .iter()
         .find(|scope| scope.scope.as_str() == opened)
         .map(|scope| scope.name)

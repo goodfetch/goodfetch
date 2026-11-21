@@ -17,7 +17,7 @@ use goodfetch_collie_client::{
     ClientConnection, ConnectionRuntime, EventStream, WebSocketEvent, blocking, events,
 };
 use goodfetch_test_support::TestEnv;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::connection::hello;
 use crate::session_events::scripted_engine_changed;
@@ -30,13 +30,28 @@ const SCRIPT: &str = "page/web-socket.json";
 /// TypeScript Client numbers its calls from 0, this one from 1, so each
 /// `id` the script's messages name is one more.
 fn scripted_engine(env: &TestEnv) -> Endpoint {
+    scripted_engine_with(env, |_events| {})
+}
+
+/// The Scripted engine as [`scripted_engine`]'s, the events of its batch
+/// changed by `change`, then numbered again in order.
+fn scripted_engine_with(env: &TestEnv, change: impl FnOnce(&mut Vec<Value>)) -> Endpoint {
     scripted_engine_changed(env, SCRIPT, |steps| {
-        for step in steps {
+        for step in steps.iter_mut() {
             for named in ["/expect/params/id", "/send/notification/params/id"] {
                 if let Some(Value::Number(id)) = step.pointer_mut(named) {
                     *id = (id.as_u64().unwrap() + 1).into();
                 }
             }
+        }
+        let events = steps
+            .iter_mut()
+            .find_map(|step| step.pointer_mut("/send/notification/params/events"))
+            .and_then(Value::as_array_mut)
+            .unwrap();
+        change(events);
+        for (position, event) in (1_u64..).zip(events.iter_mut()) {
+            event["position"] = position.into();
         }
     })
 }
@@ -162,6 +177,48 @@ fn dropping_a_sockets_stream_stops_its_events_alone() {
     });
 
     assert_eq!(read, second_socket());
+}
+
+/// A socket's event a newer engine adds is passed over, as a stream passes
+/// over the events it does not read (ADR 0079): the socket's stream hands
+/// its known events around it, its close last.
+/// Covers: story:5-48, story:11-63
+#[test]
+fn a_sockets_event_this_client_does_not_know_is_passed_over() {
+    let env = TestEnv::new();
+    let engine = scripted_engine_with(&env, |events| {
+        let added = json!({
+            "position": 0,
+            "event": "web_socket.error",
+            "data": { "page_id": "page-1", "web_socket_id": "ws-a", "message": "newer" },
+        });
+        events.insert(4, added);
+    });
+    let read = goodfetch_test_support::real_time_runtime().block_on(async {
+        let (connection, _said) = ClientConnection::open(
+            ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+            &Network::Os,
+            &engine,
+            hello(),
+        )
+        .await
+        .unwrap();
+        let run = connection.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+
+        let mut sockets = page.events(events::WebSocket);
+        let first = sockets.next().await.unwrap().unwrap();
+        let second = sockets.next().await.unwrap().unwrap();
+        let firsts = read_all(first.events()).await;
+        let seconds = read_all(second.events()).await;
+        drop(sockets);
+
+        run.finish().await.unwrap();
+        connection.close().await.unwrap();
+        (firsts, seconds)
+    });
+
+    assert_eq!(read, (first_socket(), second_socket()));
 }
 
 /// The same script through `blocking`: each socket's `events` iterates

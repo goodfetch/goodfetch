@@ -28,13 +28,16 @@ use crate::sync::{Mutex, MutexGuard};
 
 /// What a listener's call opens: the event that opens a value, such as
 /// `page.web_socket`, the namespace of that value's own events, such as
-/// `web_socket`, whose `close` is its last, and the property each of them
-/// names the value by, such as `web_socket_id`.
+/// `web_socket`, whose `close` is its last, the property each of them
+/// names the value by, such as `web_socket_id`, and the value's own events
+/// this Client reads. An event of the namespace a newer engine adds is
+/// passed over, as a stream passes over the events it does not read.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Opens {
     pub(crate) opener: &'static str,
     pub(crate) namespace: &'static str,
     pub(crate) id: &'static str,
+    pub(crate) events: &'static [&'static str],
 }
 
 /// The call's own stream: the values its events open.
@@ -67,8 +70,6 @@ struct Call {
     /// The key the next value gets; the call's own stream is key 0.
     next_key: u64,
     state: State,
-    /// Whether the call's own stream was dropped.
-    gone: bool,
 }
 
 /// Where the call stands.
@@ -97,7 +98,7 @@ struct Held {
     queue: VecDeque<Value>,
     /// Whether its close was heard, after which it takes nothing more.
     closed: bool,
-    /// Whether no stream reads it: it was dropped, or never made.
+    /// Whether its stream was dropped, so that no stream reads it.
     gone: bool,
 }
 
@@ -146,16 +147,35 @@ impl Waiting {
         }
     }
 
-    /// Wakes every waiting stream but `key`, which is running.
-    fn wake_others(&self, key: u64) {
-        let woken: Vec<Waker> = {
+    /// Wakes the waiting streams `woken` names but `running`, which runs.
+    fn wake_named(&self, running: u64, woken: &Woken) {
+        let wakers: Vec<Waker> = {
             let mut waiting = lock(&self.0);
-            let (others, own): (Vec<_>, Vec<_>) =
-                waiting.drain(..).partition(|(waiter, _)| *waiter != key);
-            *waiting = own;
-            others.into_iter().map(|(_, waker)| waker).collect()
+            let (now, later): (Vec<_>, Vec<_>) = waiting
+                .drain(..)
+                .partition(|(waiter, _)| *waiter != running && woken.names(*waiter));
+            *waiting = later;
+            now.into_iter().map(|(_, waker)| waker).collect()
         };
-        woken.into_iter().for_each(Waker::wake);
+        for waker in wakers {
+            waker.wake();
+        }
+    }
+}
+
+/// The streams a read of the call has something new for.
+#[derive(Default)]
+struct Woken {
+    /// The streams it queued something for.
+    keys: Vec<u64>,
+    /// Whether the call ended, which every stream hears.
+    all: bool,
+}
+
+impl Woken {
+    /// Whether the stream `key` has something new.
+    fn names(&self, key: u64) -> bool {
+        self.all || self.keys.contains(&key)
     }
 }
 
@@ -188,7 +208,6 @@ impl Opening {
                     values: Vec::new(),
                     next_key: OWN + 1,
                     state: State::Open,
-                    gone: false,
                 }),
                 waiting: Arc::default(),
             }),
@@ -234,13 +253,16 @@ impl Drop for Opening {
     /// ends.
     fn drop(&mut self) {
         let mut call = lock(&self.shared.call);
-        call.gone = true;
         call.flow.end();
         call.state = State::Ended;
         let unread: Vec<u64> = call.opened.drain(..).map(|(_, key)| key).collect();
         call.values.retain(|held| !unread.contains(&held.key));
         drop(call);
-        self.shared.waiting.wake_others(OWN);
+        let all = Woken {
+            keys: Vec::new(),
+            all: true,
+        };
+        self.shared.waiting.wake_named(OWN, &all);
     }
 }
 
@@ -297,37 +319,42 @@ impl Shared {
         let mut call = lock(&self.call);
         let waker = Waker::from(Arc::clone(&self.waiting));
         let mut heard = Context::from_waker(&waker);
-        loop {
+        let mut woken = Woken::default();
+        let polled = loop {
             if let Some(found) = take(&mut call) {
-                return Poll::Ready(found);
+                break Poll::Ready(found);
             }
             // Waits before it reads, so a batch heard meanwhile wakes it.
             self.waiting.wait(key, context.waker());
             match call.flow.poll_envelope(&mut heard) {
-                Poll::Ready(Some(Ok(envelope))) => call.route(envelope),
-                Poll::Ready(Some(Err(error))) => call.state = State::Failed(error),
-                Poll::Ready(None) => call.state = State::Ended,
-                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Some(Ok(envelope))) => woken.keys.extend(call.route(envelope)),
+                Poll::Ready(Some(Err(error))) => {
+                    call.state = State::Failed(error);
+                    woken.all = true;
+                }
+                Poll::Ready(None) => {
+                    call.state = State::Ended;
+                    woken.all = true;
+                }
+                Poll::Pending => break Poll::Pending,
             }
-            // What it routed may be another stream's.
-            self.waiting.wake_others(key);
-        }
+        };
+        drop(call);
+        // What it routed may be other streams'.
+        self.waiting.wake_named(key, &woken);
+        polled
     }
 }
 
 impl Call {
-    /// Puts `envelope` in the queue of the stream it is for, or settles it
-    /// when none will hand it.
-    fn route(&mut self, envelope: EventEnvelope) {
+    /// Puts `envelope` in the queue of the stream it is for, whose key it
+    /// returns, or settles it when none will hand it.
+    fn route(&mut self, envelope: EventEnvelope) -> Option<u64> {
         let EventEnvelope { event, data, .. } = envelope;
         let id = data.get(self.opens.id).cloned().unwrap_or(Value::Null);
         if event == self.opens.opener {
             let key = self.next_key;
             self.next_key += 1;
-            if self.gone {
-                self.flow.settle();
-                return;
-            }
             self.values.push(Held {
                 key,
                 id,
@@ -336,19 +363,22 @@ impl Call {
                 gone: false,
             });
             self.opened.push_back((data, key));
-            return;
+            return Some(OWN);
         }
         let own = event
             .strip_prefix(self.opens.namespace)
             .and_then(|rest| rest.strip_prefix('.'));
-        let index = own.and_then(|_| {
-            self.values
-                .iter()
-                .position(|held| !held.closed && held.id == id)
-        });
+        let read = own.is_some() && self.opens.events.contains(&event.as_str());
+        let index = read
+            .then(|| {
+                self.values
+                    .iter()
+                    .position(|held| !held.closed && held.id == id)
+            })
+            .flatten();
         let Some(index) = index else {
             self.flow.settle();
-            return;
+            return None;
         };
         let closes = own == Some("close");
         let held = &mut self.values[index];
@@ -358,9 +388,10 @@ impl Call {
                 self.values.swap_remove(index);
             }
             self.flow.settle();
-            return;
+            return None;
         }
         held.queue.push_back(json!({"event": event, "data": data}));
+        Some(held.key)
     }
 }
 

@@ -357,7 +357,7 @@ fn value_text(value: &OpenedValue, twin: Twin) -> String {
     match twin {
         Twin::Async => {
             let mut text = format!(
-                "\n/// A `{namespace}` an event opened (ADR 0081): what that event told of it,\n/// and its own events, which the same call carries.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    pub(crate) events: crate::EventStream<{name}Event>,\n}}\n\nimpl {name} {{\n    /// Its own events, in order, each once, its close last, after which\n    /// the stream ends; the stream also ends with the call that opened it.\n    /// Dropping the stream passes over the events it has not read, and\n    /// the call's other streams go on.\n    pub fn events(self) -> crate::EventStream<{name}Event> {{\n        self.events\n    }}\n}}\n\n/// An event of a [`{name}`]'s own.\n#[derive(Clone, Debug, ::serde::Deserialize)]\n#[serde(tag = \"event\", content = \"data\")]\n#[non_exhaustive]\npub enum {name}Event {{\n",
+                "\n/// A `{namespace}` an event opened (ADR 0081): what that event told of it,\n/// and its own events, which the same call carries.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    pub(crate) events: crate::EventStream<{name}Event>,\n}}\n\nimpl {name} {{\n    /// Its own events, in order, each once, its close last, after which\n    /// the stream ends; the stream also ends with the call that opened it.\n    /// Dropping the stream passes over the events it has not read, and\n    /// the call's other streams go on. The call stays lossless: events\n    /// held unread keep their credits, so once the engine waits on them,\n    /// the call's other streams wait too.\n    pub fn events(self) -> crate::EventStream<{name}Event> {{\n        self.events\n    }}\n}}\n\n/// An event of a [`{name}`]'s own.\n#[derive(Clone, Debug, ::serde::Deserialize)]\n#[serde(tag = \"event\", content = \"data\")]\n#[non_exhaustive]\npub enum {name}Event {{\n",
                 namespace = value.namespace,
             );
             for event in &value.events {
@@ -374,7 +374,7 @@ fn value_text(value: &OpenedValue, twin: Twin) -> String {
             text
         }
         Twin::Blocking => format!(
-            "\n/// The blocking twin of a [`crate::{name}`], whose own events a blocking\n/// iterator hands.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    events: crate::blocking::EventIter<crate::{name}Event>,\n}}\n\nimpl {name} {{\n    /// The blocking twin of `value`, whose events are read on\n    /// `connection`'s runtime.\n    pub(crate) fn new(value: crate::{name}, connection: &crate::ClientConnection) -> Self {{\n        let crate::{name} {{ {idents}events }} = value;\n        Self {{ {idents}events: crate::blocking::EventIter::new(events, connection) }}\n    }}\n\n    /// Its own events, in order, each once, its close last, after which\n    /// the iterator ends; it also ends with the call that opened it.\n    /// Dropping the iterator passes over the events it has not read, and\n    /// the call's other streams go on.\n    pub fn events(self) -> crate::blocking::EventIter<crate::{name}Event> {{\n        self.events\n    }}\n}}\n"
+            "\n/// The blocking twin of a [`crate::{name}`], whose own events a blocking\n/// iterator hands.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    events: crate::blocking::EventIter<crate::{name}Event>,\n}}\n\nimpl {name} {{\n    /// The blocking twin of `value`, whose events are read on\n    /// `connection`'s runtime.\n    pub(crate) fn new(value: crate::{name}, connection: &crate::ClientConnection) -> Self {{\n        let crate::{name} {{ {idents}events }} = value;\n        Self {{ {idents}events: crate::blocking::EventIter::new(events, connection) }}\n    }}\n\n    /// Its own events, in order, each once, its close last, after which\n    /// the iterator ends; it also ends with the call that opened it.\n    /// Dropping the iterator passes over the events it has not read, and\n    /// the call's other streams go on. The call stays lossless: events\n    /// held unread keep their credits, so once the engine waits on them,\n    /// the call's other streams wait too.\n    pub fn events(self) -> crate::blocking::EventIter<crate::{name}Event> {{\n        self.events\n    }}\n}}\n"
         ),
     }
 }
@@ -523,11 +523,15 @@ fn opening_impls(
                 let _ = write!(text, "{0}: opened.{0}, ", field.ident);
                 text
             });
+            let own = value.events.iter().fold(String::new(), |mut text, event| {
+                let _ = write!(text, "{:?}, ", event.event);
+                text
+            });
             (
                 format!("crate::{value_name}"),
                 format!("crate::blocking::{value_name}"),
                 format!(
-                    "let opens = crate::event_stream::Opens {{ opener: Self::NAME, namespace: {:?}, id: {:?} }};\n        handle.host.listen_opening({method:?}, params, opens, |opened: {payload}, events| crate::{value_name} {{ {idents}events }})",
+                    "let opens = crate::event_stream::Opens {{ opener: Self::NAME, namespace: {:?}, id: {:?}, events: &[{own}] }};\n        handle.host.listen_opening({method:?}, params, opens, |opened: {payload}, events| crate::{value_name} {{ {idents}events }})",
                     value.namespace, value.id
                 ),
                 format!("crate::blocking::{value_name}::new(data, connection)"),

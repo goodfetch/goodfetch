@@ -939,7 +939,9 @@ impl WebSocket {
     /// Its own events, in order, each once, its close last, after which
     /// the stream ends; the stream also ends with the call that opened it.
     /// Dropping the stream passes over the events it has not read, and
-    /// the call's other streams go on.
+    /// the call's other streams go on. The call stays lossless: events
+    /// held unread keep their credits, so once the engine waits on them,
+    /// the call's other streams wait too.
     pub fn events(self) -> crate::EventStream<WebSocketEvent> {
         self.events
     }

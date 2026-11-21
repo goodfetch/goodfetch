@@ -346,6 +346,11 @@ impl sealed::PageEvent for WebSocket {
             opener: Self::NAME,
             namespace: "web_socket",
             id: "web_socket_id",
+            events: &[
+                "web_socket.close",
+                "web_socket.frame_received",
+                "web_socket.frame_sent",
+            ],
         };
         handle.host.listen_opening(
             "page.on",

@@ -2410,6 +2410,7 @@ dependencies = [
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "libc",
+ "loom",
  "proptest",
  "rstest",
  "schemars",

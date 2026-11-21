@@ -40,27 +40,65 @@ pub(crate) struct Opens {
     pub(crate) events: &'static [&'static str],
 }
 
+/// The call's batches, as its streams read them: its [`Flow`], or in the
+/// loom tests a stand-in, since a Flow reads Tokio's channels, which loom
+/// cannot run (ADR 0060).
+pub(super) trait CallFlow {
+    /// The call's next event, handed or passed over, its error once, or
+    /// `None` once it ended.
+    fn poll_envelope(
+        &mut self,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<EventEnvelope, Error>>>;
+
+    /// Settles an event, which counts toward the call's next credits.
+    fn settle(&mut self);
+
+    /// Cancels the call.
+    fn end(&mut self);
+}
+
+impl CallFlow for Flow {
+    fn poll_envelope(
+        &mut self,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<EventEnvelope, Error>>> {
+        Flow::poll_envelope(self, context)
+    }
+
+    fn settle(&mut self) {
+        Flow::settle(self);
+    }
+
+    fn end(&mut self) {
+        Flow::end(self);
+    }
+}
+
 /// The call's own stream: the values its events open.
-pub(crate) struct Opening {
-    shared: Arc<Shared>,
+pub(super) struct Opening<F: CallFlow = Flow> {
+    shared: Arc<Shared<F>>,
 }
 
 /// One opened value's stream: its own events, each `{event, data}`.
-pub(crate) struct Opened {
-    shared: Arc<Shared>,
+pub(super) struct Opened<F: CallFlow = Flow> {
+    shared: Arc<Shared<F>>,
     key: u64,
 }
 
+/// A value opened: its opening payload and its own stream.
+type OpenedValue<F> = (Value, Opened<F>);
+
 /// The call and its streams' queues, behind one lock, and the wakers of
 /// the streams waiting on the call.
-struct Shared {
-    call: Mutex<Call>,
+struct Shared<F> {
+    call: Mutex<Call<F>>,
     waiting: Arc<Waiting>,
 }
 
 /// The call its streams share.
-struct Call {
-    flow: Flow,
+struct Call<F> {
+    flow: F,
     opens: Opens,
     /// The opening payloads the call's own stream has not handed, each
     /// with the key of the value it opened.
@@ -195,10 +233,10 @@ impl Wake for Waiting {
 /// The key of the call's own stream.
 const OWN: u64 = 0;
 
-impl Opening {
+impl<F: CallFlow> Opening<F> {
     /// The call's own stream of `flow`, whose events open values as
     /// `opens` says.
-    pub(super) fn new(flow: Flow, opens: Opens) -> Self {
+    pub(super) fn new(flow: F, opens: Opens) -> Self {
         Self {
             shared: Arc::new(Shared {
                 call: Mutex::new(Call {
@@ -219,7 +257,7 @@ impl Opening {
     pub(super) fn poll_opened(
         &self,
         context: &mut Context<'_>,
-    ) -> Poll<Option<Result<(Value, Opened), Error>>> {
+    ) -> Poll<Option<Result<OpenedValue<F>, Error>>> {
         let polled = self.shared.poll(OWN, context, |call| {
             if let Some((data, key)) = call.opened.pop_front() {
                 call.flow.settle();
@@ -248,7 +286,7 @@ impl Opening {
     }
 }
 
-impl Drop for Opening {
+impl<F: CallFlow> Drop for Opening<F> {
     /// Cancels the call: each value's stream hands what it holds, then
     /// ends.
     fn drop(&mut self) {
@@ -266,7 +304,7 @@ impl Drop for Opening {
     }
 }
 
-impl Opened {
+impl<F: CallFlow> Opened<F> {
     /// The value's next own event, `{event, data}`, or `None` once it
     /// handed its close or the call ended.
     pub(super) fn poll_event(&self, context: &mut Context<'_>) -> Poll<Option<Value>> {
@@ -289,7 +327,7 @@ impl Opened {
     }
 }
 
-impl Drop for Opened {
+impl<F: CallFlow> Drop for Opened<F> {
     /// Its value takes nothing more: the events it held are settled.
     fn drop(&mut self) {
         let mut call = lock(&self.shared.call);
@@ -307,14 +345,14 @@ impl Drop for Opened {
     }
 }
 
-impl Shared {
+impl<F: CallFlow> Shared<F> {
     /// What `take` finds for the stream `key`, reading the call's batches
     /// until it finds something or the call has nothing more for now.
     fn poll<T>(
         &self,
         key: u64,
         context: &mut Context<'_>,
-        mut take: impl FnMut(&mut Call) -> Option<T>,
+        mut take: impl FnMut(&mut Call<F>) -> Option<T>,
     ) -> Poll<T> {
         let mut call = lock(&self.call);
         let waker = Waker::from(Arc::clone(&self.waiting));
@@ -346,7 +384,7 @@ impl Shared {
     }
 }
 
-impl Call {
+impl<F: CallFlow> Call<F> {
     /// Puts `envelope` in the queue of the stream it is for, whose key it
     /// returns, or settles it when none will hand it.
     fn route(&mut self, envelope: EventEnvelope) -> Option<u64> {
@@ -399,3 +437,6 @@ impl Call {
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(all(test, goodfetch_loom))]
+mod loom_tests;

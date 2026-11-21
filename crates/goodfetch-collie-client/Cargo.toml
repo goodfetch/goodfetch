@@ -61,5 +61,10 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 trybuild.workspace = true
 
+# The opened call's loom tests (src/event_stream/opened/loom_tests.rs),
+# built only by `just loom`, which sets `--cfg goodfetch_loom` (ADR 0060).
+[target.'cfg(goodfetch_loom)'.dev-dependencies]
+loom = { workspace = true, features = ["futures"] }
+
 [lints]
 workspace = true

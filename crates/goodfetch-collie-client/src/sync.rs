@@ -9,16 +9,34 @@
 //! closed. Locks are taken inside another only in the Subscription, in one
 //! order: the Connection's, then its readers', then a reader's queue; and
 //! in an opened call, in one order: the call's, then its readers' wakers.
+//! Under `--cfg goodfetch_loom` the locks and atomics map to loom's, so the
+//! opened call's loom tests explore every interleaving of its readers; the
+//! locks in a `static` stay std's, since loom's cannot be built in one.
 #![expect(
     clippy::disallowed_types,
     reason = "the crate's sync module, the one place its locks and atomics are named (ADR 0060)"
 )]
 
-/// A lock.
+/// A lock, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type Mutex<T> = loom::sync::Mutex<T>;
+/// A lock, loom's under `goodfetch_loom`.
+#[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) type Mutex<T> = std::sync::Mutex<T>;
 
 /// A held [`Mutex`].
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type MutexGuard<'a, T> = loom::sync::MutexGuard<'a, T>;
+/// A held [`Mutex`].
+#[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) type MutexGuard<'a, T> = std::sync::MutexGuard<'a, T>;
 
-/// A flag shared between threads.
+/// A lock in a `static`, std's under `goodfetch_loom` too.
+pub(crate) type StaticMutex<T> = std::sync::Mutex<T>;
+
+/// A flag shared between threads, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicBool = loom::sync::atomic::AtomicBool;
+/// A flag shared between threads, loom's under `goodfetch_loom`.
+#[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) type AtomicBool = std::sync::atomic::AtomicBool;

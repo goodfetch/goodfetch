@@ -1635,11 +1635,11 @@ fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
     );
 }
 
-/// A crawl's start checks a field's CSS selector on the engine's Counted
-/// work, the one its Run compiles the selector through: a start refused for
-/// a later field compiled the selector there once, where a Run reading it
-/// would find it kept, rather than on Counted work of the check's own
-/// (#2605).
+/// A crawl's start checks a field's selector on the engine's Counted work,
+/// the one its Run compiles the selector through: a start refused for a
+/// later field compiled the CSS selector there once (#2605) and parsed the
+/// refused `XPath` expression there once (#2713), where a Run reading them
+/// would find them kept, rather than on Counted work of the check's own.
 #[test]
 fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
     let env = TestEnv::new();
@@ -1678,7 +1678,7 @@ fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
             &refused["error"]["data"]["code"],
             work.read(goodfetch_counted_work::Row::PageSelectorCompilations)
         ),
-        (&json!("invalid_params"), 1),
+        (&json!("invalid_params"), 2),
         "{refused}"
     );
 }

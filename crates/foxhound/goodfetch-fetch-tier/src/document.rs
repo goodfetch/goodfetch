@@ -276,7 +276,8 @@ pub(crate) enum Locating {
     Xpath(xpath::Expression),
 }
 
-/// `locator`, read once.
+/// `locator`, read once, from `work`'s cache: a CSS selector's matcher or
+/// an `XPath` expression is built once for the engine (issue 2713).
 ///
 /// # Errors
 ///
@@ -288,7 +289,9 @@ pub(crate) fn locating(
 ) -> Result<Locating, LocatorInvalid> {
     Ok(match locator {
         FieldLocator::Css { selector } => Locating::Css(matcher(selector, work)?),
-        FieldLocator::Xpath { selector } => Locating::Xpath(xpath::Expression::parse(selector)?),
+        FieldLocator::Xpath { selector } => {
+            Locating::Xpath(xpath::Expression::read(selector, work)?)
+        }
     })
 }
 
@@ -569,14 +572,15 @@ pub fn check_selector(selector: &str, work: &CountedWork) -> Result<(), Selector
 }
 
 /// Refuses `expression` when it is no `XPath` 1.0 expression the engine
-/// reads to nodes on both tiers.
+/// reads to nodes on both tiers, read through `work`'s cache as a field's
+/// locator is.
 ///
 /// # Errors
 ///
 /// When a browser refuses `expression` with no namespace resolver and no
 /// variables, or it answers a value rather than nodes.
-pub fn check_xpath(expression: &str) -> Result<(), XpathInvalid> {
-    xpath::Expression::parse(expression).map(drop)
+pub fn check_xpath(expression: &str, work: &CountedWork) -> Result<(), XpathInvalid> {
+    xpath::Expression::read(expression, work).map(drop)
 }
 
 /// What a browser page answered the Frontier's `trap_links::READ`: its

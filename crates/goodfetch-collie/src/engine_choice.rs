@@ -6,6 +6,10 @@
 //! two, and [`EngineChoice::Remote`] a remote Daemon, whatever the
 //! environment says; there is no `GOODFETCH_ENGINE`. A program linking the
 //! engine never starts the Daemon, since it cannot run as one (ADR 0098).
+//! When the Daemon of the home refuses it by Product or protocol version
+//! and cannot hand over, [`EngineChoice::Auto`] links its engine in the
+//! Daemon's place, which [`EngineInfo::fallback`] says why
+//! ([`crate::linked`]).
 //!
 //! A remote Daemon's address is `ws://` on loopback, reached with
 //! newline-delimited JSON-RPC over TCP, which an Exposed Daemon serves
@@ -159,35 +163,59 @@ pub(crate) enum Reach {
 pub(crate) struct DaemonReach {
     pub(crate) endpoint: DaemonEndpoint,
     pub(crate) token: DaemonToken,
-    /// The remote Daemon's URL and what named it, `engine` or
-    /// `GOODFETCH_URL`; `None` for the Daemon running in the home.
-    remote: Option<(String, &'static str)>,
+    whose: Whose,
+}
+
+/// Whose Daemon a connection reaches.
+enum Whose {
+    /// The one running in the Goodfetch home, with its process ID.
+    Home { pid: u32 },
+    /// A remote one, at `url`, which `source` named: `engine` or
+    /// `GOODFETCH_URL`.
+    Remote { url: String, source: &'static str },
 }
 
 impl DaemonReach {
     /// Its kind.
     pub(crate) fn kind(&self) -> EngineKind {
-        if self.remote.is_some() {
-            EngineKind::Remote
-        } else {
-            EngineKind::Daemon
+        match self.whose {
+            Whose::Home { .. } => EngineKind::Daemon,
+            Whose::Remote { .. } => EngineKind::Remote,
+        }
+    }
+
+    /// The process ID of the Daemon running in the home; `None` for a
+    /// remote Daemon.
+    pub(crate) fn pid(&self) -> Option<u32> {
+        match self.whose {
+            Whose::Home { pid } => Some(pid),
+            Whose::Remote { .. } => None,
         }
     }
 
     /// The Goodfetch home it runs in, as [`EngineInfo::home`] gives it:
     /// `home`, whose Daemon it is, or `None` for a remote Daemon.
     pub(crate) fn home(&self, home: Option<&Home>) -> Option<PathBuf> {
-        match self.remote {
-            Some(_) => None,
-            None => home.map(|home| home.root().to_owned()),
+        match self.whose {
+            Whose::Home { .. } => home.map(|home| home.root().to_owned()),
+            Whose::Remote { .. } => None,
         }
     }
 
     /// Where it listens, as [`EngineInfo::url`] gives it.
     pub(crate) fn url(&self) -> String {
-        match &self.remote {
-            Some((url, _)) => url.clone(),
-            None => self.endpoint.to_string(),
+        match &self.whose {
+            Whose::Home { .. } => self.endpoint.to_string(),
+            Whose::Remote { url, .. } => url.clone(),
+        }
+    }
+
+    /// The remote Daemon's source, `engine` or `GOODFETCH_URL`; `None` for
+    /// the Daemon running in the home.
+    fn remote_source(&self) -> Option<&'static str> {
+        match self.whose {
+            Whose::Home { .. } => None,
+            Whose::Remote { source, .. } => Some(source),
         }
     }
 
@@ -202,13 +230,13 @@ impl DaemonReach {
             return error;
         }
         let url = self.url();
-        let (message, fix) = match (&self.remote, closed) {
+        let (message, fix) = match (self.remote_source(), closed) {
             (_, true) => (
                 format!(
                     "The Daemon at {url} closed the connection before it answered hello, as one does for a token it does not take"
                 ),
-                match &self.remote {
-                    Some((_, URL_VARIABLE)) => {
+                match self.remote_source() {
+                    Some(URL_VARIABLE) => {
                         format!("Set {TOKEN_VARIABLE} to the token the Daemon at {url} takes.")
                     }
                     Some(_) => format!("Give `engine` the token the Daemon at {url} takes."),
@@ -221,7 +249,7 @@ impl DaemonReach {
                     ),
                 },
             ),
-            (Some((_, source)), false) => (
+            (Some(source), false) => (
                 format!("Nothing answers at {url}, the Daemon {source} names"),
                 format!(
                     "Start the Daemon {url} names, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave `engine` at `Auto` with {URL_VARIABLE} unset to use this machine's engine."
@@ -267,14 +295,16 @@ pub(crate) fn reach(
                         .to_owned(),
                 ));
             };
-            running(home, version)?.ok_or_else(|| none_running(home, product, version))
+            running(home, version)?
+                .map(Reach::Daemon)
+                .ok_or_else(|| none_running(home, product, version))
         }
         EngineChoice::Auto => {
             if let Some(remote) = remote_of_environment(environment)? {
                 return remote_reach(remote, URL_VARIABLE);
             }
             match home {
-                Some(home) => Ok(running(home, version)?.unwrap_or(Reach::Linked)),
+                Some(home) => Ok(running(home, version)?.map_or(Reach::Linked, Reach::Daemon)),
                 None => Ok(Reach::Linked),
             }
         }
@@ -316,7 +346,10 @@ fn remote_reach(remote: RemoteDaemon, source: &'static str) -> Result<Reach, Err
     Ok(Reach::Daemon(DaemonReach {
         endpoint: DaemonEndpoint::Tcp(address),
         token: remote.token,
-        remote: Some((remote.url, source)),
+        whose: Whose::Remote {
+            url: remote.url,
+            source,
+        },
     }))
 }
 
@@ -394,15 +427,13 @@ fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
 /// # Errors
 ///
 /// `daemon_unreachable` when its files cannot be read.
-fn running(home: &Home, version: &ProductVersion) -> Result<Option<Reach>, Error> {
+pub(crate) fn running(home: &Home, version: &ProductVersion) -> Result<Option<DaemonReach>, Error> {
     let files = DaemonFiles::of(home, version);
     match files.running() {
-        Ok(found) => Ok(found.map(|found| {
-            Reach::Daemon(DaemonReach {
-                endpoint: found.endpoint,
-                token: found.token,
-                remote: None,
-            })
+        Ok(found) => Ok(found.map(|found| DaemonReach {
+            endpoint: found.endpoint,
+            token: found.token,
+            whose: Whose::Home { pid: found.pid },
         })),
         Err(error) => {
             let file = files.runtime_file();

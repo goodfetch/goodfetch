@@ -53,14 +53,17 @@ use crate::transport::{self, Endpoint, Network};
 /// each chunk written.
 const CHUNKS_AHEAD: u32 = 16;
 
-/// The runtime a Connection's tasks run on.
-#[derive(Debug)]
+/// The runtime a Connection's tasks run on. Cloning it shares the runtime:
+/// one the Connection owns shuts down once every clone, and every
+/// Connection opened on it, is dropped, so an opening that failed can open
+/// another Connection on the same runtime.
+#[derive(Clone, Debug)]
 pub struct ConnectionRuntime(Kind);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Kind {
     /// One the Connection owns and shuts down with its last handle.
-    Owned(Runtime),
+    Owned(Arc<Owned>),
     /// One the program drives, which outlives the Connection.
     Driven(Handle),
 }
@@ -69,10 +72,10 @@ impl ConnectionRuntime {
     /// A runtime the Connection owns, which `goodfetch-runtime` builds. It
     /// runs its tasks on its own worker threads, so it must be a
     /// multi-thread one: nothing drives a current-thread runtime the
-    /// Connection owns. Dropping the Connection's last handle shuts it
-    /// down in the background.
+    /// Connection owns. Dropping the Connection's last handle, and this
+    /// value's last clone, shuts it down in the background.
     pub fn owned(runtime: Runtime) -> Self {
-        Self(Kind::Owned(runtime))
+        Self(Kind::Owned(Arc::new(Owned(Some(runtime)))))
     }
 
     /// The runtime behind `handle`, which the program drives and which
@@ -84,10 +87,10 @@ impl ConnectionRuntime {
     }
 
     /// Its handle, and the runtime itself when the Connection owns it.
-    fn split(self) -> (Handle, Owned) {
+    fn split(self) -> (Handle, Option<Arc<Owned>>) {
         match self.0 {
-            Kind::Owned(runtime) => (runtime.handle().clone(), Owned(Some(runtime))),
-            Kind::Driven(handle) => (handle, Owned(None)),
+            Kind::Owned(owned) => (owned.handle(), Some(owned)),
+            Kind::Driven(handle) => (handle, None),
         }
     }
 }
@@ -96,6 +99,17 @@ impl ConnectionRuntime {
 /// when it is dropped: dropping a runtime on an async worker would panic.
 #[derive(Debug)]
 struct Owned(Option<Runtime>);
+
+impl Owned {
+    /// The runtime's handle.
+    fn handle(&self) -> Handle {
+        self.0
+            .as_ref()
+            .expect("invariant: an owned runtime is taken only when it is dropped")
+            .handle()
+            .clone()
+    }
+}
 
 impl Drop for Owned {
     fn drop(&mut self) {
@@ -139,7 +153,7 @@ struct Inner {
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
-    _runtime: Owned,
+    _runtime: Option<Arc<Owned>>,
 }
 
 impl ClientConnection {

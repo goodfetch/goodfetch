@@ -20,14 +20,15 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use serde::Serialize;
 
 use super::extracted::Extracted;
 use super::matrix::{self, CELLS, Cell, OutputCheck, Reading, Row, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    QUIET_LOAD, RATIOS, SPIDER, STRACE_QUIET_LOAD, TRIALS, Trial,
+    CURVE_PARTS, Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES,
+    Machine, QUIET_LOAD, RATIOS, SPIDER, STRACE_QUIET_LOAD, TRIALS, Trial,
 };
 
 mod auto;
@@ -585,9 +586,12 @@ fn metrics(
 /// names; `None` for every other tier, a hop sent from the browser being
 /// `browser_fetch` (#2409).
 const TIERS: [(&str, Option<&str>); 4] = [
-    ("tier_http_share", Some("http")),
-    ("tier_browser_fetch_share", Some("browser_fetch")),
-    ("tier_browser_share", Some("browser")),
+    ("tier_http_share", Some(FetchTier::Http.as_str())),
+    (
+        "tier_browser_fetch_share",
+        Some(FetchTier::BrowserFetch.as_str()),
+    ),
+    ("tier_browser_share", Some(FetchTier::Browser.as_str())),
     ("tier_other_share", None),
 ];
 
@@ -611,12 +615,13 @@ fn tier_share(tiers: &BTreeMap<String, u64>, tier: Option<&str>) -> f64 {
 /// last tenth, which leaves out its start-up and its tail (owner,
 /// 2026-11-10, #2252 Q9).
 fn steady(trial: &Trial) -> f64 {
-    trial
-        .measured
-        .curve
-        .get(1..9)
-        .filter(|_| trial.measured.curve.len() == 10)
-        .map_or(f64::NAN, |tenths| tenths.iter().sum::<f64>() / 8.0)
+    let curve = &trial.measured.curve;
+    curve
+        .get(1..CURVE_PARTS - 1)
+        .filter(|_| curve.len() == CURVE_PARTS)
+        .map_or(f64::NAN, |tenths| {
+            tenths.iter().sum::<f64>() / float((CURVE_PARTS - 2) as u64)
+        })
 }
 
 /// Why a cell of the long scenario has no strace or growth figures.

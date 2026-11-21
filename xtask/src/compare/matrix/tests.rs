@@ -917,38 +917,97 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
     );
 }
 
-/// Scenario 1's first cell runs the default `batch` (#2175); scenario 2
-/// keeps its `full` and `periodic` 60 s cells and gains a `batch` one; and
-/// scenario 1's cell at the catalog's defaults prints two rows, the
-/// default `fetch.http_from` in force and `learned`, labelled, neither of
-/// which keeps the counted criteria of the scenario's first cell.
-#[test]
-fn scenario_1_and_2_run_the_new_defaults() {
-    let foxhound = |scenario: Scenario| -> Vec<(&str, Row, Option<Config>, Option<AtDefaults>)> {
-        CELLS
-            .iter()
-            .filter(|cell| cell.scenario == scenario && cell.tool == Tool::Foxhound)
-            .map(|cell| {
-                let config = match cell.status {
-                    Status::Measured(config) => Some(config),
-                    Status::NotSupported(_) | Status::Pending(_) => None,
-                };
-                (cell.name, cell.row, config, cell.at_defaults())
-            })
-            .collect()
-    };
-    let durable = |durability, commit_interval| {
-        Some(Config::Foxhound {
-            durability,
-            commit_interval,
-            auto: false,
+/// Foxhound's rows in `scenario`: each one's name, row, run and row of the
+/// cell at the catalog's defaults.
+fn foxhound_rows(
+    scenario: Scenario,
+) -> Vec<(&'static str, Row, Option<Config>, Option<AtDefaults>)> {
+    CELLS
+        .iter()
+        .filter(|cell| cell.scenario == scenario && cell.tool == Tool::Foxhound)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.name, cell.row, config, cell.at_defaults())
         })
-    };
+        .collect()
+}
+
+/// A Foxhound run at `durability`, its Records not read for its tiers.
+const fn durable(durability: &'static str, commit_interval: Option<u64>) -> Config {
+    Config::Foxhound {
+        durability,
+        commit_interval,
+        auto: false,
+    }
+}
+
+/// Scenario 1's first cell runs the default `batch` (#2175), and its cell
+/// at the catalog's defaults prints two labelled rows: the default
+/// `fetch.http_from` in force and `learned`.
+#[test]
+fn scenario_1_runs_batch_and_the_catalog_defaults_in_two_rows() {
     let at_defaults = Some(Config::Foxhound {
         durability: "batch",
         commit_interval: None,
         auto: true,
     });
+
+    assert_eq!(
+        foxhound_rows(Scenario::Raw),
+        vec![
+            ("foxhound", Row::Main, Some(durable("batch", None)), None),
+            (
+                "foxhound defaults",
+                Row::Main,
+                at_defaults,
+                Some(AtDefaults::InForce)
+            ),
+            (
+                "foxhound defaults learned",
+                Row::Sensitivity,
+                at_defaults,
+                Some(AtDefaults::Learned)
+            ),
+        ]
+    );
+}
+
+/// Scenario 2 keeps its `full` and `periodic` 60 s cells and gains a
+/// `batch` one (#2175).
+#[test]
+fn scenario_2_gains_a_batch_cell() {
+    assert_eq!(
+        foxhound_rows(Scenario::Durable),
+        vec![
+            (
+                "foxhound full",
+                Row::Main,
+                Some(durable("full", None)),
+                None
+            ),
+            (
+                "foxhound periodic",
+                Row::Main,
+                Some(durable("periodic", Some(60_000))),
+                None
+            ),
+            (
+                "foxhound batch",
+                Row::Main,
+                Some(durable("batch", None)),
+                None
+            ),
+        ]
+    );
+}
+
+/// Neither row of scenario 1's cell at the catalog's defaults keeps the
+/// counted criteria, which stay with the scenario's first cell (#2175).
+#[test]
+fn the_catalog_defaults_cell_leaves_the_counted_criteria_to_the_first_cell() {
     let criteria: Vec<&str> = CELLS
         .iter()
         .filter(|cell| cell.scenario == Scenario::Raw && cell.counted_criteria())
@@ -956,48 +1015,17 @@ fn scenario_1_and_2_run_the_new_defaults() {
         .collect();
 
     assert_eq!(
-        (
-            foxhound(Scenario::Raw),
-            foxhound(Scenario::Durable),
-            criteria
-        ),
-        (
-            vec![
-                ("foxhound", Row::Main, durable("batch", None), None),
-                (
-                    "foxhound defaults",
-                    Row::Main,
-                    at_defaults,
-                    Some(AtDefaults::InForce)
-                ),
-                (
-                    "foxhound defaults learned",
-                    Row::Sensitivity,
-                    at_defaults,
-                    Some(AtDefaults::Learned)
-                ),
-            ],
-            vec![
-                ("foxhound full", Row::Main, durable("full", None), None),
-                (
-                    "foxhound periodic",
-                    Row::Main,
-                    durable("periodic", Some(60_000)),
-                    None
-                ),
-                ("foxhound batch", Row::Main, durable("batch", None), None),
-            ],
-            vec![
-                "foxhound",
-                "spider",
-                "crawlee",
-                "scrapy",
-                "crawlee-rs",
-                "pagesift",
-                "openspider",
-                "fastcrw",
-                "crawlberg"
-            ],
-        )
+        criteria,
+        vec![
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs",
+            "pagesift",
+            "openspider",
+            "fastcrw",
+            "crawlberg"
+        ]
     );
 }

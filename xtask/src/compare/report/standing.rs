@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use super::{CellReport, CellStatus, Figure, ROWS, ScenarioReport, cell_text, output_differs};
-use crate::compare::matrix::{self, Row, Scenario, Tool};
+use crate::compare::matrix::{self, Scenario, Tool};
 
 /// The Product's standing against a competitor on one metric.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -80,7 +80,7 @@ fn judge(metric: &str, product: &Figure, competitor: &Figure) -> Option<Standing
 fn judged(scenario: Scenario, cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
     let counted = matrix::cell(scenario, cell.cell).is_some_and(matrix::Cell::counted_criteria);
     match &cell.status {
-        CellStatus::Measured { metrics, .. } if cell.row == Row::Main && counted => Some(metrics),
+        CellStatus::Measured { metrics, .. } if counted => Some(metrics),
         CellStatus::Measured { .. }
         | CellStatus::NotSupported { .. }
         | CellStatus::NotMeasured { .. }

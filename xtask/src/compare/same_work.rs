@@ -38,9 +38,8 @@ use crate::check::Finding;
 use super::extracted::{ANSWERED_PAGES, Extracted};
 use super::matrix::{self, Cell, OutputCheck, Row, Scenario};
 use super::trials::{
-    self, AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS,
-    INSTRUCTION_TOOLS, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial,
-    Work, size_not_run,
+    self, AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, SIZE_CONCURRENCIES, SIZE_TOOLS,
+    SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -197,10 +196,6 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         .copied()
         .filter(|scenario| !scenario.timed_only())
         .collect();
-    let instructions: Vec<Scenario> = INSTRUCTION_SCENARIOS
-        .into_iter()
-        .filter(|scenario| ran.contains(scenario))
-        .collect();
     let named = named_cells(trials);
     let mut findings = check_pass(&Pass {
         suffix: String::new(),
@@ -225,9 +220,9 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " callgrind",
             &trials.instructions,
-            &instructions[..],
-            &INSTRUCTION_TOOLS[..],
-            // The cells the ratios read.
+            ran,
+            &Tool::ALL[..],
+            // The cells the ratios read, and only those.
             trials::instruction_counted,
             "Callgrind counted no instruction, so the run measured nothing",
         ),

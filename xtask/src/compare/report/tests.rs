@@ -672,16 +672,15 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
     );
 }
 
-/// Each cell gives its steady rate, the mean of its curve between the
-/// first and the last tenth, and the share of its pages each tier sent,
-/// read from Provenance where its row reads it (#2175).
-#[test]
-fn cells_give_their_steady_rate_and_their_tiers() {
+/// Every cell measured with `curve`, Foxhound's cell at the catalog's
+/// defaults having sent 600 pages over HTTP, 300 from the browser's
+/// context and 100 from the browser.
+fn curve_and_tiers(curve: &[f64]) -> Comparison {
     use std::collections::BTreeMap;
-    let trials = fixture::comparison(PAGES, |cell, _| Measured {
+    fixture::comparison(PAGES, |cell, _| Measured {
         seconds: 1.0,
         work: work(),
-        curve: vec![1.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 100.0],
+        curve: curve.to_vec(),
         tiers: (cell.name == "foxhound defaults").then(|| {
             BTreeMap::from([
                 ("http".to_owned(), 600),
@@ -690,39 +689,70 @@ fn cells_give_their_steady_rate_and_their_tiers() {
             ])
         }),
         ..Measured::default()
-    });
+    })
+}
 
-    let report = of(&trials);
-
-    let figures = |name: &str| -> Vec<Option<f64>> {
-        let cell = report
-            .scenarios
-            .iter()
-            .find(|report| report.scenario == Scenario::Raw)
-            .and_then(|report| report.cells.iter().find(|cell| cell.cell == name))
-            .expect("scenario 1 has the cell");
-        let CellStatus::Measured { metrics, .. } = &cell.status else {
-            panic!("{name} is measured");
-        };
-        [
-            "steady_pages_per_second",
-            "tier_http_share",
-            "tier_browser_fetch_share",
-            "tier_browser_share",
-            "tier_other_share",
-        ]
+/// The figures `metrics` give scenario 1's cell `name` in `report`, to a
+/// thousandth; `None` for each it does not give.
+fn scenario_1_figures(report: &Report, name: &str, metrics: &[&str]) -> Vec<Option<f64>> {
+    let cell = report
+        .scenarios
         .iter()
-        .map(|metric| match metrics.get(metric) {
+        .find(|report| report.scenario == Scenario::Raw)
+        .and_then(|report| report.cells.iter().find(|cell| cell.cell == name))
+        .expect("scenario 1 has the cell");
+    let CellStatus::Measured { metrics: given, .. } = &cell.status else {
+        panic!("{name} is measured");
+    };
+    metrics
+        .iter()
+        .map(|metric| match given.get(metric) {
             Some(Figure::Measured { median, .. }) => Some((median * 1000.0).round() / 1000.0),
             _ => None,
         })
         .collect()
-    };
+}
+
+/// Each cell gives its steady rate, the mean of its curve between the
+/// first and the last tenth (#2175).
+#[test]
+fn cells_give_their_steady_rate() {
+    let trials = curve_and_tiers(&[1.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 100.0]);
+
+    let report = of(&trials);
+
+    let steady = ["steady_pages_per_second"];
     assert_eq!(
-        (figures("foxhound defaults"), figures("foxhound")),
         (
-            vec![Some(5.0), Some(0.6), Some(0.3), Some(0.1), Some(0.0)],
-            vec![Some(5.0), None, None, None, None],
+            scenario_1_figures(&report, "foxhound defaults", &steady),
+            scenario_1_figures(&report, "foxhound", &steady),
+        ),
+        (vec![Some(5.0)], vec![Some(5.0)])
+    );
+}
+
+/// A cell gives the share of its pages each tier sent where its row reads
+/// them from Provenance, and none where it does not (#2175).
+#[test]
+fn cells_give_their_tiers_where_their_row_reads_them() {
+    let trials = curve_and_tiers(&[1.0; 10]);
+
+    let report = of(&trials);
+
+    let tiers = [
+        "tier_http_share",
+        "tier_browser_fetch_share",
+        "tier_browser_share",
+        "tier_other_share",
+    ];
+    assert_eq!(
+        (
+            scenario_1_figures(&report, "foxhound defaults", &tiers),
+            scenario_1_figures(&report, "foxhound", &tiers),
+        ),
+        (
+            vec![Some(0.6), Some(0.3), Some(0.1), Some(0.0)],
+            vec![None, None, None, None],
         )
     );
 }

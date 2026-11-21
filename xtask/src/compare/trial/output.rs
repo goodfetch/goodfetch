@@ -164,7 +164,8 @@ pub(super) struct Read {
 }
 
 /// Foxhound's Records' commit times, in seconds from `started`, by path,
-/// and the pages whose Record came from a sample's browser run.
+/// the pages whose Record came from a sample's browser run, and the pages
+/// each tier sent.
 pub(super) fn read(records: &[Record], started: jiff::Timestamp) -> Result<Read> {
     // Each page's first Record's commit time and tier.
     let mut firsts: BTreeMap<String, (f64, &str)> = BTreeMap::new();

@@ -784,7 +784,8 @@ pub(crate) const CELLS: [Cell; 132] = [
                   concurrency 16 (the default shared Politeness, with Delegations), \
                   `crawl.handler.concurrency: 16`, `formats: {}`, `frontier.learning: false`, \
                   `provenance.log: false`, `dataset.records: false` and \
-                  `fetch.block_classification: false`",
+                  `fetch.block_classification: false`. This row keeps the counted criteria; \
+                  #2176's target is the cell at the catalog's defaults'",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
@@ -2472,7 +2473,8 @@ const AT_DEFAULTS_MAPPING: &str = "Foxhound at the catalog's defaults, setting n
      weakened: robots.txt respected, `fetch.tier: auto`, `fetch.http_from: browser`, Frontier \
      learning, the Provenance log, Block classification and Records on, \
      `run_state.durability: batch` and the shared Politeness with Delegations; the tier each \
-     page was sent from read from its Records' Provenance";
+     page was sent from read from its Records' Provenance. This row carries #2176's target; the \
+     counted criteria stay with the maximum-throughput combination's row";
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
 /// scenario 1's concurrency sweep, with the default `fetch.http_from` in

@@ -30,6 +30,7 @@ mod interrupt;
 mod limits;
 mod logging;
 mod page;
+mod product_and_provisioning;
 mod public_items;
 mod raw_call;
 mod refused_by_the_daemon;

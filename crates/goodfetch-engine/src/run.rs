@@ -70,8 +70,8 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    EndedBy, Forwarded, ListError, Resume, Resumed, RunError, Start, StartError, Started,
-    StorageExhausted,
+    EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
+    StartError, Started, StorageExhausted,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -242,6 +242,7 @@ pub fn start_error(error: StartError) -> CallError {
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
         StartError::Refused(refused) => *refused,
+        StartError::FixedSetting(changed) => changed.into(),
     }
 }
 
@@ -546,6 +547,26 @@ pub(crate) fn translated(
     }
 }
 
+/// `setting_not_applicable` for a start or a resume that changes a key
+/// fixed for the Run's life (ADRs 0102 and 0120): only a new Run takes the
+/// value.
+impl From<FixedSettingChanged> for CallError {
+    fn from(changed: FixedSettingChanged) -> Self {
+        let FixedSettingChanged { run_id, key, layer } = changed;
+        Self::new(
+            &SETTING_NOT_APPLICABLE,
+            format!(
+                "The Run `{run_id}` began with another `{key}`, which is fixed for a Run's life: give the value it began with, or start a new Run under another Run ID to use this one."
+            ),
+            &SettingNotApplicableDetails {
+                key: key.to_owned(),
+                layer,
+                fix: "a new Run".to_owned(),
+            },
+        )
+    }
+}
+
 /// `resources_exhausted` for a Run whose filesystem is at the `critical`
 /// storage level (ADR 0122): its folder, its free space and the setting,
 /// with a fix that names the folder to free or the setting to lower.
@@ -697,6 +718,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::Interrupted(run_id) => interrupted(run_id),
         RunError::Discarding { run_id, folder } => discarding(run_id, &folder),
         RunError::Forwarded(failure) => forwarded(*failure),
+        RunError::FixedSetting(changed) => changed.into(),
         RunError::Stopped => stopped(),
     }
 }

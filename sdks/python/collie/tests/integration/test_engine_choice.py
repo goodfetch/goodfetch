@@ -16,14 +16,20 @@ TypeScript's `engine-choice.test.ts` is its twin.
 
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 
 import anyio
 import anyio.to_thread
 import pytest
-from collie_calls import CLIENT_LOGGER, engine_warnings, failure, open_collie
+from collie_calls import (
+    CLIENT_LOGGER,
+    engine_warnings,
+    exit_code,
+    failure,
+    open_collie,
+)
 from goodfetch_collie import (
     AsyncCollie,
     DaemonUnreachableError,
@@ -119,11 +125,6 @@ def logs(caplog: pytest.LogCaptureFixture) -> NamedOutput:
 def search_canaries_in(outputs: list[NamedOutput]) -> list[CanaryHit]:
     """Each place `outputs` hold the canary token."""
     return search_canaries([CANARY], outputs)
-
-
-async def exit_code(wait: Callable[[], int]) -> int:
-    """The exit code `wait`, a process's blocking wait, returns, off the event loop."""
-    return await anyio.to_thread.run_sync(wait)
 
 
 @pytest.mark.covers("story:11-2", "story:11-4", "story:11-5", "story:11-8")

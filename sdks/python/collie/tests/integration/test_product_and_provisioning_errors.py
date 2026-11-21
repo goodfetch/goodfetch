@@ -5,16 +5,23 @@ On the Scripted engine as a Collie engine (ADRs 0087, 0090, 0095, 0098 and
 `Collie`. A Foxhound operation or setting raises `NotInProductError`, naming both
 Products and Foxhound's install command on the engine's channel, and a page
 whose build is missing raises the provisioning code's class, naming the
-build, the Product version that pins it and its `browser install`.
+build, the Product version that pins it and its `browser install`. Played
+attached, the engine installed from PyPI, and as a Daemon run from the OCI
+image, whose script exits 0 only once every step played.
 TypeScript's `product-and-provisioning-errors.test.ts` is its twin.
 """
 
+from dataclasses import dataclass
+
+import anyio.to_thread
 import pytest
 from collie_calls import engine_warnings, failure, open_collie
 from goodfetch_collie import (
     ArtifactDownloadFailedError,
     ArtifactUnavailableOfflineError,
+    AsyncCollie,
     BrowserNotInstalledError,
+    GoodfetchError,
     NotInProductError,
     RefusedError,
     UnavailableError,
@@ -24,6 +31,7 @@ from goodfetch_test_support import (
     TestEnv,
     Way,
     scripted_engine_env,
+    start_scripted_daemon,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
@@ -41,8 +49,11 @@ PINNED_BY = {"product": "collie", "product_version": "0.0.0"}
 CACHE = "/srv/goodfetch/browsers"
 """The Browser cache the engine reads."""
 
-INSTALL = "pip install goodfetch-foxhound"
-"""Foxhound's install command on the engine's channel, PyPI."""
+PYPI_INSTALL = "pip install goodfetch-foxhound"
+"""Foxhound's install command on PyPI, the Attached engine's channel."""
+
+IMAGE_INSTALL = "docker pull ghcr.io/goodfetch/foxhound"
+"""Foxhound's install command on the OCI image, the Daemon's channel."""
 
 DOWNLOAD_FIX = (
     "Retry, or run `goodfetch-collie browser install` beforehand, or point"
@@ -50,8 +61,7 @@ DOWNLOAD_FIX = (
 )
 """What a failed download's error says to do, whatever failed."""
 
-
-@pytest.mark.covers(
+COVERS = pytest.mark.covers(
     "story:11-10",
     "story:11-13",
     "story:11-189",
@@ -61,21 +71,24 @@ DOWNLOAD_FIX = (
     "error:artifact_unavailable_offline",
     "error:artifact_download_failed",
 )
-@pytest.mark.client_case(id="product-and-provisioning-errors", mode="attached")
-@three_ways
-async def test_raises_not_in_product_and_each_missing_builds_class(
-    way: Way,
-    test_env: TestEnv,
-    product: ToolProduct,
-    client_case: ClientCaseRecord,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """For Foxhound's operation and setting, then for each missing build."""
-    env = scripted_engine_env(
-        test_env, product, "sdk-python/run/product-and-provisioning-errors.json"
-    )
-    collie = await open_collie(way, env)
+"""What both modes' tests cover."""
 
+
+@dataclass(frozen=True, slots=True)
+class Refused:
+    """What each of the script's refused calls raised."""
+
+    operation: GoodfetchError
+    setting: GoodfetchError
+    not_installed: GoodfetchError
+    offline: GoodfetchError
+    download_failed: GoodfetchError
+    connection_broke: GoodfetchError
+    wrong_digest: GoodfetchError
+
+
+async def refused_calls(collie: AsyncCollie) -> Refused:
+    """Plays the case's calls on `collie`, then finishes the Run and closes it."""
     operation = await failure(
         collie.call(
             "crawl.start", {"seeds": [{"url": "https://shop.test/", "label": "page"}]}
@@ -85,14 +98,25 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
         collie.call("run.start", {"settings": {"crawl": {"max_requests": 10}}})
     )
     run = await collie.start()
-    not_installed = await failure(run.new_page())
-    offline = await failure(run.new_page())
-    download_failed = await failure(run.new_page())
-    connection_broke = await failure(run.new_page())
-    wrong_digest = await failure(run.new_page())
+    refused = Refused(
+        operation=operation,
+        setting=setting,
+        not_installed=await failure(run.new_page()),
+        offline=await failure(run.new_page()),
+        download_failed=await failure(run.new_page()),
+        connection_broke=await failure(run.new_page()),
+        wrong_digest=await failure(run.new_page()),
+    )
     await run.finish()
     await collie.close()
+    return refused
 
+
+def check_refused(
+    client_case: ClientCaseRecord, refused: Refused, install: str
+) -> None:
+    """Checks what each call raised, Foxhound's install command being `install`."""
+    operation = refused.operation
     with client_case.check(
         "a Foxhound operation raises NotInProductError, an UnavailableError"
         " naming both Products and Foxhound's install command"
@@ -106,15 +130,16 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
         )
         assert operation.fix == (
             "Run it with Foxhound, which contains everything Collie does"
-            f" (`{INSTALL}`), or connect to a Foxhound engine."
+            f" (`{install}`), or connect to a Foxhound engine."
         )
         assert operation.details == {
             "product": "collie",
             "product_version": "0.0.0",
             "needs": "foxhound",
             "requested": "crawl.start",
-            "install": INSTALL,
+            "install": install,
         }
+    setting = refused.setting
     with client_case.check(
         "a Foxhound setting raises NotInProductError naming its key"
     ):
@@ -122,7 +147,8 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
         assert not setting.retryable
         assert setting.details["needs"] == "foxhound"
         assert setting.details["requested"] == "crawl.max_requests"
-        assert setting.details["install"] == INSTALL
+        assert setting.details["install"] == install
+    not_installed = refused.not_installed
     with client_case.check(
         "a build absent from a cache the engine cannot write raises"
         " BrowserNotInstalledError, not retryable, naming the build, what pins"
@@ -148,6 +174,7 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
                 "cache": CACHE,
             }
         }
+    offline = refused.offline
     with client_case.check(
         "a download offline refuses raises ArtifactUnavailableOfflineError, a"
         " RefusedError whose limit names egress.offline"
@@ -174,6 +201,7 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             "pinned_by": PINNED_BY,
             "cache": CACHE,
         }
+    download_failed = refused.download_failed
     with client_case.check(
         "a failed download raises ArtifactDownloadFailedError, retryable,"
         " naming its host and failure"
@@ -193,6 +221,7 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             "failure": "http_status",
             "status": 404,
         }
+    connection_broke = refused.connection_broke
     with client_case.check(
         "a download whose connection broke raises ArtifactDownloadFailedError"
         " naming the network"
@@ -209,6 +238,7 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             "host": "storage.googleapis.com",
             "failure": "network",
         }
+    wrong_digest = refused.wrong_digest
     with client_case.check(
         "a download whose bytes have another digest raises"
         " ArtifactDownloadFailedError naming the digest mismatch"
@@ -222,7 +252,51 @@ async def test_raises_not_in_product_and_each_missing_builds_class(
             "host": "storage.googleapis.com",
             "failure": "digest_mismatch",
         }
+
+
+@COVERS
+@pytest.mark.client_case(id="product-and-provisioning-errors", mode="attached")
+@three_ways
+async def test_raises_not_in_product_and_each_missing_builds_class(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """For Foxhound's operation and setting, then for each missing build."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/product-and-provisioning-errors.json"
+    )
+    refused = await refused_calls(await open_collie(way, env))
+
+    check_refused(client_case, refused, PYPI_INSTALL)
     with client_case.check(
         "the script played to its end, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
+
+
+@COVERS
+@pytest.mark.client_case(id="product-and-provisioning-errors", mode="daemon")
+@three_ways
+async def test_raises_the_same_classes_from_a_daemon_naming_its_channel(
+    way: Way,
+    test_env: TestEnv,
+    client_case: ClientCaseRecord,
+) -> None:
+    """Foxhound's install command is the one on the Daemon's channel."""
+    daemon = start_scripted_daemon(
+        test_env,
+        "sdk-python/run/product-and-provisioning-errors-from-the-image.json",
+        "socket",
+    )
+    env = {**test_env.env, "GOODFETCH_HOME": str(test_env.home)}
+    refused = await refused_calls(await open_collie(way, env, engine="daemon"))
+    code = await anyio.to_thread.run_sync(daemon.wait)
+
+    check_refused(client_case, refused, IMAGE_INSTALL)
+    with client_case.check(
+        "the Daemon played its script through, so the Client sent exactly what it holds"
+    ):
+        assert code == 0

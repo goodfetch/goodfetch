@@ -41,7 +41,7 @@ use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::robots_txt::{self, Answer, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
+use goodfetch_page::robots_txt::{ProductToken, applicable_groups};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::settings::{
     SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED, SITE_PREFERENCES_MAX_CRAWL_DELAY,
@@ -611,17 +611,5 @@ fn applying_groups<'a>(
     file: &'a robots_txt::RobotsTxt,
     operator: Option<&ProductToken>,
 ) -> Vec<&'a robots_txt::Group> {
-    let groups: Vec<Group<usize>> = file
-        .groups()
-        .iter()
-        .enumerate()
-        .map(|(at, group)| Group {
-            user_agents: group.user_agents().to_vec(),
-            rules: vec![at],
-        })
-        .collect();
-    applicable_rules(&groups, operator)
-        .into_iter()
-        .filter_map(|at| file.groups().get(*at))
-        .collect()
+    applicable_groups(file.groups(), robots_txt::Group::user_agents, operator)
 }

@@ -399,7 +399,7 @@ pub(super) async fn run_hand_over(
         run: run.clone(),
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
-        shared_politeness: shared,
+        crawl_delays: shared.map(goodfetch_frontier::CrawlDelays::new),
         domain_delay: settings
             .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),

@@ -319,6 +319,19 @@ struct Shared {
 }
 
 impl Shared {
+    /// Whether the Permits its own requests in flight hold under `key`
+    /// reach its rule's concurrency, so a take could only answer busy.
+    fn full_here(&self, key: &str) -> bool {
+        self.rule.concurrency().is_some_and(|cap| {
+            let held = self
+                .permits
+                .values()
+                .filter(|permit| permit.key() == key)
+                .count();
+            u64::try_from(held).unwrap_or(u64::MAX) >= cap
+        })
+    }
+
     /// Takes a Permit of `key` at `wall`, from the Politeness of its Run's
     /// own it holds when it holds one.
     async fn take(&mut self, key: &str, wall: SystemTime) -> Result<Taken, PolitenessError> {
@@ -549,6 +562,13 @@ impl Admission {
                 return self.admit_from_gate(now);
             };
             let key = self.gate.next_key(now)?;
+            if shared.full_here(&key) {
+                // Its own requests in flight fill the key: any take would
+                // answer busy, so the key waits for their ending's wake.
+                shared.waiting.insert(key.clone());
+                self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
+                continue;
+            }
             let wall = shared.clock.wall();
             let taken = shared.take(&key, wall).await;
             match taken {

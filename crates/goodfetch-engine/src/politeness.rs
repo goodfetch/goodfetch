@@ -360,6 +360,15 @@ pub trait KeyState: Sized + Send + 'static {
         false
     }
 
+    /// Whether `writes` comes of reading what a site asks, whether the
+    /// read changed it or not: no Permit's work, so a transaction of the
+    /// file that makes it outside a Delegation counts on
+    /// `E6.other_transactions`, as one that writes it under a Delegation
+    /// does (#1899). What [`asked`](KeyState::asked) answers by default.
+    fn read_an_ask(writes: &Self::Writes) -> bool {
+        Self::asked(writes)
+    }
+
     /// Loads into `tables` everything `connection` keeps under `key`, as a
     /// Delegation of it starts, in the transaction that takes it.
     ///
@@ -472,6 +481,15 @@ pub trait PermitRule: Send + Sync + 'static {
     fn paces(&self) -> bool {
         true
     }
+
+    /// The most requests under a key it admits at once, whatever the
+    /// key's state: [`PermitRule::admit`] answers [`Verdict::Busy`] for
+    /// any state once `in_flight` reaches it, so a run whose own requests
+    /// in flight reach it knows the answer without a take (#1899). `None`
+    /// by default: no such bound.
+    fn concurrency(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// A [`PermitRule`] any task may clone and hand to a take or a give back,
@@ -489,6 +507,11 @@ impl SharedRule {
     pub fn paces(&self) -> bool {
         self.0.paces()
     }
+
+    /// [`PermitRule::concurrency`].
+    pub fn concurrency(&self) -> Option<u64> {
+        self.0.concurrency()
+    }
 }
 
 impl fmt::Debug for SharedRule {
@@ -504,6 +527,8 @@ impl fmt::Debug for SharedRule {
 /// that takes or gives back a Permit.
 trait Erased: Send + Sync {
     fn paces(&self) -> bool;
+
+    fn concurrency(&self) -> Option<u64>;
 
     fn taken(
         &self,
@@ -576,6 +601,10 @@ trait Erased: Send + Sync {
 impl<R: PermitRule> Erased for R {
     fn paces(&self) -> bool {
         PermitRule::paces(self)
+    }
+
+    fn concurrency(&self) -> Option<u64> {
+        PermitRule::concurrency(self)
     }
 
     fn taken(

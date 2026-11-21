@@ -4,7 +4,7 @@
 //! and the self-test suite against a running Proving ground.
 #![expect(
     clippy::disallowed_methods,
-    reason = "these tests start processes and read files outside any async worker"
+    reason = "these tests start processes and threads and read files outside any async worker"
 )]
 #![expect(
     clippy::unwrap_used,

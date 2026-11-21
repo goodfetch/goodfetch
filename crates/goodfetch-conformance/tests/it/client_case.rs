@@ -3,7 +3,8 @@
 //! it is given, with the case's capability from the case list, the mode,
 //! this host's platform, the `rust` runtime, the checks it recorded and
 //! whether the test passed, so a test that fails outside its checks fails its
-//! case; the writer reads it back.
+//! case; the writer reads it back. A case or mode the list does not give
+//! `sdk-rust` is refused.
 
 use std::path::PathBuf;
 
@@ -151,15 +152,35 @@ fn a_test_that_fails_outside_its_checks_fails_its_case() {
 }
 
 #[test]
-fn without_a_folder_a_run_writes_nothing() {
+fn a_mode_the_case_does_not_give_sdk_rust_is_refused() {
     let env = TestEnv::new();
+    let folder = case_logs(&env);
 
-    let mut run =
-        ClientCaseRun::start(None, "log-level-follows-the-logger", RustMode::Linked).unwrap();
-    run.check("hello carries debug", || ());
-    drop(run);
+    let not_in_the_shared_list =
+        ClientCaseRun::start(Some(&folder), "two-connections-at-once", RustMode::Daemon);
+    let not_in_the_rust_entry = ClientCaseRun::start(
+        Some(&folder),
+        "failed-close-raises-a-typed-error",
+        RustMode::Linked,
+    );
 
-    assert!(!case_logs(&env).exists());
+    assert!(
+        matches!(
+            &not_in_the_shared_list,
+            Err(ClientCaseError::ModeNotListed { case, mode: RustMode::Daemon })
+                if case == "two-connections-at-once"
+        ),
+        "{not_in_the_shared_list:?}"
+    );
+    assert!(
+        matches!(
+            &not_in_the_rust_entry,
+            Err(ClientCaseError::ModeNotListed { case, mode: RustMode::Linked })
+                if case == "failed-close-raises-a-typed-error"
+        ),
+        "{not_in_the_rust_entry:?}"
+    );
+    assert!(!folder.exists());
 }
 
 #[test]

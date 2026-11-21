@@ -9,11 +9,8 @@
 //! that fails outside its checks fails its case, and no outcome: the writer
 //! derives that. Every test of a nextest run appends to the one file, a
 //! line per write, so `just test` empties it before the run.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the case log is written by a test, synchronously, outside any async worker"
-)]
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::Write as _;
 use std::panic::{self, AssertUnwindSafe};
@@ -88,14 +85,15 @@ impl ClientCaseRun {
     ///
     /// [`ClientCaseError::Undeclared`] for a case the case list does not
     /// declare, [`ClientCaseError::NotOnRust`] for one that does not list
-    /// the `sdk-rust` surface, and [`ClientCaseError::CaseList`] when the
-    /// case list does not parse.
+    /// the `sdk-rust` surface, [`ClientCaseError::ModeNotListed`] for a
+    /// mode the case's `modes` do not give `sdk-rust`, and
+    /// [`ClientCaseError::CaseList`] when the case list does not parse.
     pub fn start(
         folder: Option<&Path>,
         case: &str,
         mode: RustMode,
     ) -> Result<Self, ClientCaseError> {
-        let list: CaseList = toml::from_str(CASE_LIST)
+        let list: CaseListFile = toml::from_str(CASE_LIST)
             .map_err(|error| ClientCaseError::CaseList(error.message().to_owned()))?;
         let (capability, declared) = list
             .capabilities
@@ -113,6 +111,16 @@ impl ClientCaseRun {
         if !declared.surfaces.iter().any(|surface| surface == SURFACE) {
             return Err(ClientCaseError::NotOnRust {
                 case: case.to_owned(),
+            });
+        }
+        if !declared
+            .modes
+            .as_ref()
+            .is_none_or(|modes| modes.give_rust(mode))
+        {
+            return Err(ClientCaseError::ModeNotListed {
+                case: case.to_owned(),
+                mode,
             });
         }
         Ok(Self {
@@ -193,6 +201,10 @@ impl Drop for ClientCaseRun {
 }
 
 /// Appends `entry` to the case log at `path` as one line, in one write.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test writes the case log, outside the work a Shared path counts"
+)]
 fn append(folder: &Path, path: &Path, entry: &CaseLogEntry) -> std::io::Result<()> {
     let mut line = serde_json::to_vec(entry)?;
     line.push(b'\n');
@@ -220,6 +232,14 @@ pub enum ClientCaseError {
         /// The case's ID.
         case: String,
     },
+    /// The case's `modes` do not give `sdk-rust` the mode.
+    #[error("the case `{case}` does not list the {mode} mode for sdk-rust")]
+    ModeNotListed {
+        /// The case's ID.
+        case: String,
+        /// The mode the test runs it in.
+        mode: RustMode,
+    },
     /// The case list does not parse.
     #[error("the case list does not parse: {0}")]
     CaseList(String),
@@ -227,20 +247,42 @@ pub enum ClientCaseError {
 
 /// The case list, as far as the writer reads it.
 #[derive(Deserialize)]
-struct CaseList {
+struct CaseListFile {
     #[serde(rename = "capability")]
-    capabilities: Vec<Capability>,
+    capabilities: Vec<CapabilityEntry>,
 }
 
 #[derive(Deserialize)]
-struct Capability {
+struct CapabilityEntry {
     name: String,
     #[serde(rename = "case", default)]
-    cases: Vec<Case>,
+    cases: Vec<CaseEntry>,
 }
 
 #[derive(Deserialize)]
-struct Case {
+struct CaseEntry {
     id: String,
     surfaces: Vec<String>,
+    /// Left out, the case runs in every mode of each surface.
+    modes: Option<CaseModes>,
+}
+
+/// A case's `modes`: one list for every surface, or a table where a surface
+/// it leaves out takes all its modes.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CaseModes {
+    Shared(Vec<String>),
+    BySurface(BTreeMap<String, Vec<String>>),
+}
+
+impl CaseModes {
+    /// Whether these modes give `sdk-rust` the mode `mode`.
+    fn give_rust(&self, mode: RustMode) -> bool {
+        let listed = match self {
+            Self::Shared(modes) => Some(modes),
+            Self::BySurface(by_surface) => by_surface.get(SURFACE),
+        };
+        listed.is_none_or(|modes| modes.iter().any(|listed| listed == mode.as_str()))
+    }
 }

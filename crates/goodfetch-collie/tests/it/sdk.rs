@@ -47,7 +47,7 @@ fn options(env: &TestEnv) -> ConnectOptions {
 
 /// Starts running the client conformance `case` in `linked` mode: its entry
 /// joins the case log `just test` names (ADR 0069), which `xtask clients
-/// check` reads.
+/// check` is to read for `sdk-rust` (issue 3158).
 fn linked_case(case: &str) -> ClientCaseRun {
     let folder = Variables::from_process()
         .get(CASE_LOGS_VARIABLE)

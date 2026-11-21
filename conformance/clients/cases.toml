@@ -590,8 +590,9 @@ modes = ["attached"]
 # join by adding their surfaces. Rust also plays both cases' scripts as a
 # Daemon's client (`goodfetch-collie-client`'s `logging` tests): Rust's
 # `daemon` mode, which the cases list for `sdk-rust` alone while their other
-# surfaces run `attached` only. In `linked` mode the engine's own events reach the program's subscriber
-# directly, under their own targets, and none is re-emitted.
+# surfaces run `attached` only. In `linked` mode the engine's own events
+# reach the program's subscriber directly, under their own targets, and none
+# is re-emitted.
 [[capability]]
 name = "logging"
 

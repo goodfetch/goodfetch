@@ -383,6 +383,19 @@ covers = ["story:11-70", "story:11-72"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# `explainSettings()` (Python's and Rust's `explain_settings()`) on the
+# Connection and on the Run names each key's value, the layer and origin that
+# set it, the Durability level whose preset gave it and the layer that locked
+# it (ADRs 0083 and 0142; issue 1278): under an Operator policy's lock on
+# `run_state.durability`, `run_state.batch.sync` comes from the level's
+# preset and is locked through it, and a key set in code names its origin.
+# Rust plays it linked, where the engine itself resolves the lock.
+[[capability.case]]
+id = "settings-explained-with-their-source"
+covers = ["story:11-74"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
 # Each setting the engine refuses says how to fix it (ADR 0083; issue 1278):
 # a configuration-only key passed in code is refused at `connect()` with
 # `setting_not_applicable`, its fix naming the user configuration and the

@@ -18,6 +18,7 @@ import { connect, type Socket } from "node:net";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { Duplex } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   DaemonUnreachableError,
   EngineNotFoundError,
@@ -58,19 +59,41 @@ export type Reach =
       /** The Goodfetch home the Attached engine runs in, or `null` when the OS names none. */
       readonly home: string | null;
     }
-  | {
-      readonly kind: "daemon" | "remote";
-      /** The Daemon's home: `null` for a remote one, whose home is its own machine's. */
-      readonly home: string | null;
-      /** Where it listens: the remote Daemon's URL, or the Daemon's socket path or loopback address. */
-      readonly url: string;
-      /** The bytes to it, open. */
-      readonly transport: Transport;
-      /** The token its `hello` carries. */
-      readonly token: string;
-      /** What fails `connect()` when the Daemon closes the Connection before it answers `hello`. */
-      readonly closedAtHello: () => DaemonUnreachableError;
-    };
+  | DaemonReach;
+
+/** How a Daemon, this machine's or a remote one, is reached. */
+export type DaemonReach = LocalDaemonReach | RemoteDaemonReach;
+
+/** How this machine's Daemon is reached, found by its runtime file. */
+export interface LocalDaemonReach extends DaemonOpened {
+  readonly kind: "daemon";
+  /** The Goodfetch home whose runtime file names it. */
+  readonly home: string;
+  /**
+   * The text of the runtime file it was found by, which tells it from the
+   * Daemon it hands over to.
+   */
+  readonly runtimeFile: string;
+}
+
+/** How a remote Daemon is reached. */
+export interface RemoteDaemonReach extends DaemonOpened {
+  readonly kind: "remote";
+  /** None: a remote Daemon's home is its own machine's. */
+  readonly home: null;
+}
+
+/** A Daemon's endpoint, open, and what its `hello` needs. */
+interface DaemonOpened {
+  /** Where it listens: the remote Daemon's URL, or the Daemon's socket path or loopback address. */
+  readonly url: string;
+  /** The bytes to it, open. */
+  readonly transport: Transport;
+  /** The token its `hello` carries. */
+  readonly token: string;
+  /** What fails `connect()` when the Daemon closes the Connection before it answers `hello`. */
+  readonly closedAtHello: () => DaemonUnreachableError;
+}
 
 /** What choosing an engine needs. */
 export interface EngineChoiceContext {
@@ -349,20 +372,69 @@ function refusalOf(
   };
 }
 
+/** How often the wait for the Daemon an idle one hands over to reads the runtime file. */
+const HANDOVER_POLL = 50;
+
+/**
+ * The Daemon the idle Daemon `handedOver` hands over to, in its home, once
+ * it refused `hello` with `handover`
+ * (ADR 0098): its major's pick, which publishes its own runtime file once
+ * it serves. A Node program cannot wait on the Daemon's start lock as the
+ * CLI does, so the runtime file is read again every 50 ms; the one the
+ * Daemon that handed over leaves until it stops is not taken.
+ *
+ * @returns `undefined` when none serves by `until`, a time as `Date.now()`
+ * gives it; `null` waits with no end.
+ * @throws {DaemonUnreachableError} when the runtime file cannot be read.
+ * @throws the signal's reason once `signal` aborts.
+ */
+export function handedOverTo(
+  handedOver: LocalDaemonReach,
+  until: null,
+  signal: AbortSignal | undefined,
+): Promise<LocalDaemonReach>;
+export function handedOverTo(
+  handedOver: LocalDaemonReach,
+  until: number,
+  signal: AbortSignal | undefined,
+): Promise<LocalDaemonReach | undefined>;
+export async function handedOverTo(
+  handedOver: LocalDaemonReach,
+  until: number | null,
+  signal: AbortSignal | undefined,
+): Promise<LocalDaemonReach | undefined> {
+  for (;;) {
+    const pick = await runningDaemon(handedOver.home, signal, handedOver.runtimeFile);
+    if (pick !== undefined) {
+      return pick;
+    }
+    if (until !== null && Date.now() >= until) {
+      return undefined;
+    }
+    try {
+      await delay(HANDOVER_POLL, undefined, { signal });
+    } catch (cause) {
+      // An aborted wait rejects with Node's own `AbortError`; `connect()` with the signal's reason.
+      throw signal?.aborted === true ? signal.reason : cause;
+    }
+  }
+}
+
 /**
  * The Daemon whose runtime file is in `home`'s folder of the SDK's line,
- * when its endpoint answers; `undefined` when there is no runtime file, it
- * holds no endpoint and token, as a dead Daemon's half-written or older
- * one, or nothing listens where it says, as for a Daemon that died. A Node
- * program cannot ask the Daemon's lock, so whether the endpoint answers
- * says whether it runs.
+ * when its endpoint answers; `undefined` when there is no runtime file, its
+ * text is `skipped`, it holds no endpoint and token, as a dead Daemon's
+ * half-written or older one, or nothing listens where it says, as for a
+ * Daemon that died. A Node program cannot ask the Daemon's lock, so whether
+ * the endpoint answers says whether it runs.
  *
  * @throws {DaemonUnreachableError} when the runtime file cannot be read.
  */
 async function runningDaemon(
   home: string,
   signal: AbortSignal | undefined,
-): Promise<Reach | undefined> {
+  skipped: string | null = null,
+): Promise<LocalDaemonReach | undefined> {
   const file = join(home, lineOf(PRODUCT_VERSION), "daemon.json");
   let text: string;
   try {
@@ -372,6 +444,9 @@ async function runningDaemon(
       return undefined;
     }
     throw unreadable(file, cause);
+  }
+  if (text === skipped) {
+    return undefined;
   }
   const runtime = runtimeFileOf(text);
   if (runtime === undefined) {
@@ -392,6 +467,7 @@ async function runningDaemon(
     url,
     transport: transportOf(socket),
     token,
+    runtimeFile: text,
     closedAtHello: () =>
       unreachable(
         `The Daemon at ${url} closed the Connection before it answered hello, as one does for a token it does not take`,

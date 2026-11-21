@@ -273,6 +273,16 @@ id = "connect-finds-the-engine"
 covers = ["story:11-2", "story:11-4", "story:11-5", "story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
+# A Daemon that refuses `hello` by Product or protocol version and cannot
+# hand over (ADR 0098): under `auto` the Client runs an Attached engine,
+# reports why in `engine().fallback` and warns once; under `daemon` it
+# raises the refusal, whose fix adds the executable's `daemon restart`.
+# TypeScript runs it; Python and Rust follow (issue 1261's sub-issues).
+[[capability.case]]
+id = "connect-falls-back-when-the-daemon-refuses"
+covers = ["story:11-9", "story:11-290", "story:11-293"]
+surfaces = ["sdk-typescript"]
+
 [[capability]]
 name = "product-conformance"
 

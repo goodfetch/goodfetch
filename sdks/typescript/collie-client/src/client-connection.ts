@@ -102,6 +102,8 @@ export interface Reached {
   readonly kind: EngineInfo["kind"];
   readonly home: string | null;
   readonly url: string | null;
+  /** Why `auto` ran this engine in place of the Daemon it found (ADR 0098); none when left out. */
+  readonly fallback?: EngineInfo["fallback"] | undefined;
 }
 
 /** What a Daemon's `hello` takes beyond an Attached engine's. */
@@ -174,6 +176,12 @@ export interface ClientConnectionOptions {
    * `timeout.connect`'s 30 s when left out, none for `null`.
    */
   readonly timeout?: number | null | undefined;
+  /**
+   * When `timeout` started counting, for a `hello` that follows a wait the
+   * same `timeout.connect` bounds, as for the pick a Daemon hands over to
+   * (ADR 0098); as `hello` is sent when left out.
+   */
+  readonly connectStartedAt?: number | undefined;
   /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, and the engine's log events at the
@@ -540,7 +548,7 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   async #hello(options: ClientConnectionOptions): Promise<void> {
-    const { needs, daemon, signal, timeout, settings } = options;
+    const { needs, daemon, signal, timeout, connectStartedAt, settings } = options;
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
@@ -558,7 +566,11 @@ export class ClientConnection implements AsyncDisposable {
         { type: "HelloParams" satisfies CollieWireType },
         collieWire.types,
       );
-      answer = await this.#answerWithin(this.#channel.call("hello", sent, { signal }), timeout);
+      answer = await this.#answerWithin(
+        this.#channel.call("hello", sent, { signal }),
+        timeout,
+        connectStartedAt ?? Date.now(),
+      );
     } catch (error) {
       throw daemon !== undefined &&
         (error instanceof EngineExitedError || error instanceof ClosedError)
@@ -598,13 +610,13 @@ export class ClientConnection implements AsyncDisposable {
       home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
       url: this.#reached.url,
-      fallback: null,
+      fallback: this.#reached.fallback ?? null,
     };
   }
 
   /**
    * `hello`'s answer, once `called` gives it within `timeout`, its
-   * `timeout.connect` (ADR 0083).
+   * `timeout.connect` (ADR 0083), counted from `startedAt`.
    *
    * @throws {DeadlineExceededError} past it, its `limit` naming
    * `timeout.connect` at the run layer, given as an argument, or at its
@@ -613,19 +625,16 @@ export class ClientConnection implements AsyncDisposable {
   async #answerWithin(
     called: Promise<unknown>,
     timeout: number | null | undefined,
+    startedAt: number,
   ): Promise<unknown> {
-    if (timeout === null) {
+    const connect = connectLimit(timeout);
+    if (connect === null) {
       return called;
     }
-    const value = timeout ?? CONNECT_TIMEOUT;
-    const limit: ErrorLimit =
-      timeout === undefined
-        ? { key: "timeout.connect", value, layer: "default" }
-        : { key: "timeout.connect", value, layer: "run", origin: "argument" };
-    const startedAt = Date.now();
+    const { value, limit } = connect;
     const answered = await within(
       called.then((answer) => ({ answer })),
-      value,
+      Math.max(0, startedAt + value - Date.now()),
     );
     if (answered !== "late") {
       return answered.answer;
@@ -756,10 +765,31 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
 }
 
 /**
+ * The `timeout.connect` limit of a `connect()` whose `timeout` is
+ * `timeout`, already checked by `timeoutOf`: at the run layer, given as an
+ * argument, or its 30 s default when left out; `null` for none.
+ */
+export function connectLimit(
+  timeout: number | null | undefined,
+): { readonly value: number; readonly limit: ErrorLimit } | null {
+  if (timeout === null) {
+    return null;
+  }
+  const value = timeout ?? CONNECT_TIMEOUT;
+  return {
+    value,
+    limit:
+      timeout === undefined
+        ? { key: "timeout.connect", value, layer: "default" }
+        : { key: "timeout.connect", value, layer: "run", origin: "argument" },
+  };
+}
+
+/**
  * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
  * `waitedFor` started at `startedAt` (ADR 0080).
  */
-function phaseExceeded(
+export function phaseExceeded(
   message: string,
   fix: string,
   limit: ErrorLimit,

@@ -8,12 +8,30 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
-import { ClientConnection, type EngineInfo } from "./client-connection.ts";
-import { reachEngine, type EngineChoice, type Reach } from "./engine-choice.ts";
+import {
+  ClientConnection,
+  connectLimit,
+  phaseExceeded,
+  type EngineInfo,
+  type Reached,
+} from "./client-connection.ts";
+import {
+  handedOverTo,
+  reachEngine,
+  type DaemonReach,
+  type EngineChoice,
+  type LocalDaemonReach,
+} from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
-import type { OperationNames } from "./goodfetch-error.ts";
+import {
+  isGoodfetchError,
+  withFix,
+  type GoodfetchError,
+  type OperationNames,
+} from "./goodfetch-error.ts";
 import {
   EngineNotFoundError,
+  PRODUCT_VERSION,
   SettingInvalidError,
   type Product,
   type RunLimit,
@@ -207,6 +225,14 @@ export function locateEngine<S>(
  * an unreachable Daemon (`daemon_unreachable`) or a refused Product
  * (`not_in_product`) or version fails here, with a `fix`, leaving no engine
  * behind; then logs the engine reached at info.
+ *
+ * This machine's Daemon that refuses `hello` by Product or version
+ * (ADR 0098) is waited past when it hands over, until its major's pick
+ * serves and answers `hello` within the same `timeout.connect`; when it
+ * cannot hand over, `auto` runs an Attached engine, says why in
+ * `engine().fallback` and warns once, and `daemon` fails with the refusal,
+ * its fix naming this executable's `daemon restart`. A remote Daemon's
+ * refusal fails unchanged.
  */
 export async function openEngine<S>(
   product: ProductPackage<S>,
@@ -216,25 +242,131 @@ export async function openEngine<S>(
   // Read before an engine starts, so a refused option leaves none behind.
   const common = opening(product, options);
   const env = options.env ?? processEnvironment();
-  const reach = await reachEngine(options.engine ?? "auto", {
+  const choice = options.engine ?? "auto";
+  const reach = await reachEngine(choice, {
     env,
     executable: () => locateEngine(env, product),
     signal: options.signal,
   });
   const connection =
     reach.kind === "attached"
-      ? await openAttached(product, env, reach.home, common)
-      : await openDaemon(product, reach, common);
+      ? await openAttached(product, env, { kind: "attached", home: reach.home, url: null }, common)
+      : await openRefusable(product, env, choice === "auto", reach, common);
   const engine = connection.engine();
   options.logger?.info(reachedText(product, engine), { engine });
   return connection;
+}
+
+/**
+ * Finishes `hello` with the Daemon `reach` opened, and with the pick it
+ * hands over to, or runs an Attached engine in its place when `auto` and it
+ * refuses by Product or version (ADR 0098).
+ */
+async function openRefusable<S>(
+  product: ProductPackage<S>,
+  env: Readonly<Record<string, string>>,
+  auto: boolean,
+  reach: DaemonReach,
+  common: Opening,
+): Promise<ClientConnection> {
+  const startedAt = Date.now();
+  let daemon = reach;
+  for (;;) {
+    try {
+      return await openDaemon(product, daemon, common, startedAt);
+    } catch (error) {
+      if (daemon.kind === "remote" || !refusesByProductOrVersion(error)) {
+        throw error;
+      }
+      const { home } = daemon;
+      if (error.details["handover"] === true) {
+        daemon = await pickOf(daemon, startedAt, common);
+        continue;
+      }
+      const fix = `${error.fix ?? ""} ${refusalFix(product, env)}`.trim();
+      if (!auto) {
+        throw withFix(error, fix);
+      }
+      const fallback = {
+        cause: `The Daemon at ${daemon.url} refused this Client with ${error.code}: ${error.message}`,
+        fix,
+      };
+      common.logger?.warn(
+        `${product.name} runs on an Attached engine instead of the Daemon at ${daemon.url}, which refused it with ${error.code}: ${error.message} ${fix}`,
+        { fallback },
+      );
+      return openAttached(product, env, { kind: "attached", home, url: null, fallback }, common);
+    }
+  }
+}
+
+/** Whether `error` is a Daemon's refusal of `hello` by Product or protocol version. */
+function refusesByProductOrVersion(error: unknown): error is GoodfetchError {
+  return (
+    isGoodfetchError(error) &&
+    (error.code === "not_in_product" || error.code === "protocol_version_unsupported")
+  );
+}
+
+/**
+ * The pick the idle Daemon `handedOver` hands over to, once it serves
+ * within `timeout.connect` of `startedAt`.
+ *
+ * @throws {DeadlineExceededError} naming `timeout.connect` and `waited_for` `hello` when none serves in time.
+ */
+async function pickOf(
+  handedOver: LocalDaemonReach,
+  startedAt: number,
+  common: Opening,
+): Promise<LocalDaemonReach> {
+  const connect = connectLimit(common.timeout);
+  if (connect === null) {
+    return handedOverTo(handedOver, null, common.signal);
+  }
+  const pick = await handedOverTo(handedOver, startedAt + connect.value, common.signal);
+  if (pick !== undefined) {
+    return pick;
+  }
+  throw phaseExceeded(
+    `timeout.connect (${connect.value} ms) passed before the Daemon an idle one handed over to served`,
+    `Raise connect()'s timeout, or find why the Daemon did not start in its log in ${handedOver.home}.`,
+    connect.limit,
+    startedAt,
+    "hello",
+  );
+}
+
+/**
+ * What a refusal's `fix` adds for `product`'s Client (ADR 0098), as the
+ * engine words it: its executable's `daemon restart`, given by its path,
+ * and Foxhound at this version or newer for Collie, whose executable is no
+ * major's pick while a Foxhound of the major is installed. The SDK does not
+ * read which executables are installed, so it names Foxhound for every
+ * Collie Client, as the sentence's own condition says. With no executable
+ * to name, the remedy is installing it, as `engine_not_found`'s fix says.
+ */
+function refusalFix<S>(product: ProductPackage<S>, env: Readonly<Record<string, string>>): string {
+  let path: string;
+  try {
+    path = locateEngine(env, product).path;
+  } catch (error) {
+    if (error instanceof EngineNotFoundError && error.fix !== undefined) {
+      return error.fix;
+    }
+    throw error;
+  }
+  const shown = /\s/.test(path) ? `"${path}"` : path;
+  const restart = `Run \`${shown} daemon restart\` to restart the Daemon on its major's pick.`;
+  return product.needs === "foxhound"
+    ? restart
+    : `${restart} ${product.name}'s executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound ${PRODUCT_VERSION} or newer (\`npm install @goodfetch/foxhound\`) and run its \`daemon restart\`.`;
 }
 
 /** Starts `product`'s engine as an Attached engine with `env` and finishes `hello`. */
 async function openAttached<S>(
   product: ProductPackage<S>,
   env: Readonly<Record<string, string>>,
-  home: string | null,
+  reached: Reached,
   common: Opening,
 ): Promise<ClientConnection> {
   const location = locateEngine(env, product);
@@ -247,7 +379,7 @@ async function openAttached<S>(
   return ClientConnection.open({
     transport: engine.transport,
     engine,
-    reached: { kind: "attached", home, url: null },
+    reached,
     needs: product.needs,
     errorClasses: product.errorClasses,
     operationNames: product.operationNames,
@@ -256,13 +388,15 @@ async function openAttached<S>(
 }
 
 /**
- * Finishes `hello` with a Daemon, its token in it: one that closes the
- * Connection before it answers fails with `daemon_unreachable`.
+ * Finishes `hello` with a Daemon, its token in it, within `timeout.connect`
+ * of `connectStartedAt`: one that closes the Connection before it answers
+ * fails with `daemon_unreachable`.
  */
 function openDaemon<S>(
   product: ProductPackage<S>,
-  reach: Exclude<Reach, { kind: "attached" }>,
+  reach: DaemonReach,
   common: Opening,
+  connectStartedAt: number,
 ): Promise<ClientConnection> {
   return ClientConnection.open({
     transport: reach.transport,
@@ -272,6 +406,7 @@ function openDaemon<S>(
     errorClasses: product.errorClasses,
     operationNames: product.operationNames,
     ...common,
+    connectStartedAt,
   });
 }
 

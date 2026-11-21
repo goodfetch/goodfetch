@@ -445,12 +445,13 @@ fn ident(name: &str, what: &str) -> Result<String> {
 }
 
 /// The doc comment of an entry: its description, a paragraph for each
-/// marker it carries, then its `errors` section.
+/// marker it carries, then its `errors` section, which a read, sending
+/// nothing, has none of.
 fn doc(
     description: &str,
     stability: Stability,
     deprecated: Option<&Deprecation>,
-    errors: &str,
+    errors: Option<&str>,
 ) -> String {
     let mut paragraphs = vec![description.trim().to_owned()];
     if stability == Stability::Experimental {
@@ -459,7 +460,7 @@ fn doc(
     if let Some(deprecated) = deprecated {
         paragraphs.push(format!("Deprecated. {}", deprecated.message()));
     }
-    paragraphs.push(errors.to_owned());
+    paragraphs.extend(errors.map(str::to_owned));
     comment(&paragraphs.join("\n\n"))
 }
 
@@ -670,10 +671,10 @@ fn member_model(
             &operation.description,
             operation.stability,
             operation.deprecated.as_ref(),
-            match builds {
+            Some(match builds {
                 Builds::Call => CALL_ERRORS,
                 Builds::Query => QUERY_ERRORS,
-            },
+            }),
         ),
         warning: warning(
             &operation.name,

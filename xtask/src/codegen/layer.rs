@@ -96,7 +96,7 @@ impl Operation {
 
     /// Whether calling it sends the engine a message: every kind but a
     /// read, which its handle answers from the answer that opened it (issue
-    /// 2798), so no client calls it by name.
+    /// 2798), so no operations class has a method for it.
     pub(super) fn sends(&self) -> bool {
         self.kind != Kind::Read
     }

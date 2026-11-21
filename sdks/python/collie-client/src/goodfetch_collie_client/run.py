@@ -708,13 +708,11 @@ class _SyncHost(Generic[_Id]):
         return Subscription(close)
 
 
-_hosts: weakref.WeakKeyDictionary[AsyncRun, _AsyncHost[RunId]] = (
+_held: weakref.WeakKeyDictionary[AsyncRun, tuple[_AsyncHost[RunId], RunStarted]] = (
     weakref.WeakKeyDictionary()
 )
-"""Each async Run's host, which its sync twin's host wraps."""
-
-_started: weakref.WeakKeyDictionary[AsyncRun, RunStarted] = weakref.WeakKeyDictionary()
-"""Each async Run's start answer, which its sync twin's reads answer from."""
+"""Each async Run's host, which its sync twin's host wraps, and its start
+answer, which its sync twin's reads answer from."""
 
 
 class AsyncRun(AsyncRunMembers):
@@ -728,8 +726,7 @@ class AsyncRun(AsyncRunMembers):
             scope.state = "ended"
         host = _AsyncHost(connection, scope, None, started.run_id)
         super().__init__(host, started)
-        _hosts[self] = host
-        _started[self] = started
+        _held[self] = (host, started)
         self._connection = connection
         self._scope = scope
         self._closing = Once()
@@ -824,8 +821,9 @@ class Run(RunMembers):
 
     def __init__(self, loop: PrivateLoop, run: AsyncRun) -> None:
         """Takes its Connection's private loop and the Run it drives there."""
-        host = _SyncHost(loop, _hosts[run])
-        super().__init__(host, _started[run])
+        async_host, started = _held[run]
+        host = _SyncHost(loop, async_host)
+        super().__init__(host, started)
         self._loop = loop
         self._run = run
         self.key_value_store = KeyValueStore(

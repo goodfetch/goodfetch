@@ -8,9 +8,8 @@ use std::fmt::Write as _;
 use anyhow::Result;
 
 use super::index::Index;
-use super::{EXPERIMENTAL, Twin, comment, deprecated_attribute, field, ident, indent, warning};
+use super::{Twin, deprecated_attribute, doc, field, ident, indent, warning};
 use crate::codegen::handles::Handle;
-use crate::codegen::layer::{Deprecation, Stability};
 
 /// The field a handle with reads holds the answer that opened it in.
 const OPENED: &str = "opened";
@@ -51,6 +50,7 @@ impl ReadsModel {
                     &operation.description,
                     operation.stability,
                     operation.deprecated.as_ref(),
+                    None,
                 ),
                 warning: warning(
                     &operation.name,
@@ -119,17 +119,4 @@ impl ReadsModel {
         }
         text
     }
-}
-
-/// The doc comment of a read: its description and a paragraph for each
-/// marker it carries; it sends nothing, so it has no errors.
-fn doc(description: &str, stability: Stability, deprecated: Option<&Deprecation>) -> String {
-    let mut paragraphs = vec![description.trim().to_owned()];
-    if stability == Stability::Experimental {
-        paragraphs.push(EXPERIMENTAL.to_owned());
-    }
-    if let Some(deprecated) = deprecated {
-        paragraphs.push(format!("Deprecated. {}", deprecated.message()));
-    }
-    comment(&paragraphs.join("\n\n"))
 }

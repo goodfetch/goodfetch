@@ -1168,6 +1168,16 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "pub struct RunLabel {\n    /// The Run's label.\n    pub label: u64,",
     "operation `run.label`"
 )]
+#[case::a_read_whose_result_has_two_properties(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,\n    /// A second value a read cannot answer.\n    pub other: u64,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result has one property"
+)]
+#[case::a_read_whose_result_property_is_optional(
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: String,",
+    "pub struct RunLabel {\n    /// The Run's label.\n    pub label: Option<String>,",
+    "operation `run.label`: a read answers a value of the answer that opened its handle, without a message, so its result's `label` is required"
+)]
 #[case::a_read_with_a_parameter(
     "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n",
     "pub struct RunParams {\n    /// The Run.\n    pub run_id: RunId,\n    /// A parameter a read cannot take.\n    pub fresh: bool,\n",

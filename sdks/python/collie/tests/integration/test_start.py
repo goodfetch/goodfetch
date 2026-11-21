@@ -35,7 +35,7 @@ START_LOGGER = "goodfetch.client.run"
 """The logger a start that resumed or found its Run ended goes to."""
 
 
-@pytest.mark.covers("story:11-126", "story:11-127")
+@pytest.mark.covers("story:11-126", "story:11-127", "operation:run.started_as")
 @pytest.mark.client_case(id="start-reaches-its-run", mode="attached")
 @three_ways
 async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(

@@ -3,24 +3,18 @@
 //! one transaction, all or nothing, through a row writer that answers no
 //! row, so nothing it writes is decided by a read of the file. One sealed
 //! batch waits at a time: the next is queued once the writer committed the
-//! one before, which holds back whoever seals them. A barrier is a write
-//! that answers only once the batch in progress is committed: whoever holds
-//! that batch seals it when the barrier asks.
+//! one before, which holds back whoever seals them.
 //!
 //! The rows are generic: each owner of a table writes its own through
 //! [`BatchRows`], so the engine names no table of a contribution (ADR 0087).
 
 use std::fmt;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use rusqlite::{CachedStatement, Connection, Params};
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::Semaphore;
 
 use super::{Job, Queued, RunState, RunStateError, Syncing, queued_holding};
-
-/// How many barriers wait for the batch in progress to be sealed before
-/// the next one's caller waits.
-const SEAL_REQUESTS: usize = 16;
 
 /// What a batch's rows are written through: statements that change rows
 /// and answer none.
@@ -122,48 +116,17 @@ impl SealedBatch {
 }
 
 /// What a run file's handles share of its batches: the one place a sealed
-/// batch waits in, and who seals the batch in progress when a barrier asks.
+/// batch waits in.
 #[derive(Debug)]
 pub(super) struct Batches {
     slot: Arc<Semaphore>,
-    sealer: OnceLock<mpsc::Sender<SealRequest>>,
 }
 
 impl Batches {
     pub(super) fn new() -> Self {
         Self {
             slot: Arc::new(Semaphore::new(1)),
-            sealer: OnceLock::new(),
         }
-    }
-}
-
-/// A barrier's request to seal the batch in progress.
-#[derive(Debug)]
-pub struct SealRequest(oneshot::Sender<()>);
-
-impl SealRequest {
-    /// Tells the barrier the batch in progress was sealed and queued with
-    /// [`RunState::write_batch`], or that there was none. Dropping the
-    /// request tells it the same.
-    pub fn sealed(self) {
-        let _ = self.0.send(());
-    }
-}
-
-/// The barriers' requests to whoever holds a run file's batch in progress.
-#[derive(Debug)]
-pub struct Seals(mpsc::Receiver<SealRequest>);
-
-impl Seals {
-    /// The next barrier's request; `None` once every handle on the writer
-    /// is gone.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses no request.
-    pub async fn next(&mut self) -> Option<SealRequest> {
-        self.0.recv().await
     }
 }
 
@@ -204,47 +167,5 @@ impl RunState {
             .await
             .map_err(|_| RunStateError::Closed)?;
         answered.await.map_err(|_| RunStateError::Closed)?
-    }
-
-    /// Takes the requests barriers make to seal the batch in progress: the
-    /// caller holds that batch from now on, and answers each request once
-    /// it sealed and queued it. `None` when another already took them.
-    pub fn seals(&self) -> Option<Seals> {
-        let (requests, seals) = mpsc::channel(SEAL_REQUESTS);
-        self.batches
-            .sealer
-            .set(requests)
-            .ok()
-            .map(|()| Seals(seals))
-    }
-
-    /// Runs `work` as [`RunState::write`] does, as a barrier: it has the
-    /// batch in progress sealed first, so that batch is committed before
-    /// `work`'s answer, in its commit or an earlier one. Its commit is
-    /// synced as the Durability level says of a write that needs it: at
-    /// `full`, within the interval at `periodic`, not at `fast` and `off`.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunState::write`].
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future while the batch is being sealed queues no write;
-    /// the batch it had sealed still commits. Once queued, the write may
-    /// still commit.
-    pub async fn barrier<T, F>(&self, work: F) -> Result<T, RunStateError>
-    where
-        T: Send + 'static,
-        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
-    {
-        if let Some(sealer) = self.batches.sealer.get() {
-            let (sealed, seals) = oneshot::channel();
-            // Whoever held the batch is gone: nothing is in progress.
-            if sealer.send(SealRequest(sealed)).await.is_ok() {
-                let _ = seals.await;
-            }
-        }
-        self.write(work).await
     }
 }

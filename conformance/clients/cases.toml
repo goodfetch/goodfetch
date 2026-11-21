@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "39"
+version = "40"
 
 [[capability]]
 name = "lifecycle"

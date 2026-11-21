@@ -5,7 +5,9 @@
 //! The handshake is refused with `403` when its `Host` is not one of the
 //! names the Daemon is reached at, or its `Origin` is missing or not one of
 //! them over `http` (ADRs 0017 and 0067), so a page of another origin, or
-//! one that rebinds a name to the Daemon's address, never opens it. Each
+//! one that rebinds a name to the Daemon's address, never opens it. A
+//! handshake that offers the subprotocol `goodfetch.v<major>` of the
+//! protocol version is answered with it (spec #606's Transports). Each
 //! text or binary message then carries one JSON-RPC message, and each
 //! message the engine sends is one text message; the `hello` with its token
 //! still comes first. A message longer than
@@ -19,10 +21,11 @@ use std::task::{Context, Poll};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
+use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
-use tokio_tungstenite::tungstenite::http::{StatusCode, header};
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
@@ -138,7 +141,7 @@ pub(super) async fn accept(
     )]
     let check = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         match refusal(request, authorities) {
-            None => Ok(response),
+            None => Ok(with_subprotocol(request, response)),
             Some(refusal) => {
                 refused = Some(refusal);
                 let mut forbidden = ErrorResponse::new(None);
@@ -175,6 +178,28 @@ pub(crate) trait Duplex: AsyncRead + AsyncWrite + Send + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Duplex for T {}
 
 type Carried = Box<dyn Duplex>;
+
+/// `response` naming the subprotocol of the protocol's major,
+/// `goodfetch.v<major>`, when `request` offers it among its
+/// `Sec-WebSocket-Protocol`s. A handshake that offers none, or only others,
+/// is answered without one: the Client's WebSocket then fails one it
+/// offered (RFC 6455, section 4.1), and one that offered none opens.
+fn with_subprotocol(request: &Request, mut response: Response) -> Response {
+    let ours = PROTOCOL_VERSION.websocket_subprotocol();
+    let offered = request
+        .headers()
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|offered| offered.trim() == ours);
+    if offered && let Ok(value) = HeaderValue::from_str(&ours) {
+        response
+            .headers_mut()
+            .insert(header::SEC_WEBSOCKET_PROTOCOL, value);
+    }
+    response
+}
 
 /// The rule `request` breaks, if any: its `Host` first, then its `Origin`.
 fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {

@@ -439,7 +439,7 @@ fn connection(layer: &Layer) -> String {
         Product::Collie => (
             format!(
                 "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n\nDEPLOYMENT_PREFIX: Final = {DEPLOYMENT_PREFIX:?}\n\"\"\"The prefix every deployment variable has, which ADR 0034 reserves.\"\"\"\n\nDEPLOYMENT_VARIABLES: Final = (\n{}\n)\n\"\"\"The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083).\"\"\"\n",
-                layer.protocol_version,
+                layer.protocol_version.to_string(),
                 layer.product_version,
                 ATTACHED_ENGINE,
                 DEPLOYMENT_VARIABLES

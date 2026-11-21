@@ -30,6 +30,15 @@ pub struct ProtocolVersion {
     pub minor: u16,
 }
 
+impl ProtocolVersion {
+    /// The WebSocket subprotocol a Client offers an Exposed Daemon for this
+    /// version, `goodfetch.v<major>` (ADR 0049; spec #606's Transports).
+    #[must_use]
+    pub fn websocket_subprotocol(self) -> String {
+        format!("goodfetch.v{}", self.major)
+    }
+}
+
 impl fmt::Display for ProtocolVersion {
     /// `major.minor`, as the catalog and the SDKs write it.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

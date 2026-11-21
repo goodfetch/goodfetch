@@ -5,11 +5,10 @@
 // Goodfetch home and answers, else an Attached engine. `attached` and
 // `daemon` choose one of the two, and `{ url, token }` a remote Daemon,
 // whatever the environment says; there is no `GOODFETCH_ENGINE`. A remote
-// Daemon's address is `ws://` on loopback, reached with newline-delimited
-// JSON-RPC over TCP, which an Exposed Daemon serves beside WebSocket, as
-// the CLI reaches it (ADR 0024's note of 2026-10-23): `wss://` and
-// addresses beyond loopback wait for the WebSocket transport and the
-// Daemon's TLS, so a token never crosses the network in the clear. A token
+// Daemon's address is `ws://` on loopback, reached over WebSocket with the
+// subprotocol `goodfetch.v<major>` (ADR 0049; spec #606's Transports):
+// `wss://` and addresses beyond loopback wait for the Daemon's TLS, so a
+// token never crosses the network in the clear. A token
 // goes into `hello` alone, never into a log, an error or `EngineInfo`
 // (ADR 0067).
 import { spawn } from "node:child_process";
@@ -24,9 +23,11 @@ import {
   EngineNotFoundError,
   PRODUCT_VERSION,
   SettingInvalidError,
+  WEBSOCKET_SUBPROTOCOL,
   type DaemonEndpoint,
 } from "./generated/index.ts";
 import type { Transport } from "./rpc.ts";
+import { openWebSocket } from "./websocket-transport.ts";
 
 /** The variable naming a remote Daemon, which fills `engine` at `auto` alone (ADR 0083). */
 const URL_VARIABLE = "GOODFETCH_URL";
@@ -181,17 +182,22 @@ async function reachRemote(
   signal: AbortSignal | undefined,
 ): Promise<Reach> {
   const { url } = remote;
-  const address = remoteAddress(url, source);
-  const nothingAnswers = `Start the Daemon ${url} names, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave engine at auto with ${URL_VARIABLE} unset to use this machine's engine.`;
-  const socket = await open({ host: address.host, port: address.port }, signal);
-  if (socket === undefined) {
-    throw unreachable(`Nothing answers at ${url}, the Daemon ${source} names`, nothingAnswers);
+  const { origin } = remoteAddress(url, source);
+  const transport = await openWebSocket(url, { origin, signal });
+  if (transport === undefined) {
+    // A WebSocket tells none of these apart: a Daemon of another protocol
+    // major answers no subprotocol this Client offered, so its handshake
+    // fails before `hello` could name the versions.
+    throw unreachable(
+      `No Daemon at ${url}, which ${source} names, opened a WebSocket of subprotocol ${WEBSOCKET_SUBPROTOCOL}: nothing listens there, it refused the handshake, or it speaks another protocol major`,
+      `Start the Daemon ${url} names with an engine of this SDK's Product version ${PRODUCT_VERSION}, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave engine at auto with ${URL_VARIABLE} unset to use this machine's engine.`,
+    );
   }
   return {
     kind: "remote",
     home: null,
     url,
-    transport: transportOf(socket),
+    transport,
     token: remote.token,
     closedAtHello: () =>
       unreachable(
@@ -204,14 +210,15 @@ async function reachRemote(
 }
 
 /**
- * The address a remote Daemon's URL names: `ws://` with a loopback IP
+ * The origin of a remote Daemon's URL, which its WebSocket handshake sends
+ * as a Client outside a browser does (ADR 0049): `ws://` with a loopback IP
  * address or `localhost` and a port, and nothing else, so no credential in
  * it reaches a log, an error or `EngineInfo`.
  *
  * @throws {SettingInvalidError} naming `source` otherwise, without the URL
  * when it is no URL or holds more than an address, which may be a secret.
  */
-function remoteAddress(url: string, source: string): { host: string; port: number } {
+function remoteAddress(url: string, source: string): { origin: string } {
   const refused = (why: string, shown: string | null = url): SettingInvalidError => {
     const what = shown === null ? why : `${shown} ${why}`;
     return new SettingInvalidError(`${source} ${what}`, {
@@ -249,7 +256,7 @@ function remoteAddress(url: string, source: string): { host: string; port: numbe
       "names an address beyond loopback, where its token would cross the network in the clear until the Daemon terminates TLS",
     );
   }
-  return { host, port: Number(parsed.port) };
+  return { origin: `http://${parsed.host}` };
 }
 
 /** Whether `host`, an IP address, is a loopback one. */

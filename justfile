@@ -430,6 +430,52 @@ mutants base="":
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
+# ADR 0072's full mutation run of the SDKs' hand-written runtimes, weekly once
+# the nightly tier is on (TESTING.md, Feature coverage): StrykerJS over the
+# TypeScript SDK (sdks/typescript/stryker.config.mjs) and mutmut over each
+# Python SDK package (its pyproject.toml's `[tool.mutmut]`), never over what
+# `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
+# target/mutants-sdks/typescript/, mutmut's results to each package's
+# `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
+# it. mutmut forks each mutant's tests, so its half needs Linux or macOS.
+# Mutation-tests the SDKs' runtimes: `just mutants-sdks [typescript | python | all]`.
+mutants-sdks sdk="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ sdk }}" in
+      typescript | python | all) ;;
+      *) echo "usage: just mutants-sdks [typescript | python | all]" >&2; exit 2 ;;
+    esac
+    # The tests find the commit's executables as under `just test`.
+    export GOODFETCH_TEST_SUITE=pre-merge
+    {{ just_executable() }} _test-tools
+    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    if [[ "{{ sdk }}" != python ]]; then
+      # Each Vitest worker's setup file, `stryker-setup-<n>.js` in the
+      # working directory, outlives a run that ends (StrykerJS 10.1.1).
+      status=0
+      pnpm exec stryker run sdks/typescript/stryker.config.mjs || status=$?
+      rm -f stryker-setup-*.js
+      [[ $status -eq 0 ]] || exit "$status"
+    fi
+    if [[ "{{ sdk }}" != typescript ]]; then
+      for package in collie-client collie foxhound; do
+        (
+          cd "sdks/python/$package"
+          status=0
+          uv run --frozen mutmut run || status=$?
+          # mutmut also stops with 1 when no test reaches a mutant, as when
+          # the runtime has no function to mutate (Foxhound's today): a
+          # package with no mutant at all is skipped, not failed.
+          if [[ $status -ne 0 && -z "$(uv run --frozen mutmut results --all true)" ]]; then
+            echo "sdks/python/$package: no mutant, its runtime has no function yet"
+            status=0
+          fi
+          exit "$status"
+        )
+      done
+    fi
+
 # Each job's VM runs this when it starts, before ADR 0043's outbound-traffic
 # deny: the locked dependencies of each workspace and, as areas pin them, the
 # Playwright browsers, the Clean-up rules' inputs and other pinned inputs.

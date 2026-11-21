@@ -6,6 +6,8 @@
     "@goodfetch/test-support": "workspace:*",
     "@playwright/test": "catalog:",
     "@size-limit/file": "14.2.0",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",

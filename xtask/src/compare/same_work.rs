@@ -36,9 +36,9 @@ use std::collections::BTreeMap;
 use crate::check::Finding;
 
 use super::extracted::{ANSWERED_PAGES, Extracted};
-use super::matrix::{self, OutputCheck, Row, Scenario};
+use super::matrix::{self, Cell, OutputCheck, Row, Scenario};
 use super::trials::{
-    AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS,
+    self, AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS,
     INSTRUCTION_TOOLS, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial,
     Work, size_not_run,
 };
@@ -65,11 +65,10 @@ struct Pass<'a> {
     /// ([`Scenario::site_pages`]).
     site_pages: u64,
     /// The scenarios whose measured cells the pass runs, those cells'
-    /// tools, and whether it runs their sensitivity rows beside their main
-    /// ones.
+    /// tools, and which of those cells it runs.
     scenarios: &'a [Scenario],
     tools: &'a [Tool],
-    rows: &'a [Row],
+    cells: fn(&Cell) -> bool,
     /// The cells the comparison's runs named, measured alone: every
     /// measured cell of the pass's scenarios when `None` ([`named_cells`]).
     named: Option<&'a [&'a str]>,
@@ -145,7 +144,9 @@ fn samples(done: &Done<'_>) -> bool {
 }
 
 /// Main and sensitivity rows alike.
-const EVERY_ROW: &[Row] = &[Row::Main, Row::Sensitivity];
+fn every_cell(_: &Cell) -> bool {
+    true
+}
 
 /// The cells of stopped runs or trials, not measured.
 fn of_stopped<'a>(stopped: impl IntoIterator<Item = &'a StoppedRun>) -> Vec<(Scenario, &'a str)> {
@@ -207,18 +208,18 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         site_pages: pages,
         scenarios: ran,
         tools: &Tool::ALL,
-        rows: EVERY_ROW,
+        cells: every_cell,
         named: named.as_deref(),
         done: of_trials(&trials.trials),
         stopped: of_stopped(&trials.stopped),
     });
-    for (suffix, cell, scenarios, tools, rows, empty) in [
+    for (suffix, cell, scenarios, tools, cells, empty) in [
         (
             " strace",
             &trials.syscalls,
             &counted[..],
             &Tool::ALL[..],
-            EVERY_ROW,
+            every_cell as fn(&Cell) -> bool,
             "strace counted no system call, so the run measured nothing",
         ),
         (
@@ -226,8 +227,8 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             &trials.instructions,
             &instructions[..],
             &INSTRUCTION_TOOLS[..],
-            // The ratios read each tool's main rows.
-            &[Row::Main][..],
+            // The cells the ratios read.
+            trials::instruction_counted,
             "Callgrind counted no instruction, so the run measured nothing",
         ),
     ] {
@@ -243,7 +244,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 site_pages: pages,
                 scenarios,
                 tools,
-                rows,
+                cells,
                 named: named.as_deref(),
                 done: of_runs(runs),
                 stopped: of_stopped(stopped),
@@ -269,7 +270,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             site_pages: *site_pages,
             scenarios: &counted,
             tools: &Tool::ALL,
-            rows: EVERY_ROW,
+            cells: every_cell,
             named: named.as_deref(),
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
@@ -331,7 +332,7 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario], named: Option<&[&str]>) -> V
                 site_pages,
                 scenarios: raw,
                 tools: &tools,
-                rows: &[Row::Main],
+                cells: Cell::counted_criteria,
                 named,
                 done: of_trials(
                     trials_run
@@ -413,7 +414,7 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
         pass.scenarios.contains(&cell.scenario)
             && pass.tools.contains(&config.tool())
-            && pass.rows.contains(&cell.row)
+            && (pass.cells)(cell)
             && pass.measured(cell.scenario, cell.name)
             && !pass.stopped.contains(&(cell.scenario, cell.name))
     }) {
@@ -584,7 +585,7 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
         site_pages: pages,
         scenarios: &trials.declared.scenarios,
         tools: &Tool::ALL,
-        rows: EVERY_ROW,
+        cells: every_cell,
         // Other work reads the runs done alone, not the cells named.
         named: None,
         done: of_runs(runs),

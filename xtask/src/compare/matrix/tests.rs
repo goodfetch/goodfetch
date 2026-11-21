@@ -1,13 +1,15 @@
-use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
+use super::{
+    AtDefaults, CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool,
+};
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
 /// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
 /// on a host (#2216), and fastCRW on the long site, past its 1,000 pages a
 /// crawl, and at 64 and 256, beyond the one page a crawl job of its fetches
-/// at a time (#2217), and the cell at the catalog's defaults (#2175) stands at each
-/// of the sweep's three points, 16, 64 and 256 in flight, pending until
-/// #2175 brings it.
+/// at a time (#2217), and the cell at the catalog's defaults (#2175) runs at each
+/// of the sweep's three points, 16, 64 and 256 in flight, its `fetch.tier`
+/// left at `auto`.
 #[test]
 fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
     let added = [
@@ -21,7 +23,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             .iter()
             .filter(|cell| {
                 cell.scenario == scenario
-                    && cell.row == Row::Main
+                    && cell.counted_criteria()
                     && matches!(cell.status, Status::Measured(_))
                     && !cell.mapping.is_empty()
             })
@@ -37,7 +39,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             (
                 cell.scenario,
                 cell.scenario.concurrency(),
-                matches!(cell.status, Status::Pending(reason) if reason.contains("#2175")),
+                matches!(cell.status, Status::Measured(config) if config.samples()),
             )
         })
         .collect();
@@ -911,6 +913,91 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
                 Some("#2317")
             ),
             true,
+        )
+    );
+}
+
+/// Scenario 1's first cell runs the default `batch` (#2175); scenario 2
+/// keeps its `full` and `periodic` 60 s cells and gains a `batch` one; and
+/// scenario 1's cell at the catalog's defaults prints two rows, the
+/// default `fetch.http_from` in force and `learned`, labelled, neither of
+/// which keeps the counted criteria of the scenario's first cell.
+#[test]
+fn scenario_1_and_2_run_the_new_defaults() {
+    let foxhound = |scenario: Scenario| -> Vec<(&str, Row, Option<Config>, Option<AtDefaults>)> {
+        CELLS
+            .iter()
+            .filter(|cell| cell.scenario == scenario && cell.tool == Tool::Foxhound)
+            .map(|cell| {
+                let config = match cell.status {
+                    Status::Measured(config) => Some(config),
+                    Status::NotSupported(_) | Status::Pending(_) => None,
+                };
+                (cell.name, cell.row, config, cell.at_defaults())
+            })
+            .collect()
+    };
+    let durable = |durability, commit_interval| {
+        Some(Config::Foxhound {
+            durability,
+            commit_interval,
+            auto: false,
+        })
+    };
+    let at_defaults = Some(Config::Foxhound {
+        durability: "batch",
+        commit_interval: None,
+        auto: true,
+    });
+    let criteria: Vec<&str> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == Scenario::Raw && cell.counted_criteria())
+        .map(|cell| cell.name)
+        .collect();
+
+    assert_eq!(
+        (
+            foxhound(Scenario::Raw),
+            foxhound(Scenario::Durable),
+            criteria
+        ),
+        (
+            vec![
+                ("foxhound", Row::Main, durable("batch", None), None),
+                (
+                    "foxhound defaults",
+                    Row::Main,
+                    at_defaults,
+                    Some(AtDefaults::InForce)
+                ),
+                (
+                    "foxhound defaults learned",
+                    Row::Sensitivity,
+                    at_defaults,
+                    Some(AtDefaults::Learned)
+                ),
+            ],
+            vec![
+                ("foxhound full", Row::Main, durable("full", None), None),
+                (
+                    "foxhound periodic",
+                    Row::Main,
+                    durable("periodic", Some(60_000)),
+                    None
+                ),
+                ("foxhound batch", Row::Main, durable("batch", None), None),
+            ],
+            vec![
+                "foxhound",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "pagesift",
+                "openspider",
+                "fastcrw",
+                "crawlberg"
+            ],
         )
     );
 }

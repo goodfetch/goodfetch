@@ -327,15 +327,26 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 })
         })
         .collect();
-    let pending = "  - not measured: pending #2175, which brings the cell at the catalog's \
-                   defaults.";
+    let pending: Vec<(Scenario, &str)> = report
+        .scenarios
+        .iter()
+        .flat_map(|scenario| {
+            scenario
+                .cells
+                .iter()
+                .filter_map(move |cell| match cell.status {
+                    CellStatus::NotMeasured { .. }
+                        if cell.cell.starts_with("foxhound defaults") =>
+                    {
+                        Some((scenario.scenario, cell.cell))
+                    }
+                    _ => None,
+                })
+        })
+        .collect();
 
     assert_eq!(
-        (
-            saying,
-            unmeasured,
-            cells_saying(section(&markdown, Scenario::Raw256.title()), pending),
-        ),
+        (saying, unmeasured, pending),
         (
             Scenario::ALL
                 .into_iter()
@@ -355,7 +366,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 ))
                 .collect::<Vec<_>>(),
             Vec::new(),
-            vec!["foxhound defaults"],
+            Vec::new(),
         )
     );
 }
@@ -591,5 +602,127 @@ fn the_trials_section_says_which_strace_runs_started_loaded_and_which_cells_were
             "1 of the 3 runs under strace started above a 1-minute load of 8.",
             "Measured again by a later run at the same commit on the same machine, its trials in their own order (seed 11): browser/foxhound.",
         ]
+    );
+}
+
+/// With scenario 1's Foxhound cells counted under Callgrind, each ratio is
+/// the median of its own cell's runs, never a blend of both (#2175), and
+/// the Markdown names the cell each ratio reads.
+#[test]
+fn each_callgrind_ratio_reads_its_own_cells_runs() {
+    use super::Instructions;
+    use crate::compare::trials::{CountedCell, CountedRun, Tool};
+    let mut trials = comparison(&[]);
+    let run = |cell: &str, tool, number, per_page: u64| CountedRun {
+        scenario: Scenario::Raw,
+        cell: cell.to_owned(),
+        tool,
+        number,
+        load: None,
+        count: per_page * PAGES,
+        syncs: 0,
+        work: work(),
+        extracted: None,
+    };
+    trials.instructions = CountedCell::Measured {
+        trials: 3,
+        runs: vec![
+            run("foxhound", Tool::Foxhound, 1, 2000),
+            run("foxhound", Tool::Foxhound, 2, 2200),
+            run("foxhound", Tool::Foxhound, 3, 2100),
+            run("foxhound defaults learned", Tool::Foxhound, 1, 3000),
+            run("foxhound defaults learned", Tool::Foxhound, 2, 3000),
+            run("spider", Tool::Spider, 1, 1000),
+            run("spider", Tool::Spider, 2, 1000),
+            run("spider", Tool::Spider, 3, 1000),
+        ],
+        stopped: Vec::new(),
+    };
+
+    let report = of(&trials);
+    let markdown = markdown(&report, &trials);
+
+    let ratios: Vec<(&str, &str, f64)> = match &report.instructions {
+        Instructions::Measured { ratios } => ratios
+            .iter()
+            .map(|ratio| (ratio.row, ratio.foxhound, ratio.ratio))
+            .collect(),
+        Instructions::NotRun { reason } => panic!("the Callgrind cell ran: {reason}"),
+    };
+    let lines: Vec<&str> = markdown
+        .lines()
+        .filter(|line| line.starts_with("`foxhound.spider_instruction_ratio"))
+        .collect();
+    assert_eq!(
+        (ratios, lines),
+        (
+            vec![
+                ("foxhound.spider_instruction_ratio", "foxhound", 2.1),
+                (
+                    "foxhound.spider_instruction_ratio_at_defaults",
+                    "foxhound defaults learned",
+                    3.0
+                ),
+            ],
+            vec![
+                "`foxhound.spider_instruction_ratio`: 2.100, Foxhound's `foxhound` cell's 2100 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, the median of each cell's runs, all of the same pages and bytes.",
+                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults learned` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
+            ]
+        )
+    );
+}
+
+/// Each cell gives its steady rate, the mean of its curve between the
+/// first and the last tenth, and the share of its pages each tier sent,
+/// read from Provenance where its row reads it (#2175).
+#[test]
+fn cells_give_their_steady_rate_and_their_tiers() {
+    use std::collections::BTreeMap;
+    let trials = fixture::comparison(PAGES, |cell, _| Measured {
+        seconds: 1.0,
+        work: work(),
+        curve: vec![1.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 100.0],
+        tiers: (cell.name == "foxhound defaults").then(|| {
+            BTreeMap::from([
+                ("http".to_owned(), 600),
+                ("browser_fetch".to_owned(), 300),
+                ("browser".to_owned(), 100),
+            ])
+        }),
+        ..Measured::default()
+    });
+
+    let report = of(&trials);
+
+    let figures = |name: &str| -> Vec<Option<f64>> {
+        let cell = report
+            .scenarios
+            .iter()
+            .find(|report| report.scenario == Scenario::Raw)
+            .and_then(|report| report.cells.iter().find(|cell| cell.cell == name))
+            .expect("scenario 1 has the cell");
+        let CellStatus::Measured { metrics, .. } = &cell.status else {
+            panic!("{name} is measured");
+        };
+        [
+            "steady_pages_per_second",
+            "tier_http_share",
+            "tier_browser_fetch_share",
+            "tier_browser_share",
+            "tier_other_share",
+        ]
+        .iter()
+        .map(|metric| match metrics.get(metric) {
+            Some(Figure::Measured { median, .. }) => Some((median * 1000.0).round() / 1000.0),
+            _ => None,
+        })
+        .collect()
+    };
+    assert_eq!(
+        (figures("foxhound defaults"), figures("foxhound")),
+        (
+            vec![Some(5.0), Some(0.6), Some(0.3), Some(0.1), Some(0.0)],
+            vec![Some(5.0), None, None, None, None],
+        )
     );
 }

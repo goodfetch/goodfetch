@@ -2,14 +2,16 @@
 //! before the first trial, the machine, each trial's figures with the work
 //! the Proving ground saw it do, and the counted cells' runs with theirs.
 
+use std::collections::BTreeMap;
+
 use goodfetch_protocol::result_document::OracleOutcome;
 use serde::{Deserialize, Serialize};
 
 use super::auto::Judged;
 use super::extracted::Extracted;
 use super::hostile::Broken;
-use super::matrix::Scenario;
 pub(crate) use super::matrix::Tool;
+use super::matrix::{self, Cell, Scenario};
 
 /// Trials of each measured cell, interleaved in random order.
 pub(crate) const TRIALS: u32 = 10;
@@ -107,6 +109,66 @@ pub(crate) const CHROMIUMOXIDE_VERSION: &str = "0.9.1";
 pub(crate) const INSTRUCTION_RUNS: u32 = 3;
 /// The tools the Callgrind cell counts.
 pub(crate) const INSTRUCTION_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
+/// A ratio the Callgrind cell gives: a row of the Quality register (ADR
+/// 0140), Foxhound's instructions per page on one of its cells over
+/// Spider's main row's in the same scenario.
+pub(crate) struct RatioRow {
+    pub(crate) row: &'static str,
+    pub(crate) scenario: Scenario,
+    /// Foxhound's cell.
+    pub(crate) foxhound: &'static str,
+    pub(crate) described: &'static str,
+}
+
+/// The Callgrind cell's ratios: scenario 1's two, its first cell's and its
+/// cell's at the catalog's defaults, on the row that sends from the
+/// engine's own HTTP client, since Valgrind follows the engine's process
+/// alone (#2175; G-08); and the extraction scenario's two (#2136; the
+/// owner's decision of 2026-11-10, #2252 Q7). At Foxhound's defaults
+/// Spider does not do the Clean-up rules' work, so that ratio carries no
+/// parity Contract; with Foxhound's Filter lists off both read the same
+/// Main content, and the distance between the two is the clean-up's cost
+/// (ADR 0023).
+pub(crate) const RATIOS: [RatioRow; 4] = [
+    RatioRow {
+        row: "foxhound.spider_instruction_ratio",
+        scenario: Scenario::Raw,
+        foxhound: "foxhound",
+        described: "scenario 1 of ADR 0138's matrix",
+    },
+    RatioRow {
+        row: "foxhound.spider_instruction_ratio_at_defaults",
+        scenario: Scenario::Raw,
+        foxhound: matrix::AT_DEFAULTS_LEARNED,
+        described: "scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the \
+                    scenario's pace",
+    },
+    RatioRow {
+        row: "foxhound.spider_extraction_instruction_ratio",
+        scenario: Scenario::Extraction,
+        foxhound: "foxhound",
+        described: "the extraction scenario of ADR 0138's matrix, Foxhound at its defaults",
+    },
+    RatioRow {
+        row: "foxhound.spider_extraction_instruction_ratio_filter_lists_off",
+        scenario: Scenario::Extraction,
+        foxhound: matrix::FILTER_LISTS_OFF,
+        described: "the extraction scenario of ADR 0138's matrix, Foxhound's Filter lists off",
+    },
+];
+
+/// Spider's main row, in every scenario the Callgrind cell counts.
+pub(crate) const SPIDER: &str = "spider";
+
+/// Whether the Callgrind cell counts `cell`: a cell one of [`RATIOS`]
+/// reads, Foxhound's or Spider's main row in its scenario.
+pub(crate) fn instruction_counted(cell: &Cell) -> bool {
+    RATIOS.iter().any(|row| {
+        row.scenario == cell.scenario
+            && ((cell.tool == Tool::Foxhound && cell.name == row.foxhound)
+                || (cell.tool == Tool::Spider && cell.name == SPIDER))
+    })
+}
 /// The scenarios the Callgrind cell counts those tools' main rows in:
 /// scenario 1, and the extraction scenario, both of Foxhound's rows there
 /// (#2136; the owner's decision of 2026-11-10, #2252 Q7).
@@ -369,6 +431,11 @@ pub(crate) struct Measured {
     /// that leaves Foxhound's `fetch.tier` at `auto`; none for another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sample_pages: Option<u64>,
+    /// The pages each tier sent, by the tier its first Record's Provenance
+    /// names, for a row that leaves Foxhound's `fetch.tier` at `auto`
+    /// (#2175); none for another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) tiers: Option<BTreeMap<String, u64>>,
     /// What the output check found of the pages it wrote, on a site whose
     /// right answers the Proving ground serves (#2136).
     #[serde(default, skip_serializing_if = "Option::is_none")]

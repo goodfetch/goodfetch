@@ -25,8 +25,9 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
-/// sensitivity rows and Foxhound's `auto` row.
-const CELLS: [(&str, &str, &str); 42] = [
+/// sensitivity rows, Foxhound's `auto` row and the second row of its cell
+/// at the catalog's defaults.
+const CELLS: [(&str, &str, &str); 45] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -36,8 +37,10 @@ const CELLS: [(&str, &str, &str); 42] = [
     ("raw", "openspider", "openspider"),
     ("raw", "fastcrw", "fastcrw"),
     ("raw", "crawlberg", "crawlberg"),
+    ("raw", "foxhound defaults", "foxhound"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
+    ("durable", "foxhound batch", "foxhound"),
     ("durable", "crawlee-rs", "crawlee-rs"),
     ("durable", "pagesift", "pagesift"),
     ("polite", "foxhound", "foxhound"),
@@ -69,6 +72,7 @@ const CELLS: [(&str, &str, &str); 42] = [
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
     ("polite", "foxhound auto", "foxhound"),
+    ("raw", "foxhound defaults learned", "foxhound"),
 ];
 
 /// The runs of `cell` in a pass that asks for `asked`: pagesift's polite
@@ -300,9 +304,10 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
     run
 }
 
-/// A Callgrind cell of three runs of each tool over the 1,000-page site.
-/// In scenario 1, Foxhound's a median of 32,000 instructions a page and
-/// Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
+/// A Callgrind cell of three runs of each cell its ratios read over the
+/// 1,000-page site. In scenario 1, Foxhound's a median of 32,000
+/// instructions a page, 48,000 in its cell at the catalog's defaults'
+/// learned row, and Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
 /// defaults and 45,000 with its Filter lists off, and Spider's 50,000, its
 /// pages holding the ad, which it does not remove.
 fn callgrind() -> Value {
@@ -316,6 +321,9 @@ fn callgrind() -> Value {
             run("raw", "spider", "spider", 1, 1_000_000, 0),
             run("raw", "spider", "spider", 2, 900_000, 0),
             run("raw", "spider", "spider", 3, 1_100_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 1, 47_000_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 2, 48_000_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 3, 49_000_000, 0),
             run("extraction", "foxhound", "foxhound", 1, 59_000_000, 0),
             run("extraction", "foxhound", "foxhound", 2, 60_000_000, 0),
             run("extraction", "foxhound", "foxhound", 3, 70_000_000, 0),
@@ -613,6 +621,8 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
+         foxhound defaults, 1000 of the site's 1000 pages | foxhound defaults learned \
+         (sensitivity), 1000 of the site's 1000 pages | \
          crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
          openspider, 1000 of the site's 1000 pages | fastcrw, 1000 of the site's 1000 pages | \
          crawlberg, 1000 of the site's 1000 pages | spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
@@ -815,7 +825,7 @@ fn the_report_writes_each_scenarios_mapping() {
     for expected in [
         "## 1. Raw fetch and follow",
         "## 2. Durable and resumable",
-        "`run_state.durability: off`",
+        "`run_state.durability: batch`",
         "`dataset.records: false`",
         "`run_state.durability: periodic` and `run_state.commit_interval: 60s`",
         "- **spider**: none",
@@ -1340,6 +1350,9 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     );
 }
 
+/// In scenario 1, the Callgrind cell gives two ratios over Spider's: the
+/// maximum-throughput cell's and, at the catalog's defaults, the learned
+/// row's (#2175).
 #[test]
 fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
     let workspace = Workspace::from_fixture("empty");
@@ -1355,15 +1368,27 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
         outcome.stderr
     );
     assert_eq!(
-        written(&workspace)["instructions"]["ratios"][0],
-        json!({
-            "row": "foxhound.spider_instruction_ratio",
-            "scenario": "scenario 1 of ADR 0138's matrix",
-            "foxhound": "foxhound",
-            "foxhound_per_page": 32_000.0,
-            "spider_per_page": 1_000.0,
-            "ratio": 32.0,
-        })
+        written(&workspace)["instructions"]["ratios"]
+            .as_array()
+            .unwrap()[..2],
+        [
+            json!({
+                "row": "foxhound.spider_instruction_ratio",
+                "scenario": "scenario 1 of ADR 0138's matrix",
+                "foxhound": "foxhound",
+                "foxhound_per_page": 32_000.0,
+                "spider_per_page": 1_000.0,
+                "ratio": 32.0,
+            }),
+            json!({
+                "row": "foxhound.spider_instruction_ratio_at_defaults",
+                "scenario": "scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace",
+                "foxhound": "foxhound defaults learned",
+                "foxhound_per_page": 48_000.0,
+                "spider_per_page": 1_000.0,
+                "ratio": 48.0,
+            }),
+        ]
     );
     let markdown = workspace.read_text(MARKDOWN);
     assert!(
@@ -1395,7 +1420,7 @@ fn the_callgrind_cell_reports_the_extraction_scenarios_two_ratios() {
     assert_eq!(
         written(&workspace)["instructions"]["ratios"]
             .as_array()
-            .unwrap()[1..],
+            .unwrap()[2..],
         [
             json!({
                 "row": "foxhound.spider_extraction_instruction_ratio",
@@ -1418,9 +1443,9 @@ fn the_callgrind_cell_reports_the_extraction_scenarios_two_ratios() {
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "`foxhound.spider_extraction_instruction_ratio`: 1.200, Foxhound's 60000 instructions per page over Spider's 50000",
+        "`foxhound.spider_extraction_instruction_ratio`: 1.200, Foxhound's `foxhound` cell's 60000 instructions per page over Spider's `spider` cell's 50000",
         "Spider's output differs under this row's check (output differs: 1000 of 1000)",
-        "`foxhound.spider_extraction_instruction_ratio_filter_lists_off`: 0.900, Foxhound's 45000 instructions per page over Spider's 50000",
+        "`foxhound.spider_extraction_instruction_ratio_filter_lists_off`: 0.900, Foxhound's `foxhound filter lists off` cell's 45000 instructions per page over Spider's `spider` cell's 50000",
     ] {
         assert!(
             markdown.contains(expected),

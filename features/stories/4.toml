@@ -451,7 +451,7 @@ status = "active"
 [[story]]
 id = 57
 title = "As a developer, I want a value shorter than eight characters, such as a one-time code, masked where it was typed and in what the engine keeps, but not in every page read, so that masking never corrupts prices and identifiers that happen to match it (ADR 0092) (shape)."
-milestone = "M1 Core"
+milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"

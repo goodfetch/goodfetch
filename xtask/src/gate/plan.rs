@@ -196,6 +196,18 @@ impl Step {
         )
     }
 
+    /// The step whose units hold this one's, member by member: the Pre-merge
+    /// suite's selection of a member holds every Quick test of it, so where
+    /// the full gate runs or reuses a member's Pre-merge unit, which it does
+    /// for every member, its Quick unit is covered and never runs beside it
+    /// (ADR 0135's amendment of 2026-11-22).
+    pub(crate) const fn covered_by(self) -> Option<Self> {
+        match self {
+            Self::Quick => Some(Self::PreMerge),
+            _ => None,
+        }
+    }
+
     /// Whether the step runs each member's tests separately.
     pub(crate) const fn per_member(self) -> bool {
         matches!(self.reach(), Reach::Members)
@@ -577,6 +589,28 @@ pub(crate) enum Action {
     /// Runs nothing: every unit's green result is carried, from the heads
     /// it ran on.
     Reuse { origins: BTreeSet<String> },
+    /// Runs nothing and records nothing: the units of `by`, which the run
+    /// runs or reuses for every member, hold this step's tests
+    /// ([`Step::covered_by`]).
+    Covered { by: Step },
+}
+
+/// The plan of a step another step's units cover, whatever the records say.
+pub(crate) fn covered(step: Step) -> Option<Planned> {
+    step.covered_by().map(|by| Planned {
+        step,
+        action: Action::Covered { by },
+        carried: BTreeMap::new(),
+        earned: BTreeMap::new(),
+    })
+}
+
+/// Why a step that `by` covers runs nothing.
+pub(crate) fn covered_why(by: Step) -> String {
+    format!(
+        "covered by {}, which runs or reuses each member's unit, and whose selection of a member holds every test of this step's",
+        by.name()
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -602,6 +636,9 @@ pub(crate) fn plan(
     Step::ALL
         .into_iter()
         .map(|step| {
+            if let Some(planned) = covered(step) {
+                return planned;
+            }
             let judge = |member: Option<&str>| match previous {
                 None => Err(no_previous.to_owned()),
                 Some(previous) => judge(step, member, head, previous, touched),

@@ -14,8 +14,9 @@
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
 //! - **plan**: prints the `previous`, `head`, `members` and `unowned` lines,
-//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`
-//!   or `reuse`), `<step>.members` and `<step>.why` lines, which
+//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`,
+//!   `reuse`, or `covered` for the Quick suite, whose tests the Pre-merge
+//!   suite's units hold), `<step>.members` and `<step>.why` lines, which
 //!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
 //!   the same in words on stderr for the run's log, with the evidence that
 //!   reaches a member the selection misses; and writes the plan and the
@@ -36,6 +37,9 @@
 //!   the full run found and whatever its tree, each result of a merge since
 //!   the backstop's last green run that counted earned passes, as `earned`
 //!   lines.
+//! - **duplicates**: from every run in the records, each unit a run ran, not
+//!   reused, on a tree where an earlier run had recorded it green, naming both
+//!   layers (`duplicates`): nothing runs twice on one tree.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -43,6 +47,7 @@
 
 mod attribution;
 mod compare;
+mod duplicates;
 mod earlier;
 mod evidence;
 mod host;
@@ -171,6 +176,13 @@ pub(crate) enum Command {
         #[arg(long)]
         since: Option<String>,
     },
+    /// Fails, naming both layers, on each unit a run ran, not reused, on a
+    /// tree where an earlier run had recorded it green (`duplicates`).
+    Duplicates {
+        /// The folder of the gate's records.
+        #[arg(long)]
+        records: std::path::PathBuf,
+    },
 }
 
 /// What `xtask gate plan` takes.
@@ -289,6 +301,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let records = environment.path(&records);
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return compare::compare(root, &records, &runs, &full, since.as_deref());
+        }
+        Command::Duplicates { records } => {
+            return duplicates::check(&environment.path(&records));
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -457,13 +472,15 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
     ));
     let planned: Vec<Planned> = Step::ALL
         .into_iter()
-        .map(|step| Planned {
-            step,
-            action: Action::Run {
-                why: why.to_owned(),
-            },
-            carried: BTreeMap::new(),
-            earned: BTreeMap::new(),
+        .map(|step| {
+            plan::covered(step).unwrap_or_else(|| Planned {
+                step,
+                action: Action::Run {
+                    why: why.to_owned(),
+                },
+                carried: BTreeMap::new(),
+                earned: BTreeMap::new(),
+            })
         })
         .collect();
     let machine = render(None, None, NO_HEAD, &BTreeSet::new(), &[], &planned);
@@ -708,7 +725,7 @@ const NO_HEAD: &str = "none";
 /// and `unowned` lines; the `stress.base` line, the head the stress run
 /// compares this one with in place of the change's base
 /// ([`earlier::stress_base`]), `-` when it is the change's base; then each
-/// step's `<step>.action` (`run`, `part` or `reuse`), `<step>.members` and
+/// step's `<step>.action` (`run`, `part`, `reuse` or `covered`), `<step>.members` and
 /// `<step>.why` lines, with `<step>.earned`, the members that keep passes, for
 /// a step that counts them. A list is its items joined by spaces, `-` when it
 /// is empty; a value is one line.
@@ -758,6 +775,7 @@ fn render(
                 "-".to_owned(),
                 format!("green on {}", joined(origins)),
             ),
+            Action::Covered { by } => ("covered", "-".to_owned(), plan::covered_why(*by)),
         };
         if step.counts_passes() {
             let kept = earned.keys().cloned().collect();
@@ -829,6 +847,7 @@ fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
                 origins(carried),
                 previous.map_or("-", |(previous, _)| short(previous))
             ),
+            Action::Covered { by } => format!("not run: {}", plan::covered_why(*by)),
         };
         let _ = writeln!(text, "  {}: {line}", step.name());
         for (member, passes) in earned {

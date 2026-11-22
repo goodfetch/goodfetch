@@ -148,7 +148,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
             Action::Part { members, .. } => {
                 part.insert(planned.step.name(), members.iter().cloned().collect());
             }
-            Action::Reuse { .. } => {}
+            Action::Reuse { .. } | Action::Covered { .. } => {}
         }
     }
     (full, part)
@@ -210,6 +210,46 @@ fn every_variable_the_fingerprint_leaves_out_as_removed_is_one_the_gate_removes(
     }
 }
 
+/// The Pre-merge suite's selection of a member holds every Quick test of
+/// it (ADR 0135's amendment of 2026-11-22), so no plan runs, reruns or
+/// reuses the Quick suite, nor carries or earns a unit of it: not a first
+/// run, not one after its own units went red, not one a gate input reruns
+/// in full.
+#[test]
+fn no_plan_runs_the_quick_suite_whose_tests_the_pre_merge_suite_holds() {
+    let mut red_quick = full_green_run();
+    for member in members() {
+        let outcome = Outcome {
+            green: false,
+            ..green(EARLIER)
+        };
+        red_quick
+            .units
+            .insert(unit(Step::Quick, Some(&member)), outcome);
+    }
+    let every_input = Touched {
+        gate_input: Some("justfile".to_owned()),
+        ..Touched::default()
+    };
+
+    for plan in [
+        planned(None, &BTreeMap::new()),
+        planned(Some(&red_quick), &touched_since_earlier(Touched::default())),
+        planned(Some(&red_quick), &touched_since_earlier(every_input)),
+    ] {
+        let quick = plan
+            .iter()
+            .find(|planned| planned.step == Step::Quick)
+            .expect("every step is planned");
+        assert_eq!(quick.action, Action::Covered { by: Step::PreMerge });
+        assert!(quick.carried.is_empty() && quick.earned.is_empty());
+        assert!(!matches!(
+            action(&plan, Step::PreMerge),
+            Action::Covered { .. }
+        ));
+    }
+}
+
 #[test]
 fn a_change_that_reaches_nothing_reruns_only_the_global_checks() {
     let record = full_green_run();
@@ -244,11 +284,7 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
     let only = vec!["test-support/typescript".to_owned()];
     assert_eq!(
         part,
-        BTreeMap::from([
-            ("pre-merge", only.clone()),
-            ("quick", only.clone()),
-            ("stress", only)
-        ])
+        BTreeMap::from([("pre-merge", only.clone()), ("stress", only)])
     );
     // Perf, the counted rows, TLC, the MSRV build, Miri, loom and the
     // Windows build read nothing the change reaches.
@@ -366,7 +402,12 @@ fn a_change_to_a_gate_input_reruns_every_step_in_full(#[case] path: &str) {
     let plan = planned(Some(&record), &touched_since_earlier(touched));
 
     let (full, part) = reruns(&plan);
-    assert_eq!(full.len(), Step::ALL.len());
+    let every_step_but_the_covered: BTreeSet<&str> = Step::ALL
+        .into_iter()
+        .filter(|step| *step != Step::Quick)
+        .map(Step::name)
+        .collect();
+    assert_eq!(full, every_step_but_the_covered);
     assert!(part.is_empty());
     let Action::Run { why } = action(&plan, Step::Perf) else {
         panic!("perf is not rerun")
@@ -743,13 +784,13 @@ fn a_unit_with_no_result_runs() {
     record.units.remove(&unit(Step::Tlc, None));
     record
         .units
-        .remove(&unit(Step::Quick, Some("goodfetch-engine")));
+        .remove(&unit(Step::PreMerge, Some("goodfetch-engine")));
 
     let plan = planned(Some(&record), &touched_since_earlier(Touched::default()));
 
     assert!(matches!(action(&plan, Step::Tlc), Action::Run { .. }));
     assert!(matches!(
-        action(&plan, Step::Quick),
+        action(&plan, Step::PreMerge),
         Action::Part { members, .. } if members == &BTreeSet::from(["goodfetch-engine".to_owned()])
     ));
 }
@@ -987,7 +1028,7 @@ fn the_tests_no_member_owns_rerun_whenever_a_member_does() {
     let mut members = members();
     members.insert(UNOWNED.to_owned());
     let mut record = full_green_run();
-    for step in [Step::Quick, Step::PreMerge, Step::Stress] {
+    for step in [Step::PreMerge, Step::Stress] {
         record
             .units
             .insert(unit(step, Some(UNOWNED)), green(EARLIER));
@@ -1061,7 +1102,7 @@ fn the_shuffling_runners_rerun_every_member_in_the_heads_order() {
         &touched_since_earlier(Touched::default()),
     );
 
-    for step in [Step::Quick, Step::PreMerge, Step::Stress] {
+    for step in [Step::PreMerge, Step::Stress] {
         assert!(
             matches!(
                 action(&plan, step),
@@ -1216,8 +1257,16 @@ fn a_plan_reads_back_each_steps_action_members_and_reason() {
     assert_eq!(plan_value(&text, "previous").unwrap(), EARLIER);
     assert_eq!(plan_value(&text, "head").unwrap(), "head");
     assert_eq!(plan_value(&text, "unowned").unwrap(), "-");
-    assert_eq!(plan_value(&text, "quick.action").unwrap(), "part");
-    assert_eq!(plan_value(&text, "quick.members").unwrap(), "xtask");
+    assert_eq!(plan_value(&text, "pre-merge.action").unwrap(), "part");
+    assert_eq!(plan_value(&text, "pre-merge.members").unwrap(), "xtask");
+    assert_eq!(plan_value(&text, "quick.action").unwrap(), "covered");
+    assert_eq!(plan_value(&text, "quick.members").unwrap(), "-");
+    assert!(
+        plan_value(&text, "quick.why")
+            .unwrap()
+            .starts_with("covered by pre-merge"),
+        "{text}"
+    );
     assert_eq!(plan_value(&text, "audit.action").unwrap(), "run");
     assert_eq!(
         plan_value(&text, "audit.why").unwrap(),

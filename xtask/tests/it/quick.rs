@@ -23,6 +23,7 @@
 //! pre-push tier is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
+use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
@@ -1261,5 +1262,115 @@ fn the_quick_suite_builds_executables_alone_when_no_selected_package_has_a_libra
     assert_eq!(
         quick_targets(&["-p", "goodfetch-proving-ground", "-p", "goodfetch-sink-s3"]),
         ["--bins"]
+    );
+}
+
+/// The tests nextest's `profile` selects in a workspace, as `<binary id>
+/// <test name>`.
+fn selected_tests(workspace: &Workspace, profile: &str) -> BTreeSet<String> {
+    let listed = workspace.cargo(&[
+        "nextest",
+        "list",
+        "--workspace",
+        "--profile",
+        profile,
+        "--message-format",
+        "json",
+    ]);
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    let list: serde_json::Value = serde_json::from_str(&listed.stdout).unwrap();
+    let mut selected = BTreeSet::new();
+    for (binary, suite) in list["rust-suites"].as_object().unwrap() {
+        for (name, case) in suite["testcases"].as_object().unwrap() {
+            if case["filter-match"]["status"] == "matches" {
+                selected.insert(format!("{binary} {name}"));
+            }
+        }
+    }
+    selected
+}
+
+/// The repository's nextest settings with each of `profiles` keeping only
+/// its own `default-filter`: the overrides name the repository's binaries,
+/// which a fixture has none of, and nextest refuses a filter that matches
+/// no binary. The platform overrides of the Pre-merge suite's profile leave
+/// out integration tests alone (`binary_id(<crate>::it)`), none of which the
+/// Quick suite runs.
+fn default_filters_of_the_repository(profiles: &[&str]) -> String {
+    let settings = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.config/nextest.toml");
+    let settings: toml::Table = std::fs::read_to_string(settings).unwrap().parse().unwrap();
+    let mut kept = toml_edit::DocumentMut::new();
+    kept["profile"] = toml_edit::table();
+    kept["profile"].as_table_mut().unwrap().set_implicit(true);
+    for profile in profiles {
+        let filter = settings["profile"][*profile]["default-filter"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the {profile} profile has no default-filter"));
+        kept["profile"][*profile]["default-filter"] = toml_edit::value(filter);
+    }
+    kept.to_string()
+}
+
+/// The full gate runs no Quick suite (ADR 0135's amendment of 2026-11-22):
+/// with the repository's own nextest filters, the Pre-merge suite's profile
+/// selects every test the Quick suite's selects, the in-process tests of a
+/// library, an executable and a procedural macro, and the integration tests
+/// besides. The Quick suite's shorter time limit is no selection: a test
+/// that passes in it passes under the Pre-merge suite's longer one. Vitest's
+/// `unit` project and pytest's tests outside `tests/integration/` are the
+/// Pre-merge suite's too, which runs every project and every test.
+#[test]
+fn the_pre_merge_suite_selects_every_test_the_quick_suite_selects() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        ".config/nextest.toml",
+        default_filters_of_the_repository(&["quick", "ci"]).as_bytes(),
+    );
+    workspace.write(
+        "Cargo.toml",
+        b"[workspace]\nmembers = [\"tool\", \"derive\"]\nresolver = \"3\"\n",
+    );
+    workspace.write(
+        "tool/Cargo.toml",
+        b"[package]\nname = \"tool\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    let unit_test =
+        |name: &str| format!("#[cfg(test)]\nmod tests {{\n    #[test]\n    fn {name}() {{}}\n}}\n");
+    workspace.write("tool/src/lib.rs", unit_test("in_the_library").as_bytes());
+    workspace.write(
+        "tool/src/main.rs",
+        format!("fn main() {{}}\n{}", unit_test("in_the_executable")).as_bytes(),
+    );
+    workspace.write(
+        "tool/tests/it.rs",
+        b"#[test]\nfn an_integration_test() {}\n",
+    );
+    workspace.write(
+        "derive/Cargo.toml",
+        b"[package]\nname = \"derive\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\nproc-macro = true\n",
+    );
+    workspace.write("derive/src/lib.rs", unit_test("in_the_macro").as_bytes());
+
+    let quick = selected_tests(&workspace, "quick");
+    let pre_merge = selected_tests(&workspace, "ci");
+
+    assert_eq!(
+        quick,
+        BTreeSet::from(
+            [
+                "derive tests::in_the_macro",
+                "tool tests::in_the_library",
+                "tool::bin/tool tests::in_the_executable",
+            ]
+            .map(str::to_owned)
+        )
+    );
+    assert!(
+        quick.is_subset(&pre_merge),
+        "{quick:?} against {pre_merge:?}"
+    );
+    assert!(
+        pre_merge.contains("tool::it an_integration_test"),
+        "{pre_merge:?}"
     );
 }

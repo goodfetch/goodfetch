@@ -10,7 +10,8 @@ use std::future::IntoFuture as _;
 use std::sync::Arc;
 
 use goodfetch_collie_client::{BoxError, Error};
-use goodfetch_protocol::foxhound::frontier::Enqueued;
+use goodfetch_protocol::foxhound::dataset::{DatasetRecord, RECORD, RUN_RECORDS, RecordRead};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks};
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
@@ -26,11 +27,10 @@ use crate::{Dataset, Label, LabelDeclaration, Seed};
 ///
 /// ```no_run
 /// use goodfetch_foxhound::blocking::{Crawl, CrawlContext, Foxhound};
-/// use goodfetch_foxhound::schemars::{self, JsonSchema};
 /// use goodfetch_foxhound::{ConnectOptions, Seed};
 ///
 /// # fn crawl() -> Result<(), goodfetch_foxhound::Error> {
-/// #[derive(JsonSchema, serde::Serialize, serde::Deserialize)]
+/// #[derive(serde::Serialize, serde::Deserialize)]
 /// struct Book {
 ///     shelf: u32,
 /// }
@@ -75,14 +75,15 @@ impl Crawl {
         }
     }
 
-    /// Declares a Label, as [`crate::Crawl::label`] does.
+    /// Declares a Label, by a bare name or a [`LabelDeclaration`], as
+    /// [`crate::Crawl::label`] does.
     ///
     /// # Errors
     ///
     /// As [`crate::Crawl::label`].
     pub fn label<P: Serialize + DeserializeOwned>(
         &mut self,
-        declaration: impl Into<LabelDeclaration<P>>,
+        declaration: impl Into<LabelDeclaration<'static, P>>,
     ) -> Result<Label<P>, Error> {
         self.inner.label(declaration)
     }
@@ -178,6 +179,16 @@ impl<P> CrawlContext<P> {
         self.inner.run_id()
     }
 
+    /// The attempt's page, as [`crate::CrawlContext::page`], whose calls
+    /// block.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::CrawlContext::page`].
+    pub fn page(&self) -> Result<blocking::Page, Error> {
+        self.inner.page().cloned().map(blocking::Page::from)
+    }
+
     /// Skips the request, as [`crate::CrawlContext::skip`] does: the
     /// handler returns what this returns, `return Err(ctx.skip(…))`.
     #[must_use = "a skip is returned from the handler: `return Err(ctx.skip(…))`"]
@@ -218,6 +229,23 @@ impl<P> CrawlContext<P> {
     ) -> Result<Enqueued, Error> {
         self.blocking_connection()
             .wait(self.inner.enqueue(url, label, payload))
+    }
+
+    /// Enqueues the link of each element `links` matches, as
+    /// [`crate::CrawlContext::enqueue_links`] does, and blocks until the
+    /// Frontier answers what it did with each.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::CrawlContext::enqueue_links`].
+    pub fn enqueue_links<Q: Serialize + DeserializeOwned>(
+        &self,
+        links: &blocking::Locator,
+        label: &Label<Q>,
+        payload: Q,
+    ) -> Result<EnqueuedLinks, Error> {
+        self.blocking_connection()
+            .wait(self.inner.enqueue_links_of(links.id(), label, payload))
     }
 
     /// The attempt's connection, blocking, whose runtime the calls run on
@@ -296,6 +324,27 @@ impl CrawlRun {
     /// The Run, with every member a blocking Run has, such as `close`.
     pub fn run(&self) -> &Run {
         &self.run
+    }
+
+    /// The Records of `dataset` the Run has kept, as
+    /// [`crate::CrawlRun::records`], as an iterator that blocks the calling
+    /// thread until the next one. Dropping it cancels the read.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::records`]'s does, after which
+    /// the iterator ends.
+    pub fn records<I>(
+        &self,
+        dataset: &Dataset<I>,
+    ) -> impl Iterator<Item = Result<DatasetRecord, Error>> + Send + 'static {
+        self.connection
+            .stream::<RecordRead>(
+                RUN_RECORDS.name,
+                &self.inner.records_params(dataset),
+                RECORD,
+            )
+            .map(|read| read.map(|read| read.record))
     }
 }
 

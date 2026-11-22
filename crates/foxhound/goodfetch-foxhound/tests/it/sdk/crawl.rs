@@ -38,7 +38,7 @@ use tower_service::Service as _;
 const SITE: u64 = 1602;
 
 /// A page's Payload: how far from the seed it is.
-#[derive(Clone, Debug, PartialEq, JsonSchema, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Visit {
     depth: u32,
 }
@@ -52,7 +52,7 @@ struct Visited {
 
 /// What a connection that reaches the Proving ground on a forced `http`
 /// tier opens with.
-fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
+pub(super) fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
     let resolve: BTreeMap<String, Vec<String>> = site
         .description()
         .resolve
@@ -272,7 +272,7 @@ fn an_axum_handler_serves_the_tracer_crawl_on_every_call() {
     });
 }
 
-/// Covers: story:11-1025
+/// Covers: story:11-1025, story:11-1102
 #[test]
 fn a_panic_in_a_handler_fails_its_request_with_handler_failed_and_serve_goes_on() {
     let env = TestEnv::new();
@@ -821,6 +821,12 @@ struct Price {
     amount: f64,
 }
 
+/// The `shelf` Label, its Payloads typed by the schema `schemars` derives
+/// for [`Shelf`].
+fn shelves() -> LabelDeclaration<'static, Shelf> {
+    LabelDeclaration::new("shelf").payload(&Schema::derived())
+}
+
 /// A book's Payload schema written by hand: its ISBN, a text.
 fn isbn() -> Schema<Value> {
     Schema::json(json!({
@@ -853,11 +859,13 @@ fn a_seed_whose_payload_its_labels_schema_refuses_fails_the_start_with_payload_i
     real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
         let mut crawl = Crawl::new();
-        let shelf = crawl.label::<Shelf>("shelf").unwrap();
+        let shelf = crawl.label(shelves()).unwrap();
         let book = crawl
-            .label(LabelDeclaration::<Value>::new("book").payload(isbn()))
+            .label(LabelDeclaration::<Value>::new("book").payload(&isbn()))
             .unwrap();
-        let price = crawl.label::<Price>("price").unwrap();
+        let price = crawl
+            .label(LabelDeclaration::new("price").payload(&Schema::<Price>::derived()))
+            .unwrap();
         crawl
             .handle(&shelf, |_ctx: CrawlContext<Shelf>| async { Ok(()) })
             .unwrap();
@@ -909,9 +917,9 @@ fn an_enqueue_whose_payload_its_label_refuses_fails_with_payload_invalid_naming_
         let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
         let mut crawl = Crawl::new();
         let page = crawl.label::<()>("page").unwrap();
-        let shelf = crawl.label::<Shelf>("shelf").unwrap();
+        let shelf = crawl.label(shelves()).unwrap();
         let book = crawl
-            .label(LabelDeclaration::<Value>::new("book").payload(isbn()))
+            .label(LabelDeclaration::<Value>::new("book").payload(&isbn()))
             .unwrap();
         let (to_shelf, to_book) = (shelf.clone(), book.clone());
         crawl

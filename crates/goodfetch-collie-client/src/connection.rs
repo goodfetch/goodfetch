@@ -38,6 +38,7 @@ use crate::call::{self, Call, Query, Reply};
 use crate::call_bounds::CallBounds;
 use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
+use crate::event_stream::EventStream;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::listener_queue::ListenerQueue;
@@ -353,6 +354,28 @@ impl ClientConnection {
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Query<T> {
         Query::new(self.sender(), method, typed_params(method, params))
+    }
+
+    /// Sends the call of `method` with `params`, a sequence that streams
+    /// one item in each `item` notification, and returns the stream of
+    /// those items, each notification's params read as `T`: the way down
+    /// for a Product's sequence whose items are not event batches, such as
+    /// Foxhound's `run.records` and its `$/record` (ADR 0103). The stream
+    /// grants its credits and cancels its call on drop as an
+    /// [`EventStream`] of events does, and ends when the call answers.
+    pub fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        item: &'static str,
+    ) -> EventStream<T> {
+        EventStream::open(
+            self.sender(),
+            method,
+            typed_params(method, params),
+            item,
+            Box::new(|data| serde_json::from_value(data).map_err(Error::shape)),
+        )
     }
 
     /// Fails unless the calling process opened the Connection, as each

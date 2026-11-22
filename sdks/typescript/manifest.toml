@@ -205,7 +205,6 @@ receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
-only = "Rust's context has no page yet; issue 3229 adds it with issue 2803's `Page`."
 words = ["page"]
 form = "read"
 
@@ -222,7 +221,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "enqueueLinks"
 entry = "crawl_request.enqueue_links"
-only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
 words = ["enqueue", "links"]
 form = "round_trip"
 
@@ -239,7 +237,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
-only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
 words = ["records"]
 form = "opener"
 
@@ -441,51 +438,6 @@ member = "holdInRealm"
 entry = "none"
 reason = "Refuses a Product's Connection value to other realms (ADR 0081)."
 words = ["hold", "in", "realm"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "nonJSON"
-entry = "none"
-reason = "The first value in a Product's Payload that is not JSON, which its SDK refuses before sending (ADR 0082)."
-words = ["non", "json"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "NonJSON"
-entry = "none"
-reason = "Where a value that is not JSON sits, as a JSON Pointer, and what it is."
-words = ["non", "json"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "parse"
-entry = "none"
-reason = "A value parsed by a schema's own validation, such as a Product's Payload before it is sent (ADR 0082): the output value, or each issue at its JSON Pointer."
-words = ["parse"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "SchemaIssue"
-entry = "none"
-reason = "One issue a schema's own parse found, at its JSON Pointer."
-words = ["schema", "issue"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "wireSchema"
-entry = "none"
-reason = "The JSON Schema the engine receives for a schema, such as a Label's Payload schema (ADR 0082): a typed one's input side as draft 2020-12, a hand-written one as it is."
-words = ["wire", "schema"]
 form = "runtime"
 
 [[member]]
@@ -2316,7 +2268,7 @@ receiver = "(module)"
 member = "EnqueueLinksOptions"
 entry = "none"
 reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
-only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
+only = "Rust's `enqueue_links` takes the locator, the Label and the Payload alone, as its `enqueue` does."
 words = ["enqueue", "links", "options"]
 form = "type"
 
@@ -2336,38 +2288,8 @@ receiver = "(module)"
 member = "LabelOptions"
 entry = "none"
 reason = "What `crawl.label` takes."
-only = "Rust's Label options are `LabelDeclaration`'s."
+only = "Rust's Label options are `LabelDeclaration`'s builder methods (ADR 0099)."
 words = ["label", "options"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/foxhound"
-receiver = "(module)"
-member = "PayloadSchema"
-entry = "none"
-reason = "A Label's Payload schema: a Standard Schema with Standard JSON Schema whose input is an object, or a JSON Schema written by hand (ADR 0082)."
-only = "Rust types a Payload by its Rust type, or by the `Schema` `LabelDeclaration::payload` takes."
-words = ["payload", "schema"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/foxhound"
-receiver = "(module)"
-member = "PayloadInput"
-entry = "none"
-reason = "What a program sends as a Payload under a Label's schema: its input type, or a JSON object for a hand-written one (ADR 0082)."
-only = "Rust's Payload is the Label's type parameter."
-words = ["payload", "input"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/foxhound"
-receiver = "(module)"
-member = "PayloadThen"
-entry = "none"
-reason = "What follows the Label in `enqueue`, `enqueueLinks` and `seed`: the Payload then the options for a Label with a Payload, the options alone for one without (ADR 0082)."
-only = "Rust's calls take the Payload as an argument of the Label's type."
-words = ["payload", "then"]
 form = "type"
 
 [[member]]
@@ -2395,7 +2317,7 @@ receiver = "(module)"
 member = "RecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.records()` takes."
-only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
+only = "Rust's `CrawlRun::records` takes the Dataset alone, reads every Record from the first, its value as JSON, and does not resume on a new connection."
 words = ["records", "options"]
 form = "type"
 

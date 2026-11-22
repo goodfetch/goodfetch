@@ -2778,6 +2778,7 @@ dependencies = [
  "goodfetch-clean-up-rules",
  "goodfetch-collie",
  "goodfetch-collie-client",
+ "goodfetch-conformance",
  "goodfetch-counted-work",
  "goodfetch-crawl",
  "goodfetch-dataset",

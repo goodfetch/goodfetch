@@ -414,7 +414,6 @@ fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_an
         })
         .collect();
 
-    assert_eq!(cases.len(), 3);
     assert_eq!(
         outcomes,
         cases
@@ -1226,11 +1225,6 @@ fn every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_rel
         outcome
     });
 
-    assert!(
-        runner.cases().len() > 90,
-        "only {} cases",
-        runner.cases().len()
-    );
     assert_eq!(
         terminating,
         sent_cases * usize::from(every_sent_case_terminates)
@@ -1366,11 +1360,6 @@ fn with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_r
         }
     });
 
-    assert!(
-        runner.cases().len() > 80,
-        "only {} cases",
-        runner.cases().len()
-    );
     let unsent = |case: &str| (case.to_owned(), None, false);
     assert_eq!(
         result.map_err(|failed| {

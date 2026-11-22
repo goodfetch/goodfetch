@@ -55,9 +55,11 @@ import {
   phaseExceeded,
   type ChannelBounds,
   type ChannelOpenOptions,
+  type OperationClasses,
   type Transport,
   type TransportEnd,
 } from "./rpc.ts";
+import { batchOf, type LastRead } from "./stream.ts";
 import { fromWire, toWire, type Wire } from "./wire.ts";
 
 /** How long opening waits for `hello`'s answer when `connect()`'s `timeout` is left out: `timeout.connect`'s default (ADR 0083). */
@@ -114,6 +116,20 @@ export interface DaemonHello {
   readonly closedAtHello: () => Error;
 }
 
+/**
+ * How a Connection to a remote Daemon reaches it again once its link drops
+ * (spec 606): within `timeout.connect` of the drop, it greets the Daemon
+ * with the same `hello`, resubscribes after the last event it read, and
+ * sends again each call in flight whose operation is a read or an
+ * idempotent write; an Effect in flight fails with `connection_lost`.
+ */
+export interface Reconnect {
+  /** Each operation's class by its catalog name (ADR 0011). */
+  readonly operationClasses: OperationClasses;
+  /** Opens a new link to the Daemon; `signal` aborts once the attempt is given up. */
+  readonly reopen: (signal: AbortSignal) => Promise<Transport>;
+}
+
 /** What starting a Run takes (ADR 0102). */
 export interface StartOptions {
   /**
@@ -152,6 +168,8 @@ export interface ClientConnectionOptions {
   readonly reached?: Reached | undefined;
   /** The Daemon's token and what its closing at `hello` fails with, when the engine is a Daemon. */
   readonly daemon?: DaemonHello | undefined;
+  /** How a remote Daemon is reached again once the link drops; a dropped link ends the Connection when left out. */
+  readonly reconnect?: Reconnect | undefined;
   /** The Product the Client needs, which `hello` names. */
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
@@ -216,6 +234,10 @@ export class ClientConnection implements AsyncDisposable {
   readonly #reached: Reached;
   readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
+  /** The engine instance the last `hello` answered, which the events read since were published by. */
+  #engineInstance: string | undefined;
+  /** Aborted once the Connection closes its link, which then ends it rather than reaching the engine again. */
+  readonly #closingLink = new AbortController();
   #ended = false;
   #closing: Promise<void> | undefined;
 
@@ -249,7 +271,7 @@ export class ClientConnection implements AsyncDisposable {
       reachable: () => !this.#ended,
       stream: (method, params, opened) => this.stream(method, params, opened),
       published: new SharedSubscription(
-        (opened) => this.stream("events.subscribe", {}, opened),
+        (opened) => this.#subscribe(opened),
         this.#logger,
         options.listenerQueue ?? MAX_LISTENER_QUEUE,
       ),
@@ -309,7 +331,90 @@ export class ClientConnection implements AsyncDisposable {
       await connection.#end();
       throw error;
     }
+    // Only an engine that answered `hello` is reached again: one that closes
+    // the link before it answers refuses the Client, as for a wrong token.
+    if (options.reconnect !== undefined) {
+      connection.#reconnectWith(options.reconnect, options);
+    }
     return connection;
+  }
+
+  /**
+   * Reaches the engine again through `reconnect` whenever the link drops,
+   * within `timeout.connect` of the drop, greeting it with the same `hello`
+   * and setting the Client connection's Limits again (spec 606).
+   */
+  #reconnectWith(reconnect: Reconnect, options: ClientConnectionOptions): void {
+    const { operationClasses, reopen } = reconnect;
+    const limits = options.limits ?? [];
+    this.#channel.relinkWith({
+      resends: (method) => {
+        const operationClass = operationClasses[method];
+        return operationClass === "read" || operationClass === "idempotent_write";
+      },
+      within: connectLimit(options.timeout)?.value ?? null,
+      signal: this.#closingLink.signal,
+      reopen,
+      greet: async (call) => {
+        const answer = await call("hello", this.#helloParams(options));
+        this.#greeted(answer);
+        for (const limit of limits) {
+          await call("usage.set", usageSetParams(limit));
+        }
+        this.#logger?.info(
+          `The Connection reached the engine at ${this.#reached.url ?? "its address"} again after its link dropped.`,
+          { url: this.#reached.url },
+        );
+      },
+      gaveUp: (cause) =>
+        new ClosedError(
+          runtimeMessage(
+            "the Connection's link to the engine dropped, and reaching the engine again failed within timeout.connect",
+            { fix: CONNECT_AGAIN },
+          ),
+          { fix: CONNECT_AGAIN, cause },
+        ),
+    });
+  }
+
+  /**
+   * `events.subscribe`, which a reconnect sends again after the last event
+   * it read, as the engine instance that published it, with the credits it
+   * had left, so its readers lose no event (spec 606).
+   */
+  #subscribe(opened: ChannelOpenOptions): Stream {
+    let last: LastRead | undefined;
+    let granted = 0;
+    let received = 0;
+    const stream = this.stream(
+      "events.subscribe",
+      {},
+      {
+        ...opened,
+        notified: (method, params) => {
+          if (method === "$/events") {
+            const events = batchOf(params);
+            received += events.length;
+            const newest = events.at(-1);
+            if (newest !== undefined && this.#engineInstance !== undefined) {
+              last = { engine_instance: this.#engineInstance, position: newest.position };
+            }
+          }
+          opened.notified?.(method, params);
+        },
+        resume: () => ({
+          params: last === undefined ? {} : { after: last },
+          credits: granted - received,
+        }),
+      },
+    );
+    return {
+      result: stream.result,
+      grant: (credits) => {
+        granted += credits;
+        stream.grant(credits);
+      },
+    };
   }
 
   /** The engine reached. */
@@ -541,14 +646,30 @@ export class ClientConnection implements AsyncDisposable {
    */
   async #setLimits(limits: readonly RunLimit[], signal: AbortSignal | undefined): Promise<void> {
     for (const limit of limits) {
-      const params: UsageSetParams = { scope: "connection", ...limit };
-      const sent = toWire(params, collieWire.params["usage.set"], collieWire.types);
-      await this.#channel.call("usage.set", sent, { signal });
+      await this.#channel.call("usage.set", usageSetParams(limit), { signal });
     }
   }
 
   async #hello(options: ClientConnectionOptions): Promise<void> {
-    const { needs, daemon, signal, timeout, connectStartedAt, settings } = options;
+    const { daemon, signal, timeout, connectStartedAt } = options;
+    let answer: unknown;
+    try {
+      answer = await this.#answerWithin(
+        this.#channel.call("hello", this.#helloParams(options), { signal }),
+        timeout,
+        connectStartedAt ?? Date.now(),
+      );
+    } catch (error) {
+      throw daemon !== undefined &&
+        (error instanceof EngineExitedError || error instanceof ClosedError)
+        ? daemon.closedAtHello()
+        : error;
+    }
+    this.#greeted(answer);
+  }
+
+  /** `hello`'s params in the wire's form, naming the log level the engine was last told. */
+  #helloParams({ needs, daemon, settings }: ClientConnectionOptions): unknown {
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
@@ -559,24 +680,16 @@ export class ClientConnection implements AsyncDisposable {
       ...(daemon === undefined ? {} : { token: daemon.token }),
       ...(settings === undefined ? {} : { settings }),
     };
-    let answer: unknown;
-    try {
-      const sent = toWire(
-        params,
-        { type: "HelloParams" satisfies CollieWireType },
-        collieWire.types,
-      );
-      answer = await this.#answerWithin(
-        this.#channel.call("hello", sent, { signal }),
-        timeout,
-        connectStartedAt ?? Date.now(),
-      );
-    } catch (error) {
-      throw daemon !== undefined &&
-        (error instanceof EngineExitedError || error instanceof ClosedError)
-        ? daemon.closedAtHello()
-        : error;
-    }
+    return toWire(params, { type: "HelloParams" satisfies CollieWireType }, collieWire.types);
+  }
+
+  /**
+   * Takes `hello`'s answer: the engine it reached, and its cap of calls.
+   *
+   * @throws {ProtocolVersionUnsupportedError} when the engine speaks no
+   * protocol version this Client takes.
+   */
+  #greeted(answer: unknown): void {
     const spoken = protocolVersionOf(answer);
     if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
@@ -606,6 +719,7 @@ export class ClientConnection implements AsyncDisposable {
     if (result.maxCallsInFlight !== undefined && result.maxCallsInFlight !== null) {
       this.#channel.capCallsInFlight(result.maxCallsInFlight);
     }
+    this.#engineInstance = result.engineInstance;
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,
@@ -665,6 +779,7 @@ export class ClientConnection implements AsyncDisposable {
     if (closed === "late") {
       this.#channel.cancelAll(cancelledByClose());
       this.#engine?.kill();
+      this.#closingLink.abort();
       await this.#channel.close();
       await this.#engine?.exited;
       throw phaseExceeded(
@@ -691,6 +806,9 @@ export class ClientConnection implements AsyncDisposable {
       }
     }
     this.#channel.cancelAll(cancelledByClose());
+    // The link this close ends is not reached again; a Run closed above
+    // waited for a link that had dropped to be reached again.
+    this.#closingLink.abort();
     await this.#channel.close();
     // An Attached engine stops at the end of its input.
     await this.#engine?.exited;
@@ -799,6 +917,12 @@ function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
     details: { by: "program", closed: "connection" },
   });
+}
+
+/** The `usage.set` params, in the wire's form, setting `limit` on the Client connection's own scope (ADR 0080's note of issue 2830). */
+function usageSetParams(limit: RunLimit): unknown {
+  const params: UsageSetParams = { scope: "connection", ...limit };
+  return toWire(params, collieWire.params["usage.set"], collieWire.types);
 }
 
 /** The protocol version a `hello` answer names, when it names one. */

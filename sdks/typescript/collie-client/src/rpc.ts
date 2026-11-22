@@ -10,18 +10,26 @@
 // each failing alone when its own timeout passes or its signal aborts
 // there, never sent (ADR 0038). What waits is bounded: past its bound on
 // calls waiting, sent or queued, or on bytes waiting to be written, a new
-// call is refused at once.
+// call is refused at once. Once told how (`relinkWith`), as a remote
+// Daemon's Connection is, a Channel whose link drops reaches its engine
+// again by itself, within `timeout.connect` (spec 606): it holds every call
+// meanwhile, greets the new link ahead of them, then sends again, by the
+// same id, each call in flight at the drop that is a read or an idempotent
+// write, and a stream it can resume; every other one fails with
+// `connection_lost`, never sent again (ADR 0079).
 import type { CallDeadline } from "./caller.ts";
 import { replyOfError } from "./errors.ts";
 import { inCall, type ErrorLimit, type OperationNames } from "./goodfetch-error.ts";
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import {
   CallCancelledError,
+  ConnectionLostError,
   ConnectionOverloadedError,
   DeadlineExceededError,
+  GoodfetchError,
   SettingInvalidError,
-  type GoodfetchError,
 } from "./generated/index.ts";
+import { reconnectDelay } from "./reconnect.ts";
 
 /** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
 const CANCEL = "$/cancel";
@@ -104,6 +112,35 @@ export interface ChannelOwner {
   readonly notified?: ((method: string, params: unknown) => void) | undefined;
 }
 
+/** What an operation is to a reconnect (ADR 0011): a read or an idempotent write is sent again, an Effect never (ADR 0079). */
+export type OperationClass = "read" | "idempotent_write" | "effect";
+
+/** Each operation's class, by its catalog name. */
+export type OperationClasses = Readonly<Record<string, OperationClass>>;
+
+/** How a Channel reaches its engine again once its link dropped (spec 606). */
+export interface ChannelRelinking {
+  /** Whether a call of `method` in flight at the drop is sent again: a read's or an idempotent write's (ADR 0079). */
+  resends(method: string): boolean;
+  /** How long reaching the engine again may take, counted from the drop, in milliseconds: `timeout.connect`, or `null` for no bound. */
+  readonly within: number | null;
+  /** Aborts once the Connection closes, which ends the Channel as though it had not reconnected. */
+  readonly signal: AbortSignal;
+  /** Opens a new link to the engine; `signal` aborts once the attempt is given up. */
+  reopen(signal: AbortSignal): Promise<Transport>;
+  /**
+   * Greets the engine over a new link, as `hello` does, through `call`,
+   * whose calls go ahead of every call held meanwhile and are never sent
+   * again. Rejecting gives up reaching the engine, with that error.
+   */
+  greet(call: (method: string, params: unknown) => Promise<unknown>): Promise<void>;
+  /**
+   * The error every waiting and later call fails with once no attempt
+   * reached the engine within `within`: `cause` is why the last one failed.
+   */
+  gaveUp(cause: unknown): GoodfetchError;
+}
+
 /** What a Connection lets wait before it refuses a new call with `connection_overloaded`. */
 export interface ChannelBounds {
   /** How many calls may wait for their answer at once; 10,000 when left out. */
@@ -184,6 +221,21 @@ interface Waiting {
   reject(error: unknown): void;
   /** Hears the notifications the engine sends for this call, such as a stream's `$/events`. */
   notified: ((method: string, params: unknown) => void) | undefined;
+  /** What it is sent again with on a new link; `undefined` when it never is. */
+  readonly again: (() => Resent) | undefined;
+}
+
+/** A call as it is sent again on a new link: its request, then the notifications naming it. */
+interface Resent {
+  readonly request: Uint8Array;
+  readonly notes: Uint8Array[];
+}
+
+/** What a stream is sent again with on a new link, such as `events.subscribe` after the last event read. */
+export interface Resumed {
+  readonly params: unknown;
+  /** The credits the stream still had at the drop, granted again with `$/credit`. */
+  readonly credits: number;
 }
 
 /** The options of one call. */
@@ -215,6 +267,106 @@ function namedId(params: unknown): MessageId | undefined {
 export interface ChannelOpenOptions extends ChannelCallOptions {
   /** Hears each notification whose params name the call's id, such as `$/events` or `$/chunk`. */
   readonly notified?: ((method: string, params: unknown) => void) | undefined;
+  /**
+   * What the stream is sent again with on a new link, read at the drop.
+   * A stream without one is never sent again: its engine would stream it
+   * from its start.
+   */
+  readonly resume?: (() => Resumed) | undefined;
+}
+
+/** The ends of one link to the engine, and how they went. */
+interface Link {
+  readonly writer: WritableStreamDefaultWriter<Uint8Array>;
+  readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+  /** The first write the engine's side rejected, which ends the link. */
+  writeFailure: { readonly cause: unknown } | undefined;
+  /** How stopping the engine's bytes went, once it was asked for. */
+  readingStopped: Promise<{ readonly cause: unknown } | undefined> | undefined;
+}
+
+function linkOf(transport: Transport): Link {
+  return {
+    writer: transport.writable.getWriter(),
+    reader: transport.readable.getReader(),
+    writeFailure: undefined,
+    readingStopped: undefined,
+  };
+}
+
+/** How an attempt to reach the engine again went. */
+type Attempt =
+  /** The new link is greeted, and read until `reading` settles with its end. */
+  | { readonly kind: "greeted"; readonly reading: Promise<TransportEnd> }
+  /** The greeting was refused: no attempt follows. */
+  | { readonly kind: "refused"; readonly failure: GoodfetchError }
+  /** No link came of it, for `cause`. */
+  | { readonly kind: "failed"; readonly cause: unknown };
+
+/** Why the engine's side of a link ended, as a cause. */
+function causeOf(end: TransportEnd): unknown {
+  switch (end.kind) {
+    case "ended":
+      return undefined;
+    case "failed":
+    case "write_failed":
+      return end.cause;
+    case "invalid":
+      return new TypeError(`the engine sent a line that is no JSON-RPC message: ${end.line}`);
+    default: {
+      const unknown: never = end;
+      return unknown;
+    }
+  }
+}
+
+/** Waits `delay` milliseconds: `false` once `signal` aborted first. */
+async function waited(delay: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const stop = (): void => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", stop);
+      resolve(true);
+    }, delay);
+    signal.addEventListener("abort", stop, { once: true });
+  });
+}
+
+/** Settles with `signal`'s reason once it aborts. */
+async function abortedWith(signal: AbortSignal): Promise<unknown> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(signal.reason);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(signal.reason), { once: true });
+  });
+}
+
+/**
+ * The error a call in flight when its link dropped fails with, never sent
+ * again: an Effect's, whose journal says whether it happened (ADR 0079), or
+ * a stream's that cannot be resumed.
+ */
+function lostCall(stream: boolean): ConnectionLostError {
+  return stream
+    ? new ConnectionLostError(
+        "the Connection to the engine dropped while the stream was open, and it cannot be resumed, so it was not sent again",
+        { fix: "Open the stream again: the Client reaches the engine again by itself." },
+      )
+    : new ConnectionLostError(
+        "the Connection to the engine dropped before the call was answered, so whether it took effect is unknown, and it was not sent again",
+        {
+          fix: "Check the Run's Effect journal for whether it happened before making the call again: the Client reaches the engine again by itself.",
+        },
+      );
 }
 
 /** A call in flight: its id, which its notifications and credits name, and its answer. */
@@ -225,8 +377,12 @@ export interface OpenCall {
 
 /** One transport's calls. */
 export class Channel {
-  readonly #writer: WritableStreamDefaultWriter<Uint8Array>;
-  readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
+  /** The link calls are sent over: the first, then each one reached again. */
+  #link: Link;
+  /** How the Channel reaches its engine again once its link dropped; never when left out. */
+  #relinking: ChannelRelinking | undefined;
+  /** Whether its calls are held, from a drop until a new link is greeted. */
+  #held = false;
   readonly #owner: ChannelOwner;
   readonly #waiting = new Map<MessageId, Waiting>();
   /**
@@ -242,22 +398,29 @@ export class Channel {
   readonly #serving = new Map<MessageId, AbortController>();
   #nextId = 0;
   #failure: GoodfetchError | undefined;
-  /** The first write the engine's side rejected, which ends the transport. */
-  #writeFailure: { readonly cause: unknown } | undefined;
   readonly #bounds: CheckedBounds;
-  /** How stopping the engine's bytes went, once it was asked for. */
-  #readingStopped: Promise<{ readonly cause: unknown } | undefined> | undefined;
-  /** The bytes handed to the writer that it has not written yet. */
+  /** The bytes handed to the writer that it has not written yet, and those of the calls held back. */
   #queuedWriteBytes = 0;
-  /** Settles once the engine's side has ended and every waiting call failed. */
+  /**
+   * Settles once the engine's side has ended, with no new link reached,
+   * and every waiting call failed.
+   */
   readonly ended: Promise<void>;
 
   constructor(transport: Transport, owner: ChannelOwner, bounds: ChannelBounds = {}) {
     this.#bounds = boundsOf(bounds);
-    this.#writer = transport.writable.getWriter();
     this.#owner = owner;
-    this.#reader = transport.readable.getReader();
-    this.ended = this.#read();
+    this.#link = linkOf(transport);
+    this.ended = this.#run(this.#read(this.#link));
+  }
+
+  /**
+   * Reaches the engine again through `relinking` whenever the link drops
+   * from now on, sending again the calls made from now on that it says
+   * may be (spec 606). Without it, the Channel ends with its link.
+   */
+  relinkWith(relinking: ChannelRelinking): void {
+    this.#relinking = relinking;
   }
 
   /** Sends `method` and answers its result, or fails with its error. */
@@ -292,8 +455,9 @@ export class Channel {
     if (overloaded !== undefined) {
       return { id, result: Promise.reject(overloaded) };
     }
+    const again = this.#againOf(id, method, request, options);
     const answer = new Promise<unknown>((resolve, reject) => {
-      this.#waiting.set(id, { method, resolve, reject, notified: options.notified });
+      this.#waiting.set(id, { method, resolve, reject, notified: options.notified, again });
     });
     const abort = (): void => {
       const waiting = this.#waiting.get(id);
@@ -307,13 +471,53 @@ export class Channel {
       }
     };
     signal?.addEventListener("abort", abort, { once: true });
-    if (this.#inFlight.size < this.#cap) {
+    if (!this.#held && this.#inFlight.size < this.#cap) {
       this.#dispatch(id, request);
     } else {
       this.#enqueue(id, method, request, options.deadline);
     }
     const result = answer.finally(() => signal?.removeEventListener("abort", abort));
     return { id, result };
+  }
+
+  /**
+   * How the call `id` of `method` is sent again on a new link: as it was,
+   * or a stream with what `resume` gives; `undefined` when the Channel does
+   * not reach its engine again, or the call is never sent again.
+   */
+  #againOf(
+    id: MessageId,
+    method: string,
+    request: Uint8Array,
+    { notified, resume }: ChannelOpenOptions,
+  ): (() => Resent) | undefined {
+    if (this.#relinking?.resends(method) !== true) {
+      return undefined;
+    }
+    if (resume !== undefined) {
+      return () => {
+        const { params, credits } = resume();
+        const notes =
+          credits > 0 ? [encodeMessage({ method: "$/credit", params: { id, credits } })] : [];
+        return { request: encodeMessage({ id, method, params }), notes };
+      };
+    }
+    return notified === undefined ? () => ({ request, notes: [] }) : undefined;
+  }
+
+  /**
+   * Sends `method` over a new link ahead of every call held, as its
+   * greeting does: never queued, and never sent again.
+   */
+  async #ahead(method: string, params: unknown): Promise<unknown> {
+    const id = this.#nextId;
+    this.#nextId += 1;
+    const request = encodeMessage({ id, method, params });
+    const answer = new Promise<unknown>((resolve, reject) => {
+      this.#waiting.set(id, { method, resolve, reject, notified: undefined, again: undefined });
+    });
+    this.#dispatch(id, request);
+    return answer;
   }
 
   /**
@@ -412,9 +616,9 @@ export class Channel {
     waiting.reject(this.#inCall(exceeded, method));
   }
 
-  /** Sends queued calls, in the order they were made, while places are free. */
+  /** Sends queued calls, in the order they were made, while places are free and no call is held. */
   #drain(): void {
-    while (this.#inFlight.size < this.#cap) {
+    while (!this.#held && this.#inFlight.size < this.#cap) {
       const next = this.#queued.entries().next();
       if (next.done === true) {
         return;
@@ -431,7 +635,8 @@ export class Channel {
   /**
    * Sends the notification `method`, such as `$/credit`. One that names a
    * queued call waits to follow it, since the engine drops a notification
-   * for a call it has not received.
+   * for a call it has not received; while calls are held, one naming no
+   * held call is dropped, as its link is.
    */
   notify(method: string, params: unknown): void {
     if (this.#failure !== undefined) {
@@ -440,7 +645,9 @@ export class Channel {
     const id = namedId(params);
     const queued = id === undefined ? undefined : this.#queued.get(id);
     if (queued === undefined) {
-      this.#send({ method, params });
+      if (!this.#held) {
+        this.#send({ method, params });
+      }
       return;
     }
     const note = encodeMessage({ method, params });
@@ -465,7 +672,7 @@ export class Channel {
   /** Ends the Client's side; the engine's ends when the engine stops. */
   async close(): Promise<void> {
     try {
-      await this.#writer.close();
+      await this.#link.writer.close();
     } catch {
       // The engine's side already ended, which `ended` reports.
     }
@@ -506,23 +713,24 @@ export class Channel {
    * settles though the engine's side never ends them.
    */
   abandon(): void {
+    const link = this.#link;
     // A transport that fails to drop its writes ends as one that rejected one.
-    void this.#writer.abort().catch((cause: unknown) => {
-      this.#writeFailure ??= { cause };
+    void link.writer.abort().catch((cause: unknown) => {
+      link.writeFailure ??= { cause };
     });
-    void this.#stopReading(undefined);
+    void this.#stopReading(link, undefined);
   }
 
   /**
-   * Stops reading the engine's bytes, once, for `reason`: answers the cause
+   * Stops reading `link`'s bytes, once, for `reason`: answers the cause
    * when the transport failed to stop them, which `ended` reports.
    */
-  #stopReading(reason: unknown): Promise<{ readonly cause: unknown } | undefined> {
-    this.#readingStopped ??= this.#reader.cancel(reason).then(
+  #stopReading(link: Link, reason: unknown): Promise<{ readonly cause: unknown } | undefined> {
+    link.readingStopped ??= link.reader.cancel(reason).then(
       () => undefined,
       (cause: unknown) => ({ cause }),
     );
-    return this.#readingStopped;
+    return link.readingStopped;
   }
 
   #send(message: Readonly<Record<string, unknown>>): void {
@@ -530,25 +738,26 @@ export class Channel {
   }
 
   #write(bytes: Uint8Array): void {
+    const link = this.#link;
     this.#queuedWriteBytes += bytes.length;
-    this.#writer
+    link.writer
       .write(bytes)
       .finally(() => {
         this.#queuedWriteBytes -= bytes.length;
       })
       .catch((cause: unknown) => {
         // The engine's bytes to read may stay open for ever after a rejected
-        // write, so the write ends the transport itself: reading stops, and
-        // `ended` reports the first rejection's cause to every waiting call.
-        this.#writeFailure ??= { cause };
-        void this.#stopReading(cause);
+        // write, so the write ends the link itself: reading stops, and its
+        // end reports the first rejection's cause.
+        link.writeFailure ??= { cause };
+        void this.#stopReading(link, cause);
       });
   }
 
-  /** Each chunk of the engine's bytes, until they end or reading is cancelled. */
-  async *#chunks(): AsyncGenerator<Uint8Array> {
+  /** Each chunk of `reader`'s bytes, until they end or reading is cancelled. */
+  async *#chunks(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<Uint8Array> {
     for (;;) {
-      const { done, value } = await this.#reader.read();
+      const { done, value } = await reader.read();
       if (done) {
         return;
       }
@@ -556,10 +765,11 @@ export class Channel {
     }
   }
 
-  async #read(): Promise<void> {
+  /** Reads `link` until the engine's side of it ends: how it ended. */
+  async #read(link: Link): Promise<TransportEnd> {
     let end: TransportEnd = { kind: "ended" };
     try {
-      for await (const line of readLines(this.#chunks())) {
+      for await (const line of readLines(this.#chunks(link.reader))) {
         if (line.kind === "invalid") {
           end = { kind: "invalid", line: line.line };
           break;
@@ -571,13 +781,168 @@ export class Channel {
     }
     // Whatever ended the reading, the engine's bytes are let go of: a line
     // that is no message leaves them open otherwise.
-    const unstopped = await this.#stopReading(undefined);
-    if (end.kind === "ended" && this.#writeFailure !== undefined) {
-      end = { kind: "write_failed", cause: this.#writeFailure.cause };
-    } else if (end.kind === "ended" && unstopped !== undefined) {
-      end = { kind: "failed", cause: unstopped.cause };
+    const unstopped = await this.#stopReading(link, undefined);
+    if (end.kind === "ended" && link.writeFailure !== undefined) {
+      return { kind: "write_failed", cause: link.writeFailure.cause };
     }
-    const failure = await this.#owner.ended(end);
+    if (end.kind === "ended" && unstopped !== undefined) {
+      return { kind: "failed", cause: unstopped.cause };
+    }
+    return end;
+  }
+
+  /**
+   * Reads each link in turn, `reading` the first: once one drops, reaches
+   * the engine again when the Channel does, until none is reached or the
+   * Connection closes, then fails every waiting call.
+   */
+  async #run(first: Promise<TransportEnd>): Promise<void> {
+    let reading: Promise<TransportEnd> | undefined = first;
+    while (reading !== undefined) {
+      const end: TransportEnd = await reading;
+      const relinking = this.#relinking;
+      // A line that is no message is the engine's fault, which another link would not mend.
+      if (relinking === undefined || end.kind === "invalid" || relinking.signal.aborted) {
+        this.#end(await this.#owner.ended(end));
+        return;
+      }
+      this.#dropped();
+      reading = (await this.#relink(relinking, end))?.reading;
+    }
+  }
+
+  /**
+   * Reaches the engine again after the link ended with `end`, waiting the
+   * backoff before each attempt: the new link's reading, its held calls
+   * sent; `undefined` once the Channel ended instead.
+   */
+  async #relink(
+    relinking: ChannelRelinking,
+    end: TransportEnd,
+  ): Promise<{ readonly reading: Promise<TransportEnd> } | undefined> {
+    const droppedAt = Date.now();
+    let cause = causeOf(end);
+    for (let made = 0; ; made += 1) {
+      const delay = reconnectDelay(made, Date.now() - droppedAt, relinking.within);
+      if (delay === undefined) {
+        this.#end(relinking.gaveUp(cause));
+        return undefined;
+      }
+      if (!(await waited(delay, relinking.signal))) {
+        this.#end(await this.#owner.ended(end));
+        return undefined;
+      }
+      const left = relinking.within === null ? null : relinking.within - (Date.now() - droppedAt);
+      const attempt = await this.#attempt(relinking, left);
+      switch (attempt.kind) {
+        case "greeted":
+          this.#held = false;
+          this.#drain();
+          return { reading: attempt.reading };
+        case "refused":
+          this.#end(attempt.failure);
+          return undefined;
+        case "failed":
+          cause = attempt.cause;
+          break;
+        default: {
+          const unknown: never = attempt;
+          return unknown;
+        }
+      }
+    }
+  }
+
+  /**
+   * Holds every call from now on, once the link dropped: sends again by its
+   * id, first, each call in flight that may be, and fails every other one
+   * with `connection_lost`; what serves the engine's requests stops.
+   */
+  #dropped(): void {
+    this.#held = true;
+    const resent: [MessageId, Queued][] = [];
+    for (const [id, waiting] of this.#waiting) {
+      if (this.#queued.has(id)) {
+        continue;
+      }
+      const again = waiting.again?.();
+      if (again === undefined) {
+        this.#waiting.delete(id);
+        waiting.reject(this.#inCall(lostCall(waiting.notified !== undefined), waiting.method));
+      } else {
+        resent.push([id, { request: again.request, timer: undefined, notes: again.notes }]);
+        this.#queuedWriteBytes += again.notes.reduce(
+          (bytes, note) => bytes + note.length,
+          again.request.length,
+        );
+      }
+    }
+    // A call cancelled and not answered yet holds no place on the new link.
+    this.#inFlight.clear();
+    const queued = [...resent, ...this.#queued];
+    this.#queued.clear();
+    for (const [id, entry] of queued) {
+      this.#queued.set(id, entry);
+    }
+    for (const serving of this.#serving.values()) {
+      serving.abort(lostCall(false));
+    }
+    this.#serving.clear();
+  }
+
+  /**
+   * Opens a new link through `relinking` and greets it, given up once
+   * `left` milliseconds pass, when bounded, or the Connection closes. A
+   * link that is not greeted is let go of, and the calls it carried fail.
+   */
+  async #attempt(relinking: ChannelRelinking, left: number | null): Promise<Attempt> {
+    const attempt = new AbortController();
+    const close = (): void => attempt.abort(relinking.signal.reason);
+    relinking.signal.addEventListener("abort", close, { once: true });
+    const timer =
+      left === null
+        ? undefined
+        : setTimeout(
+            () =>
+              attempt.abort(new Error("timeout.connect passed while reaching the engine again")),
+            Math.min(left, LONGEST_TIMER),
+          );
+    try {
+      let transport: Transport;
+      try {
+        transport = await relinking.reopen(attempt.signal);
+      } catch (cause) {
+        return { kind: "failed", cause };
+      }
+      const link = linkOf(transport);
+      this.#link = link;
+      const reading = this.#read(link);
+      const outcome = await Promise.race<Attempt>([
+        relinking
+          .greet(async (method, params) => this.#ahead(method, params))
+          .then(
+            () => ({ kind: "greeted", reading }),
+            (error: unknown) => ({
+              kind: "refused",
+              failure: error instanceof GoodfetchError ? error : relinking.gaveUp(error),
+            }),
+          ),
+        reading.then((end) => ({ kind: "failed", cause: causeOf(end) })),
+        abortedWith(attempt.signal).then((cause) => ({ kind: "failed", cause })),
+      ]);
+      if (outcome.kind !== "greeted") {
+        this.abandon();
+        this.#dropped();
+      }
+      return outcome;
+    } finally {
+      clearTimeout(timer);
+      relinking.signal.removeEventListener("abort", close);
+    }
+  }
+
+  /** Fails every waiting call with its copy of `failure`, and every later one. */
+  #end(failure: GoodfetchError): void {
     this.#failure = failure;
     for (const [id, waiting] of this.#waiting) {
       this.#unqueue(id);

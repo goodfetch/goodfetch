@@ -47,10 +47,38 @@ pub fn play(
     engine: impl Write,
     record: impl Write,
 ) -> Result<Ending, PlayError> {
+    played(script, client, engine, record, None)
+}
+
+/// Plays `script` as [`play`] does, over streams that `relink` drops and
+/// moves to the next Client to connect, so a `drop` step plays the steps
+/// after it to that Client.
+///
+/// # Errors
+///
+/// As [`play`], or `relink` failed.
+pub fn play_relinking(
+    script: &Script,
+    client: impl BufRead,
+    engine: impl Write,
+    record: impl Write,
+    relink: &mut dyn FnMut() -> io::Result<()>,
+) -> Result<Ending, PlayError> {
+    played(script, client, engine, record, Some(relink))
+}
+
+fn played(
+    script: &Script,
+    client: impl BufRead,
+    engine: impl Write,
+    record: impl Write,
+    relink: Option<&mut dyn FnMut() -> io::Result<()>>,
+) -> Result<Ending, PlayError> {
     let mut player = Player {
         client: client.lines(),
         engine,
         record,
+        relink,
         answering: None,
         awaiting: None,
         next_id: 1,
@@ -70,10 +98,13 @@ pub fn play(
 }
 
 /// The state of one play.
-struct Player<C, E, R> {
+struct Player<'a, C, E, R> {
     client: io::Lines<C>,
     engine: E,
     record: R,
+    /// Drops the Client and moves the streams to the next, for a `drop`
+    /// step; none when the streams take no other Client.
+    relink: Option<&'a mut dyn FnMut() -> io::Result<()>>,
     /// The ID of the request the last `expect` of a request matched, which
     /// `reply` answers.
     answering: Option<Value>,
@@ -83,7 +114,7 @@ struct Player<C, E, R> {
     next_id: i64,
 }
 
-impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
+impl<C: BufRead, E: Write, R: Write> Player<'_, C, E, R> {
     /// Plays one step; an ending step ends the play.
     fn step(&mut self, index: usize, step: &Step) -> Result<Option<Ending>, PlayError> {
         match step {
@@ -156,6 +187,16 @@ impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
                 return Ok(Some(Ending::Finished));
             }
             Step::Close {} => return Ok(Some(Ending::Closed)),
+            Step::Drop {} => {
+                let relink = self
+                    .relink
+                    .as_mut()
+                    .ok_or(PlayError::DropUnsupported { step: index })?;
+                relink().map_err(PlayError::ClientGone)?;
+                // The next Client has sent nothing, and been sent nothing.
+                self.answering = None;
+                self.awaiting = None;
+            }
             Step::Raw(raw) => {
                 self.engine
                     .write_all(raw.text.as_bytes())
@@ -292,6 +333,13 @@ pub enum PlayError {
         /// The step.
         step: usize,
     },
+    /// A `drop` step, played where no other Client can connect: only the
+    /// `websocket` mode takes one.
+    #[error("drop_unsupported: step {step} drops the Client, and this mode takes no other")]
+    DropUnsupported {
+        /// The step.
+        step: usize,
+    },
     /// Writing to the Client failed: it closed its end.
     #[error("client_gone: {0}")]
     ClientGone(io::Error),
@@ -310,6 +358,7 @@ impl PlayError {
             Self::UnexpectedMessage { .. } => "unexpected_message",
             Self::UnusedStep { .. } => "unused_step",
             Self::NothingToAnswer { .. } => "nothing_to_answer",
+            Self::DropUnsupported { .. } => "drop_unsupported",
             Self::ClientGone(_) => "client_gone",
             Self::Read(_) => "read_failed",
             Self::Record(_) => "record_failed",
@@ -322,3 +371,6 @@ impl PlayError {
 fn expecting(step: Option<usize>) -> String {
     step.map_or_else(|| "the script".to_owned(), |step| format!("step {step}"))
 }
+
+#[cfg(test)]
+mod tests;

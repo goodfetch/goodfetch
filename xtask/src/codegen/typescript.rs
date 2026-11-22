@@ -406,6 +406,7 @@ fn operations(layer: &Layer) -> String {
     }
     text.push_str("};\n\n");
     operation_names(&mut text, layer, product);
+    operation_classes(&mut text, layer, product);
     let _ = write!(
         text,
         "/** {product}'s operations that send a message, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
@@ -434,6 +435,26 @@ fn operation_names(text: &mut String, layer: &Layer, product: &str) {
                 goodfetch_protocol::connection::Form::Typescript,
                 &operation.name
             )
+        );
+    }
+    text.push_str("};\n\n");
+}
+
+/// The map from each operation's catalog name to its class (ADR 0011),
+/// which says whether a call in flight is sent again after a reconnect
+/// (ADR 0079).
+fn operation_classes(text: &mut String, layer: &Layer, product: &str) {
+    let _ = write!(
+        text,
+        "/** The class of each of {product}'s operations (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079). */\nexport const {}OperationClasses: Readonly<Record<keyof {product}OperationTypes, \"read\" | \"idempotent_write\" | \"effect\">> = {{\n",
+        product.to_lowercase()
+    );
+    for operation in &layer.operations {
+        let _ = writeln!(
+            text,
+            "  {:?}: {:?},",
+            operation.name,
+            operation.class.as_str()
         );
     }
     text.push_str("};\n\n");

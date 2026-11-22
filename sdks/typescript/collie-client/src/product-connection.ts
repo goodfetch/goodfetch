@@ -49,6 +49,7 @@ import {
   QUEUED_WRITE_BYTES,
   wholeBound,
   type ChannelBounds,
+  type OperationClasses,
   type Transport,
 } from "./rpc.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -147,6 +148,8 @@ export interface ProductPackage<S = Settings> {
   readonly errorClasses: ErrorClasses;
   /** Each of the Product's operations' names in TypeScript form, which heads the runtime's own errors (ADR 0079). */
   readonly operationNames: OperationNames;
+  /** Each of the Product's operations' class (ADR 0011), which says what a reconnect to a remote Daemon sends again. */
+  readonly operationClasses: OperationClasses;
   /** A module of the package, as `import.meta.url` gives it: where its platform package is resolved from. */
   readonly moduleUrl: string;
   /** Sends its `connect()`'s settings by their wire spelling, which `hello` carries. */
@@ -395,6 +398,12 @@ function openDaemon<S>(
     transport: reach.transport,
     reached: { kind: reach.kind, home: reach.home, url: reach.url },
     daemon: { token: reach.token, closedAtHello: reach.closedAtHello },
+    // A remote Daemon is reached again once its link drops (spec 606); this
+    // machine's ends the Connection, as an Attached engine's exit does.
+    reconnect:
+      reach.kind === "remote"
+        ? { operationClasses: product.operationClasses, reopen: reach.reopen }
+        : undefined,
     needs: product.needs,
     errorClasses: product.errorClasses,
     operationNames: product.operationNames,

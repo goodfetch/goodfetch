@@ -82,6 +82,13 @@ export interface RemoteDaemonReach extends DaemonOpened {
   readonly kind: "remote";
   /** None: a remote Daemon's home is its own machine's. */
   readonly home: null;
+  /**
+   * Opens new bytes to it, once the Connection's link dropped (spec 606).
+   *
+   * @throws {DaemonUnreachableError} when no Daemon there opened the WebSocket.
+   * @throws the signal's reason once `signal` aborts.
+   */
+  readonly reopen: (signal: AbortSignal) => Promise<Transport>;
 }
 
 /** A Daemon's endpoint, open, and what its `hello` needs. */
@@ -183,21 +190,25 @@ async function reachRemote(
 ): Promise<Reach> {
   const { url } = remote;
   const { origin } = remoteAddress(url, source);
-  const transport = await openWebSocket(url, { origin, signal });
-  if (transport === undefined) {
-    // A WebSocket tells none of these apart: a Daemon of another protocol
-    // major answers no subprotocol this Client offered, so its handshake
-    // fails before `hello` could name the versions.
-    throw unreachable(
-      `No Daemon at ${url}, which ${source} names, opened a WebSocket of subprotocol ${WEBSOCKET_SUBPROTOCOL}: nothing listens there, it refused the handshake, or it speaks another protocol major`,
-      `Start the Daemon ${url} names with an engine of this SDK's Product version ${PRODUCT_VERSION}, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave engine at auto with ${URL_VARIABLE} unset to use this machine's engine.`,
-    );
-  }
+  const webSocket = async (opening: AbortSignal | undefined): Promise<Transport> => {
+    const transport = await openWebSocket(url, { origin, signal: opening });
+    if (transport === undefined) {
+      // A WebSocket tells none of these apart: a Daemon of another protocol
+      // major answers no subprotocol this Client offered, so its handshake
+      // fails before `hello` could name the versions.
+      throw unreachable(
+        `No Daemon at ${url}, which ${source} names, opened a WebSocket of subprotocol ${WEBSOCKET_SUBPROTOCOL}: nothing listens there, it refused the handshake, or it speaks another protocol major`,
+        `Start the Daemon ${url} names with an engine of this SDK's Product version ${PRODUCT_VERSION}, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave engine at auto with ${URL_VARIABLE} unset to use this machine's engine.`,
+      );
+    }
+    return transport;
+  };
   return {
     kind: "remote",
     home: null,
     url,
-    transport,
+    transport: await webSocket(signal),
+    reopen: webSocket,
     token: remote.token,
     closedAtHello: () =>
       unreachable(

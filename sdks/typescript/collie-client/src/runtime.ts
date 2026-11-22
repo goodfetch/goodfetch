@@ -37,7 +37,7 @@ export {
 } from "./settings.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export { settingsOnWire } from "./generated/settings.ts";
-export { collieOperationNames } from "./generated/operations.ts";
+export { collieOperationClasses, collieOperationNames } from "./generated/operations.ts";
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export {
   fromWire,

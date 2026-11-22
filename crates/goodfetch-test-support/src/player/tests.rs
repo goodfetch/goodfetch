@@ -31,7 +31,9 @@ struct Links {
 impl io::Read for &Links {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let mut links = self.links.borrow_mut();
-        links.first_mut().map_or(Ok(0), |link| io::Read::read(link, buffer))
+        links
+            .first_mut()
+            .map_or(Ok(0), |link| io::Read::read(link, buffer))
     }
 }
 
@@ -39,7 +41,9 @@ impl io::Read for &Links {
 fn a_drop_plays_the_steps_after_it_to_the_next_client() {
     let links = Links {
         links: RefCell::new(vec![
-            Cursor::new(b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"hello\",\"params\":{}}\n".to_vec()),
+            Cursor::new(
+                b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"hello\",\"params\":{}}\n".to_vec(),
+            ),
             Cursor::new(b"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"engine.info\"}\n".to_vec()),
         ]),
     };

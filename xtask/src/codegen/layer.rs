@@ -38,6 +38,7 @@ pub(super) enum Kind {
     Read,
     Opener,
     Sequence,
+    Followed,
     Waiter,
     Event,
 }

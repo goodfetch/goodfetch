@@ -7,8 +7,10 @@
 # when:
 # - sccache's base directories, which its server reads once at its start,
 #   do not list this checkout's folder itself: sccache then keeps the
-#   checkout's path in every C/C++ key (DuckDB's sources and include folders
-#   live under target/), so nothing another checkout compiled hits here;
+#   checkout's path in BoringSSL's C/C++ keys (its sources and include
+#   folders live under target/; DuckDB's compiles drop it when they go
+#   through ci/compiler-cache/sccache), so BoringSSL's objects another
+#   checkout compiled do not hit here;
 # - CMAKE_C_COMPILER_LAUNCHER or CMAKE_CXX_COMPILER_LAUNCHER does not go
 #   through sccache: CMake then compiles BoringSSL outside the cache. Cargo
 #   takes them from the environment when it sets them, else from

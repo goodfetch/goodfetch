@@ -80,6 +80,7 @@ export type CollieWireType =
   | "NewSessionPageParams"
   | "NewSessionParams"
   | "NotUnderstoodLimit"
+  | "NotVerifiedDetails"
   | "NothingDone"
   | "PageBodyParams"
   | "PageCloseParams"
@@ -255,6 +256,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NewSessionPageParams": { fields: { "session_id": "sessionId" } },
     "NewSessionParams": { fields: { "run_id": "runId", "source": ["source", { type: "SessionSource" }] } },
     "NotUnderstoodLimit": { fields: { "period": ["period", { type: "Period" }], "usage_kind": "usageKind" } },
+    "NotVerifiedDetails": { fields: { "reasons": ["reasons", { items: { type: "AxisReason" } }] } },
     "NothingDone": { fields: { "ended_at": ["endedAt", "time"] } },
     "PageBodyParams": { fields: { "run_id": "runId" } },
     "PageCloseParams": { fields: { "page_id": "pageId", "run_before_unload": "runBeforeUnload" } },

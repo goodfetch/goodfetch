@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
-import { Collie } from "@goodfetch/collie";
+import { Collie, type RunProgress } from "@goodfetch/collie";
 import {
   recordingLogger,
   scriptedEngineEnv,
@@ -279,18 +279,29 @@ describe("a Collie Connection on an Attached engine", () => {
       const run = await collie.start();
 
       const set = await run.setProgressMessage("three pages left");
-      const read = await run.progress();
+      const live: RunProgress[] = [];
+      for await (const value of run.progress()) {
+        live.push(value);
+        break;
+      }
       const finished = await run.finish();
+      const ended: RunProgress[] = [];
+      for await (const value of run.progress()) ended.push(value);
       const report = await run.report();
 
       await clientCase.check("a member with a positional parameter reaches its operation", () =>
         expect(set).toMatchObject({ runId: run.id(), lifecycle: "running" }),
       );
-      await clientCase.check("a member with only options answers what the engine holds", () =>
-        expect(read.message).toEqual(set.message),
+      await clientCase.check("the Run's progress answers what the engine holds at once", () =>
+        expect(live.map((value) => value.message)).toEqual([set.message]),
       );
       await clientCase.check("a member that ends the Run answers its report", () =>
         expect(finished).toMatchObject({ runId: run.id(), lifecycle: "finished" }),
+      );
+      await clientCase.check("the progress of a Run that ended is its last value alone", () =>
+        expect(ended.map(({ lifecycle, last }) => ({ lifecycle, last }))).toEqual([
+          { lifecycle: "finished", last: true },
+        ]),
       );
       await clientCase.check("the engine holds what the members did", () =>
         expect(report).toMatchObject({ runId: run.id(), lifecycle: "finished" }),

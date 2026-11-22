@@ -6,19 +6,25 @@
 //! Connection's (ADR 0083). Its handles are cheap clones of one Run, `Send + Sync +
 //! 'static`, and closing any of them closes it for all.
 
+mod progress;
+
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::PageId;
-use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
+use goodfetch_protocol::run::{
+    RUN_PROGRESS_READ, RUN_START, RunId, RunProgress, RunStartParams, RunStarted, StartedAs, Tags,
+};
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 
+use crate::answer::Answer;
 use crate::call::Query;
 use crate::connection::ClientConnection;
 use crate::error::Error;
+use crate::event_stream::EventStream;
 use crate::generated::handles::{Page, Run};
 use crate::host::{HeldRun, Host};
 use crate::limits::Limits;
@@ -179,6 +185,40 @@ impl Run {
     pub async fn close(&self) -> Result<(), Error> {
         crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
+    }
+
+    /// The Run's progress (`run.progress`, ADR 0102): what it does and why
+    /// it waits. Its first read is sent when the stream is first polled and
+    /// answers at once; each next value is the latest once a newer one
+    /// comes, read when the program asks for it, so values it did not read
+    /// in time coalesce. It ends after the value whose `last` is true: the
+    /// Run ended, its `lifecycle` and `stop_reason` saying how, or no
+    /// engine works it (`writer: none`).
+    ///
+    /// ```no_run
+    /// # async fn follow(run: goodfetch_collie_client::Run) -> Result<(), goodfetch_collie_client::Error> {
+    /// let mut progress = run.progress();
+    /// while let Some(value) = progress.next().await {
+    ///     let value = value?;
+    ///     tracing::info!(lifecycle = ?value.lifecycle, pauses = value.pauses.len(), "the Run's progress");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// An item is `closed` once the Run or the Connection is closed, or
+    /// the engine's error, such as `run_not_found`, after which the stream
+    /// ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the stream cancels its read in flight, and leaves the Run
+    /// as it is.
+    pub fn progress(&self) -> EventStream<Answer<RunProgress>> {
+        crate::markers::warn_operation(RUN_PROGRESS_READ.name);
+        EventStream::from_items(progress::Following::new(self.host.clone()))
     }
 
     /// The handle of the Run's page `page_id`, which the engine opened

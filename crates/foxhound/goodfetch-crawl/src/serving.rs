@@ -8,8 +8,9 @@
 //! reach the live crawl's Run state through it too, over the mailbox of
 //! the delivery loop that owns it (ADR 0142), while its intake is open: a
 //! crawl about to end closes it ([`Intake`]). Each
-//! live crawl's attempts stage their outputs in its staging, which its Run
-//! also takes the Key-value store writes made through an attempt in, and
+//! live crawl's attempts stage their outputs in its staging, which the
+//! engine also stages the Key-value store writes made through an attempt
+//! in, asking these live crawls by Run ID ([`AttemptStaging`]), and
 //! check each Record they push or commit against its Datasets, read and
 //! built once as it opened (ADR 0138).
 
@@ -19,8 +20,9 @@ use std::sync::Arc;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_engine::staging::{AttemptStaging, AttemptWrites, StagingOf};
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
 use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
@@ -130,7 +132,6 @@ impl Crawls {
             run.settings().map(RunSettings::resolved),
             &CRAWL_MAX_STAGED_ENQUEUES,
         ));
-        run.stage_attempt_writes_through(Arc::new(staging.clone()));
         let egress = Arc::new(egress);
         let intake = Intake::default();
         self.0.lock().await.insert(
@@ -191,5 +192,22 @@ impl Crawls {
         let joining = self.0.lock().await.get(run_id)?.joining.clone();
         joining.send(Server { context, left }).await.ok()?;
         Some(stays)
+    }
+}
+
+impl AttemptStaging for Crawls {
+    /// The staging of the live crawl `run_id`, while its Run's end is not
+    /// decided: a crawl is closed only after its delivery ended its Run,
+    /// or never when its delivery is cancelled, and a write staged once
+    /// `Runs::live` no longer finds the Run answers `run_not_found`.
+    fn staging_of<'a>(&'a self, run_id: &'a RunId) -> StagingOf<'a> {
+        Box::pin(async move {
+            let crawls = self.0.lock().await;
+            let live = crawls
+                .get(run_id)
+                .filter(|live| !runs::end(&live.run).is_decided())?;
+            let writes: Arc<dyn AttemptWrites> = Arc::new(live.staging.clone());
+            Some(writes)
+        })
     }
 }

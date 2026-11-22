@@ -101,6 +101,7 @@ use crate::runs::Runs;
 use crate::settings::{
     Opening as SettingsOpening, SettingsError, check_client_bounds, check_scope, get_or_default,
 };
+use crate::staging::AttemptStaging;
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
@@ -150,6 +151,9 @@ pub(crate) struct Dispatch {
     /// What finds the Run a raw call names by a page or a Session, whose
     /// trace records it (ADR 0099).
     pub(crate) runs_of_calls: Arc<[Arc<dyn RunOfCall>]>,
+    /// Where the attempts of each contribution's live Runs stage (ADR
+    /// 0145).
+    pub(crate) attempt_stagings: Arc<[Arc<dyn AttemptStaging>]>,
 }
 
 impl Dispatch {
@@ -503,6 +507,7 @@ async fn serve_carried(
         behind_gateway: OnceLock::new(),
         settings: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
+        attempt_stagings: Arc::clone(&dispatch.attempt_stagings),
         runs,
         events,
         engine,

@@ -252,7 +252,7 @@ impl Effects {
             client: context.client().clone(),
             attempt: match attempt {
                 Some(id) => Some(Attempt {
-                    writes: attempt_writes_of(&run)?,
+                    writes: attempt_writes_of(&run_id, context).await?,
                     id,
                 }),
                 None => None,
@@ -779,18 +779,24 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         })
 }
 
-/// Where `run`'s crawl attempts stage; `invalid_params` on a Run with no
+/// Where the crawl attempts of the live Run `run_id` stage, asked of its
+/// crawl (ADR 0145): `run_not_found` once no live Run has the ID, as when
+/// its end was decided since, and `invalid_params` on a live Run with no
 /// crawl, which has no attempt.
-fn attempt_writes_of(run: &Run) -> Result<Arc<dyn AttemptWrites>, CallError> {
-    run.attempt_writes().ok_or_else(|| {
-        CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "The Run `{}` is no crawl, so an Effect it declares takes no `attempt`: declare it without one.",
-                run.id()
-            ),
-        )
-    })
+async fn attempt_writes_of(
+    run_id: &RunId,
+    context: &CallContext,
+) -> Result<Arc<dyn AttemptWrites>, CallError> {
+    if let Some(writes) = context.attempt_staging(run_id).await {
+        return Ok(writes);
+    }
+    live(run_id, context).await?;
+    Err(CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!(
+            "The Run `{run_id}` is no crawl, so an Effect it declares takes no `attempt`: declare it without one."
+        ),
+    ))
 }
 
 fn unstaged(unstaged: Unstaged) -> CallError {

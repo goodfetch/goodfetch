@@ -395,18 +395,24 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         })
 }
 
-/// Where `run`'s crawl attempts stage their writes; `invalid_params` on a
-/// Run with no crawl, which has no attempt.
-fn attempt_writes_of(run: &Run) -> Result<Arc<dyn AttemptWrites>, CallError> {
-    run.attempt_writes().ok_or_else(|| {
-        CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "The Run `{}` is no crawl, so its Key-value store takes no `attempt`: call it without one.",
-                run.id()
-            ),
-        )
-    })
+/// Where the crawl attempts of the live Run `run_id` stage their writes,
+/// asked of its crawl without asking the Runs' registry (ADR 0145):
+/// `run_not_found` when no live Run has the ID, and `invalid_params` on a
+/// live Run with no crawl, which has no attempt.
+async fn attempt_writes_of(
+    run_id: &RunId,
+    context: &CallContext,
+) -> Result<Arc<dyn AttemptWrites>, CallError> {
+    if let Some(writes) = context.attempt_staging(run_id).await {
+        return Ok(writes);
+    }
+    live(run_id, context).await?;
+    Err(CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!(
+            "The Run `{run_id}` is no crawl, so its Key-value store takes no `attempt`: call it without one."
+        ),
+    ))
 }
 
 /// The call's failure for a write its attempt did not stage.
@@ -425,8 +431,8 @@ async fn staged_for(
     let Some(attempt) = attempt else {
         return Ok(StagedKey::Untouched);
     };
-    let run = live(run_id, context).await?;
-    attempt_writes_of(&run)?
+    attempt_writes_of(run_id, context)
+        .await?
         .staged(&attempt.crawl_request_id, attempt.lease_epoch, key)
         .map_err(unstaged)
 }
@@ -595,10 +601,10 @@ async fn handle_set(
     if params.value.is_null() {
         return Err(value_invalid(key, ValueInvalidReason::ValueNull));
     }
-    let run = live(&params.run_id, &context).await?;
     let value = params.value;
     if let Some(attempt) = &params.attempt {
-        attempt_writes_of(&run)?
+        attempt_writes_of(&params.run_id, &context)
+            .await?
             .stage(
                 &attempt.crawl_request_id,
                 attempt.lease_epoch,
@@ -607,6 +613,7 @@ async fn handle_set(
             .map_err(unstaged)?;
         return Ok(KeyValueStoreSet {});
     }
+    let run = live(&params.run_id, &context).await?;
     let removed = run
         .state()
         .write(move |connection| set(connection, &key, &value))
@@ -755,11 +762,11 @@ async fn handle_set_bytes(
     context: CallContext,
 ) -> Result<KeyValueStoreSet, CallError> {
     let key = checked(params.key)?;
-    let run = live(&params.run_id, &context).await?;
     let content_type = params.content_type;
     let bytes = params.content.into_bytes();
     if let Some(attempt) = &params.attempt {
-        attempt_writes_of(&run)?
+        attempt_writes_of(&params.run_id, &context)
+            .await?
             .stage(
                 &attempt.crawl_request_id,
                 attempt.lease_epoch,
@@ -772,6 +779,7 @@ async fn handle_set_bytes(
             .map_err(unstaged)?;
         return Ok(KeyValueStoreSet {});
     }
+    let run = live(&params.run_id, &context).await?;
     let removed = if bytes.len() > INLINE_MAX_BYTES {
         set_kept(&run, key, content_type, bytes, &context).await?
     } else {
@@ -790,9 +798,9 @@ async fn handle_delete(
     context: CallContext,
 ) -> Result<KeyValueStoreDeleted, CallError> {
     let key = checked(params.key)?;
-    let run = live(&params.run_id, &context).await?;
     if let Some(attempt) = &params.attempt {
-        let before = attempt_writes_of(&run)?
+        let before = attempt_writes_of(&params.run_id, &context)
+            .await?
             .stage(
                 &attempt.crawl_request_id,
                 attempt.lease_epoch,
@@ -814,6 +822,7 @@ async fn handle_delete(
         };
         return Ok(KeyValueStoreDeleted { existed });
     }
+    let run = live(&params.run_id, &context).await?;
     let removed = run
         .state()
         .write(move |connection| delete(connection, &key))

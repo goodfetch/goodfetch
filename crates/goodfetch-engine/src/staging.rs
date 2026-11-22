@@ -4,10 +4,14 @@
 //! crawl owns its attempts and their staging; this is the engine's side of
 //! it, the interface through which the engine's own operations, such as a
 //! Key-value store write a handler makes through its `ctx.run`, stage with
-//! an attempt of a Run whose crawl registered its staging on it
-//! (`Run::stage_attempt_writes_through`).
+//! an attempt of a Run, in the staging the crawl's contribution answers
+//! for its live Runs ([`AttemptStaging`]), asked by Run ID (ADR 0145).
+
+use std::pin::Pin;
+use std::sync::Arc;
 
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
+use goodfetch_protocol::run::RunId;
 use serde_json::{Map, Value};
 
 /// A Key-value store write staged with an attempt.
@@ -149,4 +153,19 @@ pub trait AttemptWrites: Send + Sync {
 
     /// Whether the attempt still stages: it has not ended.
     fn holds(&self, crawl_request_id: &str, lease_epoch: u64) -> bool;
+}
+
+/// A boxed future of an [`AttemptStaging`]'s answer.
+pub type StagingOf<'a> = Pin<Box<dyn Future<Output = Option<Arc<dyn AttemptWrites>>> + Send + 'a>>;
+
+/// Where the attempts of a contribution's live Runs stage, asked by Run
+/// ID: a crawl's, which its contribution hands the engine
+/// (`Contribution::with_attempt_staging`), so a Run's handle holds no
+/// staging (ADR 0145).
+pub trait AttemptStaging: Send + Sync {
+    /// Where the attempts of the live Run `run_id` stage their writes;
+    /// none when it holds no such Run, or the Run's end is decided
+    /// (`RunEnd::is_decided`), so a call through an attempt answers as
+    /// `Runs::live` does from then on.
+    fn staging_of<'a>(&'a self, run_id: &'a RunId) -> StagingOf<'a>;
 }

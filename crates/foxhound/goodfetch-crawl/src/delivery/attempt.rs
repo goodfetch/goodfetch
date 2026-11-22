@@ -98,8 +98,8 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HeldPlace, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
-    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, light_browser_unsent,
-    tier_provenance, tier_serves,
+    RobotsTxtCopies, RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan,
+    light_browser_unsent, tier_provenance, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -388,11 +388,12 @@ pub(super) async fn run_hand_over(
     // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
     // records no start, send or latency in it (ADR 0138).
     let paces = goodfetch_frontier::paces(settings);
+    let robots_txt = RobotsTxtCopies::of(run);
     let shared = if paces
         || site_preferences.reads_robots_txt(Request::CrawlRequest)
         || site_preferences.reads_robots_txt(Request::Navigation)
     {
-        share_robots_txt(run, settings).await
+        share_robots_txt(run, &robots_txt, settings).await
     } else {
         None
     };
@@ -407,6 +408,7 @@ pub(super) async fn run_hand_over(
         adaptive_delay: settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
+        robots_txt,
         egress: Arc::clone(egress),
         hops,
         addresses: http.map(HttpTier::address_check),

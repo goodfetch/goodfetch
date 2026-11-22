@@ -87,8 +87,8 @@ pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use served_calls::serves as tier_serves;
 pub use site_preferences::{
-    AfterRobotsTxt, Allowed, NotAllowed, Reading, Refusal, RefusedBy, Request, SitePreferences,
-    skip_reason,
+    AfterRobotsTxt, Allowed, NotAllowed, Reading, Refusal, RefusedBy, Request, RobotsTxtCopies,
+    SitePreferences, skip_reason,
 };
 pub use sniffing::sniff;
 pub use tiers::{

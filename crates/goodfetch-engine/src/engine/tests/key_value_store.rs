@@ -564,3 +564,46 @@ fn a_run_no_engine_holds_is_read_without_its_writer_lock_and_never_resumed() {
         )
     );
 }
+
+/// The params of `key_value_store.<verb>` on the Run `run_id`, through a
+/// crawl attempt's `attempt`.
+fn through_an_attempt(verb: &str, run_id: &str) -> Value {
+    let mut params = json!({
+        "run_id": run_id,
+        "key": "cursor",
+        "attempt": { "crawl_request_id": "r", "lease_epoch": 1 },
+    });
+    match verb {
+        "set" => params["value"] = json!(1),
+        "set_bytes" => {
+            params["content"] = json!("");
+            params["content_type"] = json!("text/plain");
+        }
+        _ => {}
+    }
+    params
+}
+
+/// A call through a crawl attempt names an attempt only a crawl's Run has:
+/// on a live Run with no crawl it fails with `invalid_params`, and on a Run
+/// that is not live with `run_not_found`, whatever its verb.
+#[rstest]
+fn a_call_through_an_attempt_fails_on_a_run_with_no_crawl_and_on_one_not_live(
+    #[values("get", "get_bytes", "set", "set_bytes", "delete")] verb: &str,
+) {
+    let (live, absent) = attached_on(&collie(), &TestEnv::new(), |client| async move {
+        let mut client = started(client, "collie").await;
+        let live = store(&mut client, 2, verb, through_an_attempt(verb, "collie")).await;
+        let absent = store(&mut client, 3, verb, through_an_attempt(verb, "absent")).await;
+        (live, absent)
+    });
+
+    assert_eq!(
+        (
+            live["error"]["code"].clone(),
+            absent["error"]["data"]["code"].clone()
+        ),
+        (json!(-32602), json!("run_not_found")),
+        "{live} {absent}"
+    );
+}

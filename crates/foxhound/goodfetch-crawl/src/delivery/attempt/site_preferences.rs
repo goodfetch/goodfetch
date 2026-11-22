@@ -14,7 +14,8 @@ use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    AfterRobotsTxt, NotAllowed, Reading, Refusal, RefusedBy, Request, UseSignals, skip_reason,
+    AfterRobotsTxt, NotAllowed, Reading, Refusal, RefusedBy, Request, RobotsTxtCopies, UseSignals,
+    skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_frontier::Url;
@@ -25,14 +26,18 @@ use serde_json::{Map, Value};
 use super::{Answer, On, failed};
 
 /// The Politeness the crawl's Run shares, under `settings`, once it
-/// opened: from then on the Run reads robots.txt from the copy its user's
-/// runs share there (ADR 0086). A Politeness file that cannot open leaves
-/// the Run its own copy.
-pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Option<Politeness> {
+/// opened: from then on the Run's `copies` read robots.txt from the copy
+/// its user's runs share there (ADR 0086). A Politeness file that cannot
+/// open leaves the Run its own copy.
+pub(super) async fn share_robots_txt(
+    run: &Run,
+    copies: &RobotsTxtCopies,
+    settings: &Resolved,
+) -> Option<Politeness> {
     match run.politeness(settings).await {
         Ok((politeness, _)) => {
             let shared = politeness.clone();
-            run.share_robots_txt(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
+            copies.share(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
             Some(politeness)
         }
         Err(error) => {
@@ -77,11 +82,13 @@ impl On<'_> {
         {
             // A crawl that reads no robots.txt for its requests did not
             // share the copy as it started (ADR 0086).
-            share_robots_txt(run, settings.resolved()).await;
+            share_robots_txt(run, &of_run.robots_txt, settings.resolved()).await;
         }
         let reading = if reads || robots_seed {
             preferences
-                .read_robots_txt(run, url, |location| self.hand_over.site_file(location))
+                .read_robots_txt(&of_run.robots_txt, url, |location| {
+                    self.hand_over.site_file(location)
+                })
                 .await
         } else {
             None

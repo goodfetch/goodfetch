@@ -141,7 +141,7 @@ use crate::politeness::{
     Holder, OnStorageFailures, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
     RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
 };
-use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies};
+use crate::robots_txt::{Answer, Fetched, NotRead, OwnCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport, RunFiles};
 use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::{self, RunIndex};
@@ -155,7 +155,6 @@ use crate::run_trace::{self, RawCallLine};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, get_or_default};
-use crate::staging::AttemptWrites;
 use crate::tasks::{OwnerKind, TaskOwner, TaskStarter};
 use crate::trace::{self, Link, RawMark};
 use crate::transition;
@@ -1352,11 +1351,6 @@ struct Shared {
     own_robots_txt: OwnCopies,
     /// Its files, the Run files' module's (ADR 0145).
     files: RunFiles,
-    /// The copy a crawl's Run reads instead, once its crawl shared one.
-    crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
-    /// Where its crawl's attempts stage the writes made through a
-    /// handler's `ctx.run`, once its crawl registered it.
-    attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
     /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
     trace: run_trace::RunTrace,
 }
@@ -1833,17 +1827,6 @@ impl Run {
         self.shared.politeness.open(settings).await
     }
 
-    /// Where it reads robots.txt: its own copies, one fetch per origin
-    /// while it lives, apart from the copy Foxhound shares across a user's
-    /// runs (ADRs 0086 and 0098); on a crawl's Run, once its crawl shared
-    /// one ([`Run::share_robots_txt`]), that shared copy instead.
-    pub fn robots_txt(&self) -> Arc<dyn Copies> {
-        match self.shared.crawls_robots_txt.get() {
-            Some(shared) => Arc::clone(shared),
-            None => Arc::new(self.shared.own_robots_txt.clone()),
-        }
-    }
-
     /// The robots.txt at `location` as its own copies hold it:
     /// [`OwnCopies::copy_or_fetch`], never the copy a crawl shares.
     ///
@@ -1862,28 +1845,6 @@ impl Run {
             .own_robots_txt
             .copy_or_fetch(location, fetch)
             .await
-    }
-
-    /// Reads robots.txt from the copies `copies` makes from now on, in
-    /// place of its own: a crawl's Run reads the copy shared across the
-    /// user's runs (ADR 0086). The first call makes them; a later one
-    /// changes nothing and makes none.
-    pub fn share_robots_txt(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
-        self.shared.crawls_robots_txt.get_or_init(copies);
-    }
-
-    /// Stages the writes a crawl attempt's handler makes through its
-    /// `ctx.run` in `writes` from now on (ADR 0093): a crawl's Run
-    /// registers its staging once, as its delivery opens. A later call
-    /// changes nothing.
-    pub fn stage_attempt_writes_through(&self, writes: Arc<dyn AttemptWrites>) {
-        self.shared.attempt_writes.get_or_init(|| writes);
-    }
-
-    /// Where its attempts stage their writes, once its crawl registered
-    /// it; none on a Run with no crawl.
-    pub fn attempt_writes(&self) -> Option<Arc<dyn AttemptWrites>> {
-        self.shared.attempt_writes.get().map(Arc::clone)
     }
 
     /// The user's known-certificates store, where its exceptions pin
@@ -4861,8 +4822,6 @@ impl Registry {
                 politeness,
                 own_robots_txt: OwnCopies::new(state.clone()),
                 files,
-                crawls_robots_txt: std::sync::OnceLock::new(),
-                attempt_writes: std::sync::OnceLock::new(),
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
             }),
@@ -4960,6 +4919,9 @@ impl Registry {
             .run
             .take()
             .expect("invariant: a running Run keeps its writer until its end is decided");
+        // In the step that takes it, so whatever answers for the Run
+        // through a handle it holds stops when `Runs::live` does.
+        run.shared.end.decide();
         // Queued before the end's record, so its trace writes them.
         for line in live.raw_endings.drain(..) {
             line.write(Ok(()));

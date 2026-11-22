@@ -123,6 +123,7 @@ impl Engine {
                 masks: Masks::new(),
                 metrics: metrics.clone(),
                 runs_of_calls: composition.runs_of_calls(),
+                attempt_stagings: composition.attempt_stagings(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),

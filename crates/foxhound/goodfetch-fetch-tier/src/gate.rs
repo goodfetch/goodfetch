@@ -111,7 +111,9 @@ use crate::chain::{Gating, HopGate, Skip, Stop};
 use crate::content_types::ContentTypes;
 use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
-use crate::site_preferences::{self, AfterRobotsTxt, Reading, RefusedBy, Request, SitePreferences};
+use crate::site_preferences::{
+    self, AfterRobotsTxt, Reading, RefusedBy, Request, RobotsTxtCopies, SitePreferences,
+};
 use crate::transports::AddressCheck;
 use crate::use_signals::UseSignals;
 
@@ -264,6 +266,9 @@ pub struct RunHandOver {
     /// request's own document, its redirect hops and its handler's pages
     /// alike, and the AI-use signal files the Run fetched for them.
     pub site_preferences: SitePreferences,
+    /// Where the Run reads robots.txt: the copy its user's runs share
+    /// once its crawl shared it, its own until then.
+    pub robots_txt: RobotsTxtCopies,
     /// The Run's domain policy, which judges each redirect hop's address.
     pub egress: Arc<Policy>,
     /// How each redirect hop is checked against the visited set, and each
@@ -791,7 +796,9 @@ impl Gate {
         let run = &hand_over.run;
         let reading = hand_over
             .site_preferences
-            .read_robots_txt(run, url, |location| self.0.site_file(location))
+            .read_robots_txt(&hand_over.robots_txt, url, |location| {
+                self.0.site_file(location)
+            })
             .await?;
         if let (Some(at), Some(politeness)) = (reading.fetched(), &hand_over.politeness)
             && let Err(error) = goodfetch_frontier::started_again(politeness, key, at).await

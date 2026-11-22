@@ -10,7 +10,7 @@
 //! pure functions of the copy, the answer and the `Clock`'s reading.
 //!
 //! On a crawl's Run this copy replaces the per-Run copy of Collie's
-//! reading ([`Run::share_robots_txt`](goodfetch_engine::runs::Run::share_robots_txt)),
+//! reading (`goodfetch_fetch_tier::RobotsTxtCopies::share`),
 //! so a crawl fetches each origin's robots.txt once for all its pages; the
 //! fetch itself, which the caller gives, is sent under a Permit of its
 //! domain key, so it counts in the domain's Politeness. Within one engine,

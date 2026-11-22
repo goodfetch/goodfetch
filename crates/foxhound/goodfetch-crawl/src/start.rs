@@ -92,6 +92,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let pushing = crawls.clone();
     let retrying = crawls.clone();
     let resuming = crawls.clone();
+    let staging = crawls.clone();
     let redeclared = Redeclared::default();
     let redeclaring = redeclared.clone();
     let pages = code_free::Pages::default();
@@ -137,6 +138,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
         .with_run_of_call(Arc::new(tiers.clone()))
+        .with_attempt_staging(Arc::new(staging))
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, context, settings| {

@@ -1,7 +1,11 @@
 //! The end of a live Run (ADR 0145): the command that asks the Runs'
 //! registry's loop to end it as its driver says, with the signal that
-//! `run.finish` let it finish. The driver that ends a Run is the one that
-//! waits to be let finish, and the registry alone sets the signal.
+//! `run.finish` let it finish and the mark that its end is decided. The
+//! driver that ends a Run is the one that waits to be let finish, and the
+//! registry alone sets the signal and the mark.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{mpsc, watch};
@@ -9,13 +13,17 @@ use tokio::sync::{mpsc, watch};
 use super::{Command, End, Ending};
 
 /// The end of a live Run, which a function takes in place of the Run's
-/// handle to end it or to wait until it is let finish (ADR 0145).
+/// handle to end it, to wait until it is let finish or to learn whether
+/// its end is decided (ADR 0145).
 #[derive(Clone)]
 pub struct RunEnd {
     run_id: RunId,
     commands: mpsc::Sender<Command>,
     /// Whether `run.finish` let it finish, which only the registry sets.
     finish: watch::Receiver<bool>,
+    /// Whether its end is decided, which only the registry sets, in the
+    /// step of its loop that takes the Run's handle from its live Runs.
+    decided: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for RunEnd {
@@ -39,7 +47,22 @@ impl RunEnd {
             run_id,
             commands,
             finish,
+            decided: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Whether the Run's end is decided: from the step of the registry's
+    /// loop that decides it, the one from which `Runs::live` no longer
+    /// finds the Run, on. What answers for a Run through a handle it holds,
+    /// as a crawl's staging does, answers it as the registry would.
+    pub fn is_decided(&self) -> bool {
+        self.decided.load(Ordering::Acquire)
+    }
+
+    /// Marks the Run's end decided, in the registry's step that takes its
+    /// handle from the live Runs.
+    pub(super) fn decide(&self) {
+        self.decided.store(true, Ordering::Release);
     }
 
     /// Whether `run.finish` let the Run finish: a driver that waits for new

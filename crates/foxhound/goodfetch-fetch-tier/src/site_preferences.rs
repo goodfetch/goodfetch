@@ -33,13 +33,16 @@
 //! When a request may start after the robots.txt it read is its caller's
 //! pacing; [`Reading::start_after`] is the part every caller shares.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
-use goodfetch_engine::robots_txt::{self, Answer, Fetch, Fetched, Judgment, Rule};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::robots_txt::{
+    self, Answer, Copies, Fetch, Fetched, Judgment, OwnCopies, Rule,
+};
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::robots_txt::{ProductToken, applicable_groups};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -163,6 +166,45 @@ pub struct Allowed {
     /// against it (ADR 0138); a robots.txt that could not be read
     /// disallows nothing here.
     pub ignored: bool,
+}
+
+/// Where a crawl's Run reads robots.txt (ADRs 0086 and 0098): its own
+/// copies, one fetch per origin while it lives, until its crawl shares the
+/// copy its user's runs share ([`RobotsTxtCopies::share`]), and that copy
+/// from then on. Built once as the crawl starts, in its
+/// [`RunHandOver`](crate::RunHandOver).
+#[derive(Debug)]
+pub struct RobotsTxtCopies {
+    own: OwnCopies,
+    shared: OnceLock<Arc<dyn Copies>>,
+    clock: Clock,
+}
+
+impl RobotsTxtCopies {
+    /// The copies `run` reads, its own until its crawl shares one.
+    pub fn of(run: &Run) -> Self {
+        Self {
+            own: runs::own_robots_txt(run).clone(),
+            shared: OnceLock::new(),
+            clock: run.clock(),
+        }
+    }
+
+    /// Reads robots.txt from the copies `copies` makes from now on, in
+    /// place of the Run's own: a crawl's Run reads the copy shared across
+    /// the user's runs (ADR 0086). The first call makes them; a later one
+    /// changes nothing and makes none.
+    pub fn share(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
+        self.shared.get_or_init(copies);
+    }
+
+    /// The copies read now.
+    fn read(&self) -> &dyn Copies {
+        match self.shared.get() {
+            Some(shared) => shared.as_ref(),
+            None => &self.own,
+        }
+    }
 }
 
 /// The robots.txt a request read: where it is, the copy that applies, and
@@ -324,29 +366,34 @@ impl SitePreferences {
         }
     }
 
-    /// The robots.txt of `url`'s origin as `run` reads it, from the copy
-    /// it reads, `fetch`ed only when the copy has none to use; `None` for
-    /// a URL with no robots.txt.
+    /// The robots.txt of `url`'s origin as the Run reads it, from the copy
+    /// `copies` reads, `fetch`ed only when the copy has none to use; `None`
+    /// for a URL with no robots.txt.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future drops a fetch it runs and keeps nothing (the
     /// copy's own).
-    pub async fn read_robots_txt<F, Fut>(&self, run: &Run, url: &Url, fetch: F) -> Option<Reading>
+    pub async fn read_robots_txt<F, Fut>(
+        &self,
+        copies: &RobotsTxtCopies,
+        url: &Url,
+        fetch: F,
+    ) -> Option<Reading>
     where
         F: FnOnce(Url) -> Fut + Send,
         Fut: Future<Output = Answer> + Send,
     {
         let location = robots_txt::location(url)?;
         let (arriving, arrived) = oneshot::channel::<SystemTime>();
-        let clock = run.clock();
+        let clock = copies.clock;
         let at = location.clone();
         let fetching: Fetch<'_> = Box::pin(async move {
             let answer = fetch(at).await;
             let _ = arriving.send(clock.wall());
             answer
         });
-        let copy = run.robots_txt().copy(&location, fetching).await;
+        let copy = copies.read().copy(&location, fetching).await;
         Some(Reading {
             location,
             copy,

@@ -1,4 +1,4 @@
-"""A guest program: it imports, connects, runs the tracer and closes (ADR 0078).
+"""A guest program: it imports, connects, follows a Run and closes (ADR 0078).
 
 It records what the SDK changed in its process at each stage into the file
 its first argument names, with each warning the host's filters let through
@@ -21,12 +21,12 @@ import signal
 import sys
 import threading
 import warnings
+import weakref
 from collections.abc import Iterator, Mapping, MutableMapping
 from pathlib import Path
 from typing import TypeAlias
 
 import anyio
-from collie_tracer import start_and_finish
 
 SIGNALS = ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGCHLD", "SIGPIPE", "SIGBREAK")
 """The signals whose handlers a guest may never change, where the system has them."""
@@ -109,6 +109,10 @@ def handler(value: object) -> str:
     return f"{name} at {identity:#x}"
 
 
+class Warm:
+    """An object the guest makes its first finalizer on."""
+
+
 def state() -> dict[str, object]:
     """What a guest may never change: the process's handlers, hooks and threads."""
     root = logging.getLogger()
@@ -146,24 +150,34 @@ SIGINT handler of their own while their loop runs.
 async def run_async(
     env: Mapping[str, str], heard: list[warnings.WarningMessage]
 ) -> Stages:
-    """Connects with the async API, runs the tracer and closes."""
+    """Connects with the async API, follows a Run's progress, finishes it and closes.
+
+    Following the progress prints no status line of its own (ADR 0102).
+    """
     from goodfetch_collie import AsyncCollie
 
     before_connect = state()
     collie = await AsyncCollie.connect(env=env)
     connected = len(heard)
-    traced = await start_and_finish(collie)
-    return before_connect, connected, state(), traced.report.lifecycle
+    run = await collie.start()
+    async with run.progress() as progress:
+        await anext(progress)
+    report = await run.finish()
+    await collie.close()
+    return before_connect, connected, state(), report.lifecycle
 
 
 def run_sync(env: Mapping[str, str], heard: list[warnings.WarningMessage]) -> Stages:
-    """Connects with the sync API, starts a Run, finishes it and closes."""
+    """Connects with the sync API, follows a Run's progress, finishes it and closes."""
     from goodfetch_collie import Collie
 
     before_connect = state()
     with Collie.connect(env=env) as collie:
         connected = len(heard)
-        report = collie.start().finish()
+        run = collie.start()
+        with run.progress() as progress:
+            next(progress)
+        report = run.finish()
     return before_connect, connected, state(), report.lifecycle
 
 
@@ -177,6 +191,10 @@ def stage(index: int, imported: int, connected: int) -> str:
 def main(out: Path, way: str) -> None:
     """Imports, connects and closes `way`, recording each stage into `out`."""
     env = dict(os.environ)
+    # `weakref.finalize` registers the standard library's own `atexit`
+    # callback once a process, at its first finalizer, which runs only
+    # finalizers that ask for it; the SDK's sequences ask for none.
+    weakref.finalize(Warm(), lambda: None)
     recording = RecordingEnviron(os.environ)
     # The swap records reads, and clears nothing: the map behind it stays the same.
     os.__dict__["environ"] = recording

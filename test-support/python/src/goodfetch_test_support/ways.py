@@ -121,3 +121,22 @@ def three_ways(test: _Test) -> _Test:
     # Typed here: mypy reads `MarkDecorator.__call__` as returning `Any`.
     anyio_test: _Test = pytest.mark.anyio(marked)
     return anyio_test
+
+
+async def until(
+    holds: Callable[[], bool], what: str, *, within: float, every: float = 0.01
+) -> None:
+    """Waits until `holds()` is true, for `within` seconds at most, looking `every`.
+
+    A listener runs on its own task, or on a worker thread in the sync way,
+    and sets no event the test could wait on, so the wait polls it.
+
+    Raises:
+        AssertionError: `holds()` was still false after `within` seconds.
+    """
+    for _ in range(round(within / every)):
+        if holds():
+            return
+        await anyio.sleep(every)
+    message = f"{what} did not happen within {within} seconds"
+    raise AssertionError(message)

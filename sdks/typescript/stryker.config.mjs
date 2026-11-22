@@ -1,15 +1,20 @@
-// StrykerJS's settings for the TypeScript SDK's full mutation run (ADR 0072;
+// StrykerJS's settings for the TypeScript SDK's mutation runs (ADR 0072;
 // TESTING.md, Feature coverage), run from the repository's root by
-// `just mutants-sdks typescript`, weekly once the nightly tier is on. It
-// mutates the hand-written runtime of the three packages, never what
-// `xtask codegen` writes (ADR 0099), whose tests are its drift check and the
-// generator's own, as `.cargo/mutants.toml` does for Rust.
+// ci/mutants-typescript.sh: the full run, `just mutants-sdks typescript`,
+// weekly once the nightly tier is on, and the in-diff run,
+// `just mutants-typescript`, whose `--mutate` list of the changed lines
+// replaces `mutate` below. It mutates the hand-written runtime of the three
+// packages, never what `xtask codegen` writes (ADR 0099), whose tests are
+// its drift check and the generator's own, as `.cargo/mutants.toml` does for
+// Rust. The script names the reports' folder (GOODFETCH_STRYKER_REPORTS).
 //
 // Vitest's runner, since StrykerJS 10.1.0 fixed stryker-js#6210, runs only
 // the SDK's tests that reach each mutant, as each test's coverage shows,
 // the Node programs it starts included (test support's
 // `mutation-children.ts`). A surviving mutant fails nothing: no threshold
 // breaks the run (ADR 0072, no mutation score is gated).
+
+const reports = process.env.GOODFETCH_STRYKER_REPORTS ?? "target/mutants-sdks/typescript";
 
 /** @type {import("@stryker-mutator/api/core").PartialStrykerOptions} */
 const config = {
@@ -37,11 +42,15 @@ const config = {
   inPlace: true,
   ignorePatterns: ["/*", "!/sdks", "/sdks/*", "!/sdks/typescript"],
   disableTypeChecks: false,
-  tempDirName: "target/stryker-tmp",
+  // StrykerJS restores each mutated file by renaming its backup from here,
+  // so the folder sits beside the sources: `target/` may be another volume
+  // (a slot worktree's build folder links one), where the rename fails and
+  // leaves the mutant in the source.
+  tempDirName: ".stryker-tmp",
   thresholds: { high: 80, low: 60, break: null },
   reporters: ["clear-text", "progress", "html", "json"],
-  htmlReporter: { fileName: "target/mutants-sdks/typescript/report.html" },
-  jsonReporter: { fileName: "target/mutants-sdks/typescript/report.json" },
+  htmlReporter: { fileName: `${reports}/report.html` },
+  jsonReporter: { fileName: `${reports}/report.json` },
 };
 
 export default config;

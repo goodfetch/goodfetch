@@ -43,7 +43,7 @@ from goodfetch_collie_client.generated.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
     from anyio.abc import ByteStream, SocketStream
 
@@ -125,6 +125,15 @@ class DaemonReach:
 
     By it the Daemon it hands over to is told from it (ADR 0098); `None`
     for a remote Daemon, which never hands over.
+    """
+    reopen: Callable[[], Awaitable[ByteStream]] | None
+    """Opens new bytes to a remote Daemon once its link dropped (spec 606).
+
+    `None` for this machine's Daemon, whose dropped link ends the Connection.
+
+    Raises:
+        DaemonUnreachableError: No WebSocket of the Client's subprotocol
+            opened.
     """
 
     @property
@@ -248,11 +257,15 @@ async def _reach_remote(
     host, port, origin = _remote_address(url, source)
     stream: ByteStream | None = None
     connect = deadline.connect
-    with anyio.CancelScope(deadline=deadline.at()) as handshake:
+
+    async def open_remote() -> ByteStream | None:
         socket = await _open_tcp(host, port)
-        stream = (
+        return (
             None if socket is None else await open_websocket(socket, url, origin=origin)
         )
+
+    with anyio.CancelScope(deadline=deadline.at()) as handshake:
+        stream = await open_remote()
     if handshake.cancelled_caught and connect is not None:
         value, limit = connect
         raise phase_exceeded(
@@ -266,11 +279,12 @@ async def _reach_remote(
             started_at=deadline.started_at,
             waited_for="hello",
         )
-    if stream is None:
+
+    def no_websocket() -> DaemonUnreachableError:
         # A WebSocket tells none of these apart: a Daemon of another protocol
         # major answers no subprotocol this Client offered, so its handshake
         # fails before `hello` could name the versions.
-        raise _unreachable(
+        return _unreachable(
             f"No Daemon at {url}, which {source} names, opened a WebSocket of "
             f"subprotocol {WEBSOCKET_SUBPROTOCOL}: nothing listens there, it "
             "refused the handshake, or it speaks another protocol major",
@@ -279,6 +293,16 @@ async def _reach_remote(
             "listens on loopback, such as an SSH tunnel, or leave engine at auto "
             f"with {URL_VARIABLE} unset to use this machine's engine.",
         )
+
+    if stream is None:
+        raise no_websocket()
+
+    async def reopen() -> ByteStream:
+        reopened = await open_remote()
+        if reopened is None:
+            raise no_websocket()
+        return reopened
+
     fix = (
         f"Set {TOKEN_VARIABLE} to the token the Daemon at {url} takes."
         if source == URL_VARIABLE
@@ -290,6 +314,7 @@ async def _reach_remote(
         token=remote.token,
         closed_at_hello=lambda: _unreachable(_closed_at_hello(url), fix),
         runtime_file=None,
+        reopen=reopen,
     )
 
 
@@ -539,6 +564,7 @@ async def _running_daemon(
         token=token,
         closed_at_hello=lambda: _unreachable(_closed_at_hello(address), fix),
         runtime_file=RuntimeFile(home, text),
+        reopen=None,
     )
 
 

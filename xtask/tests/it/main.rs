@@ -73,6 +73,7 @@ mod merge_pr;
 mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;
+mod mutants_typescript;
 mod no_retry;
 mod notices;
 mod order_seed;

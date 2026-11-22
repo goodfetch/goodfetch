@@ -108,7 +108,7 @@ use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
-use crate::page_value::{HandlerPages, PageValue, PooledSession};
+use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
 use crate::recovery::Checking;
@@ -583,7 +583,8 @@ impl Sessions {
             ));
         }
         let session = session_id(run.id(), position);
-        self.new_page(&session, settings, context).await
+        self.new_page(&session, settings, &HeldPlace::default(), context)
+            .await
     }
 
     /// Opens the default Session of `run`, or a Session its crawl's Session
@@ -661,12 +662,14 @@ impl Sessions {
     }
 
     /// Opens a page in the Session `session`, once the governor admits one
-    /// more browser page; `closed` when the Session is closed.
+    /// more browser page, or in the place `held` if it holds one; `closed`
+    /// when the Session is closed.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(session_id = %session.0, page_id = tracing::field::Empty))]
     pub(crate) async fn new_page(
         &self,
         session: &SessionId,
         settings: &Map<String, Value>,
+        held: &HeldPlace,
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let open = self.session(session, context).await?;
@@ -681,7 +684,10 @@ impl Sessions {
         }
         let value = self.handler_pages.value(run.id(), session);
         lease_holds(&value)?;
-        let admission = run.governor().admit(WorkKind::BrowserPage).await;
+        let admission = match held.take() {
+            Some(held) => held,
+            None => run.governor().admit(WorkKind::BrowserPage).await,
+        };
         // A Session closed while the page waited, or whose browser went
         // under it, raises what its table says now (#697, S8, S9).
         let (driver, in_browser) = match open.seat.new_page(Visibility::Visible).await {
@@ -749,7 +755,8 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let session = self.pool_session(run_id, pooled, context).await?;
-        self.new_page(&session, &Map::new(), context).await
+        self.new_page(&session, &Map::new(), &pooled.place, context)
+            .await
     }
 
     /// The Session a crawl's Session pool names `pooled` in the live Run

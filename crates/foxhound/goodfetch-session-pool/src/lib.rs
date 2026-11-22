@@ -19,8 +19,8 @@ mod store;
 use goodfetch_engine::Contribution;
 
 pub use labels::{LabelPools, PoolKey};
-pub use pool::{Effect, LocalAddressing, Rotated, SessionPool};
-pub use settings::PoolSettings;
+pub use pool::{Effect, LocalAddressing, Rotated, SessionPool, Wanted};
+pub use settings::{Affinity, Growth, PoolSettings};
 pub use store::{Changes, SendsFrom, TABLES};
 
 /// What the Session pool adds to the engine: the tables that keep a

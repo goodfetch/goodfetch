@@ -221,8 +221,9 @@ struct MemberModel {
     positional: Vec<Positional>,
     /// The struct literal of its params, every field set.
     literal: String,
-    /// Whether the builder sends its timeout in the params (ADR 0080).
-    wire_timeout: bool,
+    /// The setting of the timeout the builder sends in the params, such as
+    /// `timeout.wait`, when it sends one (ADR 0080).
+    wire_timeout: Option<String>,
     /// What it answers of its result.
     answers: Answers,
     /// Whether what it answers is a page's response, which it wraps.
@@ -598,6 +599,27 @@ fn setter(field: &Field, doc: String) -> Setter {
     }
 }
 
+/// The setting of the timeout a member's builder sends in the params, such as
+/// `timeout.wait`, or `None` when it sends none (ADR 0080).
+fn wire_timeout(member: &Member<'_>, owner: &str) -> Result<Option<String>> {
+    let parameters = &member.parameters;
+    if parameters
+        .positional
+        .iter()
+        .chain(&parameters.named)
+        .any(|name| name == TIMEOUT)
+    {
+        bail!("{owner}: a call's `timeout` is optional, which the builder sends (ADR 0080)");
+    }
+    if member.form == Form::Query || !parameters.optional.iter().any(|name| name == TIMEOUT) {
+        return Ok(None);
+    }
+    let Some(setting) = member.timeout_setting.clone() else {
+        bail!("{owner}: its `timeout` names no setting (ADR 0080)");
+    };
+    Ok(Some(setting))
+}
+
 fn member_model(
     index: &Index,
     layer: &Layer,
@@ -612,16 +634,7 @@ fn member_model(
     let params = index.type_path(params_name)?;
     let result = index.type_path(&operation.result.0)?;
     let parameters = &member.parameters;
-    if parameters
-        .positional
-        .iter()
-        .chain(&parameters.named)
-        .any(|name| name == TIMEOUT)
-    {
-        bail!("{owner}: a call's `timeout` is optional, which the builder sends (ADR 0080)");
-    }
-    let wire_timeout =
-        member.form != Form::Query && parameters.optional.iter().any(|name| name == TIMEOUT);
+    let wire_timeout = wire_timeout(member, &owner)?;
     let builds = Builds::of(&member.form);
     let fields = index.fields(params_name)?;
     let schema = layer.definitions.get(params_name);
@@ -927,11 +940,10 @@ impl Module {
         let body = match self.twin {
             Twin::Async => {
                 let sent = format!("{:?}, {}", member.method, member.literal);
-                let wire = if member.wire_timeout {
-                    ".wire_timeout()"
-                } else {
-                    ""
-                };
+                let wire = member
+                    .wire_timeout
+                    .as_ref()
+                    .map_or_else(String::new, |setting| format!(".wire_timeout({setting:?})"));
                 match (&member.form, &member.answers) {
                     (Form::Closes, _) => format!("self.host.close({sent})"),
                     (Form::Query, Answers::Field { ident, .. }) => format!(

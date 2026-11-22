@@ -101,6 +101,8 @@ export type TestSupportErrorCode =
   | "unused_step"
   /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
   | "nothing_to_answer"
+  /** A Scripted engine's script drops its Client where no other Client connects: only `goodfetch-scripted-engine`'s `websocket` mode takes one (ADR 0069). */
+  | "drop_unsupported"
   /** A Journey file cannot be read (ADR 0063). */
   | "journey_unreadable"
   /** A Journey file is not TOML, or fails `journeys/journey.schema.json` (ADR 0063). */

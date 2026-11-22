@@ -96,7 +96,7 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
+    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HeldPlace, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
     RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, light_browser_unsent,
     tier_provenance, tier_serves,
@@ -119,6 +119,7 @@ use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY,
 };
+use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -950,6 +951,9 @@ impl On<'_> {
             Some(escalating) if self.sends_from == SendsFrom::Transport => escalating,
             _ => return self.browser(&tiering.tiers, choice, how).await,
         };
+        // Its page needs a browser-page place, which it waits for before
+        // its Session is drawn, so the draw may open one for it (#2178).
+        let place = self.run.governor().admit(WorkKind::BrowserPage).await;
         // The loop answers from memory, at once: the attempt waits for it
         // whatever its lease, so the Session it draws is always settled.
         let drawn = escalating
@@ -958,8 +962,10 @@ impl On<'_> {
                 labels: std::sync::Arc::clone(&escalating.labels),
                 pool: escalating.pool.clone(),
                 domain_key: self.leased.waiting.key.clone(),
+                host: goodfetch_frontier::host_of(&self.leased.crawl_request.url).to_owned(),
                 settings: escalating.settings,
                 now: self.run.clock().wall(),
+                place: HeldPlace::holding(place),
             })
             .await;
         let Ok(drawn) = drawn else {

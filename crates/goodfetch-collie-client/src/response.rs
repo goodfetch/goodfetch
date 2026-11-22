@@ -15,6 +15,7 @@ use goodfetch_protocol::page::events::{
     PageExchange, PageRequest, RESPONSE_BODY, ResponseBodyParams,
 };
 use goodfetch_protocol::page::{BodyHandle, PageId, PageResponse};
+use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde::de::DeserializeOwned;
 
 use crate::call::{Call, Reply};
@@ -115,7 +116,7 @@ impl Response {
                 timeout: None,
             },
         );
-        let call = call.wire_timeout();
+        let call = call.wire_timeout(TIMEOUT_WAIT.name);
         Box::pin(async move {
             let handle = call.await?;
             connection.read_body(handle).await

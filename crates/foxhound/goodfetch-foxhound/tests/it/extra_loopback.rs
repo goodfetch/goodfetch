@@ -110,7 +110,8 @@ fn answer(params: &Value, blocked: &[&str]) -> Value {
 
 /// Without a block, each Session sends from the next address in turn
 /// across the blocks, robots.txt from the first, and nothing reaches the
-/// site from another address.
+/// site from another address. Growth is `eager`, so each page, drawn while
+/// no other is in flight, opens a Session of its own.
 ///
 /// Covers: story:4-108, row:SA-25, story:4-44
 #[test]
@@ -123,12 +124,14 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
         .collect();
     let mut engine = crate::site::engine_on(&env, &proving_ground);
+    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.4"]);
+    settings["session"] = json!({ "pool": { "growth": "eager" } });
 
     let report = crawl_with(
         &mut engine,
         "spread",
         &seeds,
-        &settings(&proving_ground, &["127.0.0.2", "127.0.0.4"]),
+        &settings,
         &mut |_, handle| answer(handle, &[]),
     );
     let observations = proving_ground.observations().unwrap();
@@ -293,8 +296,8 @@ fn a_run_that_sets_a_proxy_reaches_the_site_only_through_it_a_replacement_from_a
             .collect()
     };
     // The first Session read robots.txt before its page, which the block
-    // retired it on; the other two pages went to two more Sessions, the
-    // replacement among them, each on a sticky session of its own.
+    // retired it on; the other two pages went to its replacement, opened
+    // on demand and kept, on a sticky session of its own (#2178).
     let left = pages.map(left_from);
     let stickies: BTreeSet<Option<&str>> =
         left.iter().flatten().map(|(sticky, _)| *sticky).collect();
@@ -308,7 +311,7 @@ fn a_run_that_sets_a_proxy_reaches_the_site_only_through_it_a_replacement_from_a
             stickies.contains(&None),
             exits.len(),
         ),
-        (BTreeSet::from([ip("127.0.0.1")]), [1; 3], true, 3, false, 3),
+        (BTreeSet::from([ip("127.0.0.1")]), [1; 3], true, 2, false, 2),
         "{report}\n{relays:?}"
     );
 }

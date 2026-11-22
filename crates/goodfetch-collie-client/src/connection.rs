@@ -34,7 +34,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
-use crate::call::{Call, Query, Reply};
+use crate::call::{self, Call, Query, Reply};
+use crate::call_bounds::CallBounds;
 use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
@@ -159,12 +160,17 @@ struct Inner {
 impl ClientConnection {
     /// Opens a Connection to the engine at `endpoint` over `network`, on
     /// `runtime`, and says `hello`, waiting for its answer as long as it
-    /// takes.
+    /// takes. The Connection holds its calls within the bounds `hello`'s
+    /// own settings give, `connection.max_pending_calls` and
+    /// `connection.max_queued_write_bytes`, and sends at most the
+    /// `max_calls_in_flight` its engine answers at once, queuing the rest
+    /// (issue 3189).
     ///
     /// # Errors
     ///
-    /// `connection_lost` when the transport cannot reach the engine,
-    /// and whatever `hello`'s call fails with.
+    /// `setting_invalid` for a bound that is no whole number of 1 or more,
+    /// before the engine is reached, `connection_lost` when the transport
+    /// cannot reach the engine, and whatever `hello`'s call fails with.
     pub async fn open(
         runtime: ConnectionRuntime,
         network: &Network,
@@ -207,6 +213,7 @@ impl ClientConnection {
         trace_context_source: Option<Arc<dyn TraceContextSource>>,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
+        let bounds = CallBounds::of(&hello.settings)?;
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
@@ -240,6 +247,7 @@ impl ClientConnection {
             &handle,
             &tasks,
             streams.clone(),
+            bounds,
             trace_context_source,
         );
         let published = Published::new(
@@ -268,7 +276,12 @@ impl ClientConnection {
             None => said.await,
         };
         match said {
-            Ok(said) => Ok((connection, said)),
+            Ok(said) => {
+                if let Some(cap) = said.max_calls_in_flight {
+                    connection.0.sender.cap_calls_in_flight(cap);
+                }
+                Ok((connection, said))
+            }
             Err(error) => {
                 connection.close().await?;
                 Err(match (error, deadline) {
@@ -414,7 +427,7 @@ impl ClientConnection {
         self.0.sender.call(Outgoing {
             method,
             params,
-            timeout,
+            timeout: timeout.map(call::kept_by_client),
             reply,
             notified: Some(notified),
         });

@@ -170,3 +170,109 @@ fn a_workspace_another_user_owns_is_refused_when_nothing_trusts_it() {
         outcome.stderr
     );
 }
+
+/// `xtask dco` over `base..head`, recording into the gate's records `records`.
+fn dco_recorded(workspace: &Workspace, base: &str, head: &str) -> crate::workspace::Outcome {
+    workspace.xtask(&[
+        "dco",
+        "--base",
+        base,
+        "--head",
+        head,
+        "--records",
+        "records",
+    ])
+}
+
+/// A commit's sign-off is part of the commit, so a verdict on it holds for
+/// as long as the rule does: the pre-push hook judges a pushed commit, and
+/// `just merge` does not judge it again (ADR 0135's amendment of 2026-11-22).
+#[test]
+fn a_commit_judged_green_before_is_not_judged_again() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let first = commit(&workspace, &["Add a page", SIGNED]);
+    let pushed = commit(&workspace, &["Fix the page", SIGNED]);
+    let before = dco_recorded(&workspace, &base, &pushed);
+    let head = commit(&workspace, &["Fix it again", SIGNED]);
+
+    let outcome = dco_recorded(&workspace, &base, &head);
+
+    assert_eq!(
+        (before.code, before.notes()),
+        (0, vec![]),
+        "{}",
+        before.stderr
+    );
+    assert_eq!(
+        (outcome.code, outcome.findings(), outcome.notes()),
+        (
+            0,
+            vec![],
+            vec![
+                finding("judged-green-before", &pushed),
+                finding("judged-green-before", &first),
+            ]
+        ),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// A red verdict is never kept: the commit is judged again on every run.
+#[test]
+fn a_commit_judged_red_is_judged_again() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let unsigned = commit(&workspace, &["Fix the page"]);
+    dco_recorded(&workspace, &base, &unsigned);
+
+    let outcome = dco_recorded(&workspace, &base, &unsigned);
+
+    assert_eq!(
+        (outcome.code, outcome.findings(), outcome.notes()),
+        (1, vec![finding("missing-sign-off", &unsigned)], vec![]),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// The merge of `main`'s tip that `just merge` makes is a commit no layer
+/// judged yet: the gate judges it, and only it.
+#[test]
+fn the_gates_merge_commit_is_judged_and_the_pushed_commits_are_not() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    workspace.git(&["checkout", "--quiet", "-b", "topic"]);
+    let pushed = commit(&workspace, &["Add a page", SIGNED]);
+    dco_recorded(&workspace, &base, &pushed);
+    workspace.git(&["checkout", "--quiet", "-"]);
+    let tip = commit(&workspace, &["Add another page", SIGNED]);
+    workspace.git(&["checkout", "--quiet", "topic"]);
+    workspace.git(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge main",
+        &tip,
+    ]);
+    let merge = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+
+    let outcome = dco_recorded(&workspace, &tip, &merge);
+    let again = dco_recorded(&workspace, &tip, &merge);
+
+    assert_eq!(
+        (outcome.code, outcome.notes()),
+        (0, vec![finding("judged-green-before", &pushed)]),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(
+        again.notes(),
+        vec![
+            finding("judged-green-before", &merge),
+            finding("judged-green-before", &pushed),
+        ]
+    );
+}

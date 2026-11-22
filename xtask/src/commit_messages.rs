@@ -5,7 +5,8 @@
 //! recorded starting point keep their messages, since history is never
 //! rewritten, and merge commits are not judged, as the DCO check does not
 //! judge them. Neither are the commits `ci/commit-messages.toml` lists, each
-//! by its full hash with a one-line reason.
+//! by its full hash with a one-line reason. A commit judged green before on
+//! the same rules is not judged again (`judged_commits`).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -18,6 +19,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::judged_commits::{self, JudgedCommits, Judgment};
 
 /// The committed list of commits whose messages are not judged.
 pub(crate) const EXCEPTIONS: &str = "ci/commit-messages.toml";
@@ -68,7 +70,25 @@ const TYPES: [&str; 11] = [
     "build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test",
 ];
 
-pub(crate) fn check(root: &Path, base: &str, head: &str, since: &str) -> Result<Vec<Finding>> {
+/// The check's name in the gate's record of judged commits.
+const CHECK: &str = "commit-messages";
+
+/// The rules a verdict follows from beside the commit, the exceptions and
+/// the starting point aside: this file, which holds them all, so a change
+/// to them judges every commit again.
+const RULES: &str = include_str!("commit_messages.rs");
+
+/// Judges each commit from `base` to `head` that no layer judged green
+/// before in the gate's records `records`, on the same rules, exceptions
+/// and starting point, and records those it judges green there; with no
+/// `records`, judges every commit and records none.
+pub(crate) fn check(
+    root: &Path,
+    base: &str,
+    head: &str,
+    since: &str,
+    records: Option<&Path>,
+) -> Result<Judgment> {
     let exceptions = read_exceptions(root)?;
     let mut findings: Vec<Finding> = exceptions
         .entries
@@ -91,29 +111,54 @@ pub(crate) fn check(root: &Path, base: &str, head: &str, since: &str) -> Result<
         root,
         &[
             "log",
-            "--no-merges",
-            "--format=%H %s",
+            "--format=%H%x1f%P%x1f%s",
             &format!("{base}..{head}"),
             "--not",
             since,
             "--",
         ],
     )?;
-    findings.extend(log
+    let commits: Vec<(judged_commits::Commit<'_>, &str)> = log
         .lines()
-        .filter_map(|line| line.split_once(' '))
-        .filter(|(id, subject)| !excepted.contains(id) && !is_conventional(subject))
-        .map(|(id, subject)| {
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, '\u{1f}');
+            let (id, parents, subject) = (fields.next()?, fields.next()?, fields.next()?);
+            Some((judged_commits::Commit::parse(id, parents), subject))
+        })
+        .collect();
+    let listed: Vec<judged_commits::Commit<'_>> =
+        commits.iter().map(|(commit, _)| *commit).collect();
+    let excepted_list: Vec<&str> = excepted.iter().copied().collect();
+    let judged = JudgedCommits::read(
+        records,
+        CHECK,
+        &[
+            RULES.as_bytes(),
+            since.as_bytes(),
+            excepted_list.join(" ").as_bytes(),
+        ],
+    )?;
+    let (notes, left) = judged.split(&listed);
+    findings.extend(commits
+        .iter()
+        .filter(|(commit, subject)| {
+            !commit.merge
+                && left.iter().any(|left| left.id == commit.id)
+                && !excepted.contains(commit.id)
+                && !is_conventional(subject)
+        })
+        .map(|(commit, subject)| {
             Finding::new(
                 "unconventional-message",
-                id,
+                commit.id,
                 format!(
                     "`{subject}` is not `<type>[(<scope>)][!]: <description>`, with a type of {} (CONTRIBUTING.md)",
                     TYPES.join(", ")
                 ),
             )
         }));
-    Ok(findings)
+    judged.add(&left, &findings)?;
+    Ok(Judgment { notes, findings })
 }
 
 /// Whether `subject` is `<type>[(<scope>)][!]: <description>`.

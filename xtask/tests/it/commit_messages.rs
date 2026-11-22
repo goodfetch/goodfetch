@@ -200,3 +200,61 @@ fn invalid_entry_is_an_error(#[case] commit_value: &str, #[case] reason: Option<
     );
     assert_eq!(outcome.code, 1);
 }
+
+/// `commit-messages` over `base..head`, from `base`, recording into the
+/// gate's records `records`.
+fn commit_messages_recorded(workspace: &Workspace, base: &str, head: &str) -> Outcome {
+    workspace.xtask(&[
+        "commit-messages",
+        "--base",
+        base,
+        "--head",
+        head,
+        "--since",
+        base,
+        "--records",
+        "records",
+    ])
+}
+
+/// A commit's subject is part of the commit, so a green verdict holds for the
+/// next layer on the same rules (ADR 0135's amendment of 2026-11-22).
+#[test]
+fn a_commit_judged_green_before_is_not_judged_again() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let pushed = commit(&workspace, "feat: add a page");
+    commit_messages_recorded(&workspace, &base, &pushed);
+    let head = commit(&workspace, "fix: mend the page");
+
+    let outcome = commit_messages_recorded(&workspace, &base, &head);
+
+    assert_eq!(
+        (outcome.code, outcome.findings(), outcome.notes()),
+        (0, vec![], vec![finding("judged-green-before", &pushed)]),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// The exceptions are part of the rules a verdict was reached on: once an
+/// entry leaves, the commit it kept is judged again, and fails.
+#[test]
+fn a_verdict_reached_under_other_exceptions_is_judged_again() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let listed = commit(&workspace, "wip: raw observations");
+    write_exceptions(&workspace, &[(&listed, REASON)]);
+    let before = commit_messages_recorded(&workspace, &base, &listed);
+    write_exceptions(&workspace, &[]);
+
+    let outcome = commit_messages_recorded(&workspace, &base, &listed);
+
+    assert_eq!(before.code, 0, "{}", before.stderr);
+    assert_eq!(
+        (outcome.code, outcome.findings(), outcome.notes()),
+        (1, vec![finding("unconventional-message", &listed)], vec![]),
+        "{}",
+        outcome.stderr
+    );
+}

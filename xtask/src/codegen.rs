@@ -77,8 +77,13 @@ use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::naming;
 use layer::Layer;
-pub(crate) use members::{HandleMember, handle_members};
+pub(crate) use members::{HandleMember, handle_entries, handle_members};
 pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
+
+/// The paragraph a Rust or Python member's doc ends with when it serves an
+/// Experimental entry (ADR 0030); TypeScript's carries `@experimental`.
+pub(crate) const EXPERIMENTAL: &str =
+    "Experimental: outside semver until it is promoted (ADR 0030).";
 
 /// Where `goodfetch-protocol`'s committed outputs live.
 const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";

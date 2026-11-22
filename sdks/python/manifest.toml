@@ -12,7 +12,9 @@
 # hand-written member an entry exports that no line lists, and a line
 # naming no such member. A dunder, such as `__enter__`, is the language's:
 # no line has to list it. `xtask sdk-manifests` checks each line's entry,
-# spelling and receiver.
+# spelling and receiver. The docstring and decorators each line's member
+# carries, and the `[[unreached]]` lines, follow the rules of
+# `sdks/typescript/manifest.toml`'s header.
 #
 # Its `[[logger]]` lines list the SDK's logger names (ADR 0078), which are
 # SDK API under semver as names, checked as such by `griffe check` once
@@ -94,6 +96,7 @@ receiver = "(module)"
 member = "AsyncCollie"
 entry = "none"
 reason = "The async API's Connection to Collie's engine (ADR 0090), which `AsyncCollie.connect()` opens."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
 words = ["async", "collie"]
 form = "type"
 
@@ -155,6 +158,7 @@ receiver = "(module)"
 member = "Connecting"
 entry = "none"
 reason = "An `AsyncCollie` being opened, which `AsyncCollie.connect()` answers: awaited, or opened with `async with`."
+only = "Python's opening of its async twin (ADR 0081); TypeScript's and Rust's `connect()` answer the open Connection."
 words = ["connecting"]
 form = "type"
 
@@ -164,6 +168,7 @@ receiver = "(module)"
 member = "Connection"
 entry = "none"
 reason = "The sync interface every Product's Connection type extends (ADR 0095)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["connection"]
 form = "type"
 
@@ -216,6 +221,7 @@ receiver = "(module)"
 member = "AsyncConnection"
 entry = "none"
 reason = "The async interface every Product's Connection type extends (ADR 0095)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["async", "connection"]
 form = "type"
 
@@ -268,6 +274,7 @@ receiver = "(module)"
 member = "Run"
 entry = "none"
 reason = "A Run of the sync API, which `start` opens and any number of threads may share (ADR 0102)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["run"]
 form = "type"
 
@@ -328,6 +335,7 @@ receiver = "(module)"
 member = "AsyncRun"
 entry = "none"
 reason = "A Run of the async API, which `start` opens (ADR 0102)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["async", "run"]
 form = "type"
 
@@ -388,6 +396,7 @@ receiver = "(module)"
 member = "KeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store in the sync API: `run.key_value_store`, whose methods serve the `key_value_store` operations (ADR 0103)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["key", "value", "store"]
 form = "type"
 
@@ -405,6 +414,7 @@ receiver = "(module)"
 member = "AsyncKeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store in the async API, as `KeyValueStore` is (ADR 0103)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["async", "key", "value", "store"]
 form = "type"
 
@@ -422,6 +432,7 @@ receiver = "(module)"
 member = "Sequence"
 entry = "none"
 reason = "A sequence read to its end with `for`, in the sync API, which a method such as `keys` returns."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["sequence"]
 form = "type"
 
@@ -440,6 +451,7 @@ receiver = "(module)"
 member = "AsyncSequence"
 entry = "none"
 reason = "A sequence read to its end with `async for`, as `Sequence` is in the sync API."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["async", "sequence"]
 form = "type"
 
@@ -467,6 +479,7 @@ receiver = "(module)"
 member = "Subscription"
 entry = "none"
 reason = "A listener registered with `on`, which `close()` removes (ADR 0081)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["subscription"]
 form = "type"
 
@@ -485,6 +498,7 @@ receiver = "(module)"
 member = "GoodfetchError"
 entry = "none"
 reason = "The base of every error a Goodfetch SDK raises (ADR 0079), whose generated subclasses each carry one Error code."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["goodfetch", "error"]
 form = "type"
 
@@ -638,6 +652,7 @@ receiver = "(module)"
 member = "EngineChoice"
 entry = "none"
 reason = "Which engine `connect()` reaches (ADRs 0024, 0078): `auto`, `attached`, `daemon` or a `RemoteDaemon`."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["engine", "choice"]
 form = "type"
 
@@ -647,6 +662,7 @@ receiver = "(module)"
 member = "RemoteDaemon"
 entry = "none"
 reason = "A remote Daemon, Exposed or Goodfetch Cloud, and the token its `hello` takes (ADR 0024)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["remote", "daemon"]
 form = "type"
 
@@ -656,7 +672,18 @@ receiver = "(module)"
 member = "EngineInfo"
 entry = "none"
 reason = "The engine a Connection reached, from its reply to `hello` (ADR 0095)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["engine", "info"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "ExperimentalWarning"
+entry = "none"
+reason = "The category of an Experimental member's run-time warning (ADR 0030), re-exported so a program's `warnings` filter names it from its Product's package."
+only = "Python's warning category: TypeScript's warning carries the string type `ExperimentalWarning`, and Rust's is a `tracing` event."
+words = ["experimental", "warning"]
 form = "type"
 
 [[member]]
@@ -665,6 +692,7 @@ receiver = "(module)"
 member = "EngineFallback"
 entry = "none"
 reason = "Why `auto` ran another engine than the Daemon it found, and what to do (ADR 0024)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["engine", "fallback"]
 form = "type"
 
@@ -674,6 +702,7 @@ receiver = "(module)"
 member = "Limits"
 entry = "none"
 reason = "The Limits a program sets on its Connection or on a Run (ADR 0080), which `connect` and `start` send as `usage.set`."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["limits"]
 form = "type"
 
@@ -683,6 +712,7 @@ receiver = "(module)"
 member = "Money"
 entry = "none"
 reason = "A price of `Limits`: an exact `Decimal` amount and its currency (ADR 0080)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["money"]
 form = "type"
 
@@ -692,6 +722,7 @@ receiver = "(module)"
 member = "Prices"
 entry = "none"
 reason = "What each Usage kind may cost, as `Money` (ADR 0080)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["prices"]
 form = "type"
 
@@ -701,6 +732,7 @@ receiver = "(module)"
 member = "JSONValue"
 entry = "none"
 reason = "A JSON value, as `json.loads` gives it (ADR 0082)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["json", "value"]
 form = "type"
 
@@ -710,6 +742,7 @@ receiver = "(module)"
 member = "JSONObject"
 entry = "none"
 reason = "A JSON object (ADR 0082)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["json", "object"]
 form = "type"
 
@@ -719,6 +752,7 @@ receiver = "(module)"
 member = "JSONSchema"
 entry = "none"
 reason = "A JSON Schema document written by hand, the way down (ADR 0082)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["json", "schema"]
 form = "type"
 
@@ -728,6 +762,7 @@ receiver = "(module)"
 member = "AIWorkResult"
 entry = "none"
 reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["ai", "work", "result"]
 form = "type"
 
@@ -782,6 +817,7 @@ receiver = "(module)"
 member = "Ended"
 entry = "none"
 reason = "How AI work ended (ADR 0117): `Finished` or `Stopped`."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["ended"]
 form = "type"
 
@@ -791,6 +827,7 @@ receiver = "(module)"
 member = "Finished"
 entry = "none"
 reason = "AI work that finished, with its complete output (ADR 0117), matched by class."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["finished"]
 form = "type"
 
@@ -800,6 +837,7 @@ receiver = "(module)"
 member = "Stopped"
 entry = "none"
 reason = "AI work that stopped before it finished, with its reason and what it had gathered (ADRs 0100 and 0117), matched by class."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["stopped"]
 form = "type"
 
@@ -818,8 +856,19 @@ receiver = "(module)"
 member = "async_connect_over"
 entry = "none"
 reason = "Opens an `AsyncCollie` over a transport a test holds, as `connect_over` opens a `Collie` (ADR 0069)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
 words = ["async", "connect", "over"]
 form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "ExperimentalWarning"
+entry = "none"
+reason = "The category of an Experimental member's run-time warning (ADR 0030), re-exported so a program's `warnings` filter names it from its Product's package."
+only = "Python's warning category: TypeScript's warning carries the string type `ExperimentalWarning`, and Rust's is a `tracing` event."
+words = ["experimental", "warning"]
+form = "type"
 
 [[member]]
 package = "goodfetch_foxhound"
@@ -888,6 +937,7 @@ receiver = "(module)"
 member = "AsyncFoxhound"
 entry = "none"
 reason = "The async API's Connection to Foxhound's engine (ADR 0090), which `AsyncFoxhound.connect()` opens: the client package's `AsyncConnection`, as `AsyncCollie` is (ADR 0084)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
 words = ["async", "foxhound"]
 form = "type"
 
@@ -949,6 +999,7 @@ receiver = "(module)"
 member = "Connecting"
 entry = "none"
 reason = "An `AsyncFoxhound` being opened, which `AsyncFoxhound.connect()` answers: awaited, or opened with `async with`."
+only = "Python's opening of its async twin (ADR 0081); TypeScript's and Rust's `connect()` answer the open Connection."
 words = ["connecting"]
 form = "type"
 
@@ -967,6 +1018,7 @@ receiver = "(module)"
 member = "async_connect_over"
 entry = "none"
 reason = "Opens an `AsyncFoxhound` over a transport a test holds, as `connect_over` opens a `Foxhound` (ADR 0069)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
 words = ["async", "connect", "over"]
 form = "opener"
 
@@ -1642,6 +1694,109 @@ entry = "none"
 reason = "A member of an open tagged union this package does not know (ADR 0099), which the generated models' unions keep."
 words = ["unknown", "member"]
 form = "type"
+
+[[unreached]]
+entries = [
+  "audit.export",
+  "audit.verify",
+  "certs.list",
+  "daemon.health",
+  "daemon.status",
+  "daemon.stop",
+  "engine.info",
+  "events.subscribe",
+  "needs_you.dismiss",
+  "needs_you.list",
+  "run.list",
+  "run.resume",
+  "signing_key.create",
+  "signing_key.directory",
+  "usage.list",
+  "usage.set",
+]
+reason = "Operations of the engine as a whole, on no handle the generators write members on (ADR 0081), and no hand-written member serves them yet. A connection sends `usage.set` for each of its `limits` (ADR 0080), and a start under a Run ID resumes it as `run.resume` does (ADR 0102)."
+
+[[unreached]]
+entries = ["sample.echo", "sample.crawl"]
+reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
+
+[[unreached]]
+entries = ["connection.set_log_level"]
+reason = "The Connection sends it itself, following the `goodfetch.engine` logger's effective level (ADR 0078); no member sets it."
+
+[[unreached]]
+entries = [
+  "dialog.accept",
+  "dialog.dismiss",
+  "page.add_init_script",
+  "page.on_dialog",
+  "page.route",
+  "route.abort",
+  "route.continue",
+  "route.fallback",
+  "route.fetch",
+  "route.fulfill",
+  "session.route",
+]
+reason = "Routes, dialogs and init scripts take a handler or script the program registers, which the generators do not write; issues 1297 and 2266 add their members."
+
+[[unreached]]
+entries = ["download.save_as"]
+reason = "Issue 3288 adds `save_as` to a download kept with the Run."
+
+[[unreached]]
+entries = ["effect.open", "effect.close"]
+reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
+
+[[unreached]]
+entries = ["page.body"]
+reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
+
+[[unreached]]
+entries = ["response.body"]
+reason = "Issue 1476 adds the body of the response a page kept, as `ctx.response.body()`."
+
+[[unreached]]
+entries = [
+  "key_value_store.get",
+  "key_value_store.set",
+  "key_value_store.get_bytes",
+  "key_value_store.set_bytes",
+  "key_value_store.delete",
+]
+reason = "The Python Key-value store has only `keys` so far; issue 1284 covers the Run's Key-value store."
+
+[[unreached]]
+entries = [
+  "crawl.start",
+  "crawl.serve",
+  "crawl_request.enqueue",
+  "crawl_request.enqueue_links",
+  "crawl_request.links",
+  "crawl_request.push",
+  "run.records",
+]
+reason = "The Python SDK has no crawl yet; issue 1468 adds `AsyncCrawl` and `Crawl` with their handlers."
+
+[[unreached]]
+entries = ["dataset.list", "dataset.page", "dataset.query"]
+reason = "No member reads a Run's Datasets yet."
+
+[[unreached]]
+entries = ["run.export", "export.save_as", "export.stream"]
+reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
+
+[[unreached]]
+entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
+reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
+
+[[unreached]]
+entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
+reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+
+[[unreached]]
+entries = ["run.rejected_records"]
+reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[logger]]
 package = "goodfetch-collie-client"

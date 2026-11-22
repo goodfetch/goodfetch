@@ -4,6 +4,7 @@ receiver = "(module)"
 member = "JSONValue"
 entry = "none"
 reason = "A JSON value."
+only = "TypeScript names its JSON type in another package."
 words = ["json", "value"]
 form = "type"
 
@@ -13,5 +14,6 @@ receiver = "(module)"
 member = "connect_over"
 entry = "none"
 reason = "Opens a Connection over a transport a test holds."
+only = "TypeScript's test transport joins later."
 words = ["connect", "over"]
 form = "opener"

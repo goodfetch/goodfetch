@@ -12,6 +12,23 @@
 # it, and a line naming no such member; a member the language's library
 # declares, such as `Disposable`'s `[Symbol.dispose]`, may have a line.
 #
+# A line's member carries its entry's doc text and markers, as a generated
+# member does: its doc holds the entry's catalog description word for word,
+# wrapped as its lines like, and the member of an Experimental entry
+# carries `@experimental`, Rust's and Python's ADR 0030's Experimental
+# line, and that of a deprecated entry `@deprecated`, Rust's
+# `#[deprecated]` and Python's `@deprecated`; `xtask sdk-exports` refuses
+# one lacking them. Every catalog entry a program may call reaches a public
+# member of each language's SDK: a line serving it, or a member the
+# generator writes on a handle, its reads and its `on` included. The
+# private generated operations table and the raw `call` reach none. An
+# entry that reaches no member in a language is named by an `[[unreached]]`
+# line of one of that language's manifests, with the `reason` it is
+# unreached for, such as the issue that adds its member; `xtask
+# sdk-exports` refuses an entry that reaches none and no such line names,
+# and a line naming an entry a member serves, one only a person may call,
+# or no catalog entry.
+#
 # Forms: `opener` (a round trip that returns a value the caller closes),
 # `round_trip`, `read` (answered by the SDK without a round trip), `closer`
 # (the idempotent `close()` and its scoped form), `runtime` (what a
@@ -131,6 +148,7 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCrawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -2264,6 +2282,7 @@ receiver = "(module)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl"]
 form = "type"
 
@@ -2273,6 +2292,7 @@ receiver = "(module)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to (ADR 0103)."
+only = "Python's crawl declaration joins with #1468."
 words = ["dataset"]
 form = "type"
 
@@ -2282,6 +2302,7 @@ receiver = "(module)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["label"]
 form = "type"
 
@@ -2291,6 +2312,7 @@ receiver = "(module)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler's attempt holds (ADR 0093): its page and the calls that add to the crawl."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "context"]
 form = "type"
 
@@ -2380,6 +2402,7 @@ receiver = "(module)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound.startCrawl` opens (ADR 0102)."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 
@@ -2422,3 +2445,96 @@ reason = "`Foxhound.startCrawl` opens a crawl's Run; a program never constructs 
 only = "Rust's `CrawlRun` has no constructor at all."
 words = ["crawl", "run"]
 form = "read"
+
+[[unreached]]
+entries = [
+  "audit.export",
+  "audit.verify",
+  "certs.list",
+  "daemon.health",
+  "daemon.status",
+  "daemon.stop",
+  "engine.info",
+  "events.subscribe",
+  "needs_you.dismiss",
+  "needs_you.list",
+  "run.list",
+  "run.resume",
+  "signing_key.create",
+  "signing_key.directory",
+  "usage.list",
+  "usage.set",
+]
+reason = "Operations of the engine as a whole, on no handle the generators write members on (ADR 0081), and no hand-written member serves them yet. `connect` sends `usage.set` for each of its `limits` (ADR 0080), and a start under a Run ID resumes it as `run.resume` does (ADR 0102)."
+
+[[unreached]]
+entries = ["sample.echo", "sample.crawl"]
+reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
+
+[[unreached]]
+entries = ["connection.set_log_level"]
+reason = "The Connection sends it itself, following the level the program's logging asks of the engine's logs (ADR 0078); no member sets it."
+
+[[unreached]]
+entries = [
+  "dialog.accept",
+  "dialog.dismiss",
+  "page.add_init_script",
+  "page.on_dialog",
+  "page.route",
+  "route.abort",
+  "route.continue",
+  "route.fallback",
+  "route.fetch",
+  "route.fulfill",
+  "session.route",
+]
+reason = "Routes, dialogs and init scripts take a handler or script the program registers, which the generators do not write; issues 1297 and 2266 add their members."
+
+[[unreached]]
+entries = ["download.save_as"]
+reason = "Issue 3288 adds `saveAs` to a download kept with the Run."
+
+[[unreached]]
+entries = ["effect.open", "effect.close"]
+reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
+
+[[unreached]]
+entries = ["page.body"]
+reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
+
+[[unreached]]
+entries = ["response.body"]
+reason = "Issue 1476 adds `ctx.response.body()`, the bytes of the response a page kept."
+
+[[unreached]]
+entries = ["key_value_store.keys"]
+reason = "Issue 1284 adds the Key-value store's `keys` to `RunView`."
+
+[[unreached]]
+entries = ["crawl.serve"]
+reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
+
+[[unreached]]
+entries = ["crawl_request.links"]
+reason = "What `enqueueLinks`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
+
+[[unreached]]
+entries = ["dataset.list", "dataset.page", "dataset.query"]
+reason = "No member reads a Run's Datasets yet."
+
+[[unreached]]
+entries = ["run.export", "export.save_as", "export.stream"]
+reason = "Issue 1488 adds `run.export`, whose `Export` has `saveAs` and `stream`."
+
+[[unreached]]
+entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
+reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl."
+
+[[unreached]]
+entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
+reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
+
+[[unreached]]
+entries = ["run.rejected_records"]
+reason = "Issue 1489 adds `rejectedRecords` to a Run read through `openCrawlRun`."

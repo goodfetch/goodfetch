@@ -595,9 +595,17 @@ fn panicked(label: &str, panic: &(dyn Any + Send)) -> Error {
 }
 
 impl Foxhound {
-    /// The start of `crawl`'s Run from `seeds` (`crawl.start`), which
-    /// awaiting sends; [`Crawl::serve`] then serves it. The crawl's
-    /// declarations are checked first, before anything is sent.
+    /// Starts a crawl from its seeds, and answers once its Run is started.
+    /// The engine then leases each work item to the program's handler as a
+    /// `crawl_request.handle` request, and the crawl's Run finishes once
+    /// every work item is done, or, with `crawl.keep_alive`, once
+    /// `run.finish` lets it and every work item is done. A Run ID works as
+    /// `run.start`'s.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Awaiting sends it; [`Crawl::serve`] then serves the Run. The crawl's
+    /// declarations are checked before anything is sent.
     ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, CrawlContext, Foxhound, Seed};
@@ -784,11 +792,27 @@ impl CrawlRun {
         })
     }
 
-    /// The committed Records of `dataset`, in number order from the first
-    /// (`run.records`, ADR 0103): while the Run is live the stream follows
-    /// it, handing each Record once it commits, and it ends once the Run
-    /// ended and every Record was handed. Each is a [`DatasetRecord`],
-    /// its value the Record's JSON. Reading never slows the crawl.
+    /// Reads the committed Records of one Dataset of a crawl's Run in
+    /// number order, from the first, or after the number `after`, which
+    /// resumes a reader from the last Record it handled. Each Record goes
+    /// in a `$/record` notification with its number, its value, its
+    /// request's ID and URL and when it was committed, one per credit
+    /// granted with `$/credit`. While the Run is live it follows the Run,
+    /// sending each Record once it commits; once the Run has ended, or has
+    /// no live writer, and every Record is sent, it answers how many it
+    /// sent and the last one's number. With `through`, such as the number
+    /// `dataset.page` answers as the last committed, it reads no Record
+    /// numbered past it and answers once it sent every Record through it, a
+    /// live Run's included. Records are read from the Run's committed state
+    /// on a connection of their own, so a reader that grants no credit
+    /// never slows the crawl. With `wall` set to `true` it reads only the
+    /// Records whose page was read past a Wall, which their Provenance
+    /// marks, and with `false` only the others (ADR 0052). A Dataset the
+    /// crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Each Record is a [`DatasetRecord`], its value the Record's JSON.
     ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, Foxhound, Seed};

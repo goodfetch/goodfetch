@@ -159,29 +159,46 @@ export class Foxhound implements Connection {
   }
 
   /**
-   * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an interrupted Run resumes it, and one naming a finished Run
-   * returns it as it ended. `finish()` ends it; closing it unfinished stops
-   * it, resumable by its Run ID.
+   * Starts a Run its program drives, and answers once it is started. A Run
+   * ID names the Run for good, and a start under one acts on what the Run
+   * index holds (ADR 0102): no such Run begins it, `new`; an interrupted
+   * Run, stopped, failed, or running with no live writer, resumes from its
+   * committed state at the next run epoch, `resumed`, as `run.resume` does;
+   * a finished Run is answered as it ended with no handler called, `ended`.
+   * A Run live with a writer, in this engine or another, fails with
+   * `run_in_use`; a Run started with other inputs or by another caller with
+   * `run_conflict` listing each difference; a Run the Run index lists whose
+   * state is missing or unreadable with `run_state_unavailable`, never
+   * starting afresh.
+   *
+   * `finish()` ends it; closing it unfinished stops it, resumable by its
+   * Run ID.
+   *
+   * @experimental
    */
   start(options?: FoxhoundStartOptions): Promise<Run> {
     return this.#connection.start(options);
   }
 
   /**
-   * Starts `crawl` from its seeds and returns once its Run is started (ADR
-   * 0093). The engine then leases each work item to the handler of its
-   * Label, on this process's event loop, and the Run finishes once every
-   * work item is done. A `runId` naming an interrupted Run resumes it, and
-   * one naming a finished Run returns it as it ended.
-   * Before anything is sent, a Label without a handler fails with
-   * `label_unhandled`, and a seed whose Label's name `crawl` does not
-   * declare with `label_unknown` (a seed carries its Label's name only),
-   * and a seed whose Payload its Label's schema refuses with
-   * `payload_invalid`, naming each issue's path; the engine checks each
-   * Payload again, its size too (ADR 0082). On an edge runtime, whose request ends before the handlers would run,
-   * it fails first with `edge_handlers_unsupported` (ADR 0049): the crawl
-   * runs as a Recipe on the Daemon instead.
+   * Starts a crawl from its seeds, and answers once its Run is started. The
+   * engine then leases each work item to the program's handler as a
+   * `crawl_request.handle` request, and the crawl's Run finishes once every
+   * work item is done, or, with `crawl.keep_alive`, once `run.finish` lets
+   * it and every work item is done. A Run ID works as `run.start`'s.
+   *
+   * Each work item goes to the handler of its Label, on this process's
+   * event loop (ADR 0093). Before anything is sent, a Label without a
+   * handler fails with `label_unhandled`, and a seed whose Label's name
+   * `crawl` does not declare with `label_unknown` (a seed carries its
+   * Label's name only), and a seed whose Payload its Label's schema
+   * refuses with `payload_invalid`, naming each issue's path; the engine
+   * checks each Payload again, its size too (ADR 0082). On an edge
+   * runtime, whose request ends before the handlers would run, it fails
+   * first with `edge_handlers_unsupported` (ADR 0049): the crawl runs as a
+   * Recipe on the Daemon instead.
+   *
+   * @experimental
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
@@ -233,14 +250,19 @@ export class Foxhound implements Connection {
   }
 
   /**
-   * What the Connection runs with (ADR 0083): each setting under `keys`,
-   * each a key or a prefix of keys such as `timeout`, every one when left
-   * out, with its effective value, the layer and origin that set it and
-   * the layer that locked it, as `goodfetch config explain` shows them: the
-   * Connection's own `settings` over the project file `connect()` read,
-   * configuration and the Operator policy, which each Run it starts
-   * inherits. Fails with `closed` once
-   * the Connection is closed.
+   * Shows each setting's effective value, the layer that set it and the
+   * layer that locked it, from the built-in defaults, the Operator policy,
+   * user configuration, the project configuration given and the run layer:
+   * the Connection's own settings with the run values given over them, or a
+   * live Run's as it opened when `run_id` names one; and lists the keys only
+   * the other Product honours as that Product's.
+   *
+   * What the Connection runs with (ADR 0083), which each Run it starts
+   * inherits: each setting under `keys`, each a key or a prefix of keys
+   * such as `timeout`, every one when left out, with the origin that set
+   * it too, as `goodfetch config explain` shows them, the project file
+   * `connect()` read as the project configuration. Fails with `closed`
+   * once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     return this.#connection.explainSettings(keys);

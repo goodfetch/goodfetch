@@ -37,6 +37,14 @@ form = "opener"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Collie"
+member = "launch"
+entry = "run.start"
+words = ["launch"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
 member = "close"
 entry = "none"
 reason = "Closes the Connection."
@@ -60,3 +68,7 @@ entry = "none"
 reason = "Opens a Connection over a transport a test holds."
 words = ["connect", "over"]
 form = "opener"
+
+[[unreached]]
+entries = ["crawl.start"]
+reason = "The test's SDK has no Foxhound package."

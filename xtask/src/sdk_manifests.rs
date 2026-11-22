@@ -14,13 +14,16 @@
 //!   SDK's manifest, unless its line's `only` says why that SDK lacks it.
 //!
 //! A receiver is the same across SDKs within the same package, the
-//! `@goodfetch/` or `goodfetch-` prefix aside; a Rust `blocking::` twin is
-//! its async receiver, and a Rust crate's root is a TypeScript module's.
-//! A Python receiver, whose package is an import name such as
-//! `goodfetch_collie`, is not yet matched to another SDK's (issue 3115).
+//! `@goodfetch/` or `goodfetch-` prefix aside; a Python package is its import
+//! name, `goodfetch_collie_client` as `collie-client` and a submodule such as
+//! `goodfetch_collie.testing` as the subpath `collie/testing`. A Rust
+//! `blocking::` twin is its async receiver, a Python `Async<Name>` twin is
+//! `<Name>` (ADR 0081), and a Rust crate's root is a TypeScript module's.
 //! `xtask sdk-exports` matches a manifest to the members its SDK exports
-//! ([`exports`]), TypeScript's, Rust's and Python's; their doc text and
-//! markers are issue 2920's next parts.
+//! ([`exports`]), TypeScript's, Rust's and Python's, checks that each
+//! listed member carries its entry's doc text and markers, and that each
+//! entry reaches a public member of every SDK or an `[[unreached]]` line
+//! says why it does not.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -75,6 +78,10 @@ const TYPE: &str = "type";
 const CONSTANT: &str = "constant";
 /// The prefix of a Rust receiver's blocking twin (ADR 0081).
 const BLOCKING: &str = "blocking::";
+/// The prefix of a Python receiver's async twin (ADR 0081).
+const ASYNC: &str = "Async";
+/// The prefix of a Python package's import name.
+const PYTHON_PREFIX: &str = "goodfetch_";
 /// The receiver of a member at a TypeScript module's top level; a Rust
 /// crate's root is `(crate)`.
 const MODULE: &str = "(module)";
@@ -87,6 +94,16 @@ enum Language {
     Python,
 }
 
+impl Language {
+    fn name(self) -> &'static str {
+        match self {
+            Self::TypeScript => "TypeScript",
+            Self::Rust => "Rust",
+            Self::Python => "Python",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Catalog {
     operations: Vec<Operation>,
@@ -97,12 +114,50 @@ struct Operation {
     name: String,
     #[serde(default)]
     reach: Option<String>,
+    /// Its doc text, which each member serving it carries.
+    #[serde(default)]
+    description: String,
+    /// `experimental` or `stable`.
+    #[serde(default)]
+    stability: Option<String>,
+    /// Its deprecation, `null` when it is not deprecated.
+    #[serde(default)]
+    deprecated: Option<serde_json::Value>,
+}
+
+impl Operation {
+    fn person_only(&self) -> bool {
+        self.reach.as_deref() == Some(PERSON_ONLY)
+    }
+}
+
+/// The catalog, read from `root`.
+fn catalog(root: &Path) -> Result<Catalog> {
+    let path = root.join(CATALOG);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 #[derive(Deserialize)]
 struct Manifest {
     #[serde(rename = "member", default)]
     members: Vec<Member>,
+    /// The entries no member of the SDK's language serves yet.
+    #[serde(default)]
+    unreached: Vec<Unreached>,
+}
+
+/// An `[[unreached]]` line: entries no public member of the language's SDK
+/// serves, and why.
+#[derive(Deserialize)]
+struct Unreached {
+    entries: Vec<String>,
+    #[expect(
+        dead_code,
+        reason = "required, so a line without its reason fails to parse; no check reads it"
+    )]
+    reason: String,
 }
 
 #[derive(Deserialize)]
@@ -127,17 +182,41 @@ impl Member {
         self.words.join("_")
     }
 
-    /// Its receiver and package as every SDK names them.
-    fn shared_receiver(&self) -> (&str, &str) {
-        let package = self
-            .package
-            .strip_prefix("@goodfetch/")
-            .or_else(|| self.package.strip_prefix("goodfetch-"))
-            .unwrap_or(&self.package);
-        let receiver = self
-            .receiver
-            .strip_prefix(BLOCKING)
-            .unwrap_or(&self.receiver);
+    /// Its package and receiver as every SDK names them, the line being
+    /// `language`'s: `collie-client` for `@goodfetch/collie-client`,
+    /// `goodfetch-collie-client` and `goodfetch_collie_client`, and
+    /// `collie/testing` for `goodfetch_collie.testing`; `Run` for Rust's
+    /// `blocking::Run` and Python's `AsyncRun` (ADR 0081).
+    fn shared_receiver(&self, language: Language) -> (String, &str) {
+        let package = match language {
+            Language::Python => {
+                let module = self
+                    .package
+                    .strip_prefix(PYTHON_PREFIX)
+                    .unwrap_or(&self.package);
+                let mut path = module.split('.');
+                let first = path.next().unwrap_or_default().replace('_', "-");
+                std::iter::once(first)
+                    .chain(path.map(str::to_owned))
+                    .collect::<Vec<_>>()
+                    .join("/")
+            }
+            Language::TypeScript | Language::Rust => self
+                .package
+                .strip_prefix("@goodfetch/")
+                .or_else(|| self.package.strip_prefix("goodfetch-"))
+                .unwrap_or(&self.package)
+                .to_owned(),
+        };
+        let receiver = match language {
+            Language::Rust => self.receiver.strip_prefix(BLOCKING),
+            Language::Python => self
+                .receiver
+                .strip_prefix(ASYNC)
+                .filter(|name| name.starts_with(|first: char| first.is_ascii_uppercase())),
+            Language::TypeScript => None,
+        }
+        .unwrap_or(&self.receiver);
         let receiver = if receiver == CRATE { MODULE } else { receiver };
         (package, receiver)
     }
@@ -149,14 +228,12 @@ struct Listed {
     members: Vec<Member>,
 }
 
-/// The lines of the manifest at `manifest`, relative to `root`.
-fn read(root: &Path, manifest: &str) -> Result<Vec<Member>> {
+/// The manifest at `manifest`, relative to `root`.
+fn read(root: &Path, manifest: &str) -> Result<Manifest> {
     let path = root.join(manifest);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed: Manifest =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(parsed.members)
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 fn subject(path: &str, member: &Member) -> String {
@@ -209,11 +286,7 @@ fn generated_name(language: Language, words: &str) -> Option<String> {
 }
 
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
-    let path = root.join(CATALOG);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let catalog: Catalog =
-        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let catalog = catalog(root)?;
     let reach: BTreeMap<&str, Option<&str>> = catalog
         .operations
         .iter()
@@ -225,7 +298,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         listed.push(Listed {
             path: manifest,
             language,
-            members: read(root, manifest)?,
+            members: read(root, manifest)?.members,
         });
     }
     let mut findings = Vec::new();
@@ -300,7 +373,7 @@ fn check_entries(
                 ),
             ));
         }
-        let (_, receiver) = member.shared_receiver();
+        let (_, receiver) = member.shared_receiver(manifest.language);
         let written = generated.iter().any(|written| {
             written.receiver == receiver
                 && written.entry == member.entry
@@ -327,10 +400,10 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
         .iter()
         .filter(|other| other.language != manifest.language)
     {
-        let mut words: BTreeMap<(&str, &str), BTreeSet<&[String]>> = BTreeMap::new();
+        let mut words: BTreeMap<(String, &str), BTreeSet<&[String]>> = BTreeMap::new();
         for member in &other.members {
             words
-                .entry(member.shared_receiver())
+                .entry(member.shared_receiver(other.language))
                 .or_default()
                 .insert(&member.words);
         }
@@ -339,7 +412,8 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
             .iter()
             .filter(|member| member.only.is_none())
         {
-            let Some(held) = words.get(&member.shared_receiver()) else {
+            let shared = member.shared_receiver(manifest.language);
+            let Some(held) = words.get(&shared) else {
                 continue;
             };
             if !held.contains(member.words.as_slice()) {
@@ -350,7 +424,7 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
                         "{} lists no member of the words {:?} on `{}`; add it there, or say why only this SDK has it in the line's `only` (ADR 0099)",
                         other.path,
                         member.words,
-                        member.shared_receiver().1
+                        shared.1
                     ),
                 ));
             }

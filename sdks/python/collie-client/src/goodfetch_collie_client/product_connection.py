@@ -14,11 +14,17 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import anyio
+import anyio.to_thread
 
 from goodfetch_collie_client._deployment_variables import check_deployment_variables
+from goodfetch_collie_client._installed_executables import (
+    PickedClient,
+    would_be_the_pick,
+)
 from goodfetch_collie_client._relink import Reconnect
 from goodfetch_collie_client._rpc import ChannelBounds, bounds_of, phase_exceeded
 from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
@@ -37,7 +43,6 @@ from goodfetch_collie_client.engine_choice import (
     reach_engine,
 )
 from goodfetch_collie_client.generated.connection import PRODUCT_VERSION
-from goodfetch_collie_client.generated.models import Product
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
@@ -57,7 +62,7 @@ if TYPE_CHECKING:
         EngineChoice,
         RuntimeFile,
     )
-    from goodfetch_collie_client.generated.models import RunLimit
+    from goodfetch_collie_client.generated.models import Product, RunLimit
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -263,7 +268,8 @@ async def _open_refusable(
             if error.details.get("handover") is True:
                 daemon = await _pick_of(runtime_file, started_at, opening)
                 continue
-            fix = f"{error.fix or ''} {await _refusal_fix(product, env)}".strip()
+            added = await _refusal_fix(product, env, runtime_file.home)
+            fix = f"{error.fix or ''} {added}".strip()
             if not auto:
                 error.fix = fix
                 raise
@@ -323,15 +329,15 @@ async def _pick_of(
     )
 
 
-async def _refusal_fix(product: ProductPackage, env: Mapping[str, str]) -> str:
+async def _refusal_fix(
+    product: ProductPackage, env: Mapping[str, str], home: str
+) -> str:
     """What a refusal's `fix` adds for `product`'s Client (ADR 0098).
 
     As the engine words it: its executable's `daemon restart`, given by its
-    path, and Foxhound at this version or newer for Collie, whose executable
-    is no major's pick while a Foxhound of the major is installed. The SDK
-    does not read which executables are installed, so it names Foxhound for
-    every Collie Client, as the sentence's own condition says. With no
-    executable at its path, it is the fix that installs one.
+    path, and, where that executable would still not be its major's pick by
+    the executables installed in `home`, Foxhound at this version or newer.
+    With no executable at its path, it is the fix that installs one.
     """
     location = locate_engine(env, product)
     path = location.path
@@ -339,7 +345,9 @@ async def _refusal_fix(product: ProductPackage, env: Mapping[str, str]) -> str:
         return location.not_found_fix
     shown = f'"{path}"' if any(character.isspace() for character in path) else path
     restart = f"Run `{shown} daemon restart` to restart the Daemon on its major's pick."
-    if product.needs is Product.foxhound:
+    client = PickedClient(product.needs, PRODUCT_VERSION)
+    now = datetime.now(UTC)
+    if await anyio.to_thread.run_sync(would_be_the_pick, client, home, env, now):
         return restart
     return (
         f"{restart} {product.name}'s executable would still not run the Daemon "

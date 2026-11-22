@@ -17,9 +17,10 @@ TypeScript's `engine-choice.test.ts` is its twin.
 
 import json
 import logging
+import os
 import socket
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import anyio
@@ -614,15 +615,41 @@ HANDS_OVER = "sdk-python/connect/daemon-hands-over.json"
 def restart_fix(path: str) -> str:
     """What a refusal's `fix` adds for a Collie Client whose executable is `path`.
 
-    Its `daemon restart`, and Foxhound at its version or newer, since a
-    Foxhound of the major would still be the pick (ADR 0098).
+    Its `daemon restart`, as that executable would be its major's pick (ADR
+    0098).
     """
-    return (
-        f"Run `{path} daemon restart` to restart the Daemon on its major's pick."
-        " Collie's executable would still not run the Daemon while a Foxhound of"
-        " the major is installed: install Foxhound 0.0.0 or newer (`pip install"
-        " goodfetch-foxhound`) and run its `daemon restart`."
-    )
+    return f"Run `{path} daemon restart` to restart the Daemon on its major's pick."
+
+
+FOXHOUND_FIX = (
+    "Collie's executable would still not run the Daemon while a Foxhound of the"
+    " major is installed: install Foxhound 0.0.0 or newer (`pip install"
+    " goodfetch-foxhound`) and run its `daemon restart`."
+)
+"""What a refusal's `fix` adds after the restart while a Foxhound is installed."""
+
+
+def install_foxhound(home: Path) -> None:
+    """Records a Foxhound executable at 0.0.0 in `home`'s list of installed executables.
+
+    At a file still at its path, as its own run records it (ADR 0098).
+    """
+    path = home / "goodfetch-foxhound"
+    path.write_bytes(b"foxhound")
+    modified = int(datetime(2026, 1, 2, 8, 0, 0, tzinfo=UTC).timestamp()) * 10**9
+    os.utime(path, ns=(modified, modified))
+    foxhound: dict[str, object] = {
+        "kind": "product_executable",
+        "product": "foxhound",
+        "product_version": "0.0.0",
+        "path": str(path),
+        "size": len(b"foxhound"),
+        "modified_at": "2026-01-02T08:00:00Z",
+        "pins": [],
+        "last_seen": datetime.now(UTC).isoformat(),
+    }
+    document: dict[str, object] = {"format_version": "0.1", "executables": [foxhound]}
+    (home / "installed-executables.json").write_text(json.dumps(document))
 
 
 @pytest.mark.covers("story:11-9", "story:11-290")
@@ -743,7 +770,7 @@ async def test_fails_with_the_refusal_under_engine_daemon_its_fix_naming_restart
         assert played == 0
     with client_case.check(
         "connect() raises the refusal, its fix naming this executable's daemon"
-        " restart and Foxhound"
+        " restart alone, with no Foxhound installed"
     ):
         assert isinstance(error, ProtocolVersionUnsupportedError)
         assert error.fix == (
@@ -755,6 +782,26 @@ async def test_fails_with_the_refusal_under_engine_daemon_its_fix_naming_restart
         }
     with client_case.check("nothing is logged, and no Attached engine started"):
         assert logged(caplog) == []
+
+
+@pytest.mark.covers("story:11-293", "error:protocol_version_unsupported")
+@three_ways
+async def test_names_foxhound_in_the_refusals_fix_while_a_foxhound_is_installed(
+    way: Way, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """A Foxhound of the major outranks Collie's executable, so the fix names it."""
+    env = scripted_engine_env(test_env, product, ATTACHED)
+    daemon = start_scripted_daemon(test_env, VERSION_REFUSED, "socket")
+    install_foxhound(test_env.home)
+
+    error = await failure(open_collie(way, env, engine="daemon"))
+
+    assert await exit_code(daemon.wait) == 0
+    assert isinstance(error, ProtocolVersionUnsupportedError)
+    assert error.fix == (
+        f"{VERSION_FIX} {restart_fix(env['GOODFETCH_COLLIE_ENGINE_PATH'])}"
+        f" {FOXHOUND_FIX}"
+    )
 
 
 @pytest.mark.covers("story:11-295", "error:protocol_version_unsupported")

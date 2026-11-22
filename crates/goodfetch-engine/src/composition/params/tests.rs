@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_protocol::page::read::PageReadParams;
 use rstest::rstest;
 use serde::Deserialize;
 
@@ -65,6 +66,49 @@ fn params_of_another_shape_are_invalid_params(#[case] json: &str) {
         .unwrap_err();
 
     assert_eq!(error.code(), "invalid_params", "{error:?}");
+}
+
+/// A `page.read`'s fields read only from objects at every depth, and each
+/// `kind` only by its name, as the schema gives them (issue 3324).
+#[rstest]
+#[case::a_field_an_array(r#"{"t":[{"kind":"css","selector":"h1"}]}"#)]
+#[case::a_locator_an_array(r#"{"t":{"locator":["css","h1"]}}"#)]
+#[case::a_list_an_array(r#"{"t":{"list":[{"kind":"css","selector":"li"}]}}"#)]
+#[case::a_rows_field_an_array(
+    r#"{"t":{"rows":{"kind":"css","selector":"li"},"fields":{"a":[{"kind":"css","selector":"a"}]}}}"#
+)]
+#[case::a_match_an_array(r#"{"t":{"locator":{"kind":"css","selector":"h1"},"match":["(a)"]}}"#)]
+#[case::a_locator_kind_by_index(r#"{"t":{"locator":{"kind":1,"selector":"//h1"}}}"#)]
+#[case::a_transform_kind_by_index(
+    r#"{"t":{"locator":{"kind":"css","selector":"h1"},"transform":{"kind":1,"locale":"fr"}}}"#
+)]
+fn page_read_fields_the_schema_refuses_are_invalid_params(#[case] fields: &str) {
+    let work = CountedWork::default();
+    let json = format!(r#"{{"page_id":"page-a","fields":{fields}}}"#);
+    let error = Arrived::new(Some(&json), &work)
+        .params()
+        .read::<PageReadParams>()
+        .unwrap_err();
+
+    assert_eq!(error.code(), "invalid_params", "{error:?}");
+}
+
+/// The same fields as the schema gives them read.
+#[test]
+fn page_read_fields_as_the_schema_gives_them_read() {
+    let work = CountedWork::default();
+    let json = r#"{"page_id":"page-a","fields":{
+        "title":{"locator":{"kind":"xpath","selector":"//h1"},"match":{"pattern":"(a)"},"transform":{"kind":"number","locale":"fr"}},
+        "links":{"list":{"locator":{"kind":"css","selector":"li"}}},
+        "rows":{"rows":{"kind":"css","selector":"li"},"fields":{"a":{"locator":{"kind":"css","selector":"a"}}}}
+    }}"#;
+
+    let read = Arrived::new(Some(json), &work)
+        .params()
+        .read::<PageReadParams>()
+        .unwrap();
+
+    assert_eq!(read, serde_json::from_str::<PageReadParams>(json).unwrap());
 }
 
 #[test]

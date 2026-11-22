@@ -19,8 +19,9 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
-use super::{Language, MANIFESTS, Member};
+use super::{Language, MANIFESTS, Manifest, Member, Operation};
 use crate::check::Finding;
+use crate::codegen;
 
 mod rust;
 
@@ -51,21 +52,210 @@ struct Exported {
     /// Declared by the language's library, such as `Disposable`'s
     /// `[Symbol.dispose]`: a line may name it and none has to.
     library: bool,
+    /// Its doc text: TypeScript's doc comment without its tags, Rust's `///`
+    /// lines, Python's docstring.
+    #[serde(default)]
+    doc: String,
+    /// TypeScript's tag names, such as `experimental`, and `deprecated` for
+    /// Rust's `#[deprecated]` or Python's `@deprecated`.
+    #[serde(default)]
+    markers: Vec<String>,
 }
 
+/// The marker of a member serving a deprecated entry, in every language,
+/// and TypeScript's of one serving an Experimental entry.
+const DEPRECATED: &str = "deprecated";
+const EXPERIMENTAL_TAG: &str = "experimental";
+/// The catalog's stability of an Experimental entry.
+const EXPERIMENTAL: &str = "experimental";
+/// The languages, in the order their findings come.
+const LANGUAGES: [Language; 3] = [Language::TypeScript, Language::Rust, Language::Python];
+
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
+    let catalog = super::catalog(root)?;
+    let operations: BTreeMap<&str, &Operation> = catalog
+        .operations
+        .iter()
+        .map(|operation| (operation.name.as_str(), operation))
+        .collect();
+    let generated = codegen::handle_entries(root)?;
     let mut findings = Vec::new();
-    for (manifest, language) in MANIFESTS {
-        let exported = exports(root, manifest, language)?;
-        compare(
-            manifest,
+    let mut manifests = Vec::new();
+    for (path, language) in MANIFESTS {
+        let exported = exports(root, path, language)?;
+        let manifest = super::read(root, path)?;
+        compare(path, language, &manifest.members, &exported, &mut findings);
+        carried(
+            path,
             language,
-            &super::read(root, manifest)?,
+            &manifest.members,
             &exported,
+            &operations,
+            &mut findings,
+        );
+        manifests.push((path, language, manifest));
+    }
+    for language in LANGUAGES {
+        let of_language: Vec<(&str, &Manifest)> = manifests
+            .iter()
+            .filter(|(_, of, _)| *of == language)
+            .map(|(path, _, manifest)| (*path, manifest))
+            .collect();
+        reached(
+            language,
+            &of_language,
+            &operations,
+            &generated,
             &mut findings,
         );
     }
     Ok(findings)
+}
+
+/// `text` with each run of whitespace as one space, so a doc wraps its
+/// lines as it likes.
+fn flattened(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Fails each line of `manifest` whose member lacks its entry's doc text,
+/// or the marker of its Experimental or deprecated entry (ADR 0099): its doc
+/// holds the entry's description, however it wraps it; an Experimental
+/// entry's member carries TypeScript's tag `@experimental`, or the
+/// Experimental line of a Rust or Python doc; a deprecated entry's carries
+/// TypeScript's tag `@deprecated`, Rust's `#[deprecated]` or Python's
+/// `@deprecated`.
+fn carried(
+    manifest: &str,
+    language: Language,
+    members: &[Member],
+    exported: &[Exported],
+    operations: &BTreeMap<&str, &Operation>,
+    findings: &mut Vec<Finding>,
+) {
+    for member in members {
+        let Some(operation) = operations.get(member.entry.as_str()) else {
+            continue;
+        };
+        let Some(found) = exported.iter().find(|found| {
+            !found.generated
+                && !found.library
+                && found.entry == member.package
+                && found.receiver == member.receiver
+                && found.member == member.name
+        }) else {
+            continue;
+        };
+        let subject = super::subject(manifest, member);
+        let doc = flattened(&found.doc);
+        let description = flattened(&operation.description);
+        if !doc.contains(&description) {
+            findings.push(Finding::new(
+                "missing-doc",
+                subject.clone(),
+                format!(
+                    "its doc lacks `{}`'s description; copy it in: \"{description}\" (ADR 0099)",
+                    member.entry
+                ),
+            ));
+        }
+        let experimental = match language {
+            Language::TypeScript => found.markers.iter().any(|tag| tag == EXPERIMENTAL_TAG),
+            Language::Rust | Language::Python => doc.contains(codegen::EXPERIMENTAL),
+        };
+        if operation.stability.as_deref() == Some(EXPERIMENTAL) && !experimental {
+            let marker = match language {
+                Language::TypeScript => "the TSDoc tag `@experimental`".to_owned(),
+                Language::Rust | Language::Python => {
+                    format!("the line \"{}\"", codegen::EXPERIMENTAL)
+                }
+            };
+            findings.push(Finding::new(
+                "missing-marker",
+                subject.clone(),
+                format!(
+                    "`{}` is Experimental; its doc carries {marker} (ADRs 0030, 0099)",
+                    member.entry
+                ),
+            ));
+        }
+        if operation.deprecated.is_some() && !found.markers.iter().any(|tag| tag == DEPRECATED) {
+            let marker = match language {
+                Language::TypeScript => "the TSDoc tag `@deprecated`",
+                Language::Rust => "`#[deprecated]`",
+                Language::Python => "the `@deprecated` decorator",
+            };
+            findings.push(Finding::new(
+                "missing-marker",
+                subject,
+                format!(
+                    "`{}` is deprecated; the member carries {marker} (ADRs 0047, 0099)",
+                    member.entry
+                ),
+            ));
+        }
+    }
+}
+
+/// Fails each entry of the catalog that no public member of `language`'s
+/// SDK serves and no `[[unreached]]` line of its `manifests` names, and each
+/// such line naming an entry a member serves, one only a person calls, or
+/// none of the catalog's. A member the generator writes on a handle serves
+/// its entry; the generated operations table, which no SDK exports, and the
+/// raw `call` serve none.
+fn reached(
+    language: Language,
+    manifests: &[(&str, &Manifest)],
+    operations: &BTreeMap<&str, &Operation>,
+    generated: &BTreeSet<String>,
+    findings: &mut Vec<Finding>,
+) {
+    let Some((first, _)) = manifests.first() else {
+        return;
+    };
+    let served: BTreeSet<&str> = manifests
+        .iter()
+        .flat_map(|(_, manifest)| manifest.members.iter().map(|member| member.entry.as_str()))
+        .chain(generated.iter().map(String::as_str))
+        .collect();
+    let mut unreached = BTreeSet::new();
+    for (path, manifest) in manifests {
+        for entry in manifest.unreached.iter().flat_map(|line| &line.entries) {
+            unreached.insert(entry.as_str());
+            let (kind, message) = match operations.get(entry.as_str()) {
+                None => ("unknown-entry", "is no operation of the catalog"),
+                Some(operation) if operation.person_only() => (
+                    "person-only",
+                    "only a person calls it, so no SDK reaches it (ADR 0041)",
+                ),
+                Some(_) if served.contains(entry.as_str()) => (
+                    "reached-unreached",
+                    "a member of the SDK serves it; remove it from the line",
+                ),
+                Some(_) => continue,
+            };
+            findings.push(Finding::new(
+                kind,
+                format!("{path} {entry}"),
+                format!("`{entry}` {message} (ADR 0099)"),
+            ));
+        }
+    }
+    let paths: Vec<&str> = manifests.iter().map(|(path, _)| *path).collect();
+    for (name, operation) in operations {
+        if operation.person_only() || served.contains(name) || unreached.contains(name) {
+            continue;
+        }
+        findings.push(Finding::new(
+            "unreached",
+            format!("{first} {name}"),
+            format!(
+                "no public member of the {} SDK serves `{name}`; add one, or name it in an `[[unreached]]` line with its reason in {} (ADR 0099)",
+                language.name(),
+                paths.join(" or ")
+            ),
+        ));
+    }
 }
 
 /// The members the SDK of `manifest` exports.

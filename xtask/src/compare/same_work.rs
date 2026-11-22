@@ -142,9 +142,10 @@ fn samples(done: &Done<'_>) -> bool {
     })
 }
 
-/// Main and sensitivity rows alike.
-fn every_cell(_: &Cell) -> bool {
-    true
+/// Main and sensitivity rows alike, of the matrix's cells: not the
+/// default-cost cells, which the Callgrind cell alone runs (#2438).
+fn every_timed_cell(cell: &Cell) -> bool {
+    cell.default_on().is_none()
 }
 
 /// The cells of stopped runs or trials, not measured.
@@ -203,7 +204,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         site_pages: pages,
         scenarios: ran,
         tools: &Tool::ALL,
-        cells: every_cell,
+        cells: every_timed_cell,
         named: named.as_deref(),
         done: of_trials(&trials.trials),
         stopped: of_stopped(&trials.stopped),
@@ -214,7 +215,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             &trials.syscalls,
             &counted[..],
             &Tool::ALL[..],
-            every_cell as fn(&Cell) -> bool,
+            every_timed_cell as fn(&Cell) -> bool,
             "strace counted no system call, so the run measured nothing",
         ),
         (
@@ -265,7 +266,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             site_pages: *site_pages,
             scenarios: &counted,
             tools: &Tool::ALL,
-            cells: every_cell,
+            cells: every_timed_cell,
             named: named.as_deref(),
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
@@ -404,16 +405,20 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
 
 /// Each measured cell of a pass short of or past its declared trials, one
 /// for a cell that runs one ([`matrix::Cell::one_trial`]), of the cells its
-/// runs named when they named some.
+/// runs named when they named some; the default-cost cells (#2438) too,
+/// where the pass's cells take them.
 fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for (cell, _) in matrix::measured().filter(|(cell, config)| {
-        pass.scenarios.contains(&cell.scenario)
-            && pass.tools.contains(&config.tool())
-            && (pass.cells)(cell)
-            && pass.measured(cell.scenario, cell.name)
-            && !pass.stopped.contains(&(cell.scenario, cell.name))
-    }) {
+    for (cell, _) in matrix::measured()
+        .chain(matrix::default_costs())
+        .filter(|(cell, config)| {
+            pass.scenarios.contains(&cell.scenario)
+                && pass.tools.contains(&config.tool())
+                && (pass.cells)(cell)
+                && pass.measured(cell.scenario, cell.name)
+                && !pass.stopped.contains(&(cell.scenario, cell.name))
+        })
+    {
         let count = pass
             .done
             .iter()
@@ -581,7 +586,7 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
         site_pages: pages,
         scenarios: &trials.declared.scenarios,
         tools: &Tool::ALL,
-        cells: every_cell,
+        cells: every_timed_cell,
         // Other work reads the runs done alone, not the cells named.
         named: None,
         done: of_runs(runs),

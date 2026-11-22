@@ -1,4 +1,4 @@
-use super::{check, strace_runs_of_other_work_set_aside};
+use super::{check, every_timed_cell, strace_runs_of_other_work_set_aside};
 use crate::compare::auto::Judged;
 use crate::compare::extracted::{Differing, Extracted};
 use crate::compare::matrix::{self, Scenario};
@@ -108,7 +108,7 @@ fn an_auto_run_that_left_a_page_of_the_manifest_unrequested_did_other_work() {
 #[test]
 fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
     let mut trials = comparison(|_, _| work(0));
-    trials.syscalls = counted(|_| true, |_, _, _| work(0));
+    trials.syscalls = counted(every_timed_cell, |_, _, _| work(0));
     let one = named(&trials);
     let mut again = trials
         .trials
@@ -477,7 +477,8 @@ fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
     );
 }
 
-/// Three runs of each cell `counts` keeps, one of a cell that runs one
+/// Three runs of each cell `counts` keeps, the default-cost cells among
+/// them (#2438), one of a cell that runs one
 /// ([`matrix::Cell::one_trial`]), each of the work `work` gives
 /// its scenario, cell and number: a counted cell over the 4-page site,
 /// which a scenario that runs only its timed trials has no run in.
@@ -486,6 +487,7 @@ fn counted(
     work: impl Fn(Scenario, &str, u32) -> Work,
 ) -> CountedCell {
     let runs = matrix::measured()
+        .chain(matrix::default_costs())
         .filter(|(cell, _)| !cell.scenario.timed_only() && counts(cell))
         .flat_map(|(cell, config)| {
             let work = &work;
@@ -555,16 +557,13 @@ fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<Stopped<'_>>) {
 #[test]
 fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
-    trials.syscalls = counted(
-        |_| true,
-        |scenario, cell, number| {
-            if (scenario, cell, number) == (Scenario::Browser, "spider", 2) {
-                short()
-            } else {
-                work(0)
-            }
-        },
-    );
+    trials.syscalls = counted(every_timed_cell, |scenario, cell, number| {
+        if (scenario, cell, number) == (Scenario::Browser, "spider", 2) {
+            short()
+        } else {
+            work(0)
+        }
+    });
 
     strace_runs_of_other_work_set_aside(&mut trials);
 
@@ -588,14 +587,11 @@ fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
 #[test]
 fn a_strace_run_served_other_bytes_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
-    trials.syscalls = counted(
-        |_| true,
-        |scenario, cell, number| {
-            work(u64::from(
-                (scenario, cell, number) == (Scenario::Raw, "crawlee", 1),
-            ))
-        },
-    );
+    trials.syscalls = counted(every_timed_cell, |scenario, cell, number| {
+        work(u64::from(
+            (scenario, cell, number) == (Scenario::Raw, "crawlee", 1),
+        ))
+    });
 
     strace_runs_of_other_work_set_aside(&mut trials);
 
@@ -624,7 +620,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             work(0)
         }
     });
-    trials.syscalls = counted(|_| true, |_, _, _| work(0));
+    trials.syscalls = counted(every_timed_cell, |_, _, _| work(0));
     trials.instructions = counted(trials::instruction_counted, |scenario, cell, number| {
         if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
             short()
@@ -649,6 +645,35 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
     );
     let (_, stopped) = cells_of(&trials.syscalls);
     assert_eq!(stopped, vec![]);
+}
+
+/// The Callgrind cell holds each default-cost cell to its three runs and to
+/// scenario 1's work: one short of a run, and one whose run served other
+/// bytes, keep its figures from counting (#2438).
+#[test]
+fn a_default_cost_cell_short_of_its_runs_or_of_other_work_fails_the_check() {
+    let mut trials = comparison(|_, _| work(0));
+    let mut instructions = counted(trials::instruction_counted, |_, cell, number| {
+        work(u64::from((cell, number) == ("foxhound learning on", 2)))
+    });
+    if let CountedCell::Measured { runs, .. } = &mut instructions {
+        runs.retain(|run| (run.cell.as_str(), run.number) != ("foxhound records on", 3));
+    }
+    trials.instructions = instructions;
+
+    assert_eq!(
+        named(&trials),
+        vec![
+            (
+                "trial_count",
+                "raw foxhound records on callgrind".to_owned()
+            ),
+            (
+                "different_bytes",
+                "raw foxhound learning on callgrind trial 2".to_owned()
+            ),
+        ]
+    );
 }
 
 /// Three trials of each scenario 1 main cell the sizes cell runs at each

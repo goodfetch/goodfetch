@@ -46,6 +46,31 @@ fn scenario_1_runs_batch_and_the_shared_politeness() {
     );
 }
 
+/// Each default-cost cell runs scenario 1's first cell's settings with its
+/// one default on, so its count less the first cell's is that default's
+/// instructions (#2438).
+#[rstest::rstest]
+#[case::robots_txt("foxhound robots.txt on", "site_preferences", "respect_robots_txt")]
+#[case::learning("foxhound learning on", "frontier", "learning")]
+#[case::provenance_log("foxhound provenance log on", "provenance", "log")]
+#[case::block_classification("foxhound block classification on", "fetch", "block_classification")]
+#[case::records("foxhound records on", "dataset", "records")]
+fn each_default_cost_cell_runs_the_first_cell_with_its_one_default_on(
+    #[case] name: &str,
+    #[case] section: &str,
+    #[case] key: &str,
+) {
+    let first = matrix::cell(Scenario::Raw, "foxhound").expect("scenario 1's first row");
+    let first = settings(&SITE, first, ("batch", None), false);
+    let cell = matrix::cell(Scenario::Raw, name).expect("the default-cost cell");
+    let mut expected = first.clone();
+    expected[section][key] = json!(true);
+
+    let run = settings(&SITE, cell, ("batch", None), false);
+
+    assert_eq!((&first[section][key], run), (&json!(false), expected));
+}
+
 /// The cell at the catalog's defaults sets nothing but what names the
 /// crawl's site and its pace; its second row adds the other way of
 /// `fetch.http_from`, `browser`, the default being `learned` (#2175).

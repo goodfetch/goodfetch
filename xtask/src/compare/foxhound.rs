@@ -304,7 +304,9 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// and the maximum-throughput combination's switches off, at `durability`,
 /// on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise; on the extraction scenario's row
-/// that says so (#2136), the ads, trackers and annoyances Filter lists off.
+/// that says so (#2136), the ads, trackers and annoyances Filter lists off;
+/// on a default-cost cell (#2438), scenario 1's first cell's with that one
+/// default on.
 pub(crate) fn settings(
     site: &Site<'_>,
     cell: &Cell,
@@ -387,6 +389,9 @@ pub(crate) fn settings(
     }
     if cell.filter_lists_off() {
         settings["filter_lists"] = json!({ "ads": false, "trackers": false, "annoyances": false });
+    }
+    if let Some(default) = cell.default_on() {
+        settings[default.section][default.key] = json!(true);
     }
     settings["run_state"] = json!({ "durability": durability });
     if let Some(interval) = commit_interval {

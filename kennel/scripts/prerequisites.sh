@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# What the Kennel's checks need beyond its toolchain, and the rule for what
-# is missing, sourced by `just kennel-check` (kennel/scripts/check.sh) and
-# `just lint`'s Clippy on the crates the workspace excludes
-# (ci/clippy-excluded.sh), so both read the same prerequisites the same way.
+# What the Kennel's Clippy needs beyond its toolchain, and the rule for what
+# is missing, sourced by `just lint`'s Clippy on the crates the workspace
+# excludes (ci/clippy-excluded.sh), the one place that lints the Kennel
+# (#3217): the probes and their reasons live here alone.
 #
 #   kennel_cross                       the macOS target a host other than macOS
 #                                      lints the Kennel for (#1915)

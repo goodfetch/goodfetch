@@ -136,9 +136,109 @@ stop() {
 }
 trap stop TERM HUP INT
 
+# The issues of a list, one number a line, as `#<n> #<m>`, or `none`.
+issues() {
+  local issue listed=()
+  for issue in $1; do listed+=("#$issue"); done
+  echo "${listed[*]:-none}"
+}
+
+# Refuses a pull request whose merge would close other issues than its
+# body's `Closes #<n>` lines name (ADR 0135's note of 2026-11-22): GitHub
+# closes every issue a closing keyword of the body names, prose included, or
+# that someone linked by hand, and its list holds none that a commit's closing
+# keyword names (#2241 closed an unbuilt ticket that a sentence named; the
+# `Fixes` lines of #2223's commits closed nothing, for a reason not
+# established). It compares three lists: what GitHub says
+# the merge closes, read whole, page after page; the body's lines that hold
+# `Closes #<n>` alone, after an optional list marker, so a batch's `Part of
+# #<n>` lines name nothing; and the issues a closing keyword names in the
+# messages of the commits the head holds and the base does not. On a base
+# that is not the default branch GitHub closes nothing, and it checks
+# nothing.
+said_off_default=""
+check_closing_lines() {
+  local query filter answer kind value closes="" named="" commits="" faults="" issue
+  local closing_line='^[[:space:]]*(([-*+]|[0-9]+[.)])[[:space:]]+)?Closes #([0-9]+)[[:space:]]*$'
+  read -r -d '' query <<'GRAPHQL' || true
+query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
+    pullRequest(number: $pr) {
+      body
+      closingIssuesReferences(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { number } }
+    }
+  }
+}
+GRAPHQL
+  # Each page repeats the default branch and the body, which only add to
+  # lists of their own.
+  read -r -d '' filter <<'JQ' || true
+.data.repository
+| "default\t\(.defaultBranchRef.name)",
+  (.pullRequest.closingIssuesReferences.nodes[] | "closes\t\(.number)"),
+  (.pullRequest.body | split("\n")[] | "body\t\(.)")
+JQ
+  if ! answer=$(gh api graphql --paginate -F owner='{owner}' -F name='{repo}' -F pr="$number" -f query="$query" --jq "$filter"); then
+    echo "error: what pull request #$number's merge closes could not be read from GitHub, so nothing says whether its \`Closes\` lines name it; run the command again" >&2
+    exit 1
+  fi
+  local default=""
+  while IFS=$'\t' read -r kind value; do
+    value=${value%$'\r'}
+    case $kind in
+      default) default=$value ;;
+      closes) closes+="$value"$'\n' ;;
+      body) if [[ $value =~ $closing_line ]]; then named+="${BASH_REMATCH[3]}"$'\n'; fi ;;
+    esac
+  done <<<"$answer"
+  if [[ -z $default ]]; then
+    echo "error: the repository's default branch could not be read from GitHub, so nothing says whether pull request #$number's merge closes any issue; run the command again" >&2
+    exit 1
+  fi
+  if [[ $base != "$default" ]]; then
+    # Said once, though a gate that waited reads its pull request twice.
+    if [[ $said_off_default != "$base" ]]; then
+      echo "Pull request #$number's base, $base, is not the repository's default branch, $default: GitHub closes no issue on a merge there, so the gate checks no \`Closes\` line"
+      said_off_default=$base
+    fi
+    return
+  fi
+  local messages
+  messages=$(git log --format=%B "origin/$base..$head")
+  commits=$(grep -oiE '(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?)(:[[:space:]]*|[[:space:]]+)#[0-9]+' <<<"$messages" |
+    grep -oE '[0-9]+$' || true)
+  closes=$(sort -nu <<<"$closes" | sed '/^$/d')
+  named=$(sort -nu <<<"$named" | sed '/^$/d')
+  commits=$(sort -nu <<<"$commits" | sed '/^$/d')
+  for issue in $closes; do
+    grep -qx "$issue" <<<"$named" ||
+      faults+="  #$issue: GitHub closes it, but no \`Closes #$issue\` line names it (a closing keyword in prose, or a link made by hand; only a line \`Closes #$issue\` alone, after an optional list marker, names it): reword or unlink it, or add the line"$'\n'
+  done
+  for issue in $named; do
+    grep -qx "$issue" <<<"$closes" ||
+      faults+="  #$issue: a \`Closes #$issue\` line names it, but GitHub does not close it: mend the line, or remove it"$'\n'
+  done
+  for issue in $commits; do
+    grep -qx "$issue" <<<"$named" ||
+      faults+="  #$issue: a closing keyword of a commit message names it, but no \`Closes #$issue\` line does (as in #2223, whose commits' \`Fixes\` lines closed nothing): add the line, or reword the commit"$'\n'
+  done
+  if [[ -n $faults ]]; then
+    {
+      echo "error: the issues pull request #$number's merge closes are not those its \`Closes\` lines name, so the gate merges nothing (ADR 0135's note of 2026-11-22):"
+      echo "  GitHub closes on merge: $(issues "$closes")"
+      echo "  \`Closes\` lines of the body: $(issues "$named")"
+      echo "  Closing keywords of its commits: $(issues "$commits")"
+      printf '%s' "$faults"
+    } >&2
+    exit 1
+  fi
+}
+
 # Reads the pull request, its state, head, base, head branch and title, and
 # refuses one the gate cannot merge: closed, a draft, past the merge cap,
-# moved while it was read, or in conflict with its base's tip. A head
+# moved while it was read, whose merge would close other issues than its
+# `Closes` lines name, or in conflict with its base's tip. A head
 # without that tip leaves in `with_base` the tree of its merge with it, which
 # the gate commits and gates (merge_the_bases_tip); one that holds it leaves
 # it empty.
@@ -164,6 +264,7 @@ read_pull_request() {
     echo "error: pull request #$number moved while it was read; run the command again" >&2
     exit 1
   fi
+  check_closing_lines
   # The gate tests what lands on the base: the head itself when it holds the
   # base's tip, else the merge of the two, so its verdict holds either way
   # (the owner's decision of 2026-11-17, ADR 0135).

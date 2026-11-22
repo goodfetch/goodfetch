@@ -10,11 +10,25 @@ use std::time::SystemTime;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::{KindPart, ProtocolVersion, schema_of};
 use crate::governor::{AllowanceSource, GovernorLevel};
 use crate::run::RunProgress;
 use crate::settings::SettingLimit;
 
 use super::report::{CountOf, SitemapReport};
+
+/// A crawl's parts of `run.progress`, the operation's answer and the
+/// event's payload for a crawl, which Foxhound's SDKs type as
+/// [`CrawlRunProgress`]; the wire and Collie's `RunProgress` are every
+/// Run's.
+pub const CRAWL_RUN_PROGRESS: KindPart = KindPart {
+    defined_in: module_path!(),
+    entry: "run.progress",
+    kind: "crawl",
+    description: "A crawl's progress: every Run's, with its requests by state, why its due requests wait, its requests in flight, its sitemaps, whether a keep-alive crawl is idle, and its concurrency.",
+    value: schema_of::<CrawlRunProgress>,
+    arrived_in: ProtocolVersion { major: 0, minor: 1 },
+};
 
 /// The reason `politeness.domain.concurrency` holds a domain: as many of
 /// its requests are in flight as its cap, or as a 429 lowered it to.

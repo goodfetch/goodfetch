@@ -1477,14 +1477,17 @@ impl Subject {
     }
 
     /// Re-admits the failures, as another task asks it; answers how many,
-    /// `None` once the intake closed.
+    /// `None` once the intake closed. The crawl declares every Label its
+    /// requests name, so none is refused.
     fn readmit(&mut self) -> Option<u64> {
         let crawl = self
             .crawl
             .as_mut()
             .expect("invariant: the crawl runs until the case ends");
         let asking = crawl.asking.clone();
-        self.runtime.block_on(crawl.asks(asking.readmit(false)))
+        self.runtime
+            .block_on(crawl.asks(asking.readmit(false)))
+            .map(|readmitted| readmitted.expect("the crawl declares every Label"))
     }
 
     /// The next pending work item fails with no attempt: its site asked

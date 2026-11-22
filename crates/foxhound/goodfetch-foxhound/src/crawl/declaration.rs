@@ -11,7 +11,6 @@ use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration as WireLabel;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 /// A Label as a crawl declares it (ADRs 0093 and 0099), whose requests
 /// carry a Payload of type `P`: its name, and, through builder methods
@@ -42,9 +41,8 @@ use serde_json::Value;
 /// ```
 pub struct LabelDeclaration<'a, P> {
     name: String,
-    schema: Option<Value>,
+    schema: Option<Schema<P>>,
     settings: Settings,
-    payload: PhantomData<fn() -> P>,
     borrows: PhantomData<&'a ()>,
 }
 
@@ -56,20 +54,21 @@ impl<P> LabelDeclaration<'_, P> {
             name: name.into(),
             schema: None,
             settings: Settings::new(),
-            payload: PhantomData,
             borrows: PhantomData,
         }
     }
 
-    /// Checks each Payload of the Label against `schema`: the engine
-    /// refuses one that does not fit it with `payload_invalid`, at a seed
-    /// or an enqueue (ADR 0082).
+    /// Checks each Payload of the Label against `schema`, such as
+    /// [`Schema::derived`] or a JSON Schema written by hand for [`Value`]
+    /// Payloads: the engine refuses one that does not fit it with
+    /// `payload_invalid`, at a seed or an enqueue (ADR 0082), and the SDK
+    /// refuses one that is not JSON, or does not read back as given,
+    /// before anything is sent.
+    ///
+    /// [`Value`]: serde_json::Value
     #[must_use]
-    pub fn payload(mut self, schema: &Schema<P>) -> Self
-    where
-        P: Serialize + DeserializeOwned,
-    {
-        self.schema = Some(schema.wire_schema().clone());
+    pub fn payload(mut self, schema: &Schema<P>) -> Self {
+        self.schema = Some(schema.clone());
         self
     }
 
@@ -83,25 +82,28 @@ impl<P> LabelDeclaration<'_, P> {
         self
     }
 
-    /// The Label's name, and what `crawl.start` declares it with.
+    /// The Label's name, what `crawl.start` declares it with, and the
+    /// schema its Payloads are sent by, if it has one.
     ///
     /// # Errors
     ///
     /// `setting_not_applicable` for the first key of its settings a Label
     /// does not set.
-    pub(super) fn into_parts(self) -> Result<(String, WireLabel), Error> {
+    pub(super) fn into_parts(self) -> Result<(String, WireLabel, Option<Schema<P>>), Error>
+    where
+        P: Serialize + DeserializeOwned,
+    {
         let Self {
             name,
             schema,
             settings,
-            payload: _,
             borrows: _,
         } = self;
         let wire = WireLabel {
-            payload: schema,
+            payload: schema.as_ref().map(|schema| schema.wire_schema().clone()),
             settings: settings.within(SettingScope::Label)?,
         };
-        Ok((name, wire))
+        Ok((name, wire, schema))
     }
 }
 

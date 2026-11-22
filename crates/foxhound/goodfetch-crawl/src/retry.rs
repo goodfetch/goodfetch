@@ -5,11 +5,15 @@
 //! Payload and depth, its attempts counting on from a fresh
 //! `crawl.retry.max`, and the call answers how many. A crawl this engine
 //! runs takes them at once, through its Run state, which its delivery
-//! loop owns and the call asks (ADR 0142), while its intake is open; once
+//! loop owns and the call asks (ADR 0142), while its intake is open, and
+//! none of them when one names a Label the crawl no longer declares, which
+//! a resume may drop (`label_unknown`, ADRs 0093 and 0102); once
 //! the crawl closed it to end its Run, or ended, the
 //! call waits for that end and re-admits as for an ended Run, so a
 //! re-admission is never answered and then left pending (#1005).
-//! On an ended Run with something to retry, the engine reopens it under the
+//! On an ended Run with something to retry, none of which names a Label
+//! its run file does not record (`label_unknown`, #2825), the engine
+//! reopens it under the
 //! Run's event `RetryFailed`, as a resume takes its writer role, the
 //! re-admission commits under that writer, and the crawl's driver starts
 //! again with the calling Connection as its server; with nothing to retry
@@ -21,6 +25,7 @@ use goodfetch_engine::run::{
 use goodfetch_engine::runs::{Resume, Resumed, Run, RunError};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::foxhound::outcomes::{
     RUN_RETRY_FAILED, RetriedFailed, RunRetryFailedParams,
 };
@@ -28,6 +33,7 @@ use goodfetch_protocol::run::{
     Lifecycle, RUN_INTERRUPTED, RUN_STATE_UNAVAILABLE, RunDetails, RunId,
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+use rusqlite::Connection;
 
 use crate::run_state::StateError;
 use crate::serving::{Crawls, LiveCrawl};
@@ -47,7 +53,9 @@ async fn retry_failed(
 ) -> Result<RetriedFailed, CallError> {
     if let Some(LiveCrawl { run, asking, .. }) = crawls.live(&params.run_id).await {
         match asking.readmit(params.blocked).await {
-            Ok(Some(readmitted)) => return Ok(RetriedFailed { readmitted }),
+            Ok(Some(readmitted)) => {
+                return readmitted.map(|readmitted| RetriedFailed { readmitted });
+            }
             // Its intake closed, or it ended since.
             Ok(None) | Err(StateError::Closed) => {}
             Err(error) => return Err(unwritten(&run, &error)),
@@ -70,13 +78,31 @@ async fn retry_failed(
         .reader(params.run_id.clone())
         .await
         .map_err(failed)?
-        .read(move |connection| work_items::readmittable(connection, blocked))
+        .read(move |connection| readmittable(connection, blocked))
         .await
-        .map_err(failed)?;
+        .map_err(failed)??;
     if waiting == 0 {
         return Ok(RetriedFailed { readmitted: 0 });
     }
     reopened(params, context).await
+}
+
+/// How many work items of the ended Run `connection` reads a retry with
+/// `blocked` would re-admit, or `label_unknown` when one names a Label its
+/// run file does not record, as its latest start declared them (#2825):
+/// the Run is not reopened then (ADR 0093).
+fn readmittable(
+    connection: &Connection,
+    blocked: bool,
+) -> rusqlite::Result<Result<u64, CallError>> {
+    let waiting = work_items::readmittable(connection, blocked)?;
+    if waiting == 0 {
+        return Ok(Ok(0));
+    }
+    let retried = work_items::readmitted_labels(connection, blocked)?;
+    Ok(PayloadRules::read(connection)?
+        .readmits(&retried)
+        .map(|()| waiting))
 }
 
 /// Reopens the ended crawl `params` names under the Run's event

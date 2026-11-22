@@ -1,5 +1,5 @@
 {
-  "description": "A Foxhound Client starts a crawl whose handler reads its page's title, pushes it as a Record into the Dataset `pages`, then enqueues the links `ul.pages a` matches under the Label `page`, each with the one constant Payload `{from: \"listing\"}`, at most two, none under `*/logout`: the engine answers one added, one duplicate and one element with no link, and the handler call is answered `{}`. Four exchanges a page: the handler call, the read, the push and the links. Closing the Connection then aborts the Run.",
+  "description": "A Foxhound Client starts a crawl, its Label `page` declaring a Payload schema, which reaches the engine as the draft 2020-12 JSON Schema of the Zod schema's input side, and its seed carrying a Payload, whose handler reads its page's title, pushes it as a Record into the Dataset `pages`, then enqueues the links `ul.pages a` matches under the Label `page`, each with the one constant Payload `{from: \"listing\"}`, at most two, none under `*/logout`: the engine answers one added, one duplicate and one element with no link, and the handler call is answered `{}`. Four exchanges a page: the handler call, the read, the push and the links. Closing the Connection then aborts the Run.",
   "steps": [
     {
       "expect": {
@@ -29,7 +29,18 @@
         "method": "crawl.start",
         "params": {
           "labels": {
-            "page": {}
+            "page": {
+              "payload": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  }
+                },
+                "required": ["from"]
+              }
+            }
           },
           "datasets": [
             {
@@ -39,7 +50,10 @@
           "seeds": [
             {
               "url": "https://shop.test/a",
-              "label": "page"
+              "label": "page",
+              "payload": {
+                "from": "start"
+              }
             }
           ],
           "run_id": "nightly"

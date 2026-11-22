@@ -83,7 +83,8 @@ Decided in [Feature coverage and traceability](https://github.com/goodfetch/good
 - **A test declares a Feature only when it asserts that Feature's outcome**, never one it merely passes through.
 - **In each runner's idiom**, with no file patterns:
   - **Rust (nextest):** a doc line `/// Covers: operation:runs.start, error:run_not_found` on the test function, or `//! Covers: …` on a test module for every test in it. `xtask features` reads them with `syn` and maps them to nextest's test names, rstest cases included.
-    > Agent decision, as built (#3149, 2026-11-21): a long `Covers:` declaration wraps onto the doc lines below it, each holding Feature IDs only; prose, a blank doc line or another attribute ends it. A test inside a macro the scan cannot read, such as `prop_state_machine!`, declares nothing yet (#3203).
+    > Agent decision, as built (#3149, 2026-11-21): a long `Covers:` declaration wraps onto the doc lines below it, each holding Feature IDs only; prose, a blank doc line or another attribute ends it.
+    > Agent decision, as built (#3203, 2026-11-22): the scan reads the `fn` items inside `prop_state_machine!` and `proptest!`, each named as the test it expands to in the invoking module; a `Covers:` line inside any other macro, or inside one of these in a form the scan does not know, fails the scan with its file and line.
   - **Vitest:** tags named by the Feature IDs, declared in the config from `inventory.json`, with `strictTags` on.
   - **pytest:** `@pytest.mark.covers("<feature id>")`, or `pytestmark` on a module, registered, under `strict_markers`; the test-support plugin lists them at collection.
   - **Playwright Test:** one annotation `{ type: "covers", description: "<feature id>" }` per Feature, read from `--list` with the JSON reporter.

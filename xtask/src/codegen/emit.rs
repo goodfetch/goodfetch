@@ -18,7 +18,11 @@
 //! through the same `xtask codegen`: the Feature inventory schemas (ADR
 //! 0072). The catalog's `exit_codes` is ADR
 //! 0069's exit-code table by exit code, each row `{name, product, code,
-//! description}`, whose names are the `exit:` Features.
+//! description}`, whose names are the `exit:` Features. Its `kind_parts`
+//! lists what a kind of Run adds to an entry's value, such as a crawl's
+//! parts of `run.progress`, each `{name, product, kind, description, type,
+//! arrived_in}`, whose `type` its Product's SDKs read that value as for
+//! that kind (ADR 0102).
 //! The bundle's `outputs` maps each hand-written command's path, such as
 //! `daemon.start`, to the type of its `--json` output (ADR 0069); a command
 //! generated from an operation prints the operation's `result`, and every
@@ -48,7 +52,7 @@ use goodfetch_protocol::connection::{CancelParams, HelloParams, HelloResult};
 use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
-use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::entries::{KIND_PARTS, MODULES};
 use goodfetch_protocol::error_details::typed_details_of;
 use goodfetch_protocol::events::{CreditParams, EventBatch};
 use goodfetch_protocol::formats::FORMATS;
@@ -86,6 +90,7 @@ pub(super) fn emit() -> Emitted {
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
+    sections.add_kind_parts(&KIND_PARTS, &mut generator);
     let releases = generator.subschema_for::<ReleasesFile>();
     let journey = generator.subschema_for::<Journey>();
     let journey_catalog = generator.subschema_for::<JourneyCatalog>();

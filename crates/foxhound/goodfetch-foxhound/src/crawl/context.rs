@@ -23,7 +23,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::{CrawlId, Dataset, Label, label_unknown, payload_invalid};
+use super::{CrawlId, Dataset, Label, label_unknown};
 use crate::sync::Mutex;
 
 /// The `retry_requested` of a handler's `ctx.retry(message)` (ADR 0093).
@@ -275,20 +275,25 @@ impl<P> CrawlContext<P> {
     /// # Errors
     ///
     /// `label_unknown` for a Label of another crawl, `payload_invalid` for
-    /// a Payload that does not serialize or that its Label refuses, and
-    /// `attempt_ended` once the attempt has ended.
+    /// a Payload that does not serialize, that its Label's schema refuses,
+    /// naming each issue, or that is longer than `crawl.payload.max_size`,
+    /// and `attempt_ended` once the attempt has ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the request enqueued or not.
-    pub fn enqueue<Q: Serialize>(
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
+    )]
+    pub fn enqueue<Q: Serialize + DeserializeOwned>(
         &self,
         url: impl Into<String>,
         label: &Label<Q>,
         payload: Q,
     ) -> impl Future<Output = Result<Enqueued, Error>> + Send + 'static {
         let params = self
-            .own_payload(label, payload)
+            .own_payload(label, &payload)
             .map(|payload| CrawlRequestEnqueueParams {
                 run_id: self.attempt.params.run_id.clone(),
                 crawl_request_id: self.attempt.params.crawl_request.id.clone(),
@@ -315,13 +320,14 @@ impl<P> CrawlContext<P> {
     /// # Errors
     ///
     /// `label_unknown` for a Label of another crawl, `payload_invalid` for
-    /// a Payload that does not serialize or that its Label refuses, and
-    /// `attempt_ended` once the attempt has ended.
+    /// a Payload that does not serialize, that its Label's schema refuses,
+    /// naming each issue, or that is longer than `crawl.payload.max_size`,
+    /// and `attempt_ended` once the attempt has ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave some of the links enqueued or none.
-    pub fn enqueue_links<Q: Serialize>(
+    pub fn enqueue_links<Q: Serialize + DeserializeOwned>(
         &self,
         links: &Locator,
         label: &Label<Q>,
@@ -332,14 +338,18 @@ impl<P> CrawlContext<P> {
 
     /// [`CrawlContext::enqueue_links`] of the locator `links` names, which
     /// a blocking handler's locator names too.
-    pub(crate) fn enqueue_links_of<Q: Serialize>(
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
+    )]
+    pub(crate) fn enqueue_links_of<Q: Serialize + DeserializeOwned>(
         &self,
         links: &goodfetch_protocol::page::Locator,
         label: &Label<Q>,
         payload: Q,
     ) -> impl Future<Output = Result<EnqueuedLinks, Error>> + Send + 'static {
         let params =
-            self.own_payload(label, payload)
+            self.own_payload(label, &payload)
                 .map(|payload| CrawlRequestEnqueueLinksParams {
                     run_id: self.attempt.params.run_id.clone(),
                     crawl_request_id: self.attempt.params.crawl_request.id.clone(),
@@ -357,11 +367,15 @@ impl<P> CrawlContext<P> {
     }
 
     /// `payload`'s JSON for a request of `label`, or `label_unknown` for a
-    /// Label of another crawl, or `payload_invalid` for a Payload that
-    /// does not serialize.
-    fn own_payload<Q: Serialize>(&self, label: &Label<Q>, payload: Q) -> Result<Value, Error> {
+    /// Label of another crawl, or the `payload_invalid` of a Payload
+    /// `label` refuses before anything is sent.
+    fn own_payload<Q: Serialize + DeserializeOwned>(
+        &self,
+        label: &Label<Q>,
+        payload: &Q,
+    ) -> Result<Value, Error> {
         if label.crawl == self.attempt.crawl {
-            serde_json::to_value(payload).map_err(payload_invalid)
+            label.encode(payload)
         } else {
             Err(label_unknown(&label.name, self.attempt.declared.to_vec()))
         }

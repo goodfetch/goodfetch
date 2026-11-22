@@ -81,7 +81,7 @@ impl Crawl {
     /// # Errors
     ///
     /// As [`crate::Crawl::label`].
-    pub fn label<P>(
+    pub fn label<P: Serialize + DeserializeOwned>(
         &mut self,
         declaration: impl Into<LabelDeclaration<'static, P>>,
     ) -> Result<Label<P>, Error> {
@@ -221,7 +221,7 @@ impl<P> CrawlContext<P> {
     /// # Errors
     ///
     /// As [`crate::CrawlContext::enqueue`].
-    pub fn enqueue<Q: Serialize>(
+    pub fn enqueue<Q: Serialize + DeserializeOwned>(
         &self,
         url: impl Into<String>,
         label: &Label<Q>,
@@ -238,7 +238,7 @@ impl<P> CrawlContext<P> {
     /// # Errors
     ///
     /// As [`crate::CrawlContext::enqueue_links`].
-    pub fn enqueue_links<Q: Serialize>(
+    pub fn enqueue_links<Q: Serialize + DeserializeOwned>(
         &self,
         links: &blocking::Locator,
         label: &Label<Q>,

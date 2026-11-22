@@ -279,10 +279,7 @@ impl PayloadRules {
     /// `label_unknown` naming the first of `pending` these rules do not
     /// declare, and those they declare.
     pub fn resumes(&self, pending: &[String], run_id: &str) -> Result<(), CallError> {
-        let Some(label) = pending
-            .iter()
-            .find(|label| !self.labels.contains_key(label.as_str()))
-        else {
+        let Some(label) = self.undeclared(pending) else {
             return Ok(());
         };
         Err(CallError::new(
@@ -292,6 +289,34 @@ impl PayloadRules {
             ),
             &self.unknown(label),
         ))
+    }
+
+    /// Whether `run.retry_failed` may re-admit requests that name each of
+    /// `retried` under the Labels these rules, the live crawl's, declare
+    /// (ADR 0093).
+    ///
+    /// # Errors
+    ///
+    /// `label_unknown` naming the first of `retried` these rules do not
+    /// declare, and those they declare.
+    pub fn readmits(&self, retried: &[String]) -> Result<(), CallError> {
+        let Some(label) = self.undeclared(retried) else {
+            return Ok(());
+        };
+        Err(CallError::new(
+            &LABEL_UNKNOWN,
+            format!(
+                "Requests to retry name the Label `{label}`, which the crawl no longer declares, so none was re-admitted: resume the Run declaring `{label}` again, then retry them."
+            ),
+            &self.unknown(label),
+        ))
+    }
+
+    /// The first of `labels` these rules do not declare.
+    fn undeclared<'labels>(&self, labels: &'labels [String]) -> Option<&'labels String> {
+        labels
+            .iter()
+            .find(|label| !self.labels.contains_key(label.as_str()))
     }
 
     fn declared(&self) -> Vec<String> {

@@ -56,7 +56,6 @@ if TYPE_CHECKING:
         RuntimeFile,
     )
     from goodfetch_collie_client.generated.models import RunLimit
-    from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -126,7 +125,7 @@ async def open_engine(
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
-    settings: Settings | None = None,
+    settings: Mapping[str, object] | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -157,7 +156,8 @@ async def open_engine(
     `daemon restart` (ADR 0098). The engine
     reached is logged at info on the `goodfetch.client` logger, its
     `EngineInfo` as the record's `engine`. `settings`, the Connection's own
-    (ADR 0083), go in `hello`, and a key the engine refuses fails the opening
+    (ADR 0083), typed by `product`'s package, go in `hello`, and a key the
+    engine refuses fails the opening
     with its error, such as `setting_not_applicable`. Their
     `connection.max_pending_calls` and `connection.max_queued_write_bytes`
     bound the Connection's own calls from `hello` on; one that is no whole
@@ -216,7 +216,7 @@ class _Opening:
     limits: Sequence[RunLimit]
     connect_timeout: int | NotGiven | None
     listener_queue: int
-    settings: Settings | None
+    settings: Mapping[str, object] | None
     bounds: ChannelBounds
 
 
@@ -419,7 +419,7 @@ async def open_over(
     *,
     close_timeout: float = CLOSE_TIMEOUT,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
-    settings: Settings | None = None,
+    settings: Mapping[str, object] | None = None,
 ) -> ClientConnection:
     """Finishes `hello`, naming `product`, over `transport`.
 

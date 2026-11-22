@@ -523,3 +523,75 @@ fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_l
         (THREADS * LINES, Vec::<&str>::new())
     );
 }
+
+/// The WebSocket crates' `trace` records, where `tungstenite` writes each
+/// frame's payload and so an Exposed Daemon's token, never reach the
+/// executable's logs, though `log.level` asks for `trace` and names their
+/// targets (ADR 0067); their `debug` records and every other target's
+/// `trace` records still do. A `log` record a bridge hands over is filtered
+/// under the same target, as the Rust SDK's `frame_logs` test shows over a
+/// live WebSocket. The test installs the process's global subscriber, so
+/// it runs in a process of its own, as `just test` runs every test.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the file the subscriber wrote, outside any async worker"
+)]
+fn the_executables_logs_never_hold_a_websocket_frames_payload_at_trace() {
+    let env = goodfetch_test_support::TestEnv::new();
+    let mut canaries = goodfetch_test_support::Canaries::new(env.seed());
+    let token = canaries
+        .plant(goodfetch_test_support::SecretKind::EndpointToken)
+        .value()
+        .to_owned();
+    let folder = env.folder().join("logs");
+    let file = LogFile::open(
+        &folder,
+        "collie-1",
+        Rotation {
+            max_size: 1 << 30,
+            max_files: 1,
+        },
+        Clock::system(),
+    )
+    .unwrap();
+    let installed = super::logs::install(super::logs::Logs {
+        filter: "trace,tungstenite=trace,tokio_tungstenite=trace".to_owned(),
+        file: Some(file),
+        to: super::logs::LogsTo::Stderr,
+        settings: None,
+        events: &goodfetch_engine::log::LogEvents::new(),
+        masks: &Masks::new(),
+        product: Product::Collie,
+        handles: super::logs::Handles {
+            clock: Clock::system(),
+            trace_ids: None,
+        },
+    });
+
+    tracing::trace!(target: "tungstenite::protocol::frame", "writing frame {token}");
+    tracing::trace!(target: "tokio_tungstenite::compat", "a record of the stream {token}");
+    tracing::debug!(target: "tungstenite::handshake::server", "Server handshake done.");
+    tracing::trace!(target: "goodfetch_engine::rpc", "a trace record of the engine's own");
+    drop(installed);
+
+    let written = std::fs::read(folder.join("collie-1.jsonl")).unwrap();
+    let text = String::from_utf8_lossy(&written);
+    let leaks = canaries
+        .leaks(&[goodfetch_test_support::Output::Bytes {
+            name: "log file",
+            bytes: &written,
+        }])
+        .unwrap();
+    assert_eq!(
+        (
+            leaks,
+            [
+                text.contains("Server handshake done."),
+                text.contains("a trace record of the engine's own"),
+            ]
+        ),
+        (Vec::new(), [true, true]),
+        "{text}"
+    );
+}

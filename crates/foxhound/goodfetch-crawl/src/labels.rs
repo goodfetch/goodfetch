@@ -1,7 +1,9 @@
 //! The Labels a crawl declares (ADR 0093), kept in its run file as its
-//! start declared them, so a resumed crawl takes each Label's settings
-//! again: its `fetch.tier`, `fetch.encoding` and `session.page_check`,
-//! and the Session pool its `session.source` gives it. Which requests keep
+//! latest start declared them, the start that began the Run or one under
+//! its ID that resumed it, so a resumed crawl takes each Label's settings
+//! as declared: its `fetch.tier`, `fetch.encoding` and
+//! `session.page_check`, and the Session pool its `session.source` gives
+//! it. Which requests keep
 //! their URLs' fragments, by the Run's `crawl.keep_url_fragment` and each
 //! Label's own, is kept beside them, so it is fixed for the Run's life
 //! (ADRs 0102 and 0120).
@@ -279,8 +281,26 @@ pub(crate) fn record(
     Ok(())
 }
 
-/// The Labels the crawl's start declared, as [`record`] kept them; a row
-/// that no longer reads is left out.
+/// Records `labels`, the Labels a start under the ID of a Run declares as
+/// the Run resumes, in place of those recorded before, so each works under
+/// its latest declaration, here and in an engine that reopens the Run
+/// (#2825).
+///
+/// # Errors
+///
+/// The run file's, when the rows cannot be written.
+pub(crate) fn record_again(
+    connection: &Connection,
+    labels: &BTreeMap<String, LabelDeclaration>,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("DELETE FROM labels")?
+        .execute([])?;
+    record(connection, labels)
+}
+
+/// The Labels the crawl's latest start declared, as [`record`] or
+/// [`record_again`] kept them; a row that no longer reads is left out.
 ///
 /// # Errors
 ///

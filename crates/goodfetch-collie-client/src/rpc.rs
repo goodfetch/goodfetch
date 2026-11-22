@@ -84,6 +84,9 @@ pub(crate) struct Outgoing {
     /// at once as the credits it grants allow; none for a call that streams
     /// nothing.
     pub(crate) notified: Option<mpsc::Sender<Heard>>,
+    /// Whether its items come on the call itself, as a page's listener's,
+    /// not on the event stream: a new link resumes it only as `relink` says.
+    pub(crate) streams_itself: bool,
 }
 
 /// How long a call may wait, from when the Connection takes it.
@@ -180,8 +183,7 @@ enum Ended {
     Exited(EngineExitedDetails),
     /// The engine, reached again, refused its greeting with this error.
     Refused(ErrorObject),
-    /// The engine, reached again, answered its greeting with what is no
-    /// `hello` answer, for this cause.
+    /// The engine, reached again, answered its greeting unreadably so.
     Unreadable(String),
     /// Reaching the engine again failed within `timeout.connect`, the last
     /// attempt for this cause.
@@ -415,8 +417,7 @@ struct Pending {
     reply: oneshot::Sender<Result<Value, Error>>,
     /// Its timer of the Client's, if any, and the deadline it keeps.
     deadline: Option<(Key, Deadline)>,
-    /// The deadline its engine keeps, if any, and when it passes, which
-    /// the Client times again while the call waits for a new link.
+    /// The deadline its engine keeps and when it passes, timed while held.
     engine_keeps: Option<(Instant, Deadline)>,
     notified: Option<mpsc::Sender<Heard>>,
     /// Whether the catalog says the engine cancels it, so its deadline
@@ -451,8 +452,7 @@ struct Held {
     /// Its bytes and its notes'.
     bytes: usize,
     again: Option<Again>,
-    /// Whether its caller already heard its id, as it was sent on a link
-    /// that dropped.
+    /// Whether its caller heard its id, sent on a link that dropped.
     id_heard: bool,
 }
 
@@ -563,7 +563,7 @@ impl Calls {
         let again = self
             .relinking
             .as_ref()
-            .and_then(|_| Again::of(&method, &line, call.notified.is_some()));
+            .and_then(|_| Again::of(&method, &line, call.streams_itself));
         let held = Held {
             method,
             bytes: line.len(),

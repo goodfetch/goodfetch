@@ -475,6 +475,7 @@ impl ClientConnection {
             timeout: timeout.map(call::kept_by_client),
             reply,
             notified: Some(notified),
+            streams_itself: true,
         });
         let result = loop {
             tokio::select! {
@@ -716,6 +717,7 @@ impl ClientConnection {
             timeout: None,
             reply,
             notified: None,
+            streams_itself: false,
         });
     }
 

@@ -44,13 +44,13 @@ struct Resumed {
 
 impl Again {
     /// What a call of `method`, first sent as `line`, is sent again with;
-    /// none when it never is (see [`relink::resend`]), nor when it is
-    /// `notified` of items no new link resumes after, as a page's
-    /// listener's.
-    pub(super) fn of(method: &str, line: &[u8], notified: bool) -> Option<Self> {
+    /// none when it never is (see [`relink::resend`]), nor when it
+    /// `streams_itself` items no new link resumes after, as a page's
+    /// listener does.
+    pub(super) fn of(method: &str, line: &[u8], streams_itself: bool) -> Option<Self> {
         let resumed = match relink::resend(method) {
             relink::Resend::Never => return None,
-            relink::Resend::AsItWas if notified => return None,
+            relink::Resend::AsItWas if streams_itself => return None,
             relink::Resend::AsItWas => None,
             relink::Resend::Resumed(stream) => Some(Resumed {
                 stream,

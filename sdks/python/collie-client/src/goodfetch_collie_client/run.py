@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar
 
 import anyio
 
+from goodfetch_collie_client._followed import FollowedReading
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client.caller import result_of
@@ -38,6 +39,8 @@ from goodfetch_collie_client.generated.models import (
     Lifecycle,
     RunAbortParams,
     RunId,
+    RunProgress,
+    RunProgressParams,
     SettingsExplanation,
 )
 from goodfetch_collie_client.generated.operations import (
@@ -776,6 +779,37 @@ class AsyncRun(AsyncRunMembers):
             SettingsExplanation, await self._host.call("config.explain", params)
         )
 
+    def progress(self) -> AsyncSequence[RunProgress]:
+        """The Run's progress (`run.progress`, ADR 0102), read with `async for`.
+
+        What it does and why it waits. Its first read is sent when it is
+        called and answers at once; each next value is the latest once a
+        newer one comes, read when the program asks for it, so values it
+        did not read in time coalesce. It ends with the value whose `last`
+        is true: the Run ended, its `lifecycle` and `stop_reason` saying
+        how, or no engine works it (`writer: none`). Leaving an `async with`
+        block, `aclose()`, `close()` or releasing it cancel its read at once.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        warn_entry("run.progress", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        self._scope.ensure_open("run.progress")
+        host = self._host
+
+        async def read(after: int | None) -> RunProgress:
+            params = RunProgressParams(run_id=host.id)
+            if after is not None:
+                params.after = after
+            return result_of(RunProgress, await host.call("run.progress", params))
+
+        reading = FollowedReading(
+            read, position=lambda value: value.position, last=lambda value: value.last
+        )
+        spawner()(reading.run)
+        return AsyncSequence(reading)
+
     async def close(self) -> None:
         """Closes the Run; idempotent.
 
@@ -861,6 +895,30 @@ class Run(RunMembers):
         """What the Run runs with, as `AsyncRun.explain_settings` says."""
         params = explain_params(keys, run_id=self.id)
         return result_of(SettingsExplanation, self._host.call("config.explain", params))
+
+    def progress(self) -> Sequence[RunProgress]:
+        """The Run's progress, read with `for`, as `AsyncRun.progress` says.
+
+        Any thread may read it. Leaving a `with` block, `close()` or
+        releasing it cancel its read at once.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        run = self._run
+        scope = _held[run][0].run
+
+        async def reading() -> AsyncSequence[RunProgress]:
+            return run.progress()
+
+        try:
+            sequence = self._loop.call(reading)
+        except LoopStopped:
+            # Its Connection closed the Run before stopping the loop.
+            raise scope.closed_error("run.progress") from None
+        return Sequence(
+            self._loop, sequence, lambda: scope.closed_error("run.progress")
+        )
 
     def close(self) -> None:
         """Closes the Run; idempotent.

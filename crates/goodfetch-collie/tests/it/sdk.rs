@@ -145,8 +145,14 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
         let run = collie.start().await.unwrap();
 
         let progress_set = run.set_progress_message(message.clone()).await.unwrap();
-        let progress_read = run.progress().await.unwrap();
+        let live = run.progress().next().await.unwrap().unwrap();
         let finished = run.finish().await.unwrap();
+        let mut ending = run.progress();
+        let mut ended = Vec::new();
+        while let Some(value) = ending.next().await {
+            let value = value.unwrap();
+            ended.push((value.lifecycle, value.last));
+        }
         let report = run.report().await.unwrap();
         collie.close().await.unwrap();
 
@@ -154,11 +160,12 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
             (&progress_set.run_id, progress_set.lifecycle),
             (run.id(), Lifecycle::Running)
         );
-        assert_eq!(progress_read.message, Some(message));
+        assert_eq!(live.message, Some(message));
         assert_eq!(
             (&finished.run_id, finished.lifecycle),
             (run.id(), Lifecycle::Finished)
         );
+        assert_eq!(ended, [(Lifecycle::Finished, true)]);
         assert_eq!(
             (&report.run_id, report.lifecycle),
             (run.id(), Lifecycle::Finished)

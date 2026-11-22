@@ -29,6 +29,19 @@ process that opened it: a child created by `fork` that uses one gets
 `connection_forked` before anything reaches the parent's engine, and
 connects on its own (ADR 0078).
 
+The engine runs in a process group of its own and the crate installs no
+signal handler, so a terminal's Ctrl+C reaches only your program, whose
+default ends it at once, as SIGTERM's does, running no destructor and
+before the Run can checkpoint. Close the Run on SIGINT and SIGTERM, then
+the connection: wait for the signal beside the work, with
+`tokio::signal::ctrl_c()` and `tokio::signal::unix::signal` for SIGTERM or
+your own handler, then call `run.close()` and `collie.close()`. The engine
+then stops the Run with a Checkpoint, and the next start under its Run ID
+resumes from it (ADRs 0078 and 0093). A call cut short because the engine
+ended fails with `engine_exited`, whose details hold the engine's
+`exit_code`, the `signal` that ended it and `stderr_tail`, the last 64 KiB
+of its stderr.
+
 ### Schemas
 
 A program types data with a schema in its own types (ADR 0082): a type

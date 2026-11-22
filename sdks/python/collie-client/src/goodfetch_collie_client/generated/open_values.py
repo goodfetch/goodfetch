@@ -20,6 +20,16 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `browser`: The browser, outside every Client: a page's window closed there, or the browser quit.
 """
 
+Claim: TypeAlias = Literal["done", "gave_up"] | str
+"""What a model said of the work it was given (ADR 0100): a signal, never
+proof.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `done`: It said it was done.
+- `gave_up`: It said it gave up, which stops the work with the reason `gave_up` (ADR 0117).
+"""
+
 ClosedValue: TypeAlias = Literal["page", "session", "browser", "run", "connection"] | str
 """What was closed or stopped under a call that `call_cancelled` ended
 (ADR 0113), open (ADR 0079).

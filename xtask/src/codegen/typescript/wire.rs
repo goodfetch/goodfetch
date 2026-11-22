@@ -620,7 +620,7 @@ pub(super) fn path_value(path: &WirePath) -> String {
 }
 
 /// The name of `product`'s table.
-fn table_name(product: Product) -> String {
+pub(super) fn table_name(product: Product) -> String {
     format!("{}Wire", product.name().to_lowercase())
 }
 

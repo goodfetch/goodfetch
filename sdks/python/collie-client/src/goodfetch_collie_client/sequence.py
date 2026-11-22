@@ -8,8 +8,9 @@ generator, so it closes synchronously and at once: leaving an `async with`
 or `with` block, `close()`, `aclose()` and releasing it, which a bare
 `async for … break` does in CPython, cancel its call, before any later call
 of the Run. It has one reader: it is its own iterator. In the sync API,
-`Sequence` reads its async twin on the Connection's private loop.
-TypeScript's `sequence.ts` is its twin.
+`Sequence` reads its async twin on the Connection's private loop. A
+followed read, such as a Run's progress, is read the same way, each credit
+one read (`_followed.py`). TypeScript's `sequence.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from __future__ import annotations
 import collections
 import logging
 import weakref
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 import anyio
 
@@ -38,11 +39,58 @@ __all__ = ["AsyncSequence", "Sequence"]
 _Item = TypeVar("_Item")
 
 
+class Reads(Protocol[_Item]):
+    """What an iterator reads: a sequence's call, or a followed read's reads.
+
+    It never holds the iterator, so releasing the iterator unread lets it go.
+    """
+
+    @property
+    def regrant(self) -> int:
+        """How many items the iterator hands out before it grants as many again."""
+        ...
+
+    @property
+    def received(self) -> collections.deque[_Item]:
+        """The items received and not read yet."""
+        ...
+
+    @property
+    def ended(self) -> bool:
+        """Whether nothing more is received."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Whether the program stopped reading, or read it to its end."""
+        ...
+
+    @property
+    def failure(self) -> BaseGoodfetchError | None:
+        """What ended it, unless the program stopped reading first."""
+        ...
+
+    async def changed(self) -> None:
+        """Waits until an item comes, it ends or it is closed."""
+        ...
+
+    def close(self) -> None:
+        """Stops reading; idempotent."""
+        ...
+
+    async def grant(self, credits: int) -> None:
+        """Lets `credits` more items come."""
+        ...
+
+
 class Reading(Generic[_Item]):
     """A sequence's call and what it received, which its task and iterator share.
 
     It never holds the iterator, so releasing the iterator unread lets it go.
     """
+
+    regrant = REGRANT
+    """How many items the iterator hands out before it grants as many again."""
 
     def __init__(
         self,
@@ -178,8 +226,8 @@ class AsyncSequence(Generic[_Item]):
     `run.key_value_store.keys()` returns it.
     """
 
-    def __init__(self, reading: Reading[_Item]) -> None:
-        """Takes its call, already spawned."""
+    def __init__(self, reading: Reads[_Item]) -> None:
+        """Takes what it reads, already spawned: a call, or a followed read."""
         self._reading = reading
         self._release = weakref.finalize(self, reading.close)
         self._release.atexit = False
@@ -207,7 +255,11 @@ class AsyncSequence(Generic[_Item]):
         if self._handed_out:
             self._handed_out = False
             self._read += 1
-            if self._read >= REGRANT and not reading.ended and not reading.closed:
+            if (
+                self._read >= reading.regrant
+                and not reading.ended
+                and not reading.closed
+            ):
                 await reading.grant(self._read)
                 self._read = 0
         while True:

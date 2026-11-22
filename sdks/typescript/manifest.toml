@@ -360,16 +360,6 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
-member = "Claim"
-entry = "none"
-reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
-only = "Rust's is `goodfetch-protocol`'s contract type, which no manifest lists (ADR 0038); #3164 generates TypeScript's and Python's."
-words = ["claim"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/collie-client"
-receiver = "(module)"
 member = "Ended"
 entry = "none"
 reason = "How AI work ended (ADR 0117), narrowed on `kind`: `finished` or `stopped`."
@@ -388,16 +378,6 @@ form = "type"
 
 [[member]]
 package = "@goodfetch/collie-client"
-receiver = "(module)"
-member = "Reported"
-entry = "none"
-reason = "The model's claim and its message (ADR 0100): a signal, never proof."
-only = "Rust's is `goodfetch-protocol`'s contract type, which no manifest lists (ADR 0038); #3164 generates TypeScript's and Python's."
-words = ["reported"]
-form = "type"
-
-[[member]]
-package = "@goodfetch/collie-client"
 receiver = "Run"
 member = "id"
 entry = "none"
@@ -412,6 +392,14 @@ receiver = "Run"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
 form = "round_trip"
 
 [[member]]

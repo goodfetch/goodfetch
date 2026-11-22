@@ -205,6 +205,12 @@ pub enum OperationKind {
     /// A call that stays in flight and sends its answer as notifications,
     /// such as an event subscription or a body read in chunks (ADR 0081).
     Sequence,
+    /// A read the SDK sends again with the `position` of the value it read
+    /// last, as `after`, which the engine answers once a newer value comes,
+    /// until a value whose `last` is true: the program reads it as a
+    /// sequence, each value the latest when it is read (ADR 0102), such as
+    /// `run.progress`.
+    Followed,
     /// A wait for an application state, armed when it is called (ADR 0080).
     Waiter,
     /// A side activity a program listens to, such as a page's console
@@ -221,6 +227,7 @@ impl OperationKind {
             Self::Read => "read",
             Self::Opener => "opener",
             Self::Sequence => "sequence",
+            Self::Followed => "followed",
             Self::Waiter => "waiter",
             Self::Event => "event",
         }

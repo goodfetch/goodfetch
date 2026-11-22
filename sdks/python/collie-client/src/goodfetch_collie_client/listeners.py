@@ -30,7 +30,7 @@ import inspect
 import logging
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, cast
 
 import anyio
 
@@ -109,11 +109,15 @@ class Streams(Protocol):
         self,
         method: str,
         params: Mapping[str, object],
-        notified: Callable[[str, object], None],
+        notified: Callable[[str, object], None] | None,
         *,
         sent: Callable[[int], None] | None = None,
     ) -> object:
-        """Sends `method`, whose notifications `notified` hears; awaits its answer."""
+        """Sends `method`, whose notifications `notified` hears; awaits its answer.
+
+        A call that hears none, `notified` `None`, may be sent again as it
+        was once a dropped link is reached again (spec 606).
+        """
         ...
 
     async def notify(self, method: str, params: Mapping[str, object]) -> None:
@@ -257,6 +261,9 @@ async def wait_for(hold: anyio.Event | None) -> None:
 class _Subscribed(Generic[_Model]):
     """One subscription's call, its deliveries and its close."""
 
+    _carries_events: ClassVar[bool] = True
+    """Whether its call's own notifications carry its events."""
+
     def __init__(
         self,
         connection: Streams,
@@ -360,7 +367,10 @@ class _Subscribed(Generic[_Model]):
                 group.start_soon(self._cancel_when_closed, call)
                 try:
                     await self._connection.stream(
-                        self._method, self._params, self._notified, sent=sent
+                        self._method,
+                        self._params,
+                        self._notified if self._carries_events else None,
+                        sent=sent,
                     )
                 except BaseGoodfetchError as error:
                     if not self._closed:
@@ -473,8 +483,11 @@ class _Published(_Subscribed[_Model]):
     """A listener of events published on the Connection's Subscription.
 
     Its call carries no events and takes no credits: the Subscription's
-    carry them, given back as its queue takes them.
+    carry them, given back as its queue takes them. So it hears no
+    notification of its own, and a reconnect sends it again as it was.
     """
+
+    _carries_events: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -587,17 +600,63 @@ class _Published(_Subscribed[_Model]):
 
 def batch_of(params: object) -> list[tuple[str, object]]:
     """The events of a `$/events` batch, each its name and data."""
+    return [(name, fields.get("data")) for name, fields in _events_in(params)]
+
+
+def _events_in(params: object) -> list[tuple[str, dict[str, object]]]:
+    """Each event of a `$/events` batch, its name and its members, in order."""
     members = object_members(params)
     events = None if members is None else members.get("events")
     if not isinstance(events, list):
         return []
-    batch: list[tuple[str, object]] = []
+    found: list[tuple[str, dict[str, object]]] = []
     for item in cast("list[object]", events):
         fields = object_members(item)
         name = None if fields is None else fields.get("event")
         if fields is not None and isinstance(name, str):
-            batch.append((name, fields.get("data")))
-    return batch
+            found.append((name, fields))
+    return found
+
+
+class ResumedEvents:
+    """`events.subscribe`, sent again after the last event it read (spec 606).
+
+    As the engine instance that published that event, with the credits it
+    granted less the events it received, so its readers lose no event.
+    TypeScript's `resumed-stream.ts` is its twin.
+    """
+
+    def __init__(
+        self,
+        notified: Callable[[str, object], None] | None,
+        engine_instance: Callable[[], str | None],
+    ) -> None:
+        """Wraps `notified`; `engine_instance` names the engine instance reached."""
+        self._wrapped = notified
+        self._engine_instance = engine_instance
+        self._last: dict[str, object] | None = None
+        self._granted = 0
+        self._received = 0
+
+    def notified(self, method: str, params: object) -> None:
+        """Counts a batch's events, keeps the last one's position, and hands it on."""
+        if method == EVENTS:
+            positions = [fields.get("position") for _, fields in _events_in(params)]
+            self._received += len(positions)
+            instance = self._engine_instance()
+            if positions and instance is not None:
+                self._last = {"engine_instance": instance, "position": positions[-1]}
+        if self._wrapped is not None:
+            self._wrapped(method, params)
+
+    def granted(self, credits: int) -> None:
+        """Counts the credits granted."""
+        self._granted += credits
+
+    def resumed(self) -> tuple[object, int]:
+        """`{}` before any event was read, else after the last; the credits left."""
+        params: dict[str, object] = {} if self._last is None else {"after": self._last}
+        return params, self._granted - self._received
 
 
 def spawner() -> Callable[[_Work], None]:

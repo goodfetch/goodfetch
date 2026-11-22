@@ -436,6 +436,11 @@ jobs:
       # xtask's own `dev` build with line tables only, as on Linux.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
+      # The runner's Git converts LF to CRLF on checkout, which the build
+      # scripts and tests that read a file's bytes do not expect: the tree
+      # keeps the bytes Linux and macOS check out (ADR 0067).
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

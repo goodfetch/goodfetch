@@ -152,11 +152,14 @@ impl ConnectOptions {
         self
     }
 
-    /// Reads the project file `path` (ADR 0083) in place of the
-    /// `goodfetch.toml` found in the working directory or the nearest
-    /// folder above it, as `config explain --project` does. A file that is not
-    /// there, or that does not read as a project file, fails the connect
-    /// with `setting_invalid` before any engine is reached.
+    /// Reads the project file `path` (ADR 0083), a relative one from the
+    /// working directory, in place of the `goodfetch.toml` found in the
+    /// working directory or the nearest folder above it. A file that is not
+    /// there, where `config explain --project` would only report it
+    /// missing, or that does not read as a project file, fails the connect
+    /// with `setting_invalid` before any engine is reached, and one of a
+    /// format version this Goodfetch cannot read with
+    /// `format_version_unsupported`.
     #[must_use]
     pub fn project(mut self, path: impl Into<PathBuf>) -> Self {
         self.project = ProjectChoice::Named(path.into());
@@ -353,7 +356,11 @@ impl ProductConnection {
     /// ([`ConnectOptions::timeout`]), a zero
     /// [`ConnectOptions::max_listener_queue`] or a remote Daemon's URL that names no
     /// loopback `ws://` address, or `GOODFETCH_URL` without
-    /// `GOODFETCH_TOKEN`, `daemon_unreachable` when the Daemon chosen
+    /// `GOODFETCH_TOKEN`, `setting_invalid` at `project_configuration`
+    /// for a project file that cannot be read or found
+    /// ([`ConnectOptions::project`]) or whose `timeout.connect` is no whole
+    /// number of 1 ms or more, `format_version_unsupported` for one of a
+    /// format version this Goodfetch cannot read, `daemon_unreachable` when the Daemon chosen
     /// cannot be reached, `deadline_exceeded` naming
     /// `timeout.connect` when `hello` is not answered within it, or no
     /// pick serves within it after a handover, what `hello` fails with,
@@ -498,6 +505,7 @@ impl ProductConnection {
             hello,
             asked.timeout,
             asked.listener_queue,
+            asked.project.as_ref().map(Project::carried),
             trace_context::source(),
         )
         .await?;
@@ -516,8 +524,9 @@ impl ProductConnection {
     /// A connection on `runtime`, whose handle is `handle`, saying `hello`
     /// with the token of the Daemon `daemon` names, the one of `home`
     /// unless it is remote, waiting for its answer within `timeout`, each
-    /// stream of a Session's events holding at most `listener_queue`
-    /// unread ones. Its Limits are not set yet.
+    /// stream of a Session's events holding at most `asked`'s listener
+    /// queue of unread ones, carrying the project file `asked` names. Its
+    /// Limits are not set yet.
     async fn open_daemon(
         runtime: ConnectionRuntime,
         handle: Handle,
@@ -525,7 +534,7 @@ impl ProductConnection {
         home: Option<&Home>,
         hello: HelloParams,
         timeout: ConnectTimeout,
-        listener_queue: ListenerQueue,
+        asked: &Asked,
     ) -> Result<Self, Error> {
         let hello = HelloParams {
             token: Some(daemon.token.expose().to_owned()),
@@ -538,7 +547,8 @@ impl ProductConnection {
             &endpoint,
             hello,
             timeout,
-            listener_queue,
+            asked.listener_queue,
+            asked.project.as_ref().map(Project::carried),
             trace_context::source(),
         )
         .await
@@ -556,14 +566,14 @@ impl ProductConnection {
         })
     }
 
-    /// The connection, opened, once it carries the project file `asked`
-    /// names, which `engine()` reports, logged the engine it reached and
-    /// set each of `asked`'s Limits; when a Limit is refused, it is closed.
+    /// The connection, opened, once `engine()` reports the project file
+    /// `asked` names, which it carries, it logged the engine it reached
+    /// and set each of `asked`'s Limits; when a Limit is refused, it is
+    /// closed.
     async fn reached(mut self, asked: Asked) -> Result<Self, Error> {
-        if let Some(Project { file, sent }) = asked.project {
-            self.connection.carry_project(sent);
+        if let Some(project) = asked.project {
             self.info = Arc::new(EngineInfo {
-                project_file: Some(file),
+                project_file: Some(project.file),
                 ..(*self.info).clone()
             });
         }

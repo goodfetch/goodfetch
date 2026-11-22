@@ -121,14 +121,30 @@ fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
     );
 }
 
+/// Which project file a test's connection asks for.
+#[derive(Clone, Copy, Debug)]
+enum Asked {
+    /// The other file, by its absolute path.
+    Absolute,
+    /// The other file, by its path from the working directory.
+    Relative,
+    /// None.
+    None,
+}
+
 /// `project` names a file away from the working directory, read in place
-/// of the one found there, and `no_project()` reads none.
+/// of the one found there and reported by its absolute path, also when it
+/// is named from the working directory, and `no_project()` reads none.
 /// Covers: story:11-75, operation:config.explain, operation:run.start
 #[rstest]
-#[case::named(true, json!([60_000, "project_configuration"]))]
-#[case::none(false, json!([30_000, "default"]))]
+#[case::named(Asked::Absolute, json!([60_000, "project_configuration"]))]
+#[case::named_from_the_working_directory(
+    Asked::Relative,
+    json!([60_000, "project_configuration"])
+)]
+#[case::none(Asked::None, json!([30_000, "default"]))]
 fn project_names_another_file_and_no_project_reads_none(
-    #[case] named: bool,
+    #[case] asked: Asked,
     #[case] expected: Value,
 ) {
     let env = TestEnv::new();
@@ -142,11 +158,12 @@ fn project_names_another_file_and_no_project_reads_none(
         "other.toml",
         &navigation(60_000),
     );
-    work_in(&env.folder().join("work"));
-    let options = if named {
-        options(&env).project(&elsewhere)
-    } else {
-        options(&env).no_project()
+    let work = work_in(&env.folder().join("work"));
+    let relative = Path::new("..").join("elsewhere").join("other.toml");
+    let (options, reported) = match asked {
+        Asked::Absolute => (options(&env).project(&elsewhere), Some(elsewhere)),
+        Asked::Relative => (options(&env).project(&relative), Some(work.join(&relative))),
+        Asked::None => (options(&env).no_project(), None),
     };
 
     let (engine, explained) = real_time_runtime().block_on(async {
@@ -158,7 +175,7 @@ fn project_names_another_file_and_no_project_reads_none(
 
     assert_eq!(
         (engine.project_file, explained),
-        (named.then_some(elsewhere), (expected.clone(), expected))
+        (reported, (expected.clone(), expected))
     );
 }
 
@@ -235,12 +252,23 @@ fn a_project_file_of_a_newer_format_fails_the_connect() {
 /// the connection's own `timeout` wins over it.
 /// Covers: story:11-75, setting:timeout.connect
 #[rstest]
-#[case::the_project_files(None, json!({ "key": "timeout.connect", "value": 200, "layer": "project_configuration" }))]
+#[case::the_project_files(
+    "[settings.timeout]\nconnect = 200\n",
+    None,
+    json!({ "key": "timeout.connect", "value": 200, "layer": "project_configuration" })
+)]
+#[case::the_project_files_written_whole(
+    "[settings]\n\"timeout.connect\" = 200\n",
+    None,
+    json!({ "key": "timeout.connect", "value": 200, "layer": "project_configuration" })
+)]
 #[case::the_connections_own(
+    "[settings.timeout]\nconnect = 200\n",
     Some(Duration::from_millis(300)),
     json!({ "key": "timeout.connect", "value": 300, "layer": "run", "origin": "argument" })
 )]
 fn a_project_files_connect_timeout_bounds_hello(
+    #[case] settings: &str,
     #[case] own: Option<Duration>,
     #[case] limit: Value,
 ) {
@@ -254,7 +282,7 @@ fn a_project_files_connect_timeout_bounds_hello(
     let project = write(
         &env.folder().join("work"),
         "goodfetch.toml",
-        "version = \"0.1\"\n\n[settings.timeout]\nconnect = 200\n",
+        &format!("version = \"0.1\"\n\n{settings}"),
     );
     let mut options = ConnectOptions::default()
         .environment(env.env_os())
@@ -315,7 +343,7 @@ fn a_project_files_connect_timeout_that_is_no_duration_fails_the_connect(#[case]
 /// Against the Scripted engine as a remote Daemon, a Run whose start
 /// carries a project value that widens `tls.trusted_cas` fails with the
 /// Daemon's `setting_locked` at `project_configuration`.
-/// Covers: story:11-75, operation:run.start, error:setting_locked, setting:tls.trusted_cas
+/// Covers: story:11-75
 #[test]
 #[expect(
     clippy::disallowed_methods,

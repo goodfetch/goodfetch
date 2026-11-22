@@ -3,11 +3,13 @@
 //! none, read once at `connect()` and refused there before any engine is
 //! reached.
 
+use std::io;
 use std::path::PathBuf;
 
 use goodfetch_collie_client::Error;
-use goodfetch_engine::settings::{SettingsError, find_project, project_settings};
+use goodfetch_engine::settings::{SettingsError, find_project, nested, project_settings};
 use goodfetch_protocol::checkpoint::{FORMAT_VERSION_UNSUPPORTED, FormatVersionUnsupportedDetails};
+use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::settings::{
     ProjectSettings, SettingInvalidDetails, SettingsLayer, TIMEOUT_CONNECT,
 };
@@ -27,27 +29,31 @@ pub(super) enum ProjectChoice {
 
 impl ProjectChoice {
     /// The project file chosen, read, `None` when none is: none is
-    /// found, or none is to be read. Blocking, as the machine's settings'
-    /// read the opening makes is.
+    /// found, or none is to be read. A named file is read, carried and
+    /// reported by its absolute path, so that the engine, or a later read
+    /// of the Run it starts, finds the same file. Blocking, as the
+    /// machine's settings' read the opening makes is.
     ///
     /// # Errors
     ///
-    /// `setting_invalid` at `project_configuration` for a named file that
-    /// is not there, and for a file that does not read as a project file,
+    /// `setting_invalid` at `project_configuration` when the working
+    /// directory cannot be read, for a named file that is not there, and
+    /// for a file that does not read as a project file, and
     /// `format_version_unsupported` for one of a format version this
     /// engine cannot read.
     pub(super) fn read(self) -> Result<Option<Project>, Error> {
         let file = match self {
             Self::Found => {
-                let Ok(folder) = std::env::current_dir() else {
-                    return Ok(None);
-                };
+                let folder =
+                    std::env::current_dir().map_err(|error| no_working_directory(&error))?;
                 let Some(found) = find_project(&folder) else {
                     return Ok(None);
                 };
                 found
             }
-            Self::Named(file) => file,
+            Self::Named(file) => {
+                std::path::absolute(&file).map_err(|error| no_working_directory(&error))?
+            }
             Self::Skipped => return Ok(None),
         };
         let path = file.display().to_string();
@@ -66,26 +72,42 @@ impl ProjectChoice {
 /// settings as `run.start` and `config.explain` carry them.
 #[derive(Debug)]
 pub(crate) struct Project {
+    /// Its absolute path.
     pub(super) file: PathBuf,
-    pub(super) sent: ProjectSettings,
+    sent: ProjectSettings,
 }
 
 impl Project {
-    /// The `timeout.connect` it sets, if it does.
+    /// Its path and settings, as the connection carries them.
+    pub(super) fn carried(&self) -> ProjectSettings {
+        self.sent.clone()
+    }
+
+    /// The `timeout.connect` it sets, if it does, as a table or as the
+    /// key written whole, as the engine reads it.
     pub(super) fn connect_timeout(&self) -> Option<&serde_json::Value> {
-        let (table, key) = TIMEOUT_CONNECT
-            .name
-            .split_once('.')
-            .expect("invariant: `timeout.connect` is a key of the `timeout` table");
-        self.sent.settings.get(table)?.get(key)
+        nested(&self.sent.settings, TIMEOUT_CONNECT.name)
     }
 }
 
-/// What a project file's refusal tells its program to do, for the file
-/// at `path`.
-fn project_fix(path: &str) -> String {
-    format!(
-        "Fix the project file at {path}, name another with `project`, or read none with `no_project()`."
+/// The fix of a project file's refusal: what its program can do instead.
+const PROJECT_FIX: &str =
+    "name another project file with `project`, or read none with `no_project()`";
+
+/// The connect's `setting_invalid` when the working directory, which the
+/// project file is found or named from, cannot be read for `error`.
+fn no_working_directory(error: &io::Error) -> Error {
+    let reason = format!("the working directory cannot be read ({error})");
+    let fix = "Name the project file by its absolute path with `project`, or read none with `no_project()`.".to_owned();
+    Error::setting_invalid(
+        format!("No project file can be found: {reason}."),
+        &SettingInvalidDetails {
+            key: "project".to_owned(),
+            layer: Some(SettingsLayer::ProjectConfiguration),
+            reason,
+            limit: None,
+            fix: Some(fix),
+        },
     )
 }
 
@@ -100,16 +122,14 @@ fn project_missing(path: &str) -> Error {
             layer: Some(SettingsLayer::ProjectConfiguration),
             reason: reason.to_owned(),
             limit: None,
-            fix: Some(
-                "Name a project file that is there with `project`, or read none with `no_project()`."
-                    .to_owned(),
-            ),
+            fix: Some(format!("Create it, or {PROJECT_FIX}.")),
         },
     )
 }
 
 /// The connect's error for the project file at `path`, which
-/// `project_settings` refused, as the TypeScript and Python SDKs raise it.
+/// `project_settings` refused, with the fix the engine's own refusal of it
+/// gives.
 fn project_refused(error: SettingsError, path: &str) -> Error {
     let message = error.to_string();
     match error {
@@ -120,16 +140,24 @@ fn project_refused(error: SettingsError, path: &str) -> Error {
                 layer,
                 reason,
                 limit: None,
-                fix: Some(project_fix(path)),
+                fix: Some(format!("Fix the project file at {path}, or {PROJECT_FIX}.")),
             },
         ),
         SettingsError::Format {
             format,
             found,
             supported,
+            compatibility,
             ..
         } => {
-            let fix = format!("Upgrade Goodfetch to a version that reads {format} {found}.");
+            let fix = match compatibility {
+                Compatibility::OlderMajor => "Run `upgrade-files`, then try again.".to_owned(),
+                Compatibility::Compatible
+                | Compatibility::NewerMinor
+                | Compatibility::NewerMajor => {
+                    format!("Upgrade Goodfetch to a version that reads {format} {found}.")
+                }
+            };
             Error::of_sdk(
                 &FORMAT_VERSION_UNSUPPORTED,
                 &format!("The project file {path} cannot be read: {message}"),

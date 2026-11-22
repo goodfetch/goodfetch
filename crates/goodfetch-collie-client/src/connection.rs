@@ -17,7 +17,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::pin::{Pin, pin};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
@@ -156,8 +156,8 @@ struct Inner {
     /// reached again is greeted with.
     log_level: Arc<Mutex<LogLevel>>,
     /// The project file its program read (ADR 0083), which each Run's
-    /// start and its own `config.explain` carry once it is set.
-    project: OnceLock<ProjectSettings>,
+    /// start and its own `config.explain` carry, if it read one.
+    project: Option<ProjectSettings>,
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
@@ -193,6 +193,7 @@ impl ClientConnection {
             ConnectTimeout::Off,
             ListenerQueue::DEFAULT,
             None,
+            None,
         )
         .await
     }
@@ -200,9 +201,11 @@ impl ClientConnection {
     /// Opens a Connection as [`ClientConnection::open`] does, waiting for
     /// `hello`'s answer within `timeout` (ADR 0083); past it, the
     /// Connection is closed. Each stream of its own Subscription, such as a
-    /// Session's, holds at most `listener_queue` unread events. Each call,
-    /// `hello`'s included, carries the Trace context `trace_context_source`
-    /// reads on the thread that makes it, and none without it (ADR 0132).
+    /// Session's, holds at most `listener_queue` unread events. Each Run it
+    /// starts and its own `config.explain` carry `project`, the project
+    /// file its program read, if any (ADR 0083). Each call, `hello`'s
+    /// included, carries the Trace context `trace_context_source` reads on
+    /// the thread that makes it, and none without it (ADR 0132).
     ///
     /// # Errors
     ///
@@ -211,6 +214,10 @@ impl ClientConnection {
     /// Exposed Daemon's WebSocket handshake, and `hello`'s answer did not
     /// both come within `timeout`, its `limit` naming `timeout.connect`
     /// and the layer that set it, and `waited_for` `hello`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "what a Product's connect() opens a Connection with, each the program's own or the opening's: bundled, they would only travel together to this one call"
+    )]
     pub async fn open_within(
         runtime: ConnectionRuntime,
         network: &Network,
@@ -218,6 +225,7 @@ impl ClientConnection {
         hello: HelloParams,
         timeout: ConnectTimeout,
         listener_queue: ListenerQueue,
+        project: Option<ProjectSettings>,
         trace_context_source: Option<Arc<dyn TraceContextSource>>,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
@@ -275,7 +283,7 @@ impl ClientConnection {
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
             log_level: Arc::clone(&log_level),
-            project: OnceLock::new(),
+            project,
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
@@ -759,23 +767,12 @@ impl ClientConnection {
         ended.recv().unwrap_or_else(|_| Err(Error::closed()))
     }
 
-    /// Carries `project`, the project file its program read (ADR 0083),
-    /// as layer 3 of each Run it starts from now on and of its own
-    /// `config.explain`. A Connection carries one project file for good: a
-    /// second is ignored.
-    pub fn carry_project(&self, project: ProjectSettings) {
-        if self.0.project.set(project).is_err() {
-            tracing::debug!(
-                target: logging::CLIENT,
-                "the Connection already carries a project file; the second is ignored"
-            );
-        }
-    }
-
-    /// The project file it carries, if any.
+    /// The project file it carries (ADR 0083), the one its program read,
+    /// as layer 3 of each Run it starts and of its own `config.explain`,
+    /// if it read one.
     #[must_use]
     pub fn project(&self) -> Option<&ProjectSettings> {
-        self.0.project.get()
+        self.0.project.as_ref()
     }
 
     /// The level its engine was last told, held.

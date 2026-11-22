@@ -168,6 +168,80 @@ fn scan_reads_a_covers_declaration_wrapped_over_several_doc_lines() {
     );
 }
 
+/// `prop_state_machine!` and `proptest!` each turn the `fn` items written
+/// inside them into tests of the module that invokes them, under the same
+/// names: a `Covers:` line on such an item declares for that test, as on a
+/// test function.
+#[test]
+fn scan_reads_a_covers_line_on_a_test_inside_proptest_macros() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod model;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/model.rs",
+        br#"prop_state_machine! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// Covers: story:1-1,
+    /// story:1-2
+    #[test]
+    fn keeps_every_commit(sequential 1..16 => Subject);
+
+    #[test]
+    fn declares_nothing(sequential 1..4 => Subject);
+}
+
+proptest::proptest! {
+    /// Covers: operation:sample.echo
+    #[test]
+    fn echoes_any_text(text in ".*") {
+        let _ = text;
+    }
+}
+"#,
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome
+            .stdout
+            .lines()
+            .filter(|line| line.contains("store::tests::model::") && !line.starts_with("event:"))
+            .collect::<Vec<_>>(),
+        vec![
+            "operation:sample.echo\tunit\tnextest\tsample store::tests::model::echoes_any_text",
+            "story:1-1\tunit\tnextest\tsample store::tests::model::keeps_every_commit",
+            "story:1-2\tunit\tnextest\tsample store::tests::model::keeps_every_commit",
+        ]
+    );
+}
+
+/// A `Covers:` line inside a macro the scan cannot read, another macro's or
+/// a proptest one's in a form it does not know, fails the scan with the
+/// file and line, rather than declaring nothing.
+#[rstest]
+#[case::another_macro("cases! {\n    /// Covers: story:1-2\n    #[test]\n    fn keeps() {}\n}\n")]
+#[case::an_unknown_form(
+    "prop_state_machine! {\n    /// Covers: story:1-2\n    #[test]\n    fn keeps(sequential 1..4 => Subject) -> u8;\n}\n"
+)]
+fn scan_fails_on_a_covers_line_inside_a_macro_it_cannot_read(#[case] source: &str) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod unread;\n");
+    workspace.write("crates/sample/src/store/tests/unread.rs", source.as_bytes());
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains("crates/sample/src/store/tests/unread.rs:2"),
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// A module whose file a `#[path]` attribute names is read from that file,
 /// relative to the declaring file's folder, and its own child modules from
 /// the named file's folder, as rustc reads them.

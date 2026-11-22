@@ -27,6 +27,7 @@ from goodfetch_collie_client.generated.models import Product
 from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
+    OPERATION_CLASSES,
 )
 from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.handle import NotGiven, not_given
@@ -63,6 +64,7 @@ _COLLIE = ProductPackage(
     engine_path_variable=COLLIE_ENGINE_PATH_VARIABLE,
     error_classes=ERROR_CLASSES,
     bin_folder=Path(__file__).parent / "bin",
+    operation_classes=OPERATION_CLASSES,
 )
 """What makes this package Collie's.
 

@@ -1,0 +1,34 @@
+error[E0308]: mismatched types
+  --> tests/ui/payloads/payload_on_label_without_one.rs:11:55
+   |
+11 |     let _ = ctx.enqueue("https://shop.test/3", &page, "a listing").await;
+   |                 -------                               ^^^^^^^^^^^ expected `()`, found `&str`
+   |                 |
+   |                 arguments to this method are incorrect
+   |
+help: the return type of this call is `&'static str` due to the type of the argument passed
+  --> tests/ui/payloads/payload_on_label_without_one.rs:11:13
+   |
+11 |     let _ = ctx.enqueue("https://shop.test/3", &page, "a listing").await;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-----------^
+   |                                                       |
+   |                                                       this argument influences the return type of `enqueue`
+note: method defined here
+  --> src/crawl/context.rs
+   |
+   |     pub fn enqueue<Q: Serialize + DeserializeOwned>(
+   |            ^^^^^^^
+
+error[E0308]: mismatched types
+ --> tests/ui/payloads/payload_on_label_without_one.rs:7:47
+  |
+7 |     Ok(Seed::new("https://shop.test/", &page, 3))
+  |        ---------                              ^ expected `()`, found integer
+  |        |
+  |        arguments to this function are incorrect
+  |
+note: associated function defined here
+ --> src/crawl/handles.rs
+  |
+  |     pub fn new<P: Serialize + DeserializeOwned>(
+  |            ^^^

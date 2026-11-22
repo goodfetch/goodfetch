@@ -30,6 +30,9 @@ from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
 )
+from goodfetch_collie_client.generated.operations import (
+    OPERATION_CLASSES as COLLIE_OPERATION_CLASSES,
+)
 from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
@@ -49,6 +52,9 @@ from goodfetch_foxhound.generated.connection import (
 )
 from goodfetch_foxhound.generated.errors import (
     ERROR_CLASSES as FOXHOUND_ERROR_CLASSES,
+)
+from goodfetch_foxhound.generated.operations import (
+    OPERATION_CLASSES as FOXHOUND_OPERATION_CLASSES,
 )
 
 if TYPE_CHECKING:
@@ -81,6 +87,7 @@ _FOXHOUND = ProductPackage(
     engine_path_variable=FOXHOUND_ENGINE_PATH_VARIABLE,
     error_classes={**COLLIE_ERROR_CLASSES, **FOXHOUND_ERROR_CLASSES},
     bin_folder=Path(__file__).parent / "bin",
+    operation_classes={**COLLIE_OPERATION_CLASSES, **FOXHOUND_OPERATION_CLASSES},
 )
 """What makes this package Foxhound's.
 

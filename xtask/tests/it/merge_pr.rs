@@ -4,7 +4,8 @@
 //! log and test results in the repository's common folder (#2087), and
 //! sweeps the gate's `target/` after each gate, still holding its lock; it
 //! gates a head without its base's tip merged with that tip, and refuses one
-//! that conflicts with it; a
+//! that conflicts with it, and one whose merge would close other issues
+//! than its `Closes` lines name (#2249); a
 //! gate waits for the run in the backstop's worktree, a test-health run or
 //! the backstop's own, unless that one waits for it; it files the merge's stress
 //! listings; and the gate outlives the shell that started it, whose output it
@@ -34,14 +35,25 @@ const STARTED: &str = "1800000000";
 pub(crate) const NO_PROCESS: &str = "2147483646";
 
 /// The `gh` stand-in of [`stand_ins`]: it reads the pull request from the
-/// folder's files and answers the query of a spec's sub-issues.
+/// folder's files and answers the query of a spec's sub-issues and the paged
+/// query of what the merge closes.
 fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
     format!(
         "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
          if [ \"$1 $2\" = \"pr view\" ]; then printf '%s\\t%s\\tmain\\t%s\\tA change\\n' \"$(cat \"{state}\" 2>/dev/null || printf 'OPEN\\tfalse')\" \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\" \"$(cat \"{branch}\" 2>/dev/null || echo change)\"; fi\n\
          if [ \"$1 $2\" = \"api graphql\" ]; then\n\
-           if [ -f \"{unreadable}\" ]; then exit 1; fi\n\
-           cat \"{left}\" 2>/dev/null || echo 0\n\
+           case \" $* \" in\n\
+             *\" --paginate \"*)\n\
+               if [ -f \"{closing_unreadable}\" ]; then exit 1; fi\n\
+               printf 'default\\t%s\\n' \"$(cat \"{default_branch}\" 2>/dev/null || echo main)\"\n\
+               if [ -f \"{closes}\" ]; then awk '{{ print \"closes\\t\" $0 }}' \"{closes}\"; fi\n\
+               if [ -f \"{body}\" ]; then awk '{{ print \"body\\t\" $0 }}' \"{body}\"; fi\n\
+               ;;\n\
+             *)\n\
+               if [ -f \"{unreadable}\" ]; then exit 1; fi\n\
+               cat \"{left}\" 2>/dev/null || echo 0\n\
+               ;;\n\
+           esac\n\
          fi\n\
          if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
            merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
@@ -54,6 +66,10 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
         merges_as = folder.join("merges-as").display(),
         left = folder.join("sub-issues-left").display(),
         unreadable = folder.join("sub-issues-unreadable").display(),
+        closing_unreadable = folder.join("closing-unreadable").display(),
+        default_branch = folder.join("default-branch").display(),
+        closes = folder.join("closes").display(),
+        body = folder.join("body").display(),
     )
 }
 
@@ -66,7 +82,13 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
 /// the head branch `branch` names, `change` without it; `gh api graphql`, the
 /// query of the spec's sub-issues left open after the pull request, prints
 /// `sub-issues-left`'s content, `0` without it, and fails while
-/// `sub-issues-unreadable` exists; and `gh pr
+/// `sub-issues-unreadable` exists; `gh api graphql --paginate`, the query of
+/// what the merge closes, answers as its filter does, a line `default`, the
+/// repository's default branch (`default-branch`'s content, `main` without
+/// it), a line `closes` for each line of `closes`, the issues GitHub would
+/// close, and a line `body` for each line of `body`, the pull request's body,
+/// each kind and its value parted by a tab, and fails while
+/// `closing-unreadable` exists; and `gh pr
 /// merge` makes `main` a merge with the tree of the revision `merges-as` names,
 /// when it exists; `cargo run … affected` prints `selection`'s content, else
 /// `gate=quick` or the gate `gate` names, its sweep notes `sweeping` and waits
@@ -895,7 +917,7 @@ fn an_unfinished_specs_pull_request_says_why_it_took_the_quick_gate() {
     let queries: Vec<&String> = run
         .calls
         .iter()
-        .filter(|call| call.starts_with("gh api graphql "))
+        .filter(|call| call.starts_with("gh api graphql ") && !call.contains("--paginate"))
         .collect();
     assert_eq!(queries.len(), 1, "{:?}", run.calls);
     assert!(
@@ -1697,15 +1719,17 @@ fn a_lock_whose_holders_start_cannot_be_told_is_judged_by_its_process() {
 /// refusal should cost nothing. The gate reads the pull request again once a
 /// wait has ended.
 #[rstest]
-#[case::closed("CLOSED\tfalse", "is CLOSED, not open")]
-#[case::a_draft("OPEN\ttrue", "is a draft")]
+#[case::closed("state", "CLOSED\tfalse", "is CLOSED, not open")]
+#[case::a_draft("state", "OPEN\ttrue", "is a draft")]
+#[case::closing_an_issue_no_line_names("closes", "12\n", "#12: GitHub closes it")]
 fn a_pull_request_the_gate_refuses_is_refused_before_any_wait(
-    #[case] state: &str,
+    #[case] file: &str,
+    #[case] content: &str,
     #[case] refusal: &str,
 ) {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
-    std::fs::write(stand_in.join("state"), state).unwrap();
+    std::fs::write(stand_in.join(file), content).unwrap();
     let mut backstop = holder();
     hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
 
@@ -1829,4 +1853,215 @@ fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
         head
     );
     assert!(!gate_lock(&workspace).exists());
+}
+
+/// [`pull_request`] whose body is `body` and whose merge, as GitHub reads
+/// it, closes `closes`; with a commit on the base whose message is
+/// `on_the_base`, which the head then merges, and a last commit on the head
+/// whose message is `on_the_head`, when given. Returns the repository, its
+/// stand-ins and the head.
+fn pull_request_closing(
+    body: &str,
+    closes: &[u32],
+    on_the_base: Option<&str>,
+    on_the_head: Option<&str>,
+) -> (Workspace, PathBuf, String) {
+    let (workspace, _) = pull_request();
+    if let Some(message) = on_the_base {
+        workspace.git(&["switch", "--quiet", "main"]);
+        workspace.write("main.txt", b"on main\n");
+        commit_all(&workspace, message);
+        workspace.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+        workspace.git(&["switch", "--quiet", "change"]);
+        workspace.git(&["merge", "--quiet", "--no-edit", "main"]);
+    }
+    if let Some(message) = on_the_head {
+        workspace.write("change.txt", b"a closing change\n");
+        commit_all(&workspace, message);
+    }
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["update-ref", &format!("refs/pull/{NUMBER}/head"), &head]);
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("body"), body).unwrap();
+    let listed: Vec<String> = closes.iter().map(u32::to_string).collect();
+    std::fs::write(stand_in.join("closes"), listed.join("\n")).unwrap();
+    (workspace, stand_in, head)
+}
+
+/// Asserts that `run` was refused before the gate held anything: status 1,
+/// no step, no merge and no lock.
+fn assert_refused_before_the_lock(workspace: &Workspace, run: &Run) {
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_nothing_ran_or_held(workspace, &run.calls);
+}
+
+/// Asserts that these calls ran no step and merged nothing, and that no lock
+/// is left.
+fn assert_nothing_ran_or_held(workspace: &Workspace, calls: &[String]) {
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
+        "{calls:?}"
+    );
+    assert!(!gate_lock(workspace).exists());
+}
+
+/// GitHub closes every issue a closing keyword of the body names, prose
+/// included, and its list holds none a commit message names (#2241 closed an
+/// unbuilt ticket named in a sentence; #2223's commits closed nothing, for a
+/// reason not established): the merge must close
+/// what the body's `Closes` lines name, no more and no less, or the gate
+/// refuses before it holds anything, with the three lists and the rule each
+/// issue at fault breaks.
+#[rstest]
+#[case::a_keyword_in_prose(
+    "A change that closes #12 along the way.\n",
+    &[12],
+    None,
+    ["GitHub closes on merge: #12", "`Closes` lines of the body: none", "Closing keywords of its commits: none"],
+    "#12: GitHub closes it, but no `Closes #12` line names it"
+)]
+#[case::a_line_github_does_not_read(
+    "Closes #12\n",
+    &[],
+    None,
+    ["GitHub closes on merge: none", "`Closes` lines of the body: #12", "Closing keywords of its commits: none"],
+    "#12: a `Closes #12` line names it, but GitHub does not close it"
+)]
+#[case::a_keyword_in_a_commit_message(
+    "",
+    &[],
+    Some("fix: #12 the change"),
+    ["GitHub closes on merge: none", "`Closes` lines of the body: none", "Closing keywords of its commits: #12"],
+    "#12: a closing keyword of a commit message names it, but no `Closes #12` line does"
+)]
+fn a_pull_request_whose_closing_lines_disagree_with_its_merge_is_refused(
+    #[case] body: &str,
+    #[case] closes: &[u32],
+    #[case] on_the_head: Option<&str>,
+    #[case] lists: [&str; 3],
+    #[case] fault: &str,
+) {
+    let (workspace, stand_in, _) = pull_request_closing(body, closes, None, on_the_head);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_refused_before_the_lock(&workspace, &run);
+    for line in lists.into_iter().chain([fault]) {
+        assert!(run.stdout.contains(line), "{line:?} in {}", run.stdout);
+    }
+}
+
+/// Lists that agree merge as before: a batch's body names its members with
+/// `Part of` and closes only what it finishes, and a commit message may name
+/// an issue a `Closes` line names too. A closing keyword in a commit the base
+/// already holds is not the pull request's.
+#[rstest]
+#[case::none_named_and_none_to_close("", &[], None, None)]
+#[case::several_lines_github_holds_one_for_one(
+    "A batch.\n\nCloses #12\n- Closes #13\r\n\nPart of #14\n- **PR 15**, part of #14: a member.\n",
+    &[12, 13],
+    Some("Fixes #99 on main"),
+    Some("Fixes #13 in its last commit")
+)]
+fn a_pull_request_whose_closing_lines_agree_with_its_merge_merges(
+    #[case] body: &str,
+    #[case] closes: &[u32],
+    #[case] on_the_base: Option<&str>,
+    #[case] on_the_head: Option<&str>,
+) {
+    let (workspace, stand_in, head) = pull_request_closing(body, closes, on_the_base, on_the_head);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let gh_merge = &run.calls[call(&run, "gh pr merge ")];
+    assert!(
+        gh_merge.contains(&format!("--match-head-commit {head}")),
+        "{gh_merge}"
+    );
+}
+
+/// What a merge closes that cannot be read is refused: read as nothing, it
+/// would let any closing keyword through.
+#[test]
+fn what_a_merge_closes_that_cannot_be_read_merges_nothing() {
+    let (workspace, stand_in, _) = pull_request_closing("", &[], None, None);
+    std::fs::write(stand_in.join("closing-unreadable"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_refused_before_the_lock(&workspace, &run);
+    assert!(
+        run.stdout.contains(&format!(
+            "error: what pull request #{NUMBER}'s merge closes could not be read from GitHub"
+        )),
+        "{}",
+        run.stdout
+    );
+}
+
+/// A body edited while the gate waited is judged as it is once the wait
+/// ends, as the head is.
+#[test]
+fn a_gate_judges_the_closing_lines_its_pull_request_has_once_its_wait_ends() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut backstop = holder();
+    hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains("Waiting for the backstop"))
+    });
+    std::fs::write(stand_in.join("body"), "A change that closes #12 too.\n").unwrap();
+    std::fs::write(stand_in.join("closes"), "12\n").unwrap();
+
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+    let code = caller.wait().unwrap().code();
+
+    assert_eq!(code, Some(1));
+    let said = std::fs::read_to_string(&output).unwrap();
+    assert!(
+        said.contains("#12: GitHub closes it, but no `Closes #12` line names it"),
+        "{said}"
+    );
+    assert_nothing_ran_or_held(&workspace, &calls(&stand_in));
+}
+
+/// GitHub acts on no closing keyword of a pull request whose base is not the
+/// repository's default branch: the gate then refuses nothing for them, and
+/// says so in one line.
+#[test]
+fn on_a_base_other_than_the_default_branch_no_closing_line_is_refused() {
+    let (workspace, stand_in, head) = pull_request_closing("Closes #13\n", &[12], None, None);
+    std::fs::write(stand_in.join("default-branch"), "trunk").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let said = "base, main, is not the repository's default branch, trunk";
+    assert_eq!(run.stdout.matches(said).count(), 1, "{}", run.stdout);
+    let gh_merge = &run.calls[call(&run, "gh pr merge ")];
+    assert!(
+        gh_merge.contains(&format!("--match-head-commit {head}")),
+        "{gh_merge}"
+    );
 }

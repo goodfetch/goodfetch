@@ -2288,7 +2288,7 @@ receiver = "(module)"
 member = "LabelOptions"
 entry = "none"
 reason = "What `crawl.label` takes."
-only = "Rust's Label options are `LabelDeclaration`'s, which issue 3229 adds."
+only = "Rust's Label options are `LabelDeclaration`'s builder methods (ADR 0099)."
 words = ["label", "options"]
 form = "type"
 

@@ -81,6 +81,31 @@ pub struct Governor {
     last_resort: watch::Receiver<LastResort>,
 }
 
+/// A live Run's part of the Resource governor (ADRs 0040 and 0145): its
+/// share of the governor's admissions, with the governor's last sample,
+/// and its folder's filesystem, sampled while it lives (ADR 0122).
+#[derive(Debug)]
+pub struct RunGovernor {
+    share: RunShare,
+    _sampled: Held,
+    system_info: watch::Receiver<Option<SystemInfo>>,
+}
+
+impl RunGovernor {
+    /// Its share, through which the Run takes each HTTP fetch, browser
+    /// page and model call it runs, in turn with the other live Runs, up
+    /// to its `governor.run_share`.
+    pub fn share(&self) -> &RunShare {
+        &self.share
+    }
+
+    /// What the governor read and decided at its last sample, once it
+    /// sampled: what a Run's progress says of its concurrency.
+    pub fn system_info(&self) -> Option<SystemInfo> {
+        self.system_info.borrow().clone()
+    }
+}
+
 /// Whether a sample found the governor at its last resort (ADR 0040).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LastResort {
@@ -206,6 +231,17 @@ impl Governor {
     /// each kind's target.
     pub fn join(&self, share: u64) -> RunShare {
         self.shares.join(share)
+    }
+
+    /// A live Run's part of it, as the Run opens: it joins with `share`, as
+    /// [`Governor::join`] does, and the filesystem holding its `folder` is
+    /// sampled while the answer lives (ADR 0122).
+    pub fn join_run(&self, share: u64, folder: PathBuf) -> RunGovernor {
+        RunGovernor {
+            share: self.join(share),
+            _sampled: self.sample(folder),
+            system_info: self.system_info(),
+        }
     }
 
     /// What it read and decided at its last sample, which changes at each

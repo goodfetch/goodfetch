@@ -72,7 +72,6 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
-use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
 use goodfetch_protocol::run::{
     AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle, LimitScope,
     MAX_PROGRESS_MESSAGE_CHARACTERS, NothingDone, Presence, ProgressMessage, RUN_IN_USE,
@@ -118,18 +117,17 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::CallError;
-use crate::admission::{self, Admission, Gates};
+use crate::admission::{self, Admission, AdmissionError, Gates};
 use crate::audit::{AuditLog, Origin};
-use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
 use crate::controls::Controls;
 use crate::endpoint::Refusals;
 use crate::engine_context::{CALLER, EngineContext};
-use crate::entropy::Entropy;
+use crate::entropy::{Entropy, RunEntropy};
 use crate::events::Events;
 use crate::governor::{
-    Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
+    Filesystem, Governor, Held, LastResort, RunGovernor, RunShare, StorageSample, last_resort_run,
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
@@ -140,10 +138,11 @@ use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
 use crate::politeness::{
-    Holder, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
+    Holder, OnStorageFailures, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
+    RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
 };
-use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
-use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
+use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies};
+use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport, RunFiles};
 use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::{self, RunIndex};
 use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
@@ -1318,12 +1317,10 @@ impl std::fmt::Debug for Runs {
 pub struct Run {
     identity: RunIdentity,
     state: RunState,
-    admitting: Arc<Admitting>,
     shared: Arc<Shared>,
     /// Its identity's task owner, which the registry alone stops.
     owner: Arc<TaskOwner>,
     runs: Runs,
-    entropy: Arc<tokio::sync::Mutex<Entropy>>,
 }
 
 /// What every handle of a live Run shares.
@@ -1338,25 +1335,23 @@ struct Shared {
     keys: RunKeys,
     /// Its Run report's warnings, and why it did nothing (ADR 0145).
     warnings: ReportWarnings,
-    /// Its share of the Resource governor's admissions.
-    governor: RunShare,
-    /// Its folder, which the governor samples while the Run lives (ADR
-    /// 0122).
-    _sampled: Held,
-    /// The governor's last storage sample.
-    storage: watch::Receiver<Arc<StorageSample>>,
+    /// Its part of the Resource governor, the governor's module's (ADR
+    /// 0145).
+    governor: RunGovernor,
+    /// Its entropy, the entropy module's (ADR 0145).
+    entropy: RunEntropy,
     /// Its progress (ADR 0102).
     progress: Progress,
-    /// The Resource governor's last sample.
-    system_info: watch::Receiver<Option<SystemInfo>>,
-    /// The Politeness its own code shares outside admission, once it asked
-    /// for it.
-    politeness: tokio::sync::OnceCell<Politeness>,
-    /// The Politeness of its own that its admission comes to hold.
-    own_politeness: tokio::sync::Mutex<OwnHolding>,
+    /// The gate in admission the composition passes in, if any.
+    gates: Option<Arc<dyn Gates>>,
+    /// The Politeness it shares, the Politeness module's (ADR 0145).
+    politeness: RunPoliteness,
     /// Its own copies of the robots.txt files its program's navigation
-    /// read, one per origin (ADRs 0086 and 0098).
-    robots_txt: RunCopies,
+    /// read, one per origin (ADRs 0086 and 0098), the robots.txt module's
+    /// (ADR 0145).
+    own_robots_txt: OwnCopies,
+    /// Its files, the Run files' module's (ADR 0145).
+    files: RunFiles,
     /// The copy a crawl's Run reads instead, once its crawl shared one.
     crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
     /// Where its crawl's attempts stage the writes made through a
@@ -1414,6 +1409,38 @@ pub fn end(run: &Run) -> &RunEnd {
     &run.shared.end
 }
 
+/// The part of the Resource governor of `run`, its share and the
+/// governor's last sample, which a function takes in place of the handle
+/// (ADR 0145): `Run` gains no method for it.
+pub fn governor(run: &Run) -> &RunGovernor {
+    &run.shared.governor
+}
+
+/// The entropy of `run`, which a function takes in place of the handle to
+/// fork an `Entropy` of its own (ADR 0145): `Run` gains no method for it.
+pub fn entropy(run: &Run) -> &RunEntropy {
+    &run.shared.entropy
+}
+
+/// The Politeness `run` shares, which a function takes in place of the
+/// handle (ADR 0145): `Run` gains no method for it.
+pub fn politeness(run: &Run) -> &RunPoliteness {
+    &run.shared.politeness
+}
+
+/// The own robots.txt copies of `run`, which a function takes in place of
+/// the handle (ADR 0145): `Run` gains no method for it.
+pub fn own_robots_txt(run: &Run) -> &OwnCopies {
+    &run.shared.own_robots_txt
+}
+
+/// The files of `run`, which a function takes in place of the handle to
+/// store a page's body or keep a file (ADR 0145): `Run` gains no method
+/// for it.
+pub fn files(run: &Run) -> &RunFiles {
+    &run.shared.files
+}
+
 impl std::fmt::Debug for Run {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -1445,7 +1472,7 @@ impl Run {
     /// runs, in turn with the other live Runs, up to its
     /// `governor.run_share`.
     pub fn governor(&self) -> &RunShare {
-        &self.shared.governor
+        self.shared.governor.share()
     }
 
     /// Its folder, which holds its state and its Run trace.
@@ -1596,7 +1623,7 @@ impl Run {
     ///
     /// Dropping the future loses only the answer.
     pub async fn fork_entropy(&self) -> Entropy {
-        self.entropy.lock().await.fork()
+        self.shared.entropy.fork().await
     }
 
     /// Cancelled when the Run stops at once, by an abort: its driver
@@ -1644,7 +1671,12 @@ impl Run {
     fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
         // A commit its writer could not make stops it from its last
         // acknowledged one, as at `critical` (ADR 0122).
-        self.stop_on_failures(self.state.storage_failures(), Some(self.folder()));
+        stop_on_failures(
+            &self.identity,
+            &self.shared.stop,
+            self.state.storage_failures(),
+            Some(self.folder()),
+        );
         if let Some(timeout) = timeout {
             let timed = self.clone();
             self.spawn(async move {
@@ -1760,145 +1792,45 @@ impl Run {
         self.shared.stop.at_once(reason);
     }
 
-    /// Its admission under `settings`: the gate in admission the
-    /// composition passes in, opened from what its run file journaled, its
-    /// rate cap, and, when the gate names a rule that paces its keys, the
-    /// Politeness `politeness.sharing` says it shares: the per-user
-    /// Politeness file for `shared` and `per_daemon`, a file of its own in
-    /// memory for `run`. A rule that paces nothing opens none (ADR 0138).
-    /// `None` when the composition passes in no gate.
+    /// Its admission under `settings`: [`admission::of_run`] over its run
+    /// file's writer, its clock, its entropy and the Politeness it shares.
     ///
     /// # Errors
     ///
-    /// When its run file cannot be read, or the Politeness file opened.
+    /// As [`admission::of_run`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future loses only the answer.
+    /// As [`admission::of_run`]'s.
     pub async fn admission(
         &self,
         settings: &Resolved,
     ) -> Result<Option<Admission>, AdmissionError> {
-        let Some(gates) = self.admitting.gates.clone() else {
-            return Ok(None);
-        };
-        let opening = settings.clone();
-        let (wall, now) = (self.clock().wall(), self.clock().now());
-        let entropy = self.fork_entropy().await;
-        let gate = self
-            .state
-            .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
-            .await?;
-        let admission = Admission::new(gate, settings);
-        if !admission.shares(settings) {
-            // A Politeness of its own that its other code opened, for its
-            // robots.txt copy, is served by an actor instead.
-            if let OwnHolding::Waiting(own) = self.own_politeness_held().await {
-                own.serve_on(&self.admitting.politeness.owner)?;
-            }
-            return Ok(Some(admission));
-        }
-        // The one Politeness the Run shares, its proxies' limits included.
-        let (politeness, holder) = self.politeness(settings).await?;
-        let own = match self.own_politeness_held().await {
-            OwnHolding::Waiting(own) => Some(*own),
-            OwnHolding::Before | OwnHolding::After => None,
-        };
-        Ok(Some(admission.sharing(
-            (politeness, own),
-            holder,
-            self.clock(),
+        admission::of_run(
+            self.shared.gates.as_ref(),
+            (&self.state, self.clock()),
+            &self.shared.entropy,
+            &self.shared.politeness,
             settings,
-        )))
+        )
+        .await
     }
 
-    /// The Politeness its own code shares for keys outside admission, such
-    /// as a proxy's (ADRs 0053 and 0088), and the holder its Permits name:
-    /// the per-user Politeness file, or, when `settings` set
-    /// `politeness.sharing` to `run`, one of its own in memory. Each ask
-    /// answers the one its first opened.
+    /// The Politeness its own code shares for keys outside admission, and
+    /// the holder its Permits name: [`RunPoliteness::open`].
     ///
     /// # Errors
     ///
-    /// When the Politeness file cannot be opened.
+    /// As [`RunPoliteness::open`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future loses only the answer.
+    /// As [`RunPoliteness::open`]'s.
     pub async fn politeness(
         &self,
         settings: &Resolved,
     ) -> Result<(Politeness, Holder), PolitenessError> {
-        let own = settings.get::<&str>(&POLITENESS_SHARING) == "run";
-        let politeness = self
-            .shared
-            .politeness
-            .get_or_try_init(|| async {
-                if own {
-                    let mut holding = self.shared.own_politeness.lock().await;
-                    if let OwnHolding::Before = *holding {
-                        // Its admission holds it once it opens, which its
-                        // driver does before any of its tasks waits on it.
-                        let (politeness, own) = Politeness::own(&self.admitting.politeness.options);
-                        *holding = OwnHolding::Waiting(Box::new(own));
-                        return Ok(politeness);
-                    }
-                    // The engine's owner, not the Run's: the Run keeps this
-                    // handle while it ends, and its owner waits for its
-                    // tasks, the file's actor among them.
-                    return Politeness::in_memory(
-                        &self.admitting.politeness.options,
-                        &self.admitting.politeness.owner,
-                    );
-                }
-                let file = self.admitting.politeness.file().await?;
-                self.stop_on_failures(
-                    file.storage_failures(),
-                    self.admitting.politeness.path.parent(),
-                );
-                Ok(file)
-            })
-            .await?
-            .clone();
-        let holder = Holder {
-            run_id: self.id().to_string(),
-            epoch: self.state.epoch(),
-            run_folder: self.folder().to_owned(),
-            delegates: settings.get::<bool>(&POLITENESS_DELEGATION),
-        };
-        Ok((politeness, holder))
-    }
-
-    /// The Politeness of its own its admission comes to hold, as it opens:
-    /// from then on one opened is served by an actor.
-    async fn own_politeness_held(&self) -> OwnHolding {
-        std::mem::replace(
-            &mut *self.shared.own_politeness.lock().await,
-            OwnHolding::After,
-        )
-    }
-
-    /// Stops the Run at its next safe point, as at `critical`, once
-    /// `failures` reports a write of one of its essential files that met a
-    /// full disk or an I/O error, naming `folder` (ADR 0122).
-    fn stop_on_failures(
-        &self,
-        mut failures: watch::Receiver<Option<String>>,
-        folder: Option<&Path>,
-    ) {
-        let failing = self.clone();
-        let folder = folder.map(|folder| folder.display().to_string());
-        self.spawn(async move {
-            tokio::select! {
-                () = failing.cancellation().cancelled() => {}
-                failed = failures.wait_for(Option::is_some) => if failed.is_ok() {
-                    failing.stop_at_safe_point(StopReason::Resources {
-                        resource: goodfetch_protocol::run::Resource::Storage,
-                        folder,
-                    });
-                },
-            }
-        });
+        self.shared.politeness.open(settings).await
     }
 
     /// Where it reads robots.txt: its own copies, one fetch per origin
@@ -1908,21 +1840,16 @@ impl Run {
     pub fn robots_txt(&self) -> Arc<dyn Copies> {
         match self.shared.crawls_robots_txt.get() {
             Some(shared) => Arc::clone(shared),
-            None => Arc::new(OwnCopies {
-                copies: self.shared.robots_txt.clone(),
-                state: self.state.clone(),
-            }),
+            None => Arc::new(self.shared.own_robots_txt.clone()),
         }
     }
 
-    /// The robots.txt at `location` as its own copies hold it, sending
-    /// `fetch` only when no reader of the Run read it before: what its
-    /// program's own navigation and fetches read (ADRs 0086 and 0098),
-    /// never the copy a crawl shares, kept in its run state.
+    /// The robots.txt at `location` as its own copies hold it:
+    /// [`OwnCopies::copy_or_fetch`], never the copy a crawl shares.
     ///
     /// # Errors
     ///
-    /// [`NotRead`] when `fetch` answered it, which nothing keeps.
+    /// As [`OwnCopies::copy_or_fetch`].
     pub async fn own_robots_txt<Fut>(
         &self,
         location: &url::Url,
@@ -1932,8 +1859,8 @@ impl Run {
         Fut: Future<Output = Result<Answer, NotRead>>,
     {
         self.shared
-            .robots_txt
-            .copy(&self.state, location, fetch)
+            .own_robots_txt
+            .copy_or_fetch(location, fetch)
             .await
     }
 
@@ -2030,51 +1957,30 @@ impl Run {
         self.shared.end.end(ending).await;
     }
 
-    /// Stores `bytes` as one of the Run's page bodies, a file in its folder
-    /// named by their digest, and answers its handle, which a Client on the
-    /// same machine reads directly and any other through `page.body`.
+    /// Stores `bytes` as one of the Run's page bodies:
+    /// [`RunFiles::store_body`].
     ///
     /// # Errors
     ///
-    /// When the file cannot be written.
+    /// As [`RunFiles::store_body`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave a temporary file beside the bodies,
-    /// never a partial body.
+    /// As [`RunFiles::store_body`]'s.
     pub async fn store_body(&self, bytes: bytes::Bytes) -> std::io::Result<BodyHandle> {
-        let folder = self.folder().to_owned();
-        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        let (body, file) = self
-            .owner
-            .blocking(move || body::store(&folder, &bytes))
-            .await?;
-        Ok(BodyHandle {
-            run_id: self.id().clone(),
-            body,
-            path: file.display().to_string(),
-            size,
-        })
+        self.shared.files.store_body(bytes).await
     }
 
     /// Keeps the file `source` reads for the program, as the Run's file of
-    /// `kind` named `name` (ADRs 0085 and 0116): written whole into its
-    /// folder, named by its SHA-256, then recorded in its run state, so it
-    /// outlives the page or Session that gave it, travels in its
-    /// Checkpoints and goes only with the Run. While the Run folder's
-    /// filesystem is at the `critical` storage level it fails at once,
-    /// writing nothing, so the reserve stays for the Runs' stops (ADR
-    /// 0122).
+    /// `kind` named `name`: [`RunFiles::keep_file`].
     ///
     /// # Errors
     ///
-    /// `Storage` when the folder cannot take the file, `State` when its
-    /// record cannot be committed.
+    /// As [`RunFiles::keep_file`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave a hidden temporary file beside the
-    /// kept files, or a kept file no record names, never a partial one.
+    /// As [`RunFiles::keep_file`]'s.
     pub async fn keep_file<R>(
         &self,
         kind: FileKind,
@@ -2084,48 +1990,7 @@ impl Run {
     where
         R: std::io::Read + Send + 'static,
     {
-        let critical = self
-            .shared
-            .storage
-            .borrow()
-            .of(self.folder())
-            .is_some_and(Filesystem::is_critical);
-        if critical {
-            return Err(KeepError::Storage {
-                reason: "storage_full",
-                os_code: None,
-                message: format!(
-                    "the filesystem of `{}` is at the critical storage level",
-                    self.folder().display()
-                ),
-            });
-        }
-        let folder = self.folder().to_owned();
-        let mut source = source;
-        let staged = self
-            .owner
-            .blocking(move || run_files::stage(&folder, &mut source))
-            .await
-            .map_err(|error| KeepError::io(&error, "keep the file in the Run's folder"))?;
-        let (sha256, size) = (staged.sha256.clone(), staged.size);
-        let recorded = sha256.clone();
-        // Placed in the write that records it, so a forget of the same
-        // bytes ordered before it deletes no file the record names.
-        let position = self
-            .state
-            .write(move |connection| {
-                if let Err(error) = staged.place() {
-                    return Ok(Err(error));
-                }
-                run_files::record(connection, kind, &name, &recorded, size).map(Ok)
-            })
-            .await?
-            .map_err(|error| KeepError::io(&error, "keep the file in the Run's folder"))?;
-        Ok(Kept {
-            position,
-            sha256,
-            size,
-        })
+        self.shared.files.keep_file(kind, name, source).await
     }
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
@@ -2143,7 +2008,7 @@ impl Run {
     /// sample, once it sampled (ADR 0040): what a Run's progress says of
     /// its concurrency.
     pub fn system_info(&self) -> Option<SystemInfo> {
-        self.shared.system_info.borrow().clone()
+        self.shared.governor.system_info()
     }
 
     /// Charges `amount` of `usage_kind` against every Limit that holds the
@@ -2408,22 +2273,18 @@ impl Runs {
             gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
         };
-        let politeness = SharedPoliteness {
-            file: Arc::new(tokio::sync::OnceCell::new()),
+        let politeness = Arc::new(SharedPoliteness::new(SharedPolitenessParts {
             path: setup.engine.home().politeness_file(),
             options: setup.politeness.clone(),
             tables: setup.politeness_tables.clone(),
+            holder_gone,
             engine: format!("{:016x}", setup.entropy.next_u64()),
-            owner: Arc::new(owner.part("Politeness store")),
-        };
-        let admitting = Arc::new(Admitting {
-            gates: setup.gates.clone(),
-            politeness,
-        });
+            owner: owner.part("Politeness store"),
+        }));
         let for_one_run = owner.child_for(OwnerKind::Run);
         let registry = Registry {
             setup,
-            admitting,
+            politeness,
             owner: owner.part("Run registry's shared work"),
             disk: Arc::new(for_one_run.child()),
             for_one_run,
@@ -3854,8 +3715,8 @@ impl Erasing {
 
 struct Registry {
     setup: RunsSetup,
-    /// The gate in admission and the Politeness the engine's Runs share.
-    admitting: Arc<Admitting>,
+    /// The Politeness file the engine's Runs share.
+    politeness: Arc<SharedPoliteness>,
     /// The owner of the work it does for every Run, such as following the
     /// governor's samples, whose panic stops the engine (ADR 0148).
     owner: TaskOwner,
@@ -4973,6 +4834,20 @@ impl Registry {
             settings: self.setup.engine.settings().clone(),
             engine_secrets: self.setup.secrets.clone(),
         });
+        let politeness = RunPoliteness::new(RunPolitenessParts {
+            shared: Arc::clone(&self.politeness),
+            run_id: run_id.to_string(),
+            epoch,
+            folder: folder.to_owned(),
+            admits: self.driving(kind).admits,
+            on_storage_failures: stop_on_politeness_failures(identity.clone(), stop.clone()),
+        });
+        let governor = self.setup.governor.join_run(share, folder.to_owned());
+        let files = RunFiles::new(
+            identity.clone(),
+            self.setup.governor.storage(),
+            state.clone(),
+        );
         let run = Run {
             shared: Arc::new(Shared {
                 stop,
@@ -4980,28 +4855,21 @@ impl Registry {
                 charging,
                 keys,
                 warnings,
-                governor: self.setup.governor.join(share),
-                _sampled: self.setup.governor.sample(folder.to_owned()),
-                storage: self.setup.governor.storage(),
+                governor,
                 progress,
-                system_info: self.setup.governor.system_info(),
-                politeness: tokio::sync::OnceCell::new(),
-                own_politeness: tokio::sync::Mutex::new(if self.driving(kind).admits {
-                    OwnHolding::Before
-                } else {
-                    OwnHolding::After
-                }),
-                robots_txt: RunCopies::default(),
+                gates: self.setup.gates.clone(),
+                politeness,
+                own_robots_txt: OwnCopies::new(state.clone()),
+                files,
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
                 trace,
+                entropy: RunEntropy::new(self.setup.entropy.fork()),
             }),
             identity,
             state,
-            admitting: Arc::clone(&self.admitting),
             owner,
             runs,
-            entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
         };
         (run, let_finish)
     }
@@ -5558,10 +5426,9 @@ async fn periodic_checkpoints(run: Run, interval: Duration) {
         }
         let low = run
             .shared
-            .storage
-            .borrow()
-            .of(run.folder())
-            .is_some_and(|filesystem| filesystem.level >= StorageLevel::Low);
+            .files
+            .storage_level()
+            .is_some_and(|level| level >= StorageLevel::Low);
         if low {
             tracing::debug!(run_id = %run.id(), "a periodic Checkpoint was skipped: its filesystem is low on space");
             continue;
@@ -6013,66 +5880,40 @@ mod slices;
 mod takeover;
 mod writer;
 
-/// Why a Run's admission did not open.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum AdmissionError {
-    /// Its run file could not be read.
-    #[error(transparent)]
-    RunState(#[from] RunStateError),
-    /// The Politeness it shares could not be opened.
-    #[error(transparent)]
-    Politeness(#[from] PolitenessError),
+/// Stops the Run of `identity` at its next safe point through `stop`, as
+/// at `critical`, once `failures` reports a write of one of its essential
+/// files that met a full disk or an I/O error, naming `folder` (ADR 0122):
+/// a watch of the Runs' registry's, the one setter of the stop signal here
+/// (ADR 0145's note of 2026-11-10).
+fn stop_on_failures(
+    identity: &RunIdentity,
+    stop: &StopAsker,
+    mut failures: watch::Receiver<Option<String>>,
+    folder: Option<&Path>,
+) {
+    let folder = folder.map(|folder| folder.display().to_string());
+    let (stop, cancelled) = (stop.clone(), identity.owner().child_token());
+    let watch = async move {
+        tokio::select! {
+            () = cancelled.cancelled() => {}
+            failed = failures.wait_for(Option::is_some) => if failed.is_ok() {
+                stop.at_safe_point(StopReason::Resources {
+                    resource: goodfetch_protocol::run::Resource::Storage,
+                    folder,
+                });
+            },
+        }
+    };
+    identity
+        .owner()
+        .spawn(watch.instrument(identity.span().clone()));
 }
 
-/// A Run's Politeness of its own (`politeness.sharing = run`), as its
-/// admission comes to hold it (#2171).
-enum OwnHolding {
-    /// Its admission has not opened: one opened now waits for it.
-    Before,
-    /// Opened, waiting for its admission to hold it.
-    Waiting(Box<OwnPoliteness>),
-    /// Its admission opened, or its driver opens none
-    /// ([`Driving::admits`]): one opened now is served by an actor.
-    After,
-}
-
-/// What a Run's admission opens from: the gate in admission the
-/// composition passes in, if any, and the Politeness the engine's Runs
-/// share.
-struct Admitting {
-    gates: Option<Arc<dyn Gates>>,
-    politeness: SharedPoliteness,
-}
-
-/// The per-user Politeness file the engine's Runs share, opened the first
-/// time one shares it (ADR 0053), as one engine of the user.
-struct SharedPoliteness {
-    file: Arc<tokio::sync::OnceCell<Politeness>>,
-    path: PathBuf,
-    options: PolitenessOptions,
-    tables: Vec<PolitenessTables>,
-    engine: String,
-    owner: Arc<TaskOwner>,
-}
-
-impl SharedPoliteness {
-    /// The file, opened now if it is not yet.
-    async fn file(&self) -> Result<Politeness, PolitenessError> {
-        self.file
-            .get_or_try_init(|| {
-                Politeness::open(
-                    self.path.clone(),
-                    &self.options,
-                    self.tables.clone(),
-                    holder_gone,
-                    self.engine.clone(),
-                    &self.owner,
-                )
-            })
-            .await
-            .cloned()
-    }
+/// What the Politeness of the Run of `identity` does as it opens the
+/// Politeness file: [`stop_on_failures`] on the file's failures, through
+/// `stop`.
+fn stop_on_politeness_failures(identity: RunIdentity, stop: StopAsker) -> OnStorageFailures {
+    Box::new(move |failures, folder| stop_on_failures(&identity, &stop, failures, folder))
 }
 
 /// How a Run's `settings` write its run file: `run_state.durability`'s

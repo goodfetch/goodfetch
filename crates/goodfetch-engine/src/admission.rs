@@ -30,7 +30,8 @@
 //! such as a hedge (ADRs 0040 and 0086): [`SecondCopies`] gives the copy
 //! room of its own, a Permit of its key under the same shared rule and a
 //! share of the rate cap, so a key that admits one request at a time never
-//! sends one, and one whose delay has not passed holds it until it has.
+//! sends one, and one whose delay has not passed holds it until it has. A
+//! live Run's opens through [`of_run`] (ADR 0145).
 #![expect(
     clippy::disallowed_types,
     reason = "the rate cap is read and changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
@@ -55,6 +56,10 @@ use crate::politeness::{
 };
 use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
+
+mod live;
+
+pub use live::{AdmissionError, of_run};
 
 /// How long a key the Politeness holds for want of room waits for a wake
 /// before its Run tries it again: only to find a holder that died without

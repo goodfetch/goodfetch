@@ -29,7 +29,8 @@
 //! no transaction (ADR 0140's `E6.private_transactions`). A crawl's
 //! admission holds that Politeness itself ([`OwnPoliteness`]): its takes
 //! and give backs wait on no task, and the writes of its pages' tasks are
-//! one-way messages its driver runs (#2171).
+//! one-way messages its driver runs (#2171). A live Run's
+//! [`RunPoliteness`] opens the one it shares on its first ask (ADR 0145).
 //!
 //! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
 //! in one transaction, and the Run's own Politeness held in memory under
@@ -57,8 +58,12 @@ use crate::transport;
 use delegation::FileBackend;
 
 mod delegation;
+mod live;
 mod memory;
 
+pub use live::{
+    OnStorageFailures, RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
+};
 pub use memory::MemoryTables;
 
 /// How many jobs wait for the task that holds a Politeness before their

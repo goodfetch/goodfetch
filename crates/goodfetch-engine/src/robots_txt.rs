@@ -656,14 +656,46 @@ async fn keep(state: &RunState, location: &str, answer: &Answer) {
     }
 }
 
-/// The copies a Run reads through [`Copies`] when no crawl shared one: its
-/// own, in its run state.
+/// A live Run's own robots.txt copies (ADRs 0098 and 0145), in its run
+/// state: the one holder of "one fetch per origin while the Run lives",
+/// what its program's own navigation and fetches read, and what it reads
+/// through [`Copies`] when no crawl shared one. Clones share them.
 #[derive(Clone)]
 pub struct OwnCopies {
-    /// Its copies.
-    pub copies: RunCopies,
-    /// Its run state.
-    pub state: RunState,
+    copies: RunCopies,
+    state: RunState,
+}
+
+impl OwnCopies {
+    /// The copies of the Run whose run state is `state`, none read yet.
+    pub fn new(state: RunState) -> Self {
+        Self {
+            copies: RunCopies::default(),
+            state,
+        }
+    }
+
+    /// The robots.txt at `location` as its copies hold it, sending `fetch`
+    /// only when no reader of the Run read it before, as
+    /// [`RunCopies::copy`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`NotRead`] when `fetch` answered it, which nothing keeps.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunCopies::copy`]'s.
+    pub async fn copy_or_fetch<Fut>(
+        &self,
+        location: &Url,
+        fetch: Fut,
+    ) -> Result<Arc<Fetched>, NotRead>
+    where
+        Fut: Future<Output = Result<Answer, NotRead>>,
+    {
+        self.copies.copy(&self.state, location, fetch).await
+    }
 }
 
 impl fmt::Debug for OwnCopies {
@@ -678,8 +710,7 @@ impl fmt::Debug for OwnCopies {
 impl Copies for OwnCopies {
     fn copy<'a>(&'a self, location: &'a Url, fetch: Fetch<'a>) -> Copied<'a> {
         Box::pin(async move {
-            self.copies
-                .copy(&self.state, location, async move { Ok(fetch.await) })
+            self.copy_or_fetch(location, async move { Ok(fetch.await) })
                 .await
                 .unwrap_or_else(|NotRead(reason)| Arc::new(Fetched::Unreachable(reason)))
         })

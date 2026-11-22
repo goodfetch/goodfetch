@@ -26,12 +26,17 @@
 //! (`file_write_failed`) failed. [`Saving`] writes a path the same way
 //! from bytes that arrive in parts, such as the `$/chunk` notifications of
 //! an Export a CLI command receives from the Daemon.
+//!
+//! A live Run's [`RunFiles`] stores its page bodies and keeps its files
+//! (ADR 0145).
 
 mod carry;
+mod live;
 mod save;
 mod store;
 
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
+pub use live::RunFiles;
 pub use save::{SaveError, Saving};
 pub(crate) use save::{os_code, reason_of, save};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};

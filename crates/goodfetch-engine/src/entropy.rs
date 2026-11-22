@@ -2,7 +2,10 @@
 //! such as the random part of a ULID, from one portable seeded generator,
 //! `ChaCha20`. Its seed comes from the OS in production and from the test's
 //! seed in tests ([`Entropy::seeded`]). Keys, tokens and run data keys never
-//! come from it, but from the OS generator.
+//! come from it, but from the OS generator. A live Run's [`RunEntropy`] is
+//! the stream each of its owners forks its own from (ADR 0145).
+
+use std::sync::Arc;
 
 use chacha20::ChaCha20Rng;
 use chacha20::rand_core::{Rng as _, SeedableRng as _};
@@ -45,5 +48,29 @@ impl Entropy {
         let mut key = [0; 32];
         self.0.fill_bytes(&mut key);
         Self(ChaCha20Rng::from_seed(key))
+    }
+}
+
+/// A live Run's entropy (ADRs 0059 and 0145): the stream the engine forked
+/// for it when it went live, which each of its owners, such as its driver,
+/// forks an `Entropy` of its own from, in the order they ask. Clones share
+/// the stream.
+#[derive(Clone, Debug)]
+pub struct RunEntropy(Arc<tokio::sync::Mutex<Entropy>>);
+
+impl RunEntropy {
+    /// The entropy of a Run whose stream is `stream`.
+    pub fn new(stream: Entropy) -> Self {
+        Self(Arc::new(tokio::sync::Mutex::new(stream)))
+    }
+
+    /// An `Entropy` of its own for one of the Run's owners, forked from the
+    /// Run's stream.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn fork(&self) -> Entropy {
+        self.0.lock().await.fork()
     }
 }

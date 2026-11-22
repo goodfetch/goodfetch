@@ -501,7 +501,7 @@ fn operations(layer: &Layer) -> String {
     let mut text = header(&format!(
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
-    text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final\n\n");
+    text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final, Literal\n\n");
     let returns = sent().next().is_some();
     if deprecates {
         text.push_str("from typing_extensions import deprecated\n\n");
@@ -582,7 +582,28 @@ fn operations(layer: &Layer) -> String {
             )
         }),
     ));
+    operation_classes(&mut text, layer);
     text
+}
+
+/// The map from each operation's catalog name to its class (ADR 0011),
+/// which says whether a call in flight is sent again after a reconnect
+/// (ADR 0079): TypeScript's `<product>OperationClasses`.
+fn operation_classes(text: &mut String, layer: &Layer) {
+    text.push_str(
+        "\nOPERATION_CLASSES: Final[Mapping[str, Literal[\"read\", \"idempotent_write\", \"effect\"]]] = {\n",
+    );
+    for operation in &layer.operations {
+        let _ = writeln!(
+            text,
+            "    {:?}: {:?},",
+            operation.name,
+            operation.class.as_str()
+        );
+    }
+    text.push_str(
+        "}\n\"\"\"The class of each operation (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079).\"\"\"\n",
+    );
 }
 
 /// The registries of a section's markers, `EXPERIMENTAL_<SECTION>` and

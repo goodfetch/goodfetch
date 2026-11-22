@@ -30,7 +30,7 @@ import inspect
 import logging
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, cast
 
 import anyio
 
@@ -109,11 +109,15 @@ class Streams(Protocol):
         self,
         method: str,
         params: Mapping[str, object],
-        notified: Callable[[str, object], None],
+        notified: Callable[[str, object], None] | None,
         *,
         sent: Callable[[int], None] | None = None,
     ) -> object:
-        """Sends `method`, whose notifications `notified` hears; awaits its answer."""
+        """Sends `method`, whose notifications `notified` hears; awaits its answer.
+
+        A call that hears none, `notified` `None`, may be sent again as it
+        was once a dropped link is reached again (spec 606).
+        """
         ...
 
     async def notify(self, method: str, params: Mapping[str, object]) -> None:
@@ -257,6 +261,9 @@ async def wait_for(hold: anyio.Event | None) -> None:
 class _Subscribed(Generic[_Model]):
     """One subscription's call, its deliveries and its close."""
 
+    _carries_events: ClassVar[bool] = True
+    """Whether its call's own notifications carry its events."""
+
     def __init__(
         self,
         connection: Streams,
@@ -360,7 +367,10 @@ class _Subscribed(Generic[_Model]):
                 group.start_soon(self._cancel_when_closed, call)
                 try:
                     await self._connection.stream(
-                        self._method, self._params, self._notified, sent=sent
+                        self._method,
+                        self._params,
+                        self._notified if self._carries_events else None,
+                        sent=sent,
                     )
                 except BaseGoodfetchError as error:
                     if not self._closed:
@@ -473,8 +483,11 @@ class _Published(_Subscribed[_Model]):
     """A listener of events published on the Connection's Subscription.
 
     Its call carries no events and takes no credits: the Subscription's
-    carry them, given back as its queue takes them.
+    carry them, given back as its queue takes them. So it hears no
+    notification of its own, and a reconnect sends it again as it was.
     """
+
+    _carries_events: ClassVar[bool] = False
 
     def __init__(
         self,

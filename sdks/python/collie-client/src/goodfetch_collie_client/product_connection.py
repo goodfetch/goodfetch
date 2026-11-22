@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import anyio
 
 from goodfetch_collie_client._deployment_variables import check_deployment_variables
+from goodfetch_collie_client._relink import Reconnect
 from goodfetch_collie_client._rpc import ChannelBounds, bounds_of, phase_exceeded
 from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
@@ -80,6 +81,12 @@ class ProductPackage:
     """The error class of each code the Product knows."""
     bin_folder: Path
     """The folder of its platform wheel that holds its executable."""
+    operation_classes: Mapping[str, str]
+    """The class of each operation the Product serves (ADR 0011).
+
+    A reconnect sends a call in flight again only when it is a read or an
+    idempotent write (ADR 0079).
+    """
 
 
 @dataclass(frozen=True)
@@ -374,8 +381,15 @@ async def _open_daemon(
     """Finishes `hello` with a Daemon, its token in it.
 
     Within `timeout.connect` of `connect_started_at`. One that closes the
-    Connection before it answers fails with `daemon_unreachable`.
+    Connection before it answers fails with `daemon_unreachable`. A remote
+    Daemon, which `reach` can open again, is reached again once its link
+    drops (spec 606).
     """
+    reconnect = (
+        None
+        if reach.reopen is None
+        else Reconnect(product.operation_classes, reach.reopen)
+    )
     return await ClientConnection.open(
         reach.stream,
         needs=product.needs,
@@ -389,6 +403,7 @@ async def _open_daemon(
         listener_queue=opening.listener_queue,
         settings=opening.settings,
         bounds=opening.bounds,
+        reconnect=reconnect,
     )
 
 

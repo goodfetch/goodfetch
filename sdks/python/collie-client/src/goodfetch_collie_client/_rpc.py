@@ -20,8 +20,17 @@ its turn at reading, since the calls holding the places may all have been
 cancelled, and fails alone, never sent, when its own timeout passes or its
 task is cancelled there. What waits is bounded: past the Connection's
 bound on calls waiting, sent or queued, or on bytes waiting to be written,
-a new call is refused at once with `connection_overloaded`. TypeScript's
-`rpc.ts` is its twin; served requests come with the ticket that uses them.
+a new call is refused at once with `connection_overloaded`.
+
+Told how with `relink_with`, as a Connection to a remote Daemon is, a
+channel whose link drops reaches its engine again instead of ending (spec
+606): it holds every call, opens a new link with backoff within
+`timeout.connect` of the drop, lets the Connection greet the engine on it
+ahead of all, then sends again by its id each call in flight that may be,
+a read or an idempotent write, a resumable stream after what it read, and
+fails every other one with `connection_lost`. Since no task of its own
+reads, a drop is seen once a call reads or writes. TypeScript's `rpc.ts` is
+its twin; served requests come with the ticket that uses them.
 """
 
 from __future__ import annotations
@@ -42,6 +51,7 @@ from goodfetch_collie_client._framing import (
     encode_message,
     object_members,
 )
+from goodfetch_collie_client._relink import lost_call, lost_stream, reconnect_delay
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
@@ -64,6 +74,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
 
+    from goodfetch_collie_client._relink import ChannelRelinking, Resumable
     from goodfetch_collie_client.generated.errors import ErrorGroup
     from goodfetch_collie_client.goodfetch_error import (
         BaseGoodfetchError,
@@ -259,11 +270,61 @@ class _Raised:
 
 
 @dataclass(eq=False)
+class _Queued:
+    """A call held back, its encoded request and the notifications that follow it."""
+
+    request: bytes
+    notes: list[bytes] = field(default_factory=list[bytes])
+    """Each notification naming the call made while it was held, such as `$/credit`."""
+
+    @property
+    def size(self) -> int:
+        """Its bytes waiting to be written."""
+        return len(self.request) + sum(len(note) for note in self.notes)
+
+
+@dataclass(eq=False)
+class _Drop:
+    """A dropped link the channel is reaching its engine again from."""
+
+    end: TransportEnd
+    """How the link ended."""
+    at: float
+    """When it dropped, on anyio's clock."""
+    cause: BaseException | None
+    """Why the last attempt failed, or the link dropped."""
+    made: int = 0
+    """How many attempts failed."""
+    next_at: float | None = None
+    """When the next attempt starts, once its wait was counted."""
+
+
+class _LinkEndedError(Exception):
+    """The new link ended while the greeting used it."""
+
+    def __init__(self, end: TransportEnd) -> None:
+        super().__init__("the new link ended while the greeting used it")
+        self.end = end
+
+
+def _cause_of(end: TransportEnd) -> BaseException | None:
+    return end.cause if isinstance(end, ReadFailed | WriteFailed) else None
+
+
+@dataclass(eq=False)
 class _Waiter:
     """A call waiting for its reply, or a wait for the channel's end."""
 
     outcome: _Answered | _Raised | None = None
     wakeup: anyio.Event | None = field(default=None)
+    method: str = ""
+    """The call's method."""
+    request: bytes = b""
+    """Its encoded request, as first sent."""
+    streams: bool = False
+    """Whether notifications naming it are heard, which a drop cannot resume."""
+    resume: Resumable | None = None
+    """What it is sent again with, after what it read, once its link dropped."""
 
     def settle(self, outcome: _Answered | _Raised) -> None:
         self.outcome = outcome
@@ -297,8 +358,8 @@ class Channel:
         self._waiting: dict[int, _Waiter] = {}
         self._in_flight: set[int] = set()
         """The calls sent and not yet answered, a cancelled one included."""
-        self._queued: dict[int, bytes] = {}
-        """Each call held back for a place, its encoded request, in the order made."""
+        self._queued: dict[int, _Queued] = {}
+        """Each call held back, for a place or a new link, in the order it is sent."""
         self._cap: float = math.inf
         """How many calls may be in flight at once: as `hello` names it, if it does."""
         self._unwritten_bytes = 0
@@ -311,6 +372,19 @@ class Channel:
         self._ending = False
         self._failure: GoodfetchError | None = None
         self._ended = anyio.Event()
+        self._relinking: ChannelRelinking | None = None
+        self._held = False
+        """Whether every call waits for a new link, its old one dropped."""
+        self._drop: _Drop | None = None
+
+    def relink_with(self, relinking: ChannelRelinking) -> None:
+        """Reaches the engine again with `relinking` whenever the link drops."""
+        self._relinking = relinking
+
+    @property
+    def relinks(self) -> bool:
+        """Whether it reaches its engine again once its link drops."""
+        return self._relinking is not None
 
     async def call(
         self, method: str, params: object, *, deadline: CallDeadline | None = None
@@ -339,14 +413,18 @@ class Channel:
         *,
         sent: Callable[[int], None] | None = None,
         deadline: CallDeadline | None = None,
+        resume: Resumable | None = None,
     ) -> object:
         """Sends `method` as `call` does; `notified` hears each notification naming it.
 
-        `sent` is told the call's id once it is sent, ahead of anything
-        written later, so the caller can grant credits with `notify`, which
-        the engine drops for a call it has not received; a call that ended
-        first, as one failed while queued, is never told. `notified` runs on
-        the reading task and must not block.
+        `sent` is told the call's id once it is first sent, ahead of
+        anything written later, so the caller can grant credits with
+        `notify`, which the engine drops for a call it has not received; a
+        call that ended first, as one failed while queued, is never told.
+        `notified` runs on the reading task and must not block. Once its
+        link dropped, a stream is sent again with `resume`'s params and
+        credits when it gives one and the channel resends its method; any
+        other fails with `connection_lost`.
 
         Raises:
             GoodfetchError: As `call` raises.
@@ -364,19 +442,25 @@ class Channel:
         if overloaded is not None:
             raise in_call(overloaded, method)
         self._next_id += 1
-        waiter = _Waiter()
+        started_at = anyio.current_time()
+        waiter = _Waiter(
+            method=method,
+            request=request,
+            streams=notified is not None,
+            resume=resume,
+        )
         self._waiting[message_id] = waiter
         if notified is not None:
             self._listeners[message_id] = notified
         try:
-            if self._queued or len(self._in_flight) >= self._cap:
-                await self._wait_queued(message_id, request, method, deadline)
+            if self._held or self._queued or len(self._in_flight) >= self._cap:
+                self._enqueue(message_id, _Queued(request))
             else:
                 self._in_flight.add(message_id)
                 await self._write_bytes(request)
-            if sent is not None and waiter.outcome is None:
-                sent(message_id)
-            outcome = await self._wait_for(waiter)
+            outcome = await self._wait_answer(
+                message_id, waiter, deadline, started_at, sent
+            )
         except BaseException:
             if waiter.outcome is None:
                 del self._waiting[message_id]
@@ -399,22 +483,52 @@ class Channel:
         """
         self._cap = cap
 
+    async def _wait_answer(
+        self,
+        message_id: int,
+        waiter: _Waiter,
+        deadline: CallDeadline | None,
+        started_at: float,
+        sent: Callable[[int], None] | None,
+    ) -> _Answered | _Raised:
+        """Waits for the call's answer, queued again whenever its link drops.
+
+        `sent` is told its id the first time it is sent.
+        """
+        told = sent is None
+        while True:
+            if message_id in self._queued and waiter.outcome is None:
+                await self._wait_queued(message_id, waiter, deadline, started_at)
+            if waiter.outcome is not None:
+                return waiter.outcome
+            if not told and sent is not None:
+                told = True
+                sent(message_id)
+            await self._wait_until(
+                waiter,
+                lambda: waiter.outcome is not None or message_id in self._queued,
+            )
+
+    def _enqueue(self, message_id: int, queued: _Queued) -> None:
+        """Holds the call back, after every call held before it."""
+        self._queued[message_id] = queued
+        self._unwritten_bytes += queued.size
+
     async def _wait_queued(
         self,
         message_id: int,
-        request: bytes,
-        method: str,
+        waiter: _Waiter,
         deadline: CallDeadline | None,
+        started_at: float,
     ) -> None:
-        """Holds the call back until the reader sends it, as a place frees.
+        """Holds the call back until the reader sends it, as a place or a link frees.
+
+        `deadline` counts from `started_at`, when the call was made.
 
         Raises:
             DeadlineExceededError: `deadline` passed first; the call, never
-                sent, is still queued, for the caller to drop.
+                sent, or not sent again, is still queued, for the caller to drop.
         """
-        self._queued[message_id] = request
-        self._unwritten_bytes += len(request)
-        waiter = self._waiting[message_id]
 
         def left_the_queue() -> bool:
             return waiter.outcome is not None or message_id not in self._queued
@@ -422,37 +536,49 @@ class Channel:
         if deadline is None:
             await self._wait_until(waiter, left_the_queue)
             return
-        started_at = anyio.current_time()
-        with anyio.move_on_after(deadline.value / 1000):
+        with anyio.CancelScope(deadline=started_at + deadline.value / 1000):
             await self._wait_until(waiter, left_the_queue)
         if left_the_queue():
             return
-        raise in_call(
-            phase_exceeded(
+        limit = SettingLimit(
+            key=deadline.key,
+            value=deadline.value,
+            layer=SettingsLayer.run,
+            origin=RunOrigin.argument,
+        )
+        if self._held:
+            exceeded = phase_exceeded(
+                f"the call waited {deadline.value} ms, its `{deadline.key}`, while"
+                " the Client reached the engine again after the link dropped, so it"
+                " was not sent",
+                fix=(
+                    "Give the call a longer `timeout`, or make it again once the"
+                    " engine is reached."
+                ),
+                limit=limit,
+                started_at=started_at,
+                waited_for="hello",
+            )
+        else:
+            exceeded = phase_exceeded(
                 f"the call waited {deadline.value} ms, its `{deadline.key}`, for a"
                 " place among the engine's calls in flight, so it was not sent",
                 fix=(
                     "Make fewer calls at once on this Connection, or give the call"
                     " a longer `timeout`."
                 ),
-                limit=SettingLimit(
-                    key=deadline.key,
-                    value=deadline.value,
-                    layer=SettingsLayer.run,
-                    origin=RunOrigin.argument,
-                ),
+                limit=limit,
                 started_at=started_at,
                 waited_for="calls_in_flight",
-            ),
-            method,
-        )
+            )
+        raise in_call(exceeded, waiter.method)
 
     def _unqueue(self, message_id: int) -> bool:
         """Takes the call `message_id` out of the queue: whether it was queued."""
-        request = self._queued.pop(message_id, None)
-        if request is None:
+        queued = self._queued.pop(message_id, None)
+        if queued is None:
             return False
-        self._unwritten_bytes -= len(request)
+        self._unwritten_bytes -= queued.size
         return True
 
     def _overloaded_by(self, length: int) -> ConnectionOverloadedError | None:
@@ -491,10 +617,36 @@ class Channel:
         return None
 
     async def notify(self, method: str, params: object) -> None:
-        """Sends the notification `method`, such as `$/credit`, unless it ended."""
+        """Sends the notification `method`, such as `$/credit`, unless it ended.
+
+        One naming a call held back follows that call's request; while the
+        link is down, one naming no call held is dropped, as the engine
+        that would have read it is gone.
+        """
         if self._ending:
             return
-        await self._write({"method": method, "params": params})
+        data = encode_message({"method": method, "params": params})
+        members = object_members(params) or {}
+        named = members.get("id")
+        if isinstance(named, int) and not isinstance(named, bool):
+            waiter = self._waiting.get(named)
+            credits = members.get("credits")
+            if (
+                method == "$/credit"
+                and waiter is not None
+                and waiter.resume is not None
+                and isinstance(credits, int)
+                and not isinstance(credits, bool)
+            ):
+                waiter.resume.granted(credits)
+            queued = self._queued.get(named)
+            if queued is not None:
+                queued.notes.append(data)
+                self._unwritten_bytes += len(data)
+                return
+        if self._held:
+            return
+        await self._write_bytes(data)
 
     def cancel_all(self, error: GoodfetchError) -> list[int]:
         """Fails every call still waiting with `error`, and stops the reader.
@@ -589,19 +741,37 @@ class Channel:
         if self._ending:
             await self._ended.wait()
             return
+        if self._drop is not None:
+            await self._relink_step(self._drop)
+            return
+        transport = self._transport
         try:
-            chunk = await self._transport.receive()
+            chunk = await transport.receive()
         except anyio.EndOfStream:
-            await self._finish(Ended())
+            await self._link_broke(transport, Ended())
             return
         except Exception as cause:
-            await self._finish(ReadFailed(cause))
+            await self._link_broke(transport, ReadFailed(cause))
             return
+        end = await self._read_chunk(chunk)
+        if end is not None:
+            await self._finish(end)
+            return
+        if not self._held and self._queued and len(self._in_flight) < self._cap:
+            # Answers freed places: the next queued calls take them.
+            with anyio.CancelScope(shield=True):
+                await self._drain()
+
+    async def _read_chunk(self, chunk: bytes) -> InvalidLine | None:
+        """Settles the replies `chunk` ends and hands its notifications over.
+
+        Returns:
+            The end of a line that is not one JSON-RPC message, if one is.
+        """
         unserved: list[Request] = []
         for line in self._lines.feed(chunk):
             if isinstance(line, Invalid):
-                await self._finish(InvalidLine(line.line))
-                return
+                return InvalidLine(line.line)
             if isinstance(line, Result | Failure):
                 self._settle(line)
             elif isinstance(line, Request):
@@ -620,28 +790,215 @@ class Channel:
                         },
                     }
                 )
-        if self._queued and len(self._in_flight) < self._cap:
-            # Answers freed places: the next queued calls take them.
+        return None
+
+    async def _link_broke(self, transport: ByteStream, end: TransportEnd) -> None:
+        """Ends the channel as `transport` ended, or reaches the engine again.
+
+        It reaches the engine again when told how and the Connection is not
+        closing. An end of a link already dropped, or of one being reached,
+        is that attempt's to see.
+        """
+        if transport is not self._transport or self._drop is not None:
+            return
+        relinking = self._relinking
+        if relinking is None or relinking.closing():
+            await self._finish(end)
+            return
+        self._dropped(end)
+        with anyio.CancelScope(shield=True):
+            await _close_quietly(transport)
+        self._wake_all()
+
+    def _dropped(self, end: TransportEnd) -> None:
+        """Holds every call from now on, once the link dropped.
+
+        Each call in flight that may be is sent again by its id, first, and
+        every other one fails with `connection_lost`; the calls queued
+        before follow.
+        """
+        self._held = True
+        self._drop = _Drop(end, anyio.current_time(), _cause_of(end))
+        earlier = self._queued
+        self._queued = {}
+        for message_id, waiter in list(self._waiting.items()):
+            if message_id in earlier:
+                continue
+            again = self._again_of(message_id, waiter)
+            if again is None:
+                del self._waiting[message_id]
+                waiter.settle(_Raised(lost_stream() if waiter.streams else lost_call()))
+            else:
+                self._enqueue(message_id, again)
+        self._queued.update(earlier)
+        # A call cancelled and not answered yet holds no place on the new link.
+        self._in_flight.clear()
+
+    def _again_of(self, message_id: int, waiter: _Waiter) -> _Queued | None:
+        """What the call is sent again with on the new link, if it may be."""
+        relinking = self._relinking
+        if relinking is None or not relinking.resends(waiter.method):
+            return None
+        if waiter.resume is not None:
+            params, credits = waiter.resume.resumed()
+            request = encode_message(
+                {"id": message_id, "method": waiter.method, "params": params}
+            )
+            notes = (
+                [
+                    encode_message(
+                        {
+                            "method": "$/credit",
+                            "params": {"id": message_id, "credits": credits},
+                        }
+                    )
+                ]
+                if credits > 0
+                else []
+            )
+            return _Queued(request, notes)
+        if waiter.streams:
+            return None
+        return _Queued(waiter.request)
+
+    async def _relink_step(self, drop: _Drop) -> None:
+        """Waits for the next attempt to reach the engine again, then makes it.
+
+        Past `timeout.connect` from the drop, the channel ends with the
+        relinking's `gave_up`; a closing Connection ends it as its owner
+        says. A cancelled attempt is made again by the next reader.
+        """
+        relinking = self._relinking
+        if relinking is None or relinking.closing():
+            await self._finish(drop.end)
+            return
+        if drop.next_at is None:
+            delay = reconnect_delay(
+                drop.made, anyio.current_time() - drop.at, relinking.within
+            )
+            if delay is None:
+                await self._finish(drop.end, relinking.gave_up(drop.cause))
+                return
+            drop.next_at = anyio.current_time() + delay
+        await anyio.sleep_until(drop.next_at)
+        if relinking.closing():
+            await self._finish(drop.end)
+            return
+        within = math.inf if relinking.within is None else drop.at + relinking.within
+        transport: ByteStream | None = None
+        try:
+            with anyio.CancelScope(deadline=within) as attempt:
+                transport = await relinking.reopen()
+                self._transport = transport
+                self._lines = LineReader()
+                await relinking.greet(self._ahead)
+        except _LinkEndedError as ended:
+            if isinstance(ended.end, InvalidLine):
+                await self._finish(ended.end)
+                return
+            await self._failed(drop, transport, ended.__cause__ or ended)
+            return
+        except GoodfetchError as refused:
+            if transport is None:
+                # Reopening failed: nothing answers yet, so it is tried again.
+                await self._failed(drop, transport, refused)
+                return
+            await self._finish(drop.end, refused)
+            return
+        except Exception as cause:
+            await self._failed(drop, transport, cause)
+            return
+        except BaseException:
+            # Cancelled: the next reader makes the attempt again.
+            if transport is not None:
+                with anyio.CancelScope(shield=True):
+                    await _close_quietly(transport)
+            raise
+        if attempt.cancelled_caught:
+            await self._failed(drop, transport, TimeoutError("timeout.connect passed"))
+            return
+        self._drop = None
+        self._held = False
+        with anyio.CancelScope(shield=True):
+            await self._drain()
+
+    async def _failed(
+        self, drop: _Drop, transport: ByteStream | None, cause: BaseException
+    ) -> None:
+        """Counts a failed attempt, whose new link is closed, for the next one."""
+        drop.made += 1
+        drop.next_at = None
+        drop.cause = cause
+        if transport is not None:
             with anyio.CancelScope(shield=True):
-                await self._drain()
+                await _close_quietly(transport)
+
+    async def _ahead(self, method: str, params: object) -> object:
+        """Makes the call `method` on the new link, ahead of every call held.
+
+        It reads the new link itself until the answer comes.
+
+        Raises:
+            _LinkEndedError: The new link ended first.
+            GoodfetchError: The engine answered with an error.
+        """
+        message_id = self._next_id
+        self._next_id += 1
+        waiter = _Waiter(method=method)
+        self._waiting[message_id] = waiter
+        self._in_flight.add(message_id)
+        transport = self._transport
+        try:
+            data = encode_message(
+                {"id": message_id, "method": method, "params": params}
+            )
+            with anyio.CancelScope(shield=True):
+                async with self._write_lock:
+                    try:
+                        await transport.send(data)
+                    except Exception as cause:
+                        raise _LinkEndedError(WriteFailed(cause)) from cause
+            while waiter.outcome is None:
+                try:
+                    chunk = await transport.receive()
+                except anyio.EndOfStream:
+                    raise _LinkEndedError(Ended()) from None
+                except Exception as cause:
+                    raise _LinkEndedError(ReadFailed(cause)) from cause
+                end = await self._read_chunk(chunk)
+                if end is not None:
+                    raise _LinkEndedError(end)
+        finally:
+            self._waiting.pop(message_id, None)
+            self._in_flight.discard(message_id)
+        outcome = waiter.outcome
+        if isinstance(outcome, _Raised):
+            raise outcome.error
+        return outcome.result
 
     async def _drain(self) -> None:
         """Sends queued calls, in the order they were made, while places are free.
 
         One hold of the write lock sends them all, so they reach the
-        engine in that order whichever task each call runs in.
+        engine in that order whichever task each call runs in; the
+        notifications held with a call follow it.
         """
         async with self._write_lock:
             while (
-                self._queued and len(self._in_flight) < self._cap and not self._ending
+                self._queued
+                and len(self._in_flight) < self._cap
+                and not self._ending
+                and not self._held
             ):
-                message_id, request = next(iter(self._queued.items()))
+                message_id, queued = next(iter(self._queued.items()))
                 del self._queued[message_id]
                 self._in_flight.add(message_id)
                 waiter = self._waiting.get(message_id)
                 if waiter is not None:
                     waiter.wake()
-                await self._send_locked(request)
+                await self._send_locked(queued.request)
+                for note in queued.notes:
+                    await self._send_locked(note)
 
     def _hand_over(self, notification: Notification) -> None:
         members = object_members(notification.params)
@@ -685,26 +1042,35 @@ class Channel:
     async def _send_locked(self, data: bytes) -> None:
         """Sends `data`, counted as waiting, under the write lock its caller holds."""
         try:
-            if self._ending:
+            if self._ending or self._held:
                 return
+            transport = self._transport
             try:
-                await self._transport.send(data)
+                await transport.send(data)
             except Exception as cause:
-                await self._finish(WriteFailed(cause))
+                await self._link_broke(transport, WriteFailed(cause))
         finally:
             self._unwritten_bytes -= len(data)
 
     async def _notify_cancel(self, message_id: int) -> None:
-        if self._ending:
+        if self._ending or self._held:
+            # While the link is down, no call is in flight to cancel.
             return
         await self._write({"method": "$/cancel", "params": {"id": message_id}})
 
-    async def _finish(self, end: TransportEnd) -> None:
+    async def _finish(
+        self, end: TransportEnd, failure: GoodfetchError | None = None
+    ) -> None:
+        """Ends the channel: every call waiting, and every later one, fails.
+
+        With `failure`, or else with the error its owner says `end` takes.
+        """
         if self._ending:
             return
         self._ending = True
         with anyio.CancelScope(shield=True):
-            failure = await self._owner.ended(end)
+            if failure is None:
+                failure = await self._owner.ended(end)
             self._failure = failure
             for waiter in [*self._waiting.values(), *self._drainers]:
                 waiter.settle(_Raised(failure))
@@ -712,9 +1078,20 @@ class Channel:
             for message_id in list(self._queued):
                 self._unqueue(message_id)
             self._in_flight.clear()
+            self._drop = None
+            self._held = False
             self._ended.set()
             if self._reader_scope is not None:
                 self._reader_scope.cancel()
+
+
+async def _close_quietly(transport: ByteStream) -> None:
+    """Closes both sides of a link that dropped or failed."""
+    try:
+        await transport.aclose()
+    except Exception:
+        # Nothing it held matters any more.
+        return
 
 
 def error_of_reply(

@@ -185,13 +185,15 @@ pub(crate) const SPIDER: &str = "spider";
 /// reads, its Foxhound cell (a main row: in scenario 1, its first cell or
 /// its cell at the catalog's defaults) or Spider's main row in its scenario. The
 /// cells are scenario 1's and the extraction scenario's (#2136; the owner's
-/// decision of 2026-11-10, #2252 Q7; #2175).
+/// decision of 2026-11-10, #2252 Q7; #2175); and each default-cost cell,
+/// whose count less scenario 1's first cell's is one default's (#2438).
 pub(crate) fn instruction_counted(cell: &Cell) -> bool {
-    RATIOS.iter().any(|row| {
-        row.scenario == cell.scenario
-            && ((cell.tool == Tool::Foxhound && cell.name == row.foxhound)
-                || (cell.tool == Tool::Spider && cell.name == SPIDER))
-    })
+    cell.default_on().is_some()
+        || RATIOS.iter().any(|row| {
+            row.scenario == cell.scenario
+                && ((cell.tool == Tool::Foxhound && cell.name == row.foxhound)
+                    || (cell.tool == Tool::Spider && cell.name == SPIDER))
+        })
 }
 /// Runs of each hostile pages' cell (#2439), at most: its counts are read
 /// with their spread, not timed.

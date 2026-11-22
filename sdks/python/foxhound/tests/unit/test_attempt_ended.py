@@ -5,40 +5,42 @@ does, and still carries its code and group (ADRs 0079 and 0093), so the
 SDK raises it out of the handler to what runs the attempt, through a call,
 through a sequence's reader and through the sync client's private loop.
 TypeScript's `AttemptEndedError` is a `ProgramError`, since TypeScript has
-no such split.
+no such split. The tests reach the Collie client package through its public
+names alone: the common Connection a Product's Connection type is built on,
+over the script's transport with no `hello`, and a Run made from a start's
+answer.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import anyio
 import pytest
-from goodfetch_collie_client._rpc import Channel
+from goodfetch_collie_client.connection import ClientConnection
 from goodfetch_collie_client.generated.errors import ERROR_CLASSES as COLLIE_ERRORS
-from goodfetch_collie_client.generated.errors import ClosedError
-from goodfetch_collie_client.listeners import Order
+from goodfetch_collie_client.generated.models import RunStarted
 from goodfetch_collie_client.portal import PrivateLoop
-from goodfetch_collie_client.sequence import AsyncSequence, Reading
+from goodfetch_collie_client.run import AsyncRun
 from goodfetch_foxhound.generated.errors import ERROR_CLASSES as FOXHOUND_ERRORS
 from goodfetch_foxhound.generated.errors import AttemptEndedError
 from goodfetch_test_support.play_script import Finished, play_script
 
 if TYPE_CHECKING:
-    from goodfetch_collie_client._rpc import TransportEnd
-    from goodfetch_collie_client.goodfetch_error import GoodfetchError
+    from anyio.abc import ByteStream
 
 _RUN = "01ke6p4ym0j8x3v5wq2rtbn7hc"
 
 
-class _Owner:
-    """A Connection that hears nothing: the script never ends the channel."""
+def _connection(transport: ByteStream) -> ClientConnection:
+    """The Connection over `transport`, knowing Collie's and Foxhound's codes.
 
-    async def ended(self, end: TransportEnd) -> GoodfetchError:
-        return ClosedError(f"the engine's side ended: {end}")
-
-    def notified(self, method: str, params: object) -> None:
-        del method, params  # No notification names no call here.
+    It skips `hello`, which the scripts leave out, and is never closed, nor is
+    a Run on it, since the scripts end before any close: its close timeout,
+    `connect()`'s 30 s, is never read.
+    """
+    return ClientConnection(
+        transport, None, {**COLLIE_ERRORS, **FOXHOUND_ERRORS}, close_timeout=30.0
+    )
 
 
 @pytest.mark.anyio
@@ -47,12 +49,12 @@ async def test_a_handlers_except_exception_lets_the_end_of_its_attempt_through()
 ):
     """The reply raises `AttemptEndedError`, which the handler cannot swallow."""
     played = play_script("sdk-python/crawl/enqueue-after-the-attempt-ended.json")
-    channel = Channel(played.transport, _Owner(), {**COLLIE_ERRORS, **FOXHOUND_ERRORS})
+    connection = _connection(played.transport)
     swallowed: list[Exception] = []
 
     async def handler() -> None:
         try:
-            await channel.call(
+            await connection.raw(
                 "crawl_request.enqueue",
                 {
                     "run_id": _RUN,
@@ -89,36 +91,32 @@ async def test_a_handlers_except_exception_lets_the_end_of_its_attempt_through()
     }
 
 
-def _key(method: str, params: object) -> str | None:
-    del method, params  # The stream is refused before any key.
-    return None
-
-
 @pytest.mark.anyio
 async def test_a_sequence_on_an_ended_attempt_raises_the_end_to_its_reader() -> None:
     """The sequence's task keeps the end and its reader raises it, as any failure."""
     played = play_script("sdk-python/crawl/keys-after-the-attempt-ended.json")
-    channel = Channel(played.transport, _Owner(), {**COLLIE_ERRORS, **FOXHOUND_ERRORS})
-    reading: Reading[str] = Reading(
-        channel,
-        "key_value_store.keys",
-        {"run_id": _RUN, "prefix": "item-"},
-        _key,
-        Order(),
+    run = AsyncRun(
+        _connection(played.transport),
+        RunStarted.model_validate(
+            {
+                "lifecycle": "running",
+                "needs": "foxhound",
+                "run_id": _RUN,
+                "started_as": "new",
+            }
+        ),
     )
     read: list[str] = []
-    raised: list[AttemptEndedError] = []
 
-    async with anyio.create_task_group() as group:
-        group.start_soon(reading.run)
-        with pytest.raises(AttemptEndedError) as ended:
-            async with AsyncSequence(reading) as items:
-                read.extend([item async for item in items])
-        raised.append(ended.value)
+    with pytest.raises(AttemptEndedError) as ended:
+        async with run.key_value_store.keys(prefix="item-") as items:
+            read.extend([item async for item in items])
 
-    assert [(read, end.code, end.operation) for end in raised] == [
-        ([], "attempt_ended", "key_value_store.keys")
-    ]
+    assert (read, ended.value.code, ended.value.operation) == (
+        [],
+        "attempt_ended",
+        "key_value_store.keys",
+    )
     assert played.done() == Finished()
 
 

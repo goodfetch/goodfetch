@@ -16,7 +16,7 @@ mod layers;
 
 use crate::special_purpose::{Cidr, Reachability, SpecialPurposeRegistries};
 pub use layers::{
-    Layer, LayerGap, LayerGaps, LayerRunner, Pending, RunFailed, Runner, SsrfLayers, UnknownRunner,
+    Layer, LayerGap, LayerGaps, LayerRunner, Pending, RunFailed, Runner, RunnerError, SsrfLayers,
 };
 
 /// The SSRF case table: every case, in the committed file's order.

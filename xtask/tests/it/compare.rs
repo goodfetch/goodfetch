@@ -7,7 +7,8 @@
 //! other work, and writes no figure. A cell a tool cannot run says so, a
 //! Foxhound value that does not exist yet is pending, and the Callgrind
 //! cell gives `foxhound.spider_instruction_ratio` and the extraction
-//! scenario's two ratios under the same check (ADR 0140). On the extraction
+//! scenario's two ratios under the same check (ADR 0140), with the
+//! instructions each Foxhound default adds (#2438). On the extraction
 //! scenario's article site, each trial's pages are also held to the right
 //! answers (#2136): a Foxhound trial that differs is refused, and a
 //! competitor's keeps its figures, labelled. The Collie scenario (issue
@@ -307,7 +308,10 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
 /// A Callgrind cell of three runs of each cell its ratios read over the
 /// 1,000-page site. In scenario 1, Foxhound's a median of 32,000
 /// instructions a page, 48,000 in its cell at the catalog's defaults, and
-/// Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
+/// Spider's 1,000; each of its default-cost cells (#2438) a median of
+/// 40,500 with robots.txt obeyed, 32,100 with Frontier learning, 34,000
+/// with the Provenance log, 33,600 with Block classification and 36,000
+/// with Records; in the extraction scenario, Foxhound's 60,000 at its
 /// defaults and 45,000 with its Filter lists off, and Spider's 50,000, its
 /// pages holding the ad, which it does not remove.
 fn callgrind() -> Value {
@@ -324,6 +328,21 @@ fn callgrind() -> Value {
             run("raw", "foxhound defaults", "foxhound", 1, 47_000_000, 0),
             run("raw", "foxhound defaults", "foxhound", 2, 48_000_000, 0),
             run("raw", "foxhound defaults", "foxhound", 3, 49_000_000, 0),
+            run("raw", "foxhound robots.txt on", "foxhound", 1, 40_000_000, 0),
+            run("raw", "foxhound robots.txt on", "foxhound", 2, 40_500_000, 0),
+            run("raw", "foxhound robots.txt on", "foxhound", 3, 41_000_000, 0),
+            run("raw", "foxhound learning on", "foxhound", 1, 32_050_000, 0),
+            run("raw", "foxhound learning on", "foxhound", 2, 32_100_000, 0),
+            run("raw", "foxhound learning on", "foxhound", 3, 32_200_000, 0),
+            run("raw", "foxhound provenance log on", "foxhound", 1, 33_000_000, 0),
+            run("raw", "foxhound provenance log on", "foxhound", 2, 34_000_000, 0),
+            run("raw", "foxhound provenance log on", "foxhound", 3, 35_000_000, 0),
+            run("raw", "foxhound block classification on", "foxhound", 1, 33_600_000, 0),
+            run("raw", "foxhound block classification on", "foxhound", 2, 33_500_000, 0),
+            run("raw", "foxhound block classification on", "foxhound", 3, 33_700_000, 0),
+            run("raw", "foxhound records on", "foxhound", 1, 36_000_000, 0),
+            run("raw", "foxhound records on", "foxhound", 2, 36_000_000, 0),
+            run("raw", "foxhound records on", "foxhound", 3, 36_000_000, 0),
             run("extraction", "foxhound", "foxhound", 1, 59_000_000, 0),
             run("extraction", "foxhound", "foxhound", 2, 60_000_000, 0),
             run("extraction", "foxhound", "foxhound", 3, 70_000_000, 0),
@@ -1475,6 +1494,71 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
     );
 }
 
+/// The Callgrind cell gives the instructions each Foxhound default adds
+/// (#2438): one line per default, its setting, its cell's median and the
+/// difference from scenario 1's first cell's, a line under 0.5 % of that
+/// count within the counter's tolerance, and no limit of its own.
+#[test]
+fn the_callgrind_cell_reports_the_instructions_each_default_adds() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["instructions"] = callgrind();
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let line = |default: &str, cell: &str, setting: &str, per_page: f64, added: f64, within| {
+        json!({
+            "default": default,
+            "cell": cell,
+            "setting": setting,
+            "status": "measured",
+            "per_page": per_page,
+            "added": added,
+            "within_tolerance": within,
+        })
+    };
+    assert_eq!(
+        written(&workspace)["instructions"]["defaults"],
+        json!({
+            "cell": "foxhound",
+            "per_page": 32_000.0,
+            "lines": [
+                line("robots.txt read and obeyed", "foxhound robots.txt on", "`site_preferences.respect_robots_txt: true`", 40_500.0, 8_500.0, false),
+                line("Frontier learning", "foxhound learning on", "`frontier.learning: true`", 32_100.0, 100.0, true),
+                line("the Provenance log", "foxhound provenance log on", "`provenance.log: true`", 34_000.0, 2_000.0, false),
+                line("Block classification", "foxhound block classification on", "`fetch.block_classification: true`", 33_600.0, 1_600.0, false),
+                line("Records", "foxhound records on", "`dataset.records: true`", 36_000.0, 4_000.0, false),
+            ],
+        })
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let section = &markdown[markdown
+        .find("## Instructions each Foxhound default adds")
+        .expect("the report writes the defaults' table")..];
+    let rows: Vec<&str> = section
+        .lines()
+        .take_while(|line| !line.starts_with("## Peak memory"))
+        .filter(|line| line.starts_with("| "))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "| Default | Setting | Instructions per page | Added |",
+            "| robots.txt read and obeyed | `site_preferences.respect_robots_txt: true` | 40500 | +8500 (+26.56 %) |",
+            "| Frontier learning | `frontier.learning: true` | 32100 | +100 (+0.31 %, within the counter's tolerance) |",
+            "| the Provenance log | `provenance.log: true` | 34000 | +2000 (+6.25 %) |",
+            "| Block classification | `fetch.block_classification: true` | 33600 | +1600 (+5.00 %) |",
+            "| Records | `dataset.records: true` | 36000 | +4000 (+12.50 %) |",
+        ]
+    );
+}
+
 /// The Callgrind cell counts the extraction scenario too (#2136; the
 /// owner's decision of 2026-11-10, #2252 Q7), both of Foxhound's rows over
 /// Spider's: at its defaults, where Spider does not do the Clean-up rules'
@@ -1780,10 +1864,13 @@ fn a_cell_that_did_not_run_says_why_and_gives_no_ratio() {
         written(&workspace)["instructions"],
         not_run("valgrind is not installed on this host")
     );
+    let markdown = workspace.read_text(MARKDOWN);
     assert!(
-        workspace
-            .read_text(MARKDOWN)
-            .contains("`foxhound.spider_instruction_ratio`: not run: valgrind is not installed")
+        markdown.contains("`foxhound.spider_instruction_ratio`: not run: valgrind is not installed")
+            && markdown.contains(
+                "## Instructions each Foxhound default adds\n\nNot run: valgrind is not installed on this host."
+            ),
+        "{markdown}"
     );
 }
 

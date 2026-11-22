@@ -50,19 +50,6 @@ const CANARY: Canary = {
 /** The timeout the script's page failures outlived, set by the call's argument. */
 const ACTION_TIMEOUT = { key: "timeout.action", value: 5000, layer: "run", origin: "argument" };
 
-/** The case's tags but its mode's. */
-const CASE_TAGS = [
-  "client_case/errors-and-outcomes",
-  "story:11-28",
-  "story:11-30",
-  "story:11-187",
-  "error:secret_input_refused",
-  "error:target_not_unique",
-  "error:deadline_exceeded",
-  "error:secret_unavailable",
-  "error:engine_panicked",
-];
-
 /**
  * A host logger at `debug` that keeps every line the SDK logs, at any
  * level, with its fields, and each warning apart, where the engine's stderr
@@ -315,7 +302,20 @@ async function checkPlayed(
 describe("A Collie Connection on the Scripted engine", () => {
   test(
     "returns an outcome as a value and raises each failure as its code's class, rendering no Secret",
-    { tags: [...CASE_TAGS, "attached"] },
+    {
+      tags: [
+        "client_case/errors-and-outcomes",
+        "attached",
+        "story:11-28",
+        "story:11-30",
+        "story:11-187",
+        "error:secret_input_refused",
+        "error:target_not_unique",
+        "error:deadline_exceeded",
+        "error:secret_unavailable",
+        "error:engine_panicked",
+      ],
+    },
     async ({ testEnv, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "run/errors-and-outcomes.json");
       const { logger, logged, warned } = loggingEverything();
@@ -331,7 +331,20 @@ describe("A Collie Connection on the Scripted engine", () => {
 
   test(
     "returns the same outcome and raises the same failures from a Daemon, rendering no Secret",
-    { tags: [...CASE_TAGS, "daemon"] },
+    {
+      tags: [
+        "client_case/errors-and-outcomes",
+        "daemon",
+        "story:11-28",
+        "story:11-30",
+        "story:11-187",
+        "error:secret_input_refused",
+        "error:target_not_unique",
+        "error:deadline_exceeded",
+        "error:secret_unavailable",
+        "error:engine_panicked",
+      ],
+    },
     async ({ testEnv, processes, clientCase }) => {
       const daemon = await startScriptedDaemon(
         testEnv,

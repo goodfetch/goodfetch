@@ -11,6 +11,7 @@ use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration as WireLabel;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 /// A Label as a crawl declares it (ADRs 0093 and 0099), whose requests
 /// carry a Payload of type `P`: its name, and, through builder methods
@@ -41,7 +42,7 @@ use serde::de::DeserializeOwned;
 /// ```
 pub struct LabelDeclaration<'a, P> {
     name: String,
-    wire: WireLabel,
+    schema: Option<Value>,
     settings: Settings,
     payload: PhantomData<fn() -> P>,
     borrows: PhantomData<&'a ()>,
@@ -53,7 +54,7 @@ impl<P> LabelDeclaration<'_, P> {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            wire: WireLabel::default(),
+            schema: None,
             settings: Settings::new(),
             payload: PhantomData,
             borrows: PhantomData,
@@ -68,7 +69,7 @@ impl<P> LabelDeclaration<'_, P> {
     where
         P: Serialize + DeserializeOwned,
     {
-        self.wire.payload = Some(schema.wire_schema().clone());
+        self.schema = Some(schema.wire_schema().clone());
         self
     }
 
@@ -91,12 +92,15 @@ impl<P> LabelDeclaration<'_, P> {
     pub(super) fn into_parts(self) -> Result<(String, WireLabel), Error> {
         let Self {
             name,
-            mut wire,
+            schema,
             settings,
             payload: _,
             borrows: _,
         } = self;
-        wire.settings = settings.within(SettingScope::Label)?;
+        let wire = WireLabel {
+            payload: schema,
+            settings: settings.within(SettingScope::Label)?,
+        };
         Ok((name, wire))
     }
 }
@@ -118,7 +122,7 @@ impl<P> fmt::Debug for LabelDeclaration<'_, P> {
         formatter
             .debug_struct("LabelDeclaration")
             .field("name", &self.name)
-            .field("payload", &self.wire.payload)
+            .field("payload", &self.schema)
             .field("settings", &self.settings)
             .finish()
     }

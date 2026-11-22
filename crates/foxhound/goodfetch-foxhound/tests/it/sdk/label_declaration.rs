@@ -31,15 +31,13 @@ fn visit_schema() -> Value {
     })
 }
 
-/// The seed's handler enqueues the empty page under the Label `json`,
-/// whose settings take only JSON, once with a Payload its schema refuses
-/// and once with one it takes: the refused one fails with
-/// `payload_invalid`, and the one taken ends `skipped` for its HTML
-/// response, before its handler.
+/// The seed's handler enqueues the empty page under its own Label with a
+/// Payload the Label's schema refuses: the enqueue fails with
+/// `payload_invalid`, and the Run adds no request for it.
 ///
 /// Covers: story:11-1014, error:payload_invalid
 #[test]
-fn a_label_declarations_payload_schema_and_settings_reach_the_engine() {
+fn an_enqueue_its_labels_schema_refuses_fails_with_payload_invalid() {
     let env = TestEnv::new();
     let site = ProvingGround::start(&env, SITE).unwrap();
     let (book, empty) = (
@@ -53,31 +51,16 @@ fn a_label_declarations_payload_schema_and_settings_reach_the_engine() {
         let page = crawl
             .label(LabelDeclaration::new("page").payload(&visits))
             .unwrap();
-        let json_only =
-            crawl
-                .label(LabelDeclaration::new("json").payload(&visits).settings(
-                    Settings::new().set(
-                        settings::crawl::CONTENT_TYPES,
-                        vec!["application/json".to_owned()],
-                    ),
-                ))
-                .unwrap();
         let (refused_tx, mut refused_rx) = tokio::sync::mpsc::unbounded_channel();
-        let next = (json_only.clone(), empty);
+        let enqueued_label = page.clone();
         crawl
             .handle(&page, move |ctx: CrawlContext<Value>| async move {
                 let refused = ctx
-                    .enqueue(&next.1, &next.0, json!({ "depth": "one" }))
+                    .enqueue(&empty, &enqueued_label, json!({ "depth": "one" }))
                     .await
                     .map_err(|error| error.code());
                 refused_tx.send(refused).unwrap();
-                ctx.enqueue(&next.1, &next.0, json!({ "depth": 1 })).await?;
                 Ok(())
-            })
-            .unwrap();
-        crawl
-            .handle(&json_only, |_ctx: CrawlContext<Value>| async {
-                panic!("the `json` Label's HTML page is skipped before its handler")
             })
             .unwrap();
 
@@ -93,10 +76,52 @@ fn a_label_declarations_payload_schema_and_settings_reach_the_engine() {
             (
                 refused_rx.recv().await.unwrap().map(|_| ()),
                 requests.succeeded,
-                requests.skipped,
                 requests.failed,
             ),
-            (Err(error_code::PAYLOAD_INVALID), 1, 1, 0),
+            (Err(error_code::PAYLOAD_INVALID), 1, 0),
+            "{requests:?}"
+        );
+    });
+}
+
+/// A Label whose settings take only JSON responses skips its seed's HTML
+/// page before its handler: the settings reach the engine with the
+/// Label's declaration.
+///
+/// Covers: story:11-1014
+#[test]
+fn a_labels_settings_apply_to_its_requests() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let book = site.url("shop.test", "/book");
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let json_only = crawl
+            .label(
+                LabelDeclaration::<Value>::new("json").settings(Settings::new().set(
+                    settings::crawl::CONTENT_TYPES,
+                    vec!["application/json".to_owned()],
+                )),
+            )
+            .unwrap();
+        crawl
+            .handle(&json_only, |_ctx: CrawlContext<Value>| async {
+                panic!("the `json` Label's HTML page is skipped before its handler")
+            })
+            .unwrap();
+
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&book, &json_only, json!({}))])
+            .await
+            .unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (requests.succeeded, requests.skipped, requests.failed),
+            (0, 1, 0),
             "{requests:?}"
         );
     });

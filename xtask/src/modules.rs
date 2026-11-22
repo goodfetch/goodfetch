@@ -5,9 +5,9 @@
 //! root re-exports from a module is that module's: importing it through the
 //! root (`crate::Item`) imports the module, and since a glob names nothing
 //! the check can read, a root may not re-export a module's items with one.
-//! A module's
-//! `[submodules.<module>]` table holds its direct submodules to the same
-//! rules among themselves. A file past 1,000
+//! A module's `[submodules.<module>]` table holds its direct submodules to
+//! the same rules among themselves, the module's own `use` items read as the
+//! root's are. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
 //! header. Source is parsed with `syn`, so nothing is built; a module's file
 //! is found as `rustc` finds it, through its `#[path]` when it has one, and
@@ -92,17 +92,7 @@ fn check_crate(
 
     let top_level = top_level(root, package, crate_folder, findings)?;
     let modules = &top_level.modules;
-    for module in top_level
-        .globs
-        .iter()
-        .filter(|module| modules.contains_key(*module))
-    {
-        findings.push(Finding::new(
-            "glob-re-export",
-            format!("{name}/{module}"),
-            format!("the root re-exports `{module}`'s items with a glob, which hides who imports them: name each item"),
-        ));
-    }
+    top_level.glob_re_exports(&format!("{name}/"), "the root", findings);
 
     for (source, _) in modules.values().flatten() {
         oversized(root, source, findings);
@@ -174,22 +164,49 @@ fn check_crate(
     Ok(())
 }
 
-/// What a crate's roots hold: its `lib.rs`'s and its `main.rs`'s together.
+/// What a parent holds: the modules it declares and the names its `use`
+/// items bring to it. The crate's roots, its `lib.rs`'s and its `main.rs`'s
+/// together, are its top-level modules' parent; a module is its submodules'.
 #[derive(Default)]
-struct TopLevel {
-    /// Each module the roots declare, with the files that make it up.
+struct Level {
+    /// Each module the parent declares, with the files that make it up.
     modules: BTreeMap<String, Vec<(Source, usize)>>,
-    /// Each name a root's `use` brings to it, with the first name of every
-    /// path it comes from: a module's, when the item is the crate's own.
+    /// Each name a parent's `use` brings to it, with the first name of every
+    /// path it comes from: a module's, when the item is one of its modules'.
     re_exports: BTreeMap<String, BTreeSet<String>>,
-    /// The first name of each path a root's `use` takes everything from.
+    /// The first name of each path a parent's `use` takes everything from.
     globs: BTreeSet<String>,
 }
 
-impl TopLevel {
+impl Level {
+    /// Records the names a parent's `use` item brings to it; `::name` is
+    /// another crate, whatever the modules are called.
+    fn record_use(&mut self, item: &syn::ItemUse, scope: Scope<'_>) {
+        if item.leading_colon.is_none() {
+            record_re_exports(&item.tree, Walk::Lead, scope, self);
+        }
+    }
+
+    /// A glob names nothing the check can read, so a parent may not take a
+    /// module's items with one. `prefix` starts each finding's subject, and
+    /// `parent` names the parent in its message.
+    fn glob_re_exports(&self, prefix: &str, parent: &str, findings: &mut Vec<Finding>) {
+        for module in self
+            .globs
+            .iter()
+            .filter(|module| self.modules.contains_key(*module))
+        {
+            findings.push(Finding::new(
+                "glob-re-export",
+                format!("{prefix}{module}"),
+                format!("{parent} re-exports `{module}`'s items with a glob, which hides who imports them: name each item"),
+            ));
+        }
+    }
+
     /// The modules the names `imported` reach: a name that is a module, and
-    /// the module a root re-exports a name from, through as many `use`
-    /// items as the root chains.
+    /// the module the parent re-exports a name from, through as many `use`
+    /// items as the parent chains.
     fn modules_of(&self, imported: BTreeSet<String>) -> BTreeSet<String> {
         let mut reached = BTreeSet::new();
         let mut seen = BTreeSet::new();
@@ -212,8 +229,8 @@ fn top_level(
     package: &metadata::Package,
     crate_folder: &Path,
     findings: &mut Vec<Finding>,
-) -> Result<TopLevel> {
-    let mut top_level = TopLevel::default();
+) -> Result<Level> {
+    let mut top_level = Level::default();
     for crate_root in crate_roots(package, crate_folder) {
         let source = parse(
             &crate_root,
@@ -231,10 +248,7 @@ fn top_level(
                         .or_default()
                         .extend(files);
                 }
-                // `::name` is another crate, whatever the modules are called.
-                syn::Item::Use(re_export) if re_export.leading_colon.is_none() => {
-                    record_re_exports(&re_export.tree, None, &mut top_level);
-                }
+                syn::Item::Use(re_export) => top_level.record_use(re_export, Scope::Crate),
                 _ => {}
             }
         }
@@ -251,24 +265,34 @@ fn check_submodules(
     table: &BTreeMap<String, Vec<String>>,
     findings: &mut Vec<Finding>,
 ) -> Result<()> {
-    let mut children: BTreeMap<String, Vec<(Source, usize)>> = BTreeMap::new();
+    let mut level = Level::default();
     for item in non_test_items(&source.syntax.items) {
-        if let syn::Item::Mod(child) = item {
-            children.insert(
-                child.ident.to_string(),
-                module_files(
-                    child,
-                    &source.children,
-                    source
-                        .path
-                        .parent()
-                        .context("a module file sits in a folder")?,
-                    2,
-                )?,
-            );
+        match item {
+            syn::Item::Mod(child) => {
+                level.modules.insert(
+                    child.ident.to_string(),
+                    module_files(
+                        child,
+                        &source.children,
+                        source
+                            .path
+                            .parent()
+                            .context("a module file sits in a folder")?,
+                        2,
+                    )?,
+                );
+            }
+            syn::Item::Use(re_export) => level.record_use(re_export, Scope::Within(module)),
+            _ => {}
         }
     }
-    for (child, files) in &children {
+    level.glob_re_exports(
+        &format!("{name}/{module}::"),
+        &format!("`{module}`"),
+        findings,
+    );
+    let children = &level.modules;
+    for (child, files) in children {
         let Some(allowed) = table.get(child) else {
             findings.push(Finding::new(
                 "module-not-listed",
@@ -283,8 +307,8 @@ fn check_submodules(
                 scan_item(item, *depth, Scope::Within(module), &mut imported);
             }
         }
-        for sibling in imported {
-            if sibling != *child && children.contains_key(&sibling) && !allowed.contains(&sibling) {
+        for sibling in level.modules_of(imported) {
+            if sibling != *child && !allowed.contains(&sibling) {
                 findings.push(Finding::new(
                     "forbidden-import",
                     format!("{name}/{module}::{child}->{sibling}"),
@@ -319,12 +343,28 @@ fn check_submodules(
     Ok(())
 }
 
-/// Records each name a root's `use` brings to the root, with the first name
-/// of the path it comes from after any `crate::` or `self::`: `from` once the
-/// walk is past that name, and the name itself when the root only renames it.
-fn record_re_exports(tree: &syn::UseTree, from: Option<&syn::Ident>, top_level: &mut TopLevel) {
+/// Where the walk of a parent's `use` path stands.
+#[derive(Clone, Copy)]
+enum Walk<'a> {
+    /// Before the first name that may be one of the parent's modules: at the
+    /// start, or past the `self::`, `crate::` or `crate::<module>::` that
+    /// names the parent.
+    Lead,
+    /// Past `crate::` within a module, whose name must come next for the
+    /// path to stay in the parent.
+    PastCrate,
+    /// Past the first name, the one the items come from.
+    From(&'a syn::Ident),
+}
+
+/// Records each name a parent's `use` brings to the parent, with the first
+/// name of the path it comes from once the walk is past what names the
+/// parent, and the name itself when the parent only renames it. A path that
+/// leaves the parent (`super::`, another module's `crate::` path) records
+/// nothing.
+fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, level: &mut Level) {
     let mut record = |named: &syn::Ident, from: &syn::Ident| {
-        top_level
+        level
             .re_exports
             .entry(named.to_string())
             .or_default()
@@ -332,29 +372,36 @@ fn record_re_exports(tree: &syn::UseTree, from: Option<&syn::Ident>, top_level: 
     };
     match tree {
         syn::UseTree::Path(path) => {
-            let from = match from {
-                None if path.ident == "crate" || path.ident == "self" => None,
-                None => Some(&path.ident),
-                from => from,
+            let walk = match (walk, scope) {
+                (Walk::From(from), _) => Walk::From(from),
+                (Walk::Lead, Scope::Crate) if path.ident == "crate" => Walk::Lead,
+                (Walk::Lead, Scope::Within(_)) if path.ident == "crate" => Walk::PastCrate,
+                (Walk::PastCrate, Scope::Within(module)) if path.ident == module => Walk::Lead,
+                (Walk::Lead, _) if path.ident == "self" => Walk::Lead,
+                (Walk::PastCrate, _) => return,
+                (Walk::Lead, _) if path.ident == "super" => return,
+                (Walk::Lead, _) => Walk::From(&path.ident),
             };
-            record_re_exports(&path.tree, from, top_level);
+            record_re_exports(&path.tree, walk, scope, level);
         }
         syn::UseTree::Group(group) => {
             for tree in &group.items {
-                record_re_exports(tree, from, top_level);
+                record_re_exports(tree, walk, scope, level);
             }
         }
         syn::UseTree::Name(syn::UseName { ident }) => {
-            if let Some(from) = from {
+            if let Walk::From(from) = walk {
                 record(ident, from);
             }
         }
-        syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => {
-            record(rename, from.unwrap_or(ident));
-        }
+        syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => match walk {
+            Walk::From(from) => record(rename, from),
+            Walk::Lead => record(rename, ident),
+            Walk::PastCrate => {}
+        },
         syn::UseTree::Glob(_) => {
-            if let Some(from) = from {
-                top_level.globs.insert(from.to_string());
+            if let Walk::From(from) = walk {
+                level.globs.insert(from.to_string());
             }
         }
     }

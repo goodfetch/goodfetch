@@ -5,6 +5,7 @@
       "name": "run.abort",
       "product": "collie",
       "description": "Aborts the Run.",
+      "class": "idempotent_write",
       "kind": "round_trip",
       "params": { "$ref": "#/$defs/RunAbortParams" },
       "result": { "$ref": "#/$defs/RunReport" },

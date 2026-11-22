@@ -5,7 +5,9 @@
 //! its Runs first (ADR 0078), and dropping its last handle shuts a runtime
 //! it owns down in the background, never on the async worker that drops
 //! it. It saves a file to the program's path (ADR 0116): it hands the
-//! engine the path, or writes the bytes the engine streams.
+//! engine the path, or writes the bytes the engine streams. A remote
+//! Daemon's Connection reaches its engine again by itself once the link
+//! drops, within `timeout.connect` (spec 606; see `relink`).
 
 use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
@@ -45,6 +47,7 @@ use crate::listener_queue::ListenerQueue;
 use crate::logging;
 use crate::published::Published;
 use crate::raw_call::RawCall;
+use crate::relink::Relinking;
 use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::trace_context::{self, TraceContextSource};
@@ -149,8 +152,9 @@ struct Inner {
     /// Connection, so the Connection only refers to it.
     runs: Mutex<Vec<Weak<dyn Closes>>>,
     /// The level its engine was last told to send its logs at (ADR 0078):
-    /// `hello`'s, then each one a start told it.
-    log_level: Mutex<LogLevel>,
+    /// `hello`'s, then each one a start told it, which a remote Daemon
+    /// reached again is greeted with.
+    log_level: Arc<Mutex<LogLevel>>,
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
@@ -218,6 +222,7 @@ impl ClientConnection {
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
+        let (opened_network, opened_endpoint) = (network.clone(), endpoint.clone());
         let deadline = timeout.deadline();
         // One expiry for the transport's opening and `hello`'s answer: an
         // Exposed Daemon's WebSocket handshake can hang as `hello` can.
@@ -225,7 +230,7 @@ impl ClientConnection {
             .as_ref()
             .map(|(after, _)| tokio::time::sleep(*after).deadline());
         let mut opening = tasks.spawn_on(
-            async move { transport::open(&network, &endpoint).await },
+            async move { transport::open(&opened_network, &opened_endpoint).await },
             &handle,
         );
         let opened = match (expiry, &deadline) {
@@ -257,6 +262,7 @@ impl ClientConnection {
             tasks.clone(),
             listener_queue,
         );
+        let log_level = Arc::new(Mutex::new(hello.log_level.unwrap_or_default()));
         let connection = Self(Arc::new(Inner {
             sender,
             streams,
@@ -265,7 +271,7 @@ impl ClientConnection {
             tasks,
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
-            log_level: Mutex::new(hello.log_level.unwrap_or_default()),
+            log_level: Arc::clone(&log_level),
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
@@ -278,8 +284,24 @@ impl ClientConnection {
         };
         match said {
             Ok(said) => {
+                let sender = &connection.0.sender;
                 if let Some(cap) = said.max_calls_in_flight {
-                    connection.0.sender.cap_calls_in_flight(cap);
+                    sender.cap_calls_in_flight(cap);
+                }
+                // A remote Daemon is reached again once its link drops
+                // (spec 606).
+                if matches!(endpoint, Endpoint::Exposed(_)) {
+                    let within = deadline.map(|(after, _)| after);
+                    let relinking = Relinking::new(
+                        network,
+                        endpoint,
+                        hello,
+                        log_level,
+                        within,
+                        connection.0.handle.clone(),
+                        connection.0.tasks.clone(),
+                    );
+                    sender.relink_with(relinking, said.engine_instance.clone());
                 }
                 Ok((connection, said))
             }
@@ -453,6 +475,7 @@ impl ClientConnection {
             timeout: timeout.map(call::kept_by_client),
             reply,
             notified: Some(notified),
+            streams_itself: true,
         });
         let result = loop {
             tokio::select! {
@@ -694,6 +717,7 @@ impl ClientConnection {
             timeout: None,
             reply,
             notified: None,
+            streams_itself: false,
         });
     }
 

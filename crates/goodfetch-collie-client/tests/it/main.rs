@@ -28,6 +28,7 @@ mod navigations;
 mod partial_results;
 mod points_in_time;
 mod product_and_provisioning;
+mod reconnect;
 mod results;
 mod scripted_daemon;
 mod session_events;

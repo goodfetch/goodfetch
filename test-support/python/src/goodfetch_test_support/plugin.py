@@ -44,6 +44,7 @@ from goodfetch_test_support.case_log import (
 )
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import Product, TestEnv
+from goodfetch_test_support.mutation_children import MutationChildren
 from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
 from goodfetch_test_support.ways import ASYNC_BACKENDS
 
@@ -57,6 +58,11 @@ _CASE_LOG = pytest.StashKey[Path | None]()
 """The case log the run writes, if any."""
 _CASES = pytest.StashKey[dict[str, str] | None]()
 """Each case of the run's case list with its capability, if it names one."""
+_CHILDREN = pytest.StashKey[MutationChildren]()
+"""The mutmut run's reach into the programs tests start, under `--mutation-children`."""
+_ENVIRON = pytest.StashKey[dict[str, str | None]]()
+"""The runner's variables that `--mutation-children` set, as they were, restored at
+the end; `None` for one the runner did not have."""
 
 CASE_MARKER = "client_case"
 """The marker that carries a test's Client conformance case and mode."""
@@ -166,12 +172,14 @@ def test_env(
     """
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
+    children = item.config.stash.get(_CHILDREN, None)
     env = TestEnv.open(
         item.nodeid,
         os.environ,
         proving_ground_seed=proving_ground_seed,
         daemon=product if with_daemon else None,
         browser=with_browser,
+        child_variables=None if children is None else children.variables(),
     )
     yield env
     env.close(failed=item.stash.get(_FAILED, False))
@@ -235,10 +243,12 @@ CASE_LOG_OPTION = "--case-log"
 """The case log of Client conformance cases a run writes."""
 CASE_LIST_OPTION = "--case-list"
 """The case list the `client_case` markers name cases of."""
+MUTATION_CHILDREN_OPTION = "--mutation-children"
+"""Makes the Python programs tests start run mutmut's mutated copy (ADR 0072)."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Adds `--marker-listing`, `--case-log` and `--case-list`."""
+    """Adds the `goodfetch` group's options, such as `--mutation-children`."""
     group = parser.getgroup("goodfetch")
     group.addoption(
         LISTING_OPTION,
@@ -258,6 +268,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="the Client conformance case list each client_case marker names a "
         "case of, such as conformance/clients/cases.toml",
     )
+    group.addoption(
+        MUTATION_CHILDREN_OPTION,
+        action="store_true",
+        help="in a mutmut run, make each Python program a test starts run the "
+        "mutated copy and its mutant, and count what it reaches for that test",
+    )
 
 
 SYNC_API_THREADS = 4
@@ -275,6 +291,8 @@ def pytest_configure(config: pytest.Config) -> None:
     _require_trio()
     _require_gil_off_when_asked(os.environ)
     _open_case_log(config)
+    if config.getoption(MUTATION_CHILDREN_OPTION):
+        _reach_mutation_children(config)
     # Registered once every plugin has loaded, so it overrides anyio's own
     # fixture, which drops trio when trio does not import.
     config.pluginmanager.register(_AnyioBackend(), "goodfetch_anyio_backend")
@@ -329,6 +347,46 @@ def _open_case_log(config: pytest.Config) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("", "utf-8")
+
+
+def _reach_mutation_children(config: pytest.Config) -> None:
+    """Starts the run's hits folder, and names it to the programs tests start.
+
+    A test's cleared environment map gets the variables through `test_env`;
+    a program started with the runner's own environment, through it.
+    """
+    children = MutationChildren.start()
+    config.stash[_CHILDREN] = children
+    variables = children.variables()
+    # The active mutant is mutmut's to set in the runner's environment.
+    del variables["MUTANT_UNDER_TEST"]
+    config.stash[_ENVIRON] = {name: os.environ.get(name) for name in variables}
+    os.environ.update(variables)
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Restores the runner's environment, and removes the hits folder."""
+    children = config.stash.get(_CHILDREN, None)
+    if children is None:
+        return
+    for name, value in config.stash[_ENVIRON].items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+    children.stop()
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_teardown(item: pytest.Item) -> None:
+    """Counts what the test's programs reached as reached by the test.
+
+    It runs before mutmut's own teardown hook, which gives the test every
+    function counted since the last test.
+    """
+    children = item.config.stash.get(_CHILDREN, None)
+    if children is not None:
+        children.record_hits()
 
 
 def _require_trio() -> None:

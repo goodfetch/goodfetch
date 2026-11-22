@@ -20,24 +20,21 @@ use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
 use crate::settings::Resolved;
 use crate::tasks::TaskOwner;
-use crate::tls::Trust;
 
 /// The most redirects one GET follows, as a registry's blob that its
 /// storage serves needs one.
 pub const MAX_REDIRECTS: usize = 5;
 
 /// What a source's GET may do: what a pinned download may do, and, as an
-/// Operator-configured endpoint, what the Operator policy lets it reach
-/// and the authorities trusted for its domain.
+/// Operator-configured endpoint, what the Operator policy lets it reach.
 #[derive(Clone, Debug)]
 pub struct Sourcing {
-    /// `egress.offline`, `network.resolve` and the race's delays.
+    /// `egress.offline`, `network.resolve`, the race's delays and what a
+    /// source's certificate may chain to beside Mozilla's roots: the
+    /// authorities `tls.trusted_cas` lists for its own domain.
     pub fetching: Fetching,
     /// `egress.no_private_endpoints`.
     pub endpoints: EndpointPolicy,
-    /// What a source's certificate may chain to beside Mozilla's roots:
-    /// the authorities `tls.trusted_cas` lists for its own domain.
-    pub trust: Trust,
 }
 
 impl Sourcing {
@@ -47,7 +44,6 @@ impl Sourcing {
         Self {
             fetching: Fetching::new(clock),
             endpoints: EndpointPolicy::default(),
-            trust: Trust::default_roots(),
         }
     }
 
@@ -59,9 +55,8 @@ impl Sourcing {
     /// Dropping the future loses only the answer.
     pub async fn of(settings: &Resolved, clock: Clock, owner: &TaskOwner) -> Self {
         Self {
-            fetching: Fetching::of(settings, clock),
+            fetching: Fetching::of(settings, clock, owner).await,
             endpoints: EndpointPolicy::of(settings),
-            trust: Trust::of(settings, owner).await,
         }
     }
 }
@@ -226,7 +221,7 @@ async fn send(
         kind: ConfiguredKind::CleanUpRulesSource,
         policy: sourcing.endpoints,
         resolve: &fetching.resolve,
-        trust: &sourcing.trust,
+        trust: &fetching.trust,
         clock: fetching.clock,
         delays: fetching.delays,
     };

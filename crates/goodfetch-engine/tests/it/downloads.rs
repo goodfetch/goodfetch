@@ -1,7 +1,7 @@
 //! The Browser cache's pinned downloads against a local HTTPS stand-in that
 //! the `resolve` setting maps the pinned host to (ADRs 0043 and 0059): no
 //! test reaches the internet. The stand-in's certificate authority is
-//! trusted as `trusted_cas` would trust one.
+//! trusted for its domain, as `tls.trusted_cas` trusts one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -17,8 +17,10 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tls::Trust;
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, ArtifactKind, DownloadFailure, DownloadProgress, InstallOutcome, PinnedBy,
+    ArtifactId, ArtifactKind, CHROME_FOR_TESTING_STORAGE, DownloadFailure, DownloadProgress,
+    InstallOutcome, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -146,7 +148,9 @@ impl StandIn {
         Fetching {
             offline: None,
             resolve: HostMapping::default().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
-            trusted_certificates: vec![self.authority.clone()],
+            trust: Trust::default_roots()
+                .with_trusted_cas(HOST, vec![self.authority.clone()])
+                .expect("invariant: the stand-in and its fixtures set up"),
             ..Fetching::new(Clock::system())
         }
     }
@@ -318,6 +322,62 @@ fn first_use_downloads_a_missing_build_with_a_plain_get_and_reports_its_progress
                 total_bytes: Some(total),
             })
         );
+    });
+}
+
+/// A mirror stands in for Chrome for Testing's storage: the build's path
+/// below it is fetched from the mirror, whose certificate chains to the
+/// authority trusted for its domain alone, and the progress names it.
+///
+/// Covers: setting:browser.mirror
+#[test]
+fn a_chrome_for_testing_build_downloads_below_the_mirror() {
+    let env = TestEnv::new();
+    let build = build(&env, "a");
+    goodfetch_test_support::runtime().block_on(async {
+        let mut stand_in = StandIn::serve(BTreeMap::from([(
+            "/mirror/a/linux64/chrome-linux64.zip",
+            build.archive.clone(),
+        )]))
+        .await;
+        let cache = cache(&env);
+        let pinned = pin(
+            "a",
+            format!("{CHROME_FOR_TESTING_STORAGE}/a/linux64/chrome-linux64.zip"),
+            &build,
+        );
+        let fetching = Fetching {
+            mirror: Some(stand_in.url("/mirror")),
+            ..stand_in.fetching()
+        };
+        let mut hosts = BTreeSet::new();
+
+        let prepared = cache
+            .prepare(
+                &pinned,
+                &pinned_by(),
+                &fetching,
+                now(&env),
+                &mut |progress: DownloadProgress| {
+                    hosts.insert(progress.host);
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            read(&prepared.artifact.files().join("chrome")),
+            "#!chrome a\n"
+        );
+        assert_eq!(
+            stand_in
+                .requests()
+                .into_iter()
+                .map(|request| request.path)
+                .collect::<Vec<_>>(),
+            ["/mirror/a/linux64/chrome-linux64.zip"]
+        );
+        assert_eq!(hosts, BTreeSet::from([HOST.to_owned()]));
     });
 }
 

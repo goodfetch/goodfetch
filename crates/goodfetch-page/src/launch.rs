@@ -189,11 +189,11 @@ fn no_shell(layer: SettingsLayer) -> CallError {
 }
 
 /// What a download of a missing build may do under the Run's settings.
-fn fetching(run: &Run) -> Fetching {
-    run.settings().map_or_else(
-        || Fetching::new(run.clock()),
-        |settings| Fetching::of(settings.resolved(), run.clock()),
-    )
+async fn fetching(run: &Run) -> Fetching {
+    match run.settings() {
+        Some(settings) => Fetching::of(settings.resolved(), run.clock(), run.owner()).await,
+        None => Fetching::new(run.clock()),
+    }
 }
 
 /// The browser's executable, the build it holds while it runs, and its
@@ -235,11 +235,12 @@ async fn executable(
                 )
             })?;
             let now = run.clock().timestamp();
+            let fetching = fetching(run).await;
             let prepared = cache
                 .prepare(
                     pinned,
                     &pins.pinned_by,
-                    &fetching(run),
+                    &fetching,
                     now,
                     &mut |_progress| {},
                 )

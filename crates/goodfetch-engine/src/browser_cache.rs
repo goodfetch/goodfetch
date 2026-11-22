@@ -557,7 +557,7 @@ impl BrowserCache {
         now: jiff::Timestamp,
         progress: &mut (dyn FnMut(DownloadProgress) + Send),
     ) -> Result<Option<HeldArtifact>, CacheError> {
-        let Some(url) = PinnedUrl::parse(&artifact.url) else {
+        let Some(url) = PinnedUrl::parse(&fetching.located(&artifact.url)) else {
             return Err(CacheError::Cache {
                 path: self.root.clone(),
                 source: io::Error::new(

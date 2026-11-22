@@ -10,17 +10,18 @@
 //! translation point of this boundary's failures into [`Failure`] (ADR
 //! 0127).
 
+use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 use std::io::Write as _;
 use std::path::Path;
 use std::str::FromStr;
 
+use goodfetch_protocol::browser_cache::{BROWSER_MIRROR, CHROME_FOR_TESTING_STORAGE};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::settings::SettingsLayer;
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
-use rustls::pki_types::CertificateDer;
 use sha2::{Digest as _, Sha256};
 
 use crate::clock::Clock;
@@ -28,7 +29,7 @@ use crate::dns::HostMapping;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Server};
 use crate::settings::Resolved;
-use crate::tasks::BlockingThreads;
+use crate::tasks::{BlockingThreads, TaskOwner};
 use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
@@ -190,18 +191,25 @@ pub fn chromium_background_traffic_off() -> Vec<String> {
 }
 
 /// What a pinned download may do: whether `egress.offline` refuses it,
-/// what it may reach and trust, and how it races the host's addresses. No
-/// endpoint policy applies to it: a pinned download is no
-/// Operator-configured endpoint (ADRs 0017 and 0043).
+/// where a Chrome for Testing build is fetched from, what it may reach and
+/// trust, and how it races the host's addresses. No endpoint policy
+/// applies to it: a pinned download is no Operator-configured endpoint
+/// (ADRs 0017 and 0043), and a mirror only configuration sets is fetched
+/// as one, its bytes checked against the same digest.
 #[derive(Clone, Debug)]
 pub struct Fetching {
     /// The layer that set `egress.offline` to `true`, or `None` when
     /// downloads are allowed (ADR 0043).
     pub offline: Option<SettingsLayer>,
+    /// `browser.mirror` when it names another URL than Chrome for
+    /// Testing's storage, without a trailing `/`: the URL a Chrome for
+    /// Testing build's path is fetched below.
+    pub mirror: Option<String>,
     /// The `resolve` setting (ADR 0059).
     pub resolve: HostMapping,
-    /// Certificate authorities trusted beside Mozilla's roots.
-    pub trusted_certificates: Vec<CertificateDer<'static>>,
+    /// What a host's certificate may chain to beside Mozilla's roots: the
+    /// authorities `tls.trusted_cas` lists for its domain.
+    pub trust: Trust,
     /// What the Happy Eyeballs race waits on (ADR 0118).
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
@@ -209,30 +217,58 @@ pub struct Fetching {
 }
 
 impl Fetching {
-    /// Downloads allowed, with no mapping, no extra certificate authority
-    /// and RFC 8305's delays, on `clock`.
+    /// Downloads allowed from their pinned URLs, with no mapping,
+    /// Mozilla's roots alone and RFC 8305's delays, on `clock`.
     pub fn new(clock: Clock) -> Self {
         Self {
             offline: None,
+            mirror: None,
             resolve: HostMapping::default(),
-            trusted_certificates: Vec::new(),
+            trust: Trust::default_roots(),
             clock,
             delays: Delays::default(),
         }
     }
 
     /// What a download may do under resolved `settings`, a Run's or the
-    /// machine's, on `clock`: `egress.offline`, `network.resolve` and the
-    /// resolver's delays, with no extra certificate authority.
-    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// machine's, on `clock`: `egress.offline`, `browser.mirror`,
+    /// `network.resolve`, the resolver's delays, and the files of
+    /// `tls.trusted_cas` read on `owner`'s blocking work.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn of(settings: &Resolved, clock: Clock, owner: &TaskOwner) -> Self {
+        // Its shape was checked when the layer was read.
+        let mirror = settings
+            .value(&BROWSER_MIRROR)
+            .as_str()
+            .map(|mirror| mirror.trim_end_matches('/'))
+            .filter(|mirror| *mirror != CHROME_FOR_TESTING_STORAGE)
+            .map(str::to_owned);
         Self {
             offline: settings
                 .effective(&EGRESS_OFFLINE)
                 .filter(|offline| offline.value == serde_json::Value::Bool(true))
                 .map(|offline| offline.layer),
+            mirror,
             resolve: HostMapping::of(settings),
+            trust: Trust::of(settings, owner).await,
             delays: Delays::of(settings),
-            ..Self::new(clock)
+            clock,
+        }
+    }
+
+    /// Where `pinned`, a Pinned artifact's URL, is fetched from: below the
+    /// mirror when it is a Chrome for Testing build's and a mirror is set,
+    /// otherwise `pinned` itself.
+    pub fn located<'url>(&self, pinned: &'url str) -> Cow<'url, str> {
+        let below = pinned
+            .strip_prefix(CHROME_FOR_TESTING_STORAGE)
+            .filter(|path| path.starts_with('/'));
+        match (&self.mirror, below) {
+            (Some(mirror), Some(path)) => Cow::Owned(format!("{mirror}{path}")),
+            _ => Cow::Borrowed(pinned),
         }
     }
 }
@@ -329,10 +365,9 @@ pub(crate) async fn download(
         .header(hyper::header::USER_AGENT, USER_AGENT)
         .body(Empty::<Bytes>::new())
         .map_err(|_| Failure::Network)?;
-    let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = http_client::Network {
         resolve: &fetching.resolve,
-        trust: &trust,
+        trust: &fetching.trust,
         clock: fetching.clock,
         delays: fetching.delays,
     };

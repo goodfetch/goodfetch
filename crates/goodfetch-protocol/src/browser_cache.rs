@@ -1,7 +1,7 @@
 //! The Browser cache's contracts (ADRs 0024, 0043, 0098 and 0115): the
 //! Pinned artifacts a Product version names, the entry each one keeps in the
 //! cache, the Error codes of a missing build, the download's progress event,
-//! `browser_cache.max_unused_age`, and what `browser install` and `browsers
+//! `browser_cache.max_unused_age`, `browser.mirror`, and what `browser install` and `browsers
 //! clean` print under `--json` (ADR 0069). Collie carries them, since Collie
 //! launches browsers (ADR 0088).
 //!
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Product,
-    ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    ProtocolVersion, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::connection::ProductVersion;
 use crate::settings::SettingLimit;
@@ -304,6 +304,70 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// Where Chrome for Testing publishes its builds: a pinned build's URL is
+/// `<storage>/<build>/<platform>/<archive>-<platform>.zip` below it.
+pub const CHROME_FOR_TESTING_STORAGE: &str =
+    "https://storage.googleapis.com/chrome-for-testing-public";
+
+/// What `browser.mirror` holds.
+const MIRROR_FORM: &str = "an `https://` URL with a host and no query, fragment or credentials";
+
+/// `browser.mirror`'s values: the URL a Chrome for Testing build's path is
+/// fetched below, as a pinned download fetches one.
+pub const BROWSER_MIRROR_SHAPE: ValueShape = ValueShape {
+    name: "BrowserMirror",
+    check: |value| {
+        let Some(text) = value.as_str() else {
+            return Err(format!("{MIRROR_FORM}, found `{value}`"));
+        };
+        let refused = || Err(format!("{MIRROR_FORM}, found `{text}`"));
+        let Some(rest) = text.strip_prefix("https://") else {
+            return refused();
+        };
+        let authority = rest.split('/').next().unwrap_or_default();
+        if authority.is_empty()
+            || authority.contains('@')
+            || text
+                .chars()
+                .any(|character| matches!(character, '?' | '#') || character.is_whitespace())
+        {
+            return refused();
+        }
+        Ok(())
+    },
+    schema: || {
+        serde_json::json!({
+            "type": "string",
+            "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
+            "description": "A Chrome for Testing build's mirror: an `https://` URL with a host and no query, fragment or credentials, below which each build sits at `<build>/<platform>/<archive>-<platform>.zip`.",
+        })
+    },
+    examples: || {
+        vec![serde_json::json!(
+            "https://mirror.example/chrome-for-testing-public"
+        )]
+    },
+};
+
+fn chrome_for_testing_storage() -> serde_json::Value {
+    serde_json::json!(CHROME_FOR_TESTING_STORAGE)
+}
+
+/// `browser.mirror` (ADRs 0043 and 0047; #3100).
+pub const BROWSER_MIRROR: Setting = Setting {
+    name: "browser.mirror",
+    description: "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+    kind: ValueKind::Shape(&BROWSER_MIRROR_SHAPE),
+    default: chrome_for_testing_storage,
+    clearable: false,
+    authority: Authority::Configuration,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// What `browser install --json` prints (spec #608).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BrowserInstalled {
@@ -393,7 +457,10 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[MAX_UNUSED_AGE],
+    settings: &[MAX_UNUSED_AGE, BROWSER_MIRROR],
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

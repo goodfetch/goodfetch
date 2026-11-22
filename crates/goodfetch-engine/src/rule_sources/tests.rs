@@ -102,7 +102,7 @@ fn a_source_trusts_only_the_authorities_listed_for_its_own_domain() {
         &TaskOwner::root(BlockingPolicy::Inline),
     ));
 
-    let trust = &sourcing.trust;
+    let trust = &sourcing.fetching.trust;
     assert_eq!(
         (
             trust.scope_of("rules.test"),

@@ -976,7 +976,6 @@ receiver = "(crate)"
 member = "Response"
 entry = "none"
 reason = "The response a page's request got: a navigation's document, or what `page.request` answered."
-only = "TypeScript's are generated from the catalog's types (ADR 0099)."
 words = ["response"]
 form = "type"
 

@@ -53,15 +53,13 @@ def past_1024(line: str) -> str:
 
 
 def html(head: str, body: str) -> bytes:
-    """An HTML document holding `head` and `body`, with the `Shift_JIS` text 日本 in its body."""
+    """An HTML document of `head` and `body`, with the `Shift_JIS` 日本 in its body."""
     start = f"<!doctype html><html><head>{head}</head><body>{body}<p>"
     return start.encode() + NIHON + b"</p></body></html>"
 
 
 @pytest.mark.covers("story:11-85")
-def test_a_navigations_document_decodes_with_the_encoding_its_document_was_decoded_with() -> (
-    None
-):
+def test_a_navigations_document_decodes_with_the_encoding_the_browser_used() -> None:
     """The document's own encoding wins over the `Content-Type` charset."""
     body = with_shift_jis("<p>", "</p>")
 
@@ -115,7 +113,7 @@ def test_a_legacy_content_type_charset_decodes_the_body(content_type: str) -> No
 def test_an_html_body_declaring_its_encoding_in_a_meta_decodes_with_it(
     head: str, tail: str
 ) -> None:
-    """The `<meta>` reads as Chrome's prescan reads it, past 1,024 bytes among head tags."""
+    """The `<meta>` reads as Chrome's prescan does, past 1,024 bytes among head tags."""
     body = with_shift_jis(head, tail)
 
     assert text(body, None, "text/html") == f"{head}日本語{tail}"
@@ -180,7 +178,7 @@ def test_a_body_of_another_type_reads_no_declaration_and_decodes_as_utf_8(
 def test_an_encoding_decodes_as_the_encoding_standard_maps_it(
     body: bytes, encoding: str, decoded: str
 ) -> None:
-    """Each encoding decodes as `encoding_rs` does, where Python's codec departs from it."""
+    """Each encoding decodes as `encoding_rs` does, where Python's codec departs."""
     assert decode(body, encoding) == decoded
 
 
@@ -244,7 +242,7 @@ def test_a_content_type_names_its_essence_and_charset(
     ],
 )
 def test_a_type_reads_its_own_declaration(essence: str, kind: Kind) -> None:
-    """HTML reads the `<meta>` prescan, an XML type its XML declaration, any other nothing."""
+    """HTML reads the `<meta>` prescan, an XML type its declaration, any other none."""
     assert kind_of(essence) == kind
 
 
@@ -260,7 +258,8 @@ def test_a_type_reads_its_own_declaration(essence: str, kind: Kind) -> None:
         ),
         pytest.param(
             html(
-                "<meta content=\"text/html;charset='shift_jis'\" http-equiv=content-type>",
+                "<meta content=\"text/html;charset='shift_jis'\""
+                " http-equiv=content-type>",
                 "",
             ),
             SHIFT_JIS,
@@ -314,7 +313,7 @@ def test_a_type_reads_its_own_declaration(essence: str, kind: Kind) -> None:
 def test_the_prescan_reads_a_meta_as_chrome_does(
     body: bytes, expected: str | None
 ) -> None:
-    """Blink's `HTMLMetaCharsetParser`: 1,024 bytes always, then on while only head tags appear.
+    """Blink's `HTMLMetaCharsetParser`: 1,024 bytes, then on while head tags appear.
 
     UTF-16 reads as UTF-8 and `x-user-defined` as windows-1252; a
     declaration in a comment, a title or a script is none, and an unknown
@@ -349,5 +348,5 @@ def test_the_prescan_reads_a_meta_as_chrome_does(
 def test_the_xml_declaration_names_an_encoding(
     body: bytes, expected: str | None
 ) -> None:
-    """Blink's `TextResourceDecoder`: at the very start, its `encoding` quoted, UTF-16 as UTF-8."""
+    """Blink's `TextResourceDecoder`: at the start, quoted, UTF-16 as UTF-8."""
     assert xml_declaration(body) == expected

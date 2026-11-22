@@ -11,6 +11,7 @@ included; Rust's `Response` and TypeScript's are its twins.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio.to_thread
 
@@ -21,9 +22,11 @@ from goodfetch_collie_client.generated.errors import (
     BodyUnavailableError,
     ResponseNotJSONError,
 )
-from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
-from goodfetch_collie_client.json_values import JSONValue
 from goodfetch_collie_client.markers import warn_experimental
+
+if TYPE_CHECKING:
+    from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
+    from goodfetch_collie_client.json_values import JSONValue
 
 __all__ = ["AsyncResponse", "Response"]
 
@@ -59,7 +62,7 @@ class _ResponseHead:
 
         It says nothing of the page: a login page answered with a 200 is `ok`.
         """
-        return 200 <= self._response.status <= 299  # noqa: PLR2004 - the success statuses
+        return 200 <= self._response.status <= 299
 
     @property
     def headers(self) -> dict[str, str]:
@@ -83,11 +86,14 @@ class _ResponseHead:
 
     @property
     def from_service_worker(self) -> bool:
-        """Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."""
+        """Whether a site's service worker supplied it (ADR 0121).
+
+        From the worker's own cache or through its own fetch.
+        """
         return self._response.from_service_worker
 
     def __repr__(self) -> str:
-        """Its status and its URL, as Playwright's `<Response url=… request=…>` shows a response."""
+        """Its status and URL, as Playwright's `<Response url=… request=…>` shows."""
         return f"<{type(self).__name__} url={self.url!r} status={self.status}>"
 
     def _params(self, page_id: models.PageId) -> models.ResponseBodyParams:
@@ -122,7 +128,7 @@ def _read(handle: models.BodyHandle) -> bytes:
             message = (
                 f"the file holds {len(body)} bytes where the body has {handle.size}"
             )
-            raise ValueError(message)  # noqa: TRY301 - raised as the read's own failure below
+            raise ValueError(message)
     except (OSError, ValueError) as error:
         message = f"could not read the response's body from `{handle.path}`: {error}"
         raise BodyUnavailableError(message) from error
@@ -130,20 +136,32 @@ def _read(handle: models.BodyHandle) -> bytes:
 
 
 class AsyncResponse(_ResponseHead):
-    """The response a page's request got: a navigation's document, or what `page.request` answered.
+    """The response a page's request got, in the async API.
 
-    A 404 or a 500 is a response, a value.
+    A navigation's document, or what `page.request` answered. A 404 or a
+    500 is a response, a value.
     """
 
     def __init__(
         self, host: AsyncHandleHost[models.PageId], response: models.PageResponse
     ) -> None:
-        """Takes the host of the page it came to and the response; a program never constructs one."""
+        """Takes its page's host and the response; a program never constructs one."""
         super().__init__(response)
         self._host = host
 
     async def body(self) -> bytes:
-        """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
+        """Its body's bytes, once its request finished.
+
+        Reads the body of the response a page's request got, once the request
+        finished, as a page body's handle: kept already for a response
+        `page.wait_for_request_finished` answered, and otherwise read from the
+        browser, on the session of the frame that loaded it. A body the browser no
+        longer holds, or a redirect's, which has none, raises `body_unavailable`,
+        whose fix names `page.wait_for_request_finished`; one that broke off raises
+        `response_truncated`, never returned as whole. Past its `timeout`,
+        `timeout.wait` when the call gives none, a request that has not ended fails it
+        with `deadline_exceeded`; a page that ends under it raises what ended it, as a
+        call on the page does.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -189,7 +207,10 @@ class AsyncResponse(_ResponseHead):
         return self._text(await self.body())
 
     async def json(self) -> JSONValue:
-        """Its body parsed as JSON, decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored.
+        """Its body parsed as JSON.
+
+        It decodes as UTF-8 whatever its charset, as JSON is, a leading BOM
+        ignored.
 
         Raises:
             ResponseTruncatedError: The body broke off, as `body()` raises it.
@@ -206,12 +227,23 @@ class Response(_ResponseHead):
     def __init__(
         self, host: HandleHost[models.PageId], response: models.PageResponse
     ) -> None:
-        """Takes the host of the page it came to and the response; a program never constructs one."""
+        """Takes its page's host and the response; a program never constructs one."""
         super().__init__(response)
         self._host = host
 
     def body(self) -> bytes:
-        """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
+        """Its body's bytes, once its request finished.
+
+        Reads the body of the response a page's request got, once the request
+        finished, as a page body's handle: kept already for a response
+        `page.wait_for_request_finished` answered, and otherwise read from the
+        browser, on the session of the frame that loaded it. A body the browser no
+        longer holds, or a redirect's, which has none, raises `body_unavailable`,
+        whose fix names `page.wait_for_request_finished`; one that broke off raises
+        `response_truncated`, never returned as whole. Past its `timeout`,
+        `timeout.wait` when the call gives none, a request that has not ended fails it
+        with `deadline_exceeded`; a page that ends under it raises what ended it, as a
+        call on the page does.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -230,10 +262,11 @@ class Response(_ResponseHead):
         return _read(result_of(models.BodyHandle, answer))
 
     def text(self) -> str:
-        """Its body as text, decoded with the response's own encoding, as `AsyncResponse.text` does (ADR 0119).
+        """Its body as text, decoded with the response's own encoding (ADR 0119).
 
-        A legacy charset such as `Shift_JIS` is honoured; a BOM is left
-        out, and a byte that does not decode becomes U+FFFD. Unlike
+        It decodes as `AsyncResponse.text` does. A legacy charset such as
+        `Shift_JIS` is honoured; a BOM is left out, and a byte that does not
+        decode becomes U+FFFD. Unlike
         Playwright's `text()`, which decodes every body as UTF-8, it
         honours the response's encoding.
 
@@ -245,7 +278,10 @@ class Response(_ResponseHead):
         return self._text(self.body())
 
     def json(self) -> JSONValue:
-        """Its body parsed as JSON, decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored.
+        """Its body parsed as JSON.
+
+        It decodes as UTF-8 whatever its charset, as JSON is, a leading BOM
+        ignored.
 
         Raises:
             ResponseTruncatedError: The body broke off, as `body()` raises it.

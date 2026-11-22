@@ -361,6 +361,10 @@ export function declared(body: Uint8Array, kind: Kind): string | undefined {
       return xmlDeclaration(body);
     case "other":
       return undefined;
+    default: {
+      const unknown: never = kind;
+      return unknown;
+    }
   }
 }
 

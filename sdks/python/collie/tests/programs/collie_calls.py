@@ -1,8 +1,9 @@
 """What the integration tests share to call an Attached engine and read its answers.
 
-A Connection opened one of the three ways, a page's locator whatever the
-way, the Goodfetch error a call raises, the lines the engine wrote on
-its stderr, and a process's exit code waited for off the event loop.
+A Connection opened one of the three ways, a page's locator and a
+response whatever the way, the Goodfetch error a call raises, the lines
+the engine wrote on its stderr, and a process's exit code waited for off
+the event loop.
 TypeScript's `failure` and `recordingLogger` of `@goodfetch/test-support`
 are their twins.
 """
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie import EngineChoice, Limits
     from goodfetch_collie_client.generated.handles import AsyncLocator, AsyncPage
+    from goodfetch_collie_client.response import AsyncResponse
     from goodfetch_test_support import Way
 
 CLIENT_LOGGER = "goodfetch.client"
@@ -55,6 +57,16 @@ def locator_on(way: Way, page: AsyncPage, selector: str) -> AsyncLocator:
     """
     built = page.locator(selector)
     return way.api(built, built)
+
+
+def response_on(way: Way, response: AsyncResponse) -> AsyncResponse:
+    """`response`, its body reads async whatever the way.
+
+    A response has no `close`, so the sync way's proxy hands the sync
+    `Response` itself, which `way.api` wraps; its head reads are properties,
+    which the wrapper hands as they are.
+    """
+    return way.api(response, response)
 
 
 def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:

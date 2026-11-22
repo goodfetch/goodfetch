@@ -23,12 +23,13 @@ from __future__ import annotations
 import codecs
 import functools
 import json
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
-from goodfetch_collie_client.json_values import JSONValue
+if TYPE_CHECKING:
+    from goodfetch_collie_client.json_values import JSONValue
 
 UNCONDITIONAL: Final = 1024
-"""How many bytes the prescan always reads, as Blink's `kBytesToCheckUnconditionally`."""
+"""The bytes the prescan always reads, Blink's `kBytesToCheckUnconditionally`."""
 
 UTF_8: Final = "UTF-8"
 UTF_16LE: Final = "UTF-16LE"
@@ -365,14 +366,17 @@ def _no_constant(constant: str) -> JSONValue:
 
 
 def for_label(label: str) -> str | None:
-    """The encoding `label` names, as the Encoding Standard's `get an encoding` reads it."""
+    """The encoding `label` names, by the Encoding Standard's `get an encoding`."""
     if not label.isascii():
         return None
     return _LABELS.get(label.strip("\t\n\f\r ").translate(_ASCII_LOWER))
 
 
 def of_body(body: bytes, content_type: str | None) -> str:
-    """The encoding `body`, whose `Content-Type` value is `content_type`, declares; UTF-8 when none."""
+    """The encoding `body` declares; UTF-8 when it declares none.
+
+    `content_type` is its `Content-Type` value.
+    """
     for bom, encoding in _BOMS:
         if body.startswith(bom):
             return encoding
@@ -385,7 +389,7 @@ def of_body(body: bytes, content_type: str | None) -> str:
 
 
 def decode(body: bytes, encoding: str) -> str:
-    """`body` decoded with `encoding`, its own BOM left out, a byte that does not decode U+FFFD."""
+    """`body` decoded with `encoding`, its BOM left out, each bad byte U+FFFD."""
     unicode = _UNICODE.get(encoding)
     if unicode is not None:
         bom = next(bom for bom, named in _BOMS if named == encoding)
@@ -400,30 +404,34 @@ def decode(body: bytes, encoding: str) -> str:
 
 
 @functools.cache
-def _table(encoding: str) -> str:
-    """The decoding table of the single-byte `encoding`, U+FFFE for a byte it leaves undefined."""
+def _table(encoding: str) -> dict[int, int]:
+    """The decoding table of the single-byte `encoding`.
+
+    Each byte's code point, none for a byte it leaves undefined.
+    """
     if encoding == X_USER_DEFINED:
-        return "".join(
-            chr(byte if byte < 0x80 else 0xF700 + byte) for byte in range(256)
-        )
+        return {byte: byte if byte < 0x80 else 0xF700 + byte for byte in range(256)}
     codec = _SINGLE_BYTE[encoding]
     departures = _DEPARTURES.get(encoding, {})
 
-    def character(byte: int) -> str:
+    def point(byte: int) -> int | None:
         departure = departures.get(byte)
         if departure is not None:
-            return departure
+            return ord(departure)
         try:
-            return bytes([byte]).decode(codec)
+            return ord(bytes([byte]).decode(codec))
         except UnicodeDecodeError:
             control = encoding.startswith("windows-") and 0x80 <= byte <= 0x9F
-            return chr(byte) if control else "￾"
+            return byte if control else None
 
-    return "".join(character(byte) for byte in range(256))
+    return {byte: code for byte in range(256) if (code := point(byte)) is not None}
 
 
 def media_type(value: str) -> tuple[str, str | None]:
-    """The essence of the `Content-Type` value `value`, lowercase, and its `charset`, unquoted."""
+    """The essence of the `Content-Type` value `value` and its `charset`.
+
+    The essence lowercase, the charset unquoted.
+    """
     essence, *parameters = value.split(";")
     for parameter in parameters:
         name, equals, charset = parameter.partition("=")
@@ -460,7 +468,7 @@ def declared(body: bytes, kind: Kind) -> str | None:
 
 
 def _byte_based(encoding: str) -> str:
-    """`encoding`, or UTF-8 for UTF-16, as Blink maps a label a document declares itself."""
+    """`encoding`, or UTF-8 for UTF-16, as Blink maps a document's own label."""
     return UTF_8 if encoding in {UTF_16LE, UTF_16BE} else encoding
 
 
@@ -493,7 +501,7 @@ def xml_declaration(body: bytes) -> str | None:
 
 
 def _skip_spaces(rest: bytes) -> bytes:
-    """`rest` past its first bytes up to the space, each of which Blink skips as a space."""
+    """`rest` past its leading bytes up to the space, which Blink skips as spaces."""
     skipped = 0
     while skipped < len(rest) and rest[skipped] <= 0x20:
         skipped += 1
@@ -544,7 +552,7 @@ _RAW_TEXT: Final = {
     "noframes": "rawtext",
     "plaintext": "plaintext",
 }
-"""The text state each start tag switches to: Blink's `UpdateStateFor`, scripting off."""
+"""The text state a start tag switches to: Blink's `UpdateStateFor`, scripting off."""
 
 
 def _is_alpha(byte: int) -> bool:
@@ -556,7 +564,7 @@ def _lower(byte: int) -> str:
 
 
 class _Prescan:
-    """The HTML standard's tokenizer, fed one byte at a time, and what the prescan saw."""
+    """The HTML standard's tokenizer, fed a byte at a time, and what the prescan saw."""
 
     def __init__(self) -> None:
         """Starts in the data state, having seen nothing."""
@@ -571,10 +579,10 @@ class _Prescan:
         self._state = "data"
         self._raw = "data"
         self._start = False
-        self._name = ""
+        self._name: str = ""
         self._attributes: list[tuple[str, str]] = []
         self._attribute: tuple[str, str] | None = None
-        self._last_start = ""
+        self._last_start: str = ""
         self._buffer = ""
 
     def done(self, consumed: int) -> bool:
@@ -586,8 +594,8 @@ class _Prescan:
         while not self._step(byte):
             pass
 
-    def _step(self, byte: int) -> bool:  # noqa: C901, PLR0911, PLR0912 - one branch per tokenizer state
-        """Tokenizes `byte` in the current state; `False` when it is reconsumed in the next one."""
+    def _step(self, byte: int) -> bool:
+        """Tokenizes `byte`; `False` when the next state reconsumes it."""
         state = self._state
         if state == "data":
             if byte == _LESS_THAN:
@@ -650,7 +658,7 @@ class _Prescan:
             return False
         return True
 
-    def _comment(self, byte: int) -> bool:  # noqa: PLR0911 - one branch per comment state
+    def _comment(self, byte: int) -> bool:
         """A comment, a bogus comment or a doctype, which ends at its `>`."""
         state = self._state
         dash, closing = byte == 0x2D, byte == 0x3E
@@ -731,7 +739,7 @@ class _Prescan:
             return False
         return True
 
-    def _tag(self, byte: int) -> bool:  # noqa: C901, PLR0911, PLR0912 - one branch per tag state
+    def _tag(self, byte: int) -> bool:
         """A tag's name and attributes, up to its `>`."""
         state = self._state
         space, closing = byte in _SPACES, byte == 0x3E
@@ -841,7 +849,7 @@ class _Prescan:
         self._attribute = (name, value + chr(byte))
 
     def _finish_attribute(self) -> None:
-        """Keeps the attribute read, unless the tag has one of its name: the first wins."""
+        """Keeps the attribute read unless the tag has one so named: the first wins."""
         if self._attribute is not None:
             name = self._attribute[0]
             if all(name != kept for kept, _ in self._attributes):
@@ -853,7 +861,10 @@ class _Prescan:
         self._state = "data"
 
     def _emit_tag(self) -> None:
-        """A tag ended: what it says of the head, its `<meta>`'s encoding, and the state it opens."""
+        """Reads the tag that ended.
+
+        What it says of the head, its `<meta>`'s encoding and the state it opens.
+        """
         self._finish_attribute()
         self._end_token()
         name = self._name
@@ -872,7 +883,10 @@ class _Prescan:
 
 
 def _meta_encoding(attributes: list[tuple[str, str]]) -> str | None:
-    """The encoding a `<meta>` of `attributes` declares (Blink's `EncodingFromMetaAttributes`)."""
+    """The encoding a `<meta>` of `attributes` declares.
+
+    Blink's `EncodingFromMetaAttributes`.
+    """
     pragma = False
     charset: tuple[str, bool] | None = None
     for name, value in attributes:
@@ -895,7 +909,7 @@ def _meta_encoding(attributes: list[tuple[str, str]]) -> str | None:
     return WINDOWS_1252 if encoding == X_USER_DEFINED else _byte_based(encoding)
 
 
-def _extract_charset(value: str) -> str:  # noqa: C901 - the standard's algorithm, step by step
+def _extract_charset(value: str) -> str:
     """The label a `<meta>`'s `content` names after `charset=`; empty for none.
 
     The HTML standard's algorithm, as Blink's `ExtractCharset` runs it.

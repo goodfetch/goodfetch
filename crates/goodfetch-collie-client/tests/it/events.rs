@@ -342,10 +342,11 @@ fn a_failed_calls_stream_hands_its_error_once_then_ends() {
     assert_eq!(failure.code().as_str(), "page_events_lost");
 }
 
-/// A stream dropped before the Connection sent its call cancels the call
-/// once it is sent, and grants it nothing.
+/// A stream dropped before the Connection sent its call leaves the call
+/// unsent, as a cancelled queued call is (issue 3189): neither it, its
+/// credits nor a `$/cancel` reaches the engine.
 #[test]
-fn a_stream_dropped_before_its_call_is_sent_cancels_it() {
+fn a_stream_dropped_before_its_call_is_sent_never_sends_it() {
     let (network, lines, writer) = scripted();
     let runtime = goodfetch_test_support::runtime();
     let ((), heard) = runtime.block_on(async {
@@ -358,11 +359,8 @@ fn a_stream_dropped_before_its_call_is_sent_cancels_it() {
         tokio::join!(client, engine)
     });
 
-    let id = page_on(&heard);
-    assert_eq!(
-        streamed(&heard),
-        [("$/cancel".to_owned(), json!({"id": id}))]
-    );
+    let page_on_sent = heard.iter().any(|message| message["method"] == "page.on");
+    assert_eq!((page_on_sent, streamed(&heard)), (false, Vec::new()));
 }
 
 /// A stream of an Experimental event warns that the event is

@@ -360,7 +360,7 @@ impl Subscription {
         // the leave, such as its last reader's own, and before anything sent
         // after it, such as the next reader's Subscription, even while its
         // id is not heard yet.
-        self.sender.cancel_sent(&self.call);
+        self.sender.cancel_call(&self.call);
         state.stop = None;
         drop(state);
         if current

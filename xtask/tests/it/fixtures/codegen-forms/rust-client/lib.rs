@@ -62,7 +62,7 @@ impl<T, P> Call<T, P> {
         self
     }
 
-    pub(crate) fn wire_timeout(self) -> Self {
+    pub(crate) fn wire_timeout(self, _setting: &'static str) -> Self {
         self
     }
 

@@ -4,8 +4,7 @@
 //! driver that ends a Run is the one that waits to be let finish, and the
 //! registry alone sets the signal and the mark.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{mpsc, watch};
@@ -23,7 +22,7 @@ pub struct RunEnd {
     finish: watch::Receiver<bool>,
     /// Whether its end is decided, which only the registry sets, in the
     /// step of its loop that takes the Run's handle from its live Runs.
-    decided: Arc<AtomicBool>,
+    decided: Arc<OnceLock<()>>,
 }
 
 impl std::fmt::Debug for RunEnd {
@@ -47,7 +46,7 @@ impl RunEnd {
             run_id,
             commands,
             finish,
-            decided: Arc::new(AtomicBool::new(false)),
+            decided: Arc::default(),
         }
     }
 
@@ -56,13 +55,13 @@ impl RunEnd {
     /// finds the Run, on. What answers for a Run through a handle it holds,
     /// as a crawl's staging does, answers it as the registry would.
     pub fn is_decided(&self) -> bool {
-        self.decided.load(Ordering::Acquire)
+        self.decided.get().is_some()
     }
 
     /// Marks the Run's end decided, in the registry's step that takes its
     /// handle from the live Runs.
     pub(super) fn decide(&self) {
-        self.decided.store(true, Ordering::Release);
+        self.decided.get_or_init(|| ());
     }
 
     /// Whether `run.finish` let the Run finish: a driver that waits for new

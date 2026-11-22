@@ -10,6 +10,11 @@
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
+//!
+//! Size: one concern, the composition: each thing a contribution adds is
+//! a field of [`Contribution`], its builder, the [`Composition`]'s
+//! collection of it and, for what a call reads, its place in the
+//! [`CallContext`], so each addition lands in all four together.
 
 mod call_streams;
 pub(crate) mod params;

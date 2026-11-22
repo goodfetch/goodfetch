@@ -465,7 +465,7 @@ impl ClientConnection {
                     saving.file.take(),
                 );
                 let file = self
-                    .blocking(move || {
+                    .run_blocking(move || {
                         let mut file = match file {
                             Some(file) => file,
                             None => FileSaving::create_at(&given, path, &call)?,
@@ -493,7 +493,7 @@ impl ClientConnection {
             saving.call.clone(),
             saving.file.take(),
         );
-        self.blocking(move || {
+        self.run_blocking(move || {
             let file = match file {
                 Some(file) => file,
                 None => FileSaving::create_at(&given, path, &call)?,
@@ -507,7 +507,7 @@ impl ClientConnection {
     /// engine keeps it in, which a Client on the same machine reads (ADR
     /// 0118).
     pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
-        self.blocking(move || {
+        self.run_blocking(move || {
             let path = PathBuf::from(handle.path);
             let unreadable = |source| Error::body_unreadable(&path, source);
             #[expect(
@@ -530,9 +530,26 @@ impl ClientConnection {
         .await
     }
 
-    /// Runs the blocking `work` on the Connection's tracker. Dropping the
-    /// future lets it end, and drops what it returns.
-    async fn blocking<T: Send + 'static>(
+    /// Runs the blocking `work` on one of the Connection's tracked blocking
+    /// threads (ADR 0060), never on its runtime's workers, such as the
+    /// handlers a Product's blocking API calls (ADR 0081), and returns what
+    /// it returns.
+    ///
+    /// # Errors
+    ///
+    /// What `work` returns, `closed` once the Connection's runtime has
+    /// shut down, and `connection_forked` in a process other than the one
+    /// that opened it.
+    ///
+    /// # Panics
+    ///
+    /// A panic in `work` resumes in the awaiting future.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not stop `work`: it runs to its end on its
+    /// thread, and what it returns is dropped.
+    pub async fn run_blocking<T: Send + 'static>(
         &self,
         work: impl FnOnce() -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {

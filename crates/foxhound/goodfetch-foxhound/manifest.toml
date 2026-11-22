@@ -491,6 +491,234 @@ reason = "`Foxhound::engine`, which never blocks (ADR 0081)."
 words = ["engine"]
 form = "read"
 
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start_crawl"
+entry = "crawl.start"
+words = ["start", "crawl"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "StartCrawl"
+entry = "none"
+reason = "The builder `blocking::Foxhound::start_crawl` returns, whose `send()` starts the crawl's Run (ADR 0081)."
+only = "TypeScript's `startCrawl` takes its options as an object, `StartCrawlOptions`."
+words = ["start", "crawl"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the crawl starts under, sent with `crawl.start`, with no round trip of its own."
+only = "TypeScript's `startCrawl` takes it as its options' `runId`."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "send"
+entry = "none"
+reason = "Sends `crawl.start` and blocks the calling thread until the crawl's Run is started."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Crawl"
+entry = "none"
+reason = "A crawl's declaration without async (ADR 0081), whose handlers are plain functions run on the connection's tracked blocking threads."
+words = ["crawl"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Crawl"
+member = "new"
+entry = "none"
+reason = "A crawl that declares nothing yet, with no connection and no I/O (ADR 0093)."
+only = "TypeScript's is `new Crawl()`, its constructor."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Crawl"
+member = "label"
+entry = "none"
+reason = "Declares a Label, as `Crawl::label` does (ADR 0093)."
+words = ["label"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Crawl"
+member = "handle"
+entry = "none"
+reason = "Attaches a Label's plain-function handler, which `serve` runs on a tracked blocking thread for each `crawl_request.handle` (ADRs 0081 and 0093)."
+words = ["handle"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Crawl"
+member = "dataset"
+entry = "none"
+reason = "Declares a Dataset, as `Crawl::dataset` does (ADR 0103)."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Crawl"
+member = "serve"
+entry = "none"
+reason = "`Crawl::serve` without async (ADR 0081), blocking the calling thread until the Run ends, then returning its `run.report`."
+only = "TypeScript serves a crawl's Run from its event loop once it starts (ADR 0081), with no call of its own."
+words = ["serve"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "CrawlRun"
+entry = "none"
+reason = "A crawl's Run, which `blocking::Foxhound::start_crawl` opens and `blocking::Crawl::serve` serves."
+words = ["crawl", "run"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, read without a round trip."
+only = "TypeScript's `CrawlRun` is a `Run`, whose `id` it has."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "run"
+entry = "none"
+reason = "The blocking Run the crawl's Run is, with every member a blocking Run has, such as `close`."
+only = "TypeScript's `CrawlRun` has a Run's members itself."
+words = ["run"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "CrawlContext"
+entry = "none"
+reason = "What a blocking handler is given for one attempt of a request of its Label, its calls blocking the handler's thread (ADRs 0081 and 0093)."
+words = ["crawl", "context"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "payload"
+entry = "none"
+reason = "The request's Payload, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["payload"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "url"
+entry = "none"
+reason = "The request's URL, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["url"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "id"
+entry = "none"
+reason = "The crawl request's ID within its Run, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "label"
+entry = "none"
+reason = "The request's Label, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["label"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "attempt"
+entry = "none"
+reason = "The attempt's number, 1 for the first, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["attempt"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "run_id"
+entry = "none"
+reason = "The Run's ID, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "skip"
+entry = "none"
+reason = "Ends the attempt `skipped` with the reason `handler`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["skip"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "retry"
+entry = "none"
+reason = "Ends the attempt with `retry_requested`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+words = ["retry"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "push"
+entry = "crawl_request.push"
+words = ["push"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "enqueue"
+entry = "crawl_request.enqueue"
+words = ["enqueue"]
+form = "round_trip"
+
 # Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
 # are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
 # adds the Usage kind only it counts.

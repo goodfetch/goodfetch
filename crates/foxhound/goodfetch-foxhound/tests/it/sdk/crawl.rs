@@ -3,7 +3,9 @@
 //! `start_crawl` and serves it with `crawl.serve(&run)`, whose handlers run
 //! inside that future, until the Run ends and its report returns; or, for
 //! a crawl with no handler, answers its requests itself through
-//! `run.crawl_requests()`.
+//! `run.crawl_requests()`. A program that does not use async does the same
+//! with `blocking::Crawl`, and a web service serves its crawl from an axum
+//! handler.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -12,10 +14,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use axum::body::{self, Body};
+use axum::extract::State;
+use axum::http::{Request, StatusCode};
+use axum::{Router, routing};
 use goodfetch_foxhound::settings::{Settings, egress, fetch, network};
 use goodfetch_foxhound::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRunReport, Error, ErrorCode, Foxhound, RunId, Seed,
-    error_code,
+    ConnectOptions, Crawl, CrawlContext, CrawlRunReport, Error, ErrorCode, Foxhound, Label, RunId,
+    Seed, blocking, error_code,
 };
 use goodfetch_protocol::foxhound::crawl::LabelUnknownDetails;
 use goodfetch_protocol::foxhound::report::CountOf;
@@ -23,6 +29,7 @@ use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Semaphore, mpsc};
+use tower_service::Service as _;
 
 /// The Proving ground's seed the crawls read.
 const SITE: u64 = 1602;
@@ -58,6 +65,33 @@ fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
     )
 }
 
+/// The tracer crawl: each page pushes a Record, and the seed enqueues
+/// `empty`, so a Run seeded at a page ends with two requests succeeded.
+fn tracer_crawl(empty: String) -> (Crawl<'static>, Label<Visit>) {
+    let mut crawl = Crawl::new();
+    let page = crawl.label::<Visit>("page").unwrap();
+    let pages = crawl.dataset::<Visited>("pages").unwrap();
+    let next = (page.clone(), empty);
+    crawl
+        .handle(&page, move |ctx: CrawlContext<Visit>| async move {
+            let depth = ctx.payload().depth;
+            ctx.push(
+                &pages,
+                &Visited {
+                    url: ctx.url().to_owned(),
+                    depth,
+                },
+            )
+            .await?;
+            if depth == 0 {
+                ctx.enqueue(&next.1, &next.0, Visit { depth: 1 }).await?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    (crawl, page)
+}
+
 /// Covers: story:11-1013, story:11-1014, story:11-1015, story:11-1075, story:11-1101
 #[test]
 fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
@@ -70,27 +104,7 @@ fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
     );
     real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
-        let mut crawl = Crawl::new();
-        let page = crawl.label::<Visit>("page").unwrap();
-        let pages = crawl.dataset::<Visited>("pages").unwrap();
-        let next = (page.clone(), empty.clone());
-        crawl
-            .handle(&page, move |ctx: CrawlContext<Visit>| async move {
-                let depth = ctx.payload().depth;
-                ctx.push(
-                    &pages,
-                    &Visited {
-                        url: ctx.url().to_owned(),
-                        depth,
-                    },
-                )
-                .await?;
-                if depth == 0 {
-                    ctx.enqueue(&next.1, &next.0, Visit { depth: 1 }).await?;
-                }
-                Ok(())
-            })
-            .unwrap();
+        let (crawl, page) = tracer_crawl(empty);
 
         let run = foxhound
             .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
@@ -108,6 +122,150 @@ fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
             (2, 0),
             "{requests:?}"
         );
+    });
+}
+
+/// A program that does not use async declares the tracer crawl on a
+/// `blocking::Crawl`: its handlers are plain functions, whose calls block
+/// until answered, and its `serve` blocks the test's thread, which runs no
+/// runtime, until the Run ends and its report returns.
+///
+/// Covers: story:11-1013, story:11-1104
+#[test]
+fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let tracer = RunId::parse("tracer").unwrap();
+    let (book, empty) = (
+        site.url("shop.test", "/book"),
+        site.url("shop.test", "/empty"),
+    );
+    let foxhound = blocking::Foxhound::connect(options(&env, &site)).unwrap();
+    let mut crawl = blocking::Crawl::new();
+    let page = crawl.label::<Visit>("page").unwrap();
+    let pages = crawl.dataset::<Visited>("pages").unwrap();
+    let next = page.clone();
+    crawl
+        .handle(&page, move |ctx: blocking::CrawlContext<Visit>| {
+            let depth = ctx.payload().depth;
+            let visited = Visited {
+                url: ctx.url().to_owned(),
+                depth,
+            };
+            ctx.push(&pages, &visited)?;
+            if depth == 0 {
+                ctx.enqueue(empty.clone(), &next, Visit { depth: 1 })?;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+    let run = foxhound
+        .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
+        .run_id(&tracer)
+        .send()
+        .unwrap();
+    let report = crawl.serve(&run).unwrap();
+    foxhound.close().unwrap();
+
+    assert_eq!(report.report.run_id, tracer);
+    assert_eq!(report.report.lifecycle, Lifecycle::Finished);
+    let requests = report.requests.unwrap();
+    assert_eq!(
+        (requests.succeeded, requests.failed),
+        (2, 0),
+        "{requests:?}"
+    );
+}
+
+/// What the web service's handler holds: one connection and one crawl,
+/// declared once, which serve every call.
+#[derive(Clone)]
+struct WebService {
+    foxhound: Foxhound,
+    crawl: Arc<Crawl<'static>>,
+    page: Label<Visit>,
+    book: String,
+}
+
+/// The web handler: each call crawls from the book's page and answers how
+/// its Run ended.
+async fn crawl_the_book(State(service): State<WebService>) -> Result<String, String> {
+    let seed = Seed::new(&service.book, &service.page, Visit { depth: 0 });
+    let run = service
+        .foxhound
+        .start_crawl(&service.crawl, [seed])
+        .await
+        .map_err(|error| error.to_string())?;
+    let report = service
+        .crawl
+        .serve(&run)
+        .await
+        .map_err(|error| error.to_string())?;
+    let requests = report.requests.unwrap_or_default();
+    Ok(format!(
+        "{:?}: {} succeeded, {} failed",
+        report.report.lifecycle, requests.succeeded, requests.failed
+    ))
+}
+
+/// The tracer crawl, declared once, serves each call of an axum handler,
+/// whose future axum requires to be `Send`: two calls at once, each a task
+/// of a multi-threaded runtime, as a web server runs them, and the Router,
+/// driven as a tower Service, answers each once its Run has ended.
+///
+/// Covers: story:11-1013, story:11-1101
+#[test]
+fn an_axum_handler_serves_the_tracer_crawl_on_every_call() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let (book, empty) = (
+        site.url("shop.test", "/book"),
+        site.url("shop.test", "/empty"),
+    );
+    let runtime = goodfetch_runtime::multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let (crawl, page) = tracer_crawl(empty);
+        let service = WebService {
+            foxhound: foxhound.clone(),
+            crawl: Arc::new(crawl),
+            page,
+            book,
+        };
+        let router = Router::new()
+            .route("/crawl", routing::post(crawl_the_book))
+            .with_state(service);
+
+        let mut calls = Vec::new();
+        for _call in 0..2 {
+            let mut router = router.clone();
+            let request = Request::post("/crawl").body(Body::empty()).unwrap();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the test spawns each call as a web server's own task would"
+            )]
+            let call = tokio::spawn(async move {
+                let response = router.call(request).await.unwrap();
+                let status = response.status();
+                let body = body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (status, String::from_utf8(body.to_vec()).unwrap())
+            });
+            calls.push(call);
+        }
+        let mut answers = Vec::new();
+        for call in calls {
+            answers.push(call.await.unwrap());
+        }
+        foxhound.close().await.unwrap();
+
+        let answered = (StatusCode::OK, "Finished: 2 succeeded, 0 failed".to_owned());
+        assert_eq!(answers, [answered.clone(), answered]);
     });
 }
 

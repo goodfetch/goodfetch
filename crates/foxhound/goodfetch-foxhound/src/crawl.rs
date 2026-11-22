@@ -72,8 +72,9 @@ impl CrawlId {
 type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + 'a>>;
 
 /// A Label's handler, called once for each attempt: it reads the
-/// attempt's Payload, then returns the handler's future.
-type Handler<'a> = Box<dyn Fn(Delivered) -> Result<HandlerFuture<'a>, Error> + Send + Sync + 'a>;
+/// attempt's Payload, then returns the handler's future. Shared, so a
+/// blocking serve hands the connection's runtime a crawl of its own.
+type Handler<'a> = Arc<dyn Fn(Delivered) -> Result<HandlerFuture<'a>, Error> + Send + Sync + 'a>;
 
 /// One attempt the engine delivered, and its request's Payload, taken out
 /// of its params so it is read without a copy.
@@ -152,6 +153,16 @@ impl<'a> Crawl<'a> {
         }
     }
 
+    /// The same crawl, its Labels, handlers and Datasets shared: what a
+    /// blocking serve moves to the connection's runtime.
+    pub(crate) fn shared(&self) -> Self {
+        Self {
+            id: self.id,
+            labels: self.labels.clone(),
+            datasets: self.datasets.clone(),
+        }
+    }
+
     /// Declares the Label `name`, whose requests carry a Payload of type
     /// `P`, and returns it, the handle seeds, enqueues and its handler
     /// name it by.
@@ -211,7 +222,7 @@ impl<'a> Crawl<'a> {
                 &json!({ "label": &*label.name }),
             ));
         }
-        *slot = Some(Box::new(move |Delivered { attempt, payload }| {
+        *slot = Some(Arc::new(move |Delivered { attempt, payload }| {
             let payload = P::deserialize(payload).map_err(payload_invalid)?;
             let handler = handler.clone();
             let future: HandlerFuture<'a> = Box::pin(handler(CrawlContext::new(attempt, payload)));
@@ -664,13 +675,7 @@ impl Foxhound {
         crawl: &Crawl<'_>,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> StartCrawl {
-        StartCrawl {
-            connection: self.as_ref().clone(),
-            requests: Arc::clone(self.crawl_requests()),
-            crawl: crawl.id,
-            declared: crawl.declared().into(),
-            params: crawl.start_params(seeds.into_iter().collect()),
-        }
+        StartCrawl::new(self.as_ref(), self.crawl_requests(), crawl, seeds)
     }
 }
 
@@ -688,6 +693,23 @@ pub struct StartCrawl {
 }
 
 impl StartCrawl {
+    /// The start of `crawl`'s Run from `seeds` on `connection`, whose
+    /// Runs share `requests`.
+    pub(crate) fn new(
+        connection: &ClientConnection,
+        requests: &Arc<CrawlRequests>,
+        crawl: &Crawl<'_>,
+        seeds: impl IntoIterator<Item = Seed>,
+    ) -> Self {
+        Self {
+            connection: connection.clone(),
+            requests: Arc::clone(requests),
+            crawl: crawl.id,
+            declared: crawl.declared().into(),
+            params: crawl.start_params(seeds.into_iter().collect()),
+        }
+    }
+
     /// Names the Run for good, as [`Start::run_id`](crate::Start::run_id)
     /// does: a start with an existing Run ID resumes the Run if it was
     /// interrupted, or returns it as it ended (ADR 0102).

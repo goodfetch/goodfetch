@@ -38,11 +38,12 @@ use tokio_util::time::delay_queue::Key;
 use crate::call_bounds::CallBounds;
 use crate::error::Error;
 use crate::handler::Streams;
-use crate::line::{self, Output, Written};
+use crate::line;
 use crate::logging;
 use crate::opening_process::OpeningProcess;
 use crate::trace_context::{self, TraceContext, TraceContextSource};
 use crate::transport::{Exit, Link};
+use crate::write_queue::{self, QueuedLines, WriteQueue};
 
 /// How long a Connection whose engine ended it waits to hear how, before
 /// its calls fail without that evidence, as the other SDKs wait.
@@ -68,8 +69,9 @@ pub(crate) struct Outgoing {
 /// How long a call may wait, from when the Connection takes it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Deadline {
-    /// The timeout's setting, such as `timeout` or `timeout.navigation`,
-    /// which a call queued past it names.
+    /// The name the timeout goes by, which a call queued past it names:
+    /// the setting it comes from, such as `timeout.navigation`, or
+    /// `timeout`, the call's own parameter.
     pub(crate) setting: &'static str,
     /// How long.
     pub(crate) after: Duration,
@@ -114,11 +116,12 @@ impl CallId {
     }
 }
 
-/// Where a call's id is noted once taken, and the credits a streaming
-/// call is granted once sent, if any.
+/// Where a call's id is noted once taken, the credits a streaming call is
+/// granted once sent, if any, and whether the engine cancels it once sent.
 struct Noted {
     id: CallId,
     credits: Option<u32>,
+    engine_cancels: bool,
 }
 
 /// What the Connection's correlating task acts on.
@@ -131,7 +134,7 @@ enum Command {
     Notify(Notification),
     /// Cancels a call taken before it, once its id is noted: one queued is
     /// never sent, and one sent and waiting for its reply gets `$/cancel`.
-    CancelSent(CallId),
+    Cancel(CallId),
     /// Sends at most this many calls at once, as the engine's `hello`
     /// answered.
     Cap(usize),
@@ -212,26 +215,29 @@ impl Sender {
     /// Sends the streaming call `call` and grants it `credits` with
     /// `$/credit` right after it, before any message sent after this one,
     /// whose caller cannot wait to hear its id first. Its caller cancels it
-    /// with [`Sender::cancel_sent`], even when it stopped listening before
+    /// with [`Sender::cancel_call`], even when it stopped listening before
     /// it was sent.
     pub(crate) fn call_granting(&self, call: Outgoing, credits: u32) -> CallId {
-        self.call_noting(call, Some(credits))
+        self.call_noting(call, Some(credits), true)
     }
 
     /// Sends `call` and notes its id, so that its caller, who cannot wait
-    /// to hear it, cancels it with [`Sender::cancel_sent`] once it stops
-    /// waiting for its reply (ADR 0080).
-    pub(crate) fn call_cancellable(&self, call: Outgoing) -> CallId {
-        self.call_noting(call, None)
+    /// to hear it, cancels it with [`Sender::cancel_call`] once it stops
+    /// waiting for its reply: queued, it is never sent, and sent, it gets
+    /// `$/cancel` when `engine_cancels`, as the catalog says of its
+    /// operation (ADR 0080).
+    pub(crate) fn call_noted(&self, call: Outgoing, engine_cancels: bool) -> CallId {
+        self.call_noting(call, None, engine_cancels)
     }
 
-    fn call_noting(&self, call: Outgoing, credits: Option<u32>) -> CallId {
+    fn call_noting(&self, call: Outgoing, credits: Option<u32>, engine_cancels: bool) -> CallId {
         let id = CallId::default();
         self.send_call(
             call,
             Some(Noted {
                 id: id.clone(),
                 credits,
+                engine_cancels,
             }),
         );
         id
@@ -263,11 +269,11 @@ impl Sender {
 
     /// Cancels the call `call`, made before this, whether or not its id
     /// was heard yet: one still queued is never sent, and one sent gets
-    /// `$/cancel`, after it and before anything sent after this; one no
-    /// longer waiting for its reply (answered, or failed by the
-    /// Connection) is not cancelled.
-    pub(crate) fn cancel_sent(&self, call: &CallId) {
-        self.hand(Command::CancelSent(call.clone()));
+    /// `$/cancel`, when the engine cancels it, after it and before anything
+    /// sent after this; one no longer waiting for its reply (answered, or
+    /// failed by the Connection) is not cancelled.
+    pub(crate) fn cancel_call(&self, call: &CallId) {
+        self.hand(Command::Cancel(call.clone()));
     }
 
     /// Sends at most `cap` calls at once from now on, as the engine's
@@ -306,15 +312,21 @@ pub(crate) fn start(
 ) -> Sender {
     let (reader, writer, exit) = link.split();
     let (commands, commands_in) = mpsc::unbounded_channel();
-    let (output, written) = line::output();
-    tracker.spawn_on(write(writer, written), runtime);
+    let (queue, queued_lines) = write_queue::write_queue();
+    tracker.spawn_on(write(writer, queued_lines), runtime);
     let ended = Arc::new(OnceLock::new());
     let ending = Ending {
         exit,
         ended: Arc::clone(&ended),
     };
     logging::spawn_under_opener(
-        correlate(reader, commands_in, Calls::new(output, bounds), streams, ending),
+        correlate(
+            reader,
+            commands_in,
+            Calls::new(queue, bounds),
+            streams,
+            ending,
+        ),
         runtime,
         tracker,
     );
@@ -337,7 +349,7 @@ struct Ending {
 
 /// Writes each line until every sender is gone, then closes the output,
 /// which tells the engine the Connection is over.
-async fn write(mut writer: Box<dyn AsyncWrite + Send + Unpin>, mut lines: Written) {
+async fn write(mut writer: Box<dyn AsyncWrite + Send + Unpin>, mut lines: QueuedLines) {
     while let Some(line) = lines.next().await {
         if let Err(error) = writer.write_all(&line).await {
             tracing::debug!(target: "goodfetch::client", %error, "the Connection's output closed");
@@ -362,7 +374,8 @@ struct Pending {
     deadline: Option<Key>,
     notified: Option<mpsc::Sender<Heard>>,
     /// Whether the catalog says the engine cancels it, so its deadline
-    /// passing sends its `$/cancel` (ADR 0080).
+    /// passing, or its caller cancelling it, sends its `$/cancel` (ADR
+    /// 0080).
     cancellable: bool,
 }
 
@@ -400,9 +413,9 @@ impl Held {
 }
 
 /// The Connection's calls, sent and queued, their deadlines and the
-/// output they are written through.
+/// write queue they are written through.
 struct Calls {
-    output: Output,
+    writes: WriteQueue,
     bounds: CallBounds,
     /// The most calls sent at once, once the engine's `hello` told it.
     cap: Option<usize>,
@@ -420,9 +433,9 @@ struct Calls {
 }
 
 impl Calls {
-    fn new(output: Output, bounds: CallBounds) -> Self {
+    fn new(writes: WriteQueue, bounds: CallBounds) -> Self {
         Self {
-            output,
+            writes,
             bounds,
             cap: None,
             next_id: 0,
@@ -462,13 +475,13 @@ impl Calls {
                 return;
             }
         };
-        let waiting = self.output.unwritten().saturating_add(self.queued_bytes);
+        let waiting = self.writes.unwritten().saturating_add(self.queued_bytes);
         if let Some(refused) = self.bounds.refuses_bytes(waiting, line.len()) {
             let _gone = call.reply.send(Err(refused.in_call(&method)));
             return;
         }
         if let Some(noted) = noted {
-            // Its caller cancels it with `CancelSent`, queued or sent.
+            // Its caller cancels it with `Cancel`, queued or sent.
             let _noted = noted.id.0.set(id);
         }
         let held = Held {
@@ -481,7 +494,7 @@ impl Calls {
                 .map(|deadline| (self.deadlines.insert(id, deadline.after), deadline)),
             notified: call.notified,
             credits: noted.and_then(|noted| noted.credits),
-            cancellable: noted.is_some(),
+            cancellable: noted.is_some_and(|noted| noted.engine_cancels),
             notes: Vec::new(),
         };
         if self.queued.is_empty() && self.has_place() {
@@ -512,17 +525,12 @@ impl Calls {
             notes,
             ..
         } = held;
-        let unheard = notified.as_ref().is_some_and(mpsc::Sender::is_closed);
-        if unheard && !cancellable {
-            if let Some((key, _)) = deadline {
-                self.deadlines.remove(&key);
-            }
+        if notified.as_ref().is_some_and(mpsc::Sender::is_closed) {
+            self.stop_timer(deadline.map(|(key, _)| key));
             return;
         }
-        if self.output.send(line).is_err() {
-            if let Some((key, _)) = deadline {
-                self.deadlines.remove(&key);
-            }
+        if self.writes.send(line).is_err() {
+            self.stop_timer(deadline.map(|(key, _)| key));
             let _gone = reply.send(Err(Error::closed().in_call(&method)));
             return;
         }
@@ -541,7 +549,7 @@ impl Calls {
             self.send(&credited(id, credits));
         }
         for note in notes {
-            let _closed = self.output.send(note);
+            let _closed = self.writes.send(note);
         }
         self.pending.insert(
             id,
@@ -580,17 +588,24 @@ impl Calls {
         Some(held)
     }
 
+    /// Stops the timer `key` of a call no longer waiting on it, if any.
+    fn stop_timer(&mut self, key: Option<Key>) {
+        if let Some(key) = key {
+            self.deadlines.remove(&key);
+        }
+    }
+
     /// Fails the call `id`, whose deadline passed: one queued with that
     /// deadline, never sent, and one sent with the Client's timeout,
     /// cancelled when the engine cancels it.
     fn expire(&mut self, id: i64) {
         if let Some(held) = self.unqueue(id) {
             tracing::debug!(target: "goodfetch::client", id, "a queued call timed out");
+            let (_, deadline) = held
+                .deadline
+                .expect("invariant: a queued call expires only by its own deadline");
             // Its timer started as it was taken, so it waited `after`.
-            let error = held.deadline.map_or_else(Error::timed_out, |(_, deadline)| {
-                Error::queue_timed_out(deadline.setting, deadline.after)
-            });
-            held.fail(error);
+            held.fail(Error::queue_timed_out(deadline.setting, deadline.after));
             return;
         }
         if let Some(call) = self.pending.remove(&id) {
@@ -605,19 +620,23 @@ impl Calls {
     }
 
     /// Cancels the call `call`: one queued leaves the queue unsent, and
-    /// one sent and waiting for its reply gets `$/cancel`.
-    fn cancel_sent(&mut self, call: &CallId) {
+    /// one sent and waiting for its reply waits no more and gets
+    /// `$/cancel` when the engine cancels it. A sent one keeps its place in
+    /// flight until the engine answers it, but no longer counts against
+    /// the pending calls' bound, as no one waits for its reply.
+    fn cancel_call(&mut self, call: &CallId) {
         let Some(id) = call.get() else {
             return;
         };
         if let Some(held) = self.unqueue(id) {
-            if let Some((key, _)) = held.deadline {
-                self.deadlines.remove(&key);
-            }
+            self.stop_timer(held.deadline.map(|(key, _)| key));
             return;
         }
-        if self.pending.contains_key(&id) {
-            self.send(&cancelled(id));
+        if let Some(sent) = self.pending.remove(&id) {
+            self.stop_timer(sent.deadline);
+            if sent.cancellable {
+                self.send(&cancelled(id));
+            }
         }
     }
 
@@ -634,13 +653,13 @@ impl Calls {
             held.notes.push(line);
             return;
         }
-        let _closed = self.output.send(line);
+        let _closed = self.writes.send(line);
     }
 
     /// Sends `notification`, about a call already sent.
     fn send(&self, notification: &Notification) {
         if let Some(line) = encoded(notification) {
-            let _closed = self.output.send(line);
+            let _closed = self.writes.send(line);
         }
     }
 
@@ -661,7 +680,7 @@ impl Calls {
                 return;
             }
             Ok(Message::Request(request)) => {
-                streams.hand(request, &self.output);
+                streams.hand(request, &self.writes);
                 return;
             }
             Err(error) => {
@@ -674,9 +693,7 @@ impl Calls {
             return;
         };
         if let Some(call) = self.pending.remove(&id) {
-            if let Some(key) = call.deadline {
-                self.deadlines.remove(&key);
-            }
+            self.stop_timer(call.deadline);
             let _gone = call.reply.send(outcome);
         } else {
             tracing::debug!(target: "goodfetch::client", id, "a reply to a call no longer waiting for it");
@@ -706,9 +723,7 @@ impl Calls {
             let Some(call) = self.pending.remove(&id) else {
                 return;
             };
-            if let Some(key) = call.deadline {
-                self.deadlines.remove(&key);
-            }
+            self.stop_timer(call.deadline);
             tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
             call.fail(Error::shape(serde::de::Error::custom(
                 "the engine streamed past the credits the call granted",
@@ -750,7 +765,7 @@ async fn correlate(
             command = commands.recv() => match command {
                 Some(Command::Call(call, noted)) => calls.take(call, noted.as_ref()),
                 Some(Command::Notify(notification)) => calls.notify(&notification),
-                Some(Command::CancelSent(call)) => calls.cancel_sent(&call),
+                Some(Command::Cancel(call)) => calls.cancel_call(&call),
                 Some(Command::Cap(cap)) => calls.cap(cap),
                 Some(Command::Close) | None => break,
             },

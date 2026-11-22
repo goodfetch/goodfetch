@@ -42,7 +42,10 @@ impl CallBounds {
                 .name
                 .strip_prefix("connection.")
                 .expect("invariant: a Connection's bound is a `connection.` setting");
-            whole(setting, connection.and_then(|connection| connection.get(name)))
+            whole(
+                setting,
+                connection.and_then(|connection| connection.get(name)),
+            )
         };
         Ok(Self {
             max_pending_calls: bound(&CONNECTION_MAX_PENDING_CALLS)?,

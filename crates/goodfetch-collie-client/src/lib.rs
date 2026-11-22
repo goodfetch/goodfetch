@@ -50,6 +50,7 @@ pub mod settings;
 mod sync;
 mod trace_context;
 pub mod transport;
+mod write_queue;
 
 pub use ai_work::{AiWorkResult, Ended, PartialOutput};
 pub use answer::Answer;

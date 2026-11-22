@@ -42,6 +42,16 @@ type Settled = Box<dyn FnOnce() -> Option<Value> + Send + 'static>;
 /// (ADR 0080).
 pub(crate) const WIRE_TIMEOUT: &str = "timeout";
 
+/// The deadline of a call's `timeout` that the Client keeps, until the
+/// reply, for an operation that takes no `timeout` of its own.
+pub(crate) fn kept_by_client(after: Duration) -> Deadline {
+    Deadline {
+        setting: WIRE_TIMEOUT,
+        after,
+        kept_by: KeptBy::Client,
+    }
+}
+
 /// How long a call waits for its reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Timeout {
@@ -176,13 +186,9 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
             read,
         } = self;
         let deadline = match (timeout, wire) {
-            (Timeout::After(after), None) => Some(Deadline {
-                setting: WIRE_TIMEOUT,
-                after,
-                kept_by: KeptBy::Client,
-            }),
-            // A zero timeout the engine refuses, so the call is sent at
-            // once to hear the refusal.
+            (Timeout::After(after), None) => Some(kept_by_client(after)),
+            // A zero timeout the engine refuses, so the call waits in the
+            // queue unbounded and is sent in its turn to hear the refusal.
             (Timeout::After(after), Some(setting)) if !after.is_zero() => Some(Deadline {
                 setting,
                 after,
@@ -306,8 +312,9 @@ impl<P: Serialize> Request<P> {
     /// carrying `trace_context`, the Trace context its caller had, and
     /// answers its reply's JSON once the handle noted it; it fails past
     /// `timeout`, queued or, when the Client keeps it, sent. A request its
-    /// handle settles first is not sent, and a cancellable one dropped
-    /// before its reply is cancelled.
+    /// handle settles first is not sent, and one dropped before its reply
+    /// is cancelled: never sent while queued, and once sent, cancelled
+    /// with `$/cancel` when the engine cancels it.
     async fn send(
         self,
         trace_context: Option<TraceContext>,
@@ -334,21 +341,14 @@ impl<P: Serialize> Request<P> {
             reply,
             notified: None,
         };
-        let mut waiting = if cancellable(&call.method) {
-            let call = self.sender.call_cancellable(call);
-            Some(Waiting {
-                sender: self.sender,
-                call,
-                replied: false,
-            })
-        } else {
-            self.sender.call(call);
-            None
+        let engine_cancels = cancellable(&call.method);
+        let mut waiting = Waiting {
+            call: self.sender.call_noted(call, engine_cancels),
+            sender: self.sender,
+            replied: false,
         };
         let replied = replied.await;
-        if let Some(waiting) = &mut waiting {
-            waiting.replied = true;
-        }
+        waiting.replied = true;
         let result = replied.map_err(|_| Error::closed())??;
         if let Some(note) = self.note {
             note(&result);
@@ -365,9 +365,10 @@ fn cancellable(method: &str) -> bool {
         .any(|operation| operation.name == method && operation.cancellable)
 }
 
-/// A sent cancellable call its caller waits on: dropped before its reply, as when the
-/// caller drops the call's future, it cancels the call with `$/cancel`
-/// without waiting (ADR 0080).
+/// A call its caller waits on: dropped before its reply, as when the
+/// caller drops the call's future, it cancels the call without waiting,
+/// so that one still queued is never sent and one sent gets `$/cancel`
+/// when the engine cancels it (ADR 0080).
 struct Waiting {
     sender: Sender,
     call: CallId,
@@ -377,7 +378,7 @@ struct Waiting {
 impl Drop for Waiting {
     fn drop(&mut self) {
         if !self.replied {
-            self.sender.cancel_sent(&self.call);
+            self.sender.cancel_call(&self.call);
         }
     }
 }

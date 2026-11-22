@@ -51,7 +51,8 @@
 # fails with `error`'s `not_verified` (ADRs 0079 and 0117).
 # `call_bounds` reads a Connection's own bounds on the calls it holds and
 # the bytes it has not written, and refuses a call past them (issue 3189),
-# which `connection` reads and `rpc` applies; `line` counts those bytes.
+# which `connection` reads and `rpc` applies; `write_queue` holds the lines
+# the Connection's writer has not written and counts their bytes.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
 ai_work = ["error"]
@@ -67,10 +68,10 @@ event_stream = ["error", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
-handler = ["error", "line", "opening_process", "sync"]
+handler = ["error", "line", "opening_process", "sync", "write_queue"]
 host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
-line = ["sync"]
+line = []
 listener_queue = ["error"]
 logging = ["sync"]
 markers = ["logging", "sync"]
@@ -78,10 +79,11 @@ opening_process = ["error"]
 published = ["error", "listener_queue", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
-rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "trace_context", "transport"]
+rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "trace_context", "transport", "write_queue"]
 run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []
 trace_context = []
 transport = []
+write_queue = ["sync"]

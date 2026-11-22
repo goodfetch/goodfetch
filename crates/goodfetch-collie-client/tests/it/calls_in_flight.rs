@@ -22,7 +22,7 @@ use std::time::Duration;
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode, Reply};
 use goodfetch_protocol::connection::{
-    ConnectionOverloadedDetails, DeadlineExceededDetails, HelloParams, OverloadedBound,
+    CANCEL, ConnectionOverloadedDetails, DeadlineExceededDetails, HelloParams, OverloadedBound,
     TOO_MANY_CALLS, WaitedFor,
 };
 use goodfetch_protocol::engine::ENGINE_INFO;
@@ -80,8 +80,9 @@ fn too_many(line: &str) -> Vec<u8> {
     answer
 }
 
-/// What a peer read once its Client closed: each request's method and
-/// its params' `index`, in the order read, and how many it refused.
+/// What a peer read once its Client closed: each message's method and
+/// its params' `index`, in the order read, and how many requests it
+/// refused.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Read {
     requests: Vec<(String, Option<u64>)>,
@@ -113,6 +114,10 @@ async fn serve(mut lines: PeerLines, mut writer: PeerWriter, said: Value, cap: u
             request["method"].as_str().unwrap().to_owned(),
             request["params"]["index"].as_u64(),
         ));
+        if request.get("id").is_none() {
+            // A notification, such as `$/cancel`, which nothing answers.
+            continue;
+        }
         if held.len() >= cap {
             read.refused += 1;
             writer.write_all(&too_many(&line)).await.unwrap();
@@ -188,20 +193,19 @@ fn three_hundred_at_once() -> (Vec<Result<Value, Error>>, Read) {
 /// 300 calls started at once on one Connection all get their answers,
 /// and none is refused with `too_many_calls`: the Client sends at most
 /// the engine's cap and queues the rest (AC 1).
-///
-/// Covers: story:11-60, error:too_many_calls
 #[test]
 fn three_hundred_calls_at_once_all_get_answers_and_none_too_many_calls() {
     let (outcomes, read) = three_hundred_at_once();
 
-    let failed: Vec<&Error> = outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).collect();
+    let failed: Vec<&Error> = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.as_ref().err())
+        .collect();
     assert_eq!((failed.len(), read.refused), (0, 0), "{failed:?}");
 }
 
 /// The calls the Client queued leave the queue in the order they were
 /// made (AC 4).
-///
-/// Covers: story:11-60
 #[test]
 fn queued_calls_leave_the_queue_in_the_order_they_were_made() {
     let (_, read) = three_hundred_at_once();
@@ -214,7 +218,7 @@ fn queued_calls_leave_the_queue_in_the_order_they_were_made() {
 /// `deadline_exceeded`, waiting for `calls_in_flight`, its limit the call's
 /// `timeout`, and is never sent (AC 2).
 ///
-/// Covers: story:11-60, error:deadline_exceeded
+/// Covers: error:deadline_exceeded
 #[test]
 fn a_queued_call_past_its_timeout_fails_with_it_and_is_never_sent() {
     let (network, lines, writer) = scripted();
@@ -274,8 +278,6 @@ fn a_queued_call_past_its_timeout_fails_with_it_and_is_never_sent() {
 /// A queued call its caller stops waiting for, by dropping its future,
 /// leaves the queue unsent: neither it nor its `$/cancel` reaches the
 /// engine (AC 2).
-///
-/// Covers: story:11-60
 #[test]
 fn a_cancelled_queued_call_is_never_sent() {
     let (network, lines, writer) = scripted();
@@ -305,12 +307,83 @@ fn a_cancelled_queued_call_is_never_sent() {
     );
 }
 
+/// A queued call of an operation the engine cannot cancel, dropped by its
+/// caller, is never sent either, and no longer counts against
+/// `connection.max_pending_calls`: the call made after it is taken and
+/// sent in its place (AC 2).
+///
+/// Covers: setting:connection.max_pending_calls
+#[test]
+fn a_dropped_queued_call_the_engine_cannot_cancel_is_never_sent_nor_held() {
+    let (network, lines, writer) = scripted();
+    let settings = json!({ "connection": { "max_pending_calls": 2 } });
+    let (answered, read) = goodfetch_test_support::runtime().block_on(async {
+        let client = on_connection(&network, hello_with(settings), async |connection| {
+            let mut first = numbered(connection, 0);
+            let mut dropped = numbered(connection, 1);
+            std::future::poll_fn(|context| {
+                assert!(first.as_mut().poll(context).is_pending());
+                assert!(dropped.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            drop(dropped);
+            all(vec![first, numbered(connection, 2)]).await
+        });
+        tokio::join!(client, serve(lines, writer, capped(1), 1))
+    });
+
+    let indexes: Vec<Option<u64>> = read.requests.iter().map(|(_, index)| *index).collect();
+    assert_eq!(
+        (answered.iter().all(Result::is_ok), indexes),
+        (true, vec![Some(0), Some(2)]),
+        "{answered:?}"
+    );
+}
+
+/// A sent call its caller cancels, by dropping its future, no longer
+/// counts against `connection.max_pending_calls`, though it keeps its
+/// place in flight until the engine answers it: the next call is taken.
+///
+/// Covers: setting:connection.max_pending_calls
+#[test]
+fn a_cancelled_sent_call_no_longer_counts_against_the_pending_calls_bound() {
+    let (network, lines, writer) = scripted();
+    let settings = json!({ "connection": { "max_pending_calls": 1 } });
+    let (answered, read) = goodfetch_test_support::runtime().block_on(async {
+        let client = on_connection(&network, hello_with(settings), async |connection| {
+            let mut cancelled = connection
+                .call::<Value>(PAGE_GOTO.name, &json!({ "index": 0 }))
+                .into_future();
+            std::future::poll_fn(|context| {
+                assert!(cancelled.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            drop(cancelled);
+            numbered(connection, 1).await
+        });
+        tokio::join!(client, serve(lines, writer, capped(CAP), CAP))
+    });
+
+    let methods: Vec<&str> = read
+        .requests
+        .iter()
+        .map(|(method, _)| method.as_str())
+        .collect();
+    assert_eq!(
+        (answered.is_ok(), methods),
+        (true, vec![PAGE_GOTO.name, CANCEL, ENGINE_INFO.name]),
+        "{answered:?}"
+    );
+}
+
 /// Past `connection.max_pending_calls`, set in the Connection's own
 /// settings, the next call fails at once with `connection_overloaded`,
 /// the bound `pending_calls` and its value, unsent, while the calls made
 /// before it go on (AC 3).
 ///
-/// Covers: story:11-60, setting:connection.max_pending_calls, error:connection_overloaded
+/// Covers: setting:connection.max_pending_calls, error:connection_overloaded
 #[test]
 fn a_call_past_the_pending_calls_bound_fails_at_once_overloaded() {
     let (network, lines, writer) = scripted();

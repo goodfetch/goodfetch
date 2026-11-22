@@ -34,7 +34,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
-use crate::call::{Call, Query, Reply, WIRE_TIMEOUT};
+use crate::call::{self, Call, Query, Reply};
 use crate::call_bounds::CallBounds;
 use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
@@ -44,7 +44,7 @@ use crate::listener_queue::ListenerQueue;
 use crate::logging;
 use crate::published::Published;
 use crate::raw_call::RawCall;
-use crate::rpc::{self, Deadline, Heard, KeptBy, Outgoing, Sender};
+use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::trace_context::{self, TraceContextSource};
 use crate::transport::{self, Endpoint, Network};
@@ -427,11 +427,7 @@ impl ClientConnection {
         self.0.sender.call(Outgoing {
             method,
             params,
-            timeout: timeout.map(|after| Deadline {
-                setting: WIRE_TIMEOUT,
-                after,
-                kept_by: KeptBy::Client,
-            }),
+            timeout: timeout.map(call::kept_by_client),
             reply,
             notified: Some(notified),
         });

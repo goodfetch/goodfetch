@@ -17,6 +17,7 @@
 )]
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -152,11 +153,10 @@ impl JudgedCommits {
             .iter()
             .map(|finding| finding.subject.as_str())
             .collect();
-        let lines: String = judged
-            .iter()
-            .filter(|commit| !red.contains(commit.id))
-            .map(|commit| format!("{} {} {}\n", self.check, self.rules, commit.id))
-            .collect();
+        let mut lines = String::new();
+        for commit in judged.iter().filter(|commit| !red.contains(commit.id)) {
+            let _ = writeln!(lines, "{} {} {}", self.check, self.rules, commit.id);
+        }
         if lines.is_empty() {
             return Ok(());
         }

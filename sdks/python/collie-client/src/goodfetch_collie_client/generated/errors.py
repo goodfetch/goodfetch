@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_of
-from .models import CallCancelledDetails
+from .models import CallCancelledDetails, NotVerifiedDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -512,9 +512,13 @@ class NotInProductError(UnavailableError):
 class NotVerifiedError(PageError):
     """The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended."""
 
+    typed_details: NotVerifiedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="not_verified", group="page", retryable=False, **fields)
+        self.typed_details = details_of(NotVerifiedDetails, self.details)
 
 
 class PageCheckFailedError(PageError):

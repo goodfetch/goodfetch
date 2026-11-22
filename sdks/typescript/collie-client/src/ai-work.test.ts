@@ -61,6 +61,13 @@ describe("an AI work result", { tags: ["story:11-34", "error:not_verified"] }, (
       ],
       reported: { claim: "done", message: "found her" },
     });
+    expect(error.typedDetails).toEqual({
+      verdict: "rejected",
+      reasons: [
+        { code: "success_check_failed", message: "the heading was not shown", callId: "c1" },
+      ],
+      reported: { claim: "done", message: "found her" },
+    });
     expect(error.fix).toBeDefined();
     expect(error.message).toContain("rejected");
   });

@@ -756,6 +756,9 @@
     {
       "arrived_in": "0.1",
       "description": "The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended.",
+      "details": {
+        "$ref": "#/$defs/NotVerifiedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,

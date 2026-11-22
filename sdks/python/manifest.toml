@@ -763,15 +763,6 @@ form = "read"
 [[member]]
 package = "goodfetch_collie"
 receiver = "(module)"
-member = "Claim"
-entry = "none"
-reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
-words = ["claim"]
-form = "type"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "(module)"
 member = "Ended"
 entry = "none"
 reason = "How AI work ended (ADR 0117): `Finished` or `Stopped`."
@@ -794,15 +785,6 @@ member = "Stopped"
 entry = "none"
 reason = "AI work that stopped before it finished, with its reason and what it had gathered (ADRs 0100 and 0117), matched by class."
 words = ["stopped"]
-form = "type"
-
-[[member]]
-package = "goodfetch_collie"
-receiver = "(module)"
-member = "Reported"
-entry = "none"
-reason = "The model's claim and its message (ADR 0100): a signal, never proof."
-words = ["reported"]
 form = "type"
 
 [[member]]

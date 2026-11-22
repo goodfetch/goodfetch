@@ -41,19 +41,13 @@ export type {
   TypedSchema,
 } from "./schema.ts";
 export * from "./generated/errors.ts";
-export {
-  AIWorkResult,
-  type AIWorkFields,
-  type Claim,
-  type Ended,
-  type PartialOf,
-  type Reported,
-} from "./ai-work.ts";
+export { AIWorkResult, type AIWorkFields, type Ended, type PartialOf } from "./ai-work.ts";
 export type { FieldValue, FieldValues } from "./field-values.ts";
 export type {
   Acted,
   BlockCause,
   CallOptions,
+  Claim,
   Completeness,
   ConsoleMessage,
   ExplainedSetting,
@@ -71,6 +65,7 @@ export type {
   PageResponse,
   PageWebSocket,
   Product,
+  Reported,
   RunOrigin,
   RunReport,
   SessionClosed,

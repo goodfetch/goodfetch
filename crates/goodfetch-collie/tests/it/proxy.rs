@@ -1383,17 +1383,21 @@ fn a_run_start_naming_a_run_its_limit_stopped_exits_16() {
     assert_eq!(
         (
             given.exit,
+            &finished["result"]["stop_reason"]["kind"],
             &finished["result"]["stop_reason"]["scope"],
             restarted.exit,
             &refused["error"]["code"],
             &refused["error"]["scope"],
+            &refused["error"]["usage_kind"],
         ),
         (
             Some(0),
+            &json!("limit"),
             &json!({ "kind": "run", "id": "capped" }),
             Some(16),
             &json!("limit_reached"),
             &json!({ "kind": "run", "id": "capped" }),
+            &json!("proxy_bytes"),
         ),
         "{given}\n{finished}\n{restarted}"
     );

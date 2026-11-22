@@ -160,8 +160,14 @@ class AsyncHandleHost(Protocol[_Id]):
         """The ID each of the handle's calls carries."""
         ...
 
-    async def call(self, operation: str, params: BaseModel) -> object:
-        """Sends one call and returns its result as the engine sent it."""
+    async def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
+        """Sends one call and returns its result as the engine sent it.
+
+        `timeout_setting` names the setting the call's own `timeout` sets,
+        which bounds its wait for a place among the engine's calls in flight.
+        """
         ...
 
     async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
@@ -231,8 +237,10 @@ class HandleHost(Protocol[_Id]):
         """The ID each of the handle's calls carries."""
         ...
 
-    def call(self, operation: str, params: BaseModel) -> object:
-        """Sends one call and returns its result as the engine sent it."""
+    def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
+        """Sends one call and returns its result, as `AsyncHandleHost.call` does."""
         ...
 
     def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:

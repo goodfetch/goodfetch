@@ -127,3 +127,17 @@ fn an_address_answers_itself_whatever_the_mapping_lists() {
         Some(vec!["127.0.0.1:443".parse().unwrap()])
     );
 }
+
+/// A name the system resolver answers never waits for a thread of Tokio's
+/// blocking pool (#2870): with the runtime's one blocking thread held,
+/// `localhost` answers with a loopback address while it is still held.
+#[test]
+fn a_system_lookup_never_waits_for_a_blocking_thread() {
+    let (found, held_throughout) = goodfetch_test_support::runtime_with_one_blocking_thread()
+        .block_on(goodfetch_test_support::with_the_blocking_pool_held(
+            super::lookup("localhost", 443, &crate::dns::HostMapping::default()),
+        ));
+
+    let loopback = found.is_ok_and(|found| found.iter().any(|address| address.ip().is_loopback()));
+    assert_eq!((loopback, held_throughout), (true, true));
+}

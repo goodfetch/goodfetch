@@ -125,6 +125,11 @@ pub const RESPONSE_NOT_OK: ErrorCode = ErrorCode::from_static("response_not_ok")
 /// The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. A request whose start could not be recorded for its domain's Politeness is held unsent with it too, since its delay could not be kept. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.
 pub const RESPONSE_UNAVAILABLE: ErrorCode = ErrorCode::from_static("response_unavailable");
 
+/// `retry_requested`, in the `page` group, retryable.
+///
+/// The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error.
+pub const RETRY_REQUESTED: ErrorCode = ErrorCode::from_static("retry_requested");
+
 /// `sample_crawl_refused`, in the `refused` group, retryable.
 ///
 /// The sample crawl refused its pages.
@@ -136,4 +141,4 @@ pub const SAMPLE_CRAWL_REFUSED: ErrorCode = ErrorCode::from_static("sample_crawl
 pub const STAGING_FULL: ErrorCode = ErrorCode::from_static("staging_full");
 
 /// Every Error code only Foxhound's catalog carries, in the catalog's order.
-pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, SAMPLE_CRAWL_REFUSED, STAGING_FULL];
+pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, STAGING_FULL];

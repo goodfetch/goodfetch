@@ -158,3 +158,17 @@ fn the_systems_resolver_configuration_reads() {
 
     assert!(configuration.is_ok(), "{configuration:?}");
 }
+
+/// The system resolver's lookup never waits for a thread of Tokio's
+/// blocking pool (#2870): with the runtime's one blocking thread held,
+/// `localhost` answers with a loopback address while it is still held.
+#[test]
+fn a_system_lookup_never_waits_for_a_blocking_thread() {
+    let (found, held_throughout) = goodfetch_test_support::runtime_with_one_blocking_thread()
+        .block_on(goodfetch_test_support::with_the_blocking_pool_held(
+            super::system_lookup("localhost"),
+        ));
+
+    let loopback = found.is_ok_and(|found| found.iter().any(IpAddr::is_loopback));
+    assert_eq!((loopback, held_throughout), (true, true));
+}

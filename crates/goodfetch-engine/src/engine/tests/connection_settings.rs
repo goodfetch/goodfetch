@@ -471,17 +471,59 @@ fn config_explain_names_each_clients_own_bound() {
     );
 }
 
+/// The Python Client's own bounds on its calls, set in `connect()`'s
+/// `settings`, are taken and explained as the Connection's, as the
+/// TypeScript Client's are (issue 3188).
+///
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, operation:config.explain
+#[test]
+fn config_explain_names_the_python_clients_own_call_bounds() {
+    let env = TestEnv::new();
+    let mut hello = hello_setting(json!({
+        "connection": { "max_pending_calls": 5, "max_queued_write_bytes": 7 },
+    }));
+    hello["params"]["surface"] = json!("sdk_python");
+
+    let explained = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello]).await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "config.explain",
+                json!({ "keys": [
+                    "connection.max_pending_calls",
+                    "connection.max_queued_write_bytes",
+                ] }),
+            )
+            .await
+        },
+    );
+
+    assert_eq!(
+        keyed(&explained),
+        vec![
+            json!(["connection.max_pending_calls", 5, "run"]),
+            json!(["connection.max_queued_write_bytes", 7, "run"]),
+        ],
+        "{explained}"
+    );
+}
+
 /// A Client's own bound that cannot take effect where it is set refuses
 /// the `hello`: from a surface whose Client has no such bound, and a value
-/// that is no whole number from 1 (issue 2518).
+/// that is no whole number from 1 (issues 2518 and 3188).
 ///
-/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, error:setting_not_applicable, error:setting_invalid
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_queued_write_bytes, setting:connection.max_listener_queue, error:setting_not_applicable, error:setting_invalid
 #[rstest]
-#[case::a_python_client(
+#[case::a_python_client_on_its_listeners(
     "sdk_python",
-    json!({ "connection": { "max_pending_calls": 5 } }),
+    json!({ "connection": { "max_listener_queue": 5 } }),
     "setting_not_applicable",
-    "connection.max_pending_calls"
+    "connection.max_listener_queue"
 )]
 #[case::a_rust_program(
     "rust",

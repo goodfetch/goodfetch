@@ -1,6 +1,7 @@
 //! A test tool manifest's input record, `<manifest>.inputs.json` beside it:
-//! the workspace's folder and the size and modification time of each source
-//! its tools were built from, which `goodfetch-test-support` compares with
+//! the workspace's folder and the size, modification time and content
+//! digest of each source its tools were built from, which
+//! `goodfetch-test-support` compares with
 //! the tree before a test runs a tool, so tools built before a merge or from
 //! another tree are refused (issue 1631).
 //!
@@ -20,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 
 use crate::child_cargo;
 
@@ -54,11 +56,14 @@ pub(super) struct InputRecord {
 }
 
 /// One source: its path from the workspace's folder, its parts joined
-/// with `/` on every OS, its size in bytes and its modification time in
-/// nanoseconds since the Unix epoch. A list, not a map, since every test
-/// process that uses a tool parses each one.
+/// with `/` on every OS, its size in bytes, its modification time in
+/// nanoseconds since the Unix epoch and the SHA-256 of its content in
+/// lowercase hex, none for a folder. The reader compares the digest only
+/// when the size matches and the time does not: a check that writes a file
+/// back with its own bytes moves its time alone (issue 3236). A list, not a
+/// map, since every test process that uses a tool parses each one.
 #[derive(Serialize)]
-struct Input(String, u64, u64);
+struct Input(String, u64, u64, Option<String>);
 
 impl InputRecord {
     /// The record of `executables`, which a Cargo build that began at
@@ -161,12 +166,25 @@ fn under(folder: &Path, source: &Path, sources: &mut BTreeSet<PathBuf>) -> Resul
     Ok(())
 }
 
-/// `source`, a path from `folder`, with its size and modification time; a
-/// folder with no size, since Linux and Windows count a folder's size each
-/// their own way, and Windows' reading of a record made on Linux would find
-/// every watched folder changed (issue 2767).
+/// `source`, a path from `folder`, with its size, modification time and
+/// digest; a folder with no size, since Linux and Windows count a folder's
+/// size each their own way, and Windows' reading of a record made on Linux
+/// would find every watched folder changed (issue 2767), and with no
+/// digest.
+///
+/// A file's content is read before its time, so the digest recorded is
+/// never of content newer than the time beside it: a write between the two
+/// shows as a time after `started`, which fails for every source but the
+/// lockfile.
 fn stamp(folder: &Path, source: &Path, started: SystemTime) -> Result<Input> {
     let path = folder.join(source);
+    let digest = if path.is_dir() {
+        None
+    } else {
+        let content =
+            std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+        Some(format!("{:x}", Sha256::digest(&content)))
+    };
     let metadata =
         std::fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
     let modified = metadata
@@ -184,7 +202,7 @@ fn stamp(folder: &Path, source: &Path, started: SystemTime) -> Result<Input> {
         .and_then(|since| u64::try_from(since.as_nanos()).ok())
         .with_context(|| format!("{}'s modification time is out of range", path.display()))?;
     let size = if metadata.is_dir() { 0 } else { metadata.len() };
-    Ok(Input(slashed(source), size, nanoseconds))
+    Ok(Input(slashed(source), size, nanoseconds, digest))
 }
 
 /// `source`'s parts joined with `/`, which Windows reads as a separator

@@ -151,9 +151,9 @@ threads-required = "num-test-threads"
 # Foxhound's compile-fail tests run alone by the same rule (TESTING.md, Time
 # and Isolation). The first of them builds trybuild's project: a `cargo
 # check` (trybuild's command while the crate has only compile-fail cases) of
-# the crate's whole dependency graph, its dev-dependencies included, in trybuild's own target folder under rustflags of its own, so
-# it reuses nothing the workspace built and keeps busy every core it gets
-# for minutes. Beside the rest of a Pre-merge run on a cold target, the
+# the crate's whole dependency graph, its dev-dependencies included, in
+# trybuild's own target folder under rustflags of its own, so it reuses
+# nothing the workspace built and keeps busy every core it gets for minutes. Beside the rest of a Pre-merge run on a cold target, the
 # first was killed at 300 s (issue 3413). They keep the profile's kill and
 # the `compile-fail` group below. A crate's compile-fail tests whose project
 # builds such a graph join this filter in the change that adds them; light

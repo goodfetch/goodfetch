@@ -116,6 +116,10 @@ _Avoid_: worker, agent, sidecar
 A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
+**GUI session**:
+The graphical login session of the operating-system user an engine runs as, such as a logged-in macOS desktop, which the full browser build needs to start and the headless shell does not; unrelated to a Session.
+_Avoid_: desktop session, user session (a Session is a browsing identity)
+
 **Lent page**:
 A page of a Session that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
 _Avoid_: shared page, exposed page, remote page

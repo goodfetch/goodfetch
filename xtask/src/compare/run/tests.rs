@@ -437,7 +437,7 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     } else {
         "measured".to_owned()
     };
-    let no_sizes = "the run asked for no scenario 1 main cell of Foxhound or Spider".to_owned();
+    let no_sizes = "the run asked for no scenario 1 main cell".to_owned();
     let no_callgrind =
         "the run asked for no cell of scenario 1 or of the extraction scenario".to_owned();
     assert_eq!(
@@ -543,6 +543,62 @@ fn a_run_whose_tool_cannot_start_fails_in_the_pre_flight() {
     assert_eq!(kept, Vec::<[String; 5]>::new());
 }
 
+/// The sizes cell crawls with every tool's scenario 1 main row at 16 in
+/// flight, where #2205 reads its bar against the best competitor, and with
+/// Foxhound and Spider alone at 1 and 64, which carry no bar (#2871).
+#[test]
+fn the_sizes_cell_runs_every_tool_at_16_in_flight_and_two_at_1_and_64() {
+    let options = Options {
+        machine: None,
+        command: "just compare release".to_owned(),
+        trials: 1,
+        growth: false,
+        spider_pages: None,
+        scenarios: vec![Scenario::Raw],
+        callgrind_outputs: Path::new("/nowhere").to_owned(),
+        only: Vec::new(),
+    };
+
+    let points = size_points(&options);
+    let tools_at = |concurrency: u32, pages: u64| {
+        let mut tools: Vec<Tool> = points
+            .iter()
+            .filter(|(_, _, crawl)| crawl.concurrency == concurrency && crawl.pages == pages)
+            .map(|(_, config, _)| config.tool())
+            .collect();
+        tools.sort_unstable();
+        tools
+    };
+
+    for pages in [100, 1_000, 10_000] {
+        let at_16: Vec<Tool> = Tool::ALL
+            .into_iter()
+            .filter(|&tool| pages <= 1_000 || tool != Tool::FastCrw)
+            .collect();
+        assert_eq!(
+            (tools_at(16, pages), tools_at(1, pages), tools_at(64, pages)),
+            (
+                at_16,
+                vec![Tool::Foxhound],
+                vec![Tool::Foxhound, Tool::Spider]
+            ),
+            "at {pages} pages"
+        );
+    }
+}
+
+/// A tool that cannot crawl a size is not run there, with its reason:
+/// fastCRW, whose crawl job stops at 1,000 pages, at 10,000 (#2871).
+#[test]
+fn the_sizes_cell_does_not_run_fastcrw_past_its_thousand_pages() {
+    let reason = |pages| crate::compare::trials::size_not_run(Tool::FastCrw, pages, 16);
+
+    assert_eq!(
+        (reason(100), reason(1_000), reason(10_000).is_some()),
+        (None, None, true)
+    );
+}
+
 /// The sizes cell runs Spider where its crawl holds: not at 1 request in
 /// flight, where Spider 2.53.9 stops short of the site, and at 64 in flight
 /// on a page channel of 128, where the 64 its main row reads at loses pages;
@@ -562,7 +618,9 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
 
     let mut points: Vec<(Tool, u32, Option<usize>)> = size_points(&options)
         .into_iter()
-        .filter(|(_, _, crawl)| crawl.pages == 100)
+        .filter(|(_, config, crawl)| {
+            crawl.pages == 100 && [Tool::Foxhound, Tool::Spider].contains(&config.tool())
+        })
         .map(|(_, config, crawl)| {
             let capacity = match config {
                 Config::Spider { capacity, .. } => Some(capacity),

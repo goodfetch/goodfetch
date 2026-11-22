@@ -28,9 +28,10 @@ from urllib.parse import urlsplit
 
 import anyio
 
+from goodfetch_collie_client._rpc import phase_exceeded
 from goodfetch_collie_client._websocket_transport import open_websocket
 from goodfetch_collie_client.attached_engine import is_executable_file
-from goodfetch_collie_client.connection import connect_limit, phase_exceeded
+from goodfetch_collie_client.connection import connect_limit
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     WEBSOCKET_SUBPROTOCOL,

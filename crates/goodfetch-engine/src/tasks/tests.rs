@@ -631,3 +631,15 @@ fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {
 
     assert!(!told);
 }
+
+/// A system lookup runs on a thread of the lookup pool's own, named apart
+/// from Tokio's workers and blocking threads and from the CPU pool's, so
+/// `/proc/<pid>/task` counts each kind apart (#2870).
+#[test]
+fn a_system_lookup_runs_on_a_thread_of_the_lookup_pools_own() {
+    let name = goodfetch_test_support::runtime().block_on(super::on_lookup_thread(|| {
+        std::thread::current().name().map(str::to_owned)
+    }));
+
+    assert_eq!(name, Some(Some(super::LOOKUP_THREAD.to_owned())));
+}

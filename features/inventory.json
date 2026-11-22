@@ -10306,6 +10306,26 @@
       ]
     },
     {
+      "id": "setting:session.pool.affinity",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:session.pool.growth",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:session.pool.max_age",
       "kind": "setting",
       "area": 6,
@@ -10337,6 +10357,16 @@
     },
     {
       "id": "setting:session.pool.max_uses",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:session.pool.session_concurrency",
       "kind": "setting",
       "area": 6,
       "milestone": null,

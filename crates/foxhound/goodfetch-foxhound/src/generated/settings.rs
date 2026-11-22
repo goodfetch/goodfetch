@@ -986,6 +986,28 @@ pub mod session {
     /// The `session.pool.*` settings.
     pub mod pool {
 
+        /// Which open Session with room a crawl's Session pool prefers for a request under `session.pool.growth: on_demand`. `host` prefers one whose last request went to the request's host; `none` draws among them at random. It never opens a Session.
+        ///
+        /// `session.pool.affinity`.
+        pub const AFFINITY: crate::settings::Setting<Affinity> = crate::settings::Setting::new(
+            "session.pool.affinity",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// When a crawl's Session pool opens a new Session. `on_demand` opens one only when no open Session of the client a request needs, at its domain's proxy tier, has room under `session.pool.session_concurrency`, or when a block that retired a Session leaves the domain owing one; a browser Session opens only while a browser page can be admitted for it, else the request waits for a browser Session with room. `eager` opens a new Session for every request while the pool is under `session.pool.max_size`, as Crawlee does.
+        ///
+        /// `session.pool.growth`.
+        pub const GROWTH: crate::settings::Setting<Growth> = crate::settings::Setting::new(
+            "session.pool.growth",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
         /// How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.
         ///
         /// `session.pool.max_age`.
@@ -1009,7 +1031,7 @@ pub mod session {
             ],
         );
 
-        /// How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.
+        /// How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to an open Session of the client it needs at its domain's proxy tier that has room under `session.pool.session_concurrency`, a new Session opening only when none has room and the pool is under this size; a full pool draws among the busy ones.
         ///
         /// `session.pool.max_size`.
         pub const MAX_SIZE: crate::settings::Setting<u64> = crate::settings::Setting::new(
@@ -1030,6 +1052,54 @@ pub mod session {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+
+        /// How many requests one Session of a crawl's Session pool serves at once under `session.pool.growth: on_demand`: 1. Unset, a Session serves any number, so the pool opens one Session for each client and proxy tier.
+        ///
+        /// `session.pool.session_concurrency`. `None` clears it.
+        pub const SESSION_CONCURRENCY: crate::settings::Setting<Option<u64>> =
+            crate::settings::Setting::new(
+                "session.pool.session_concurrency",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
+        /// A word a setting of this module takes, as the catalog spells it.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum Affinity {
+            /// `host`.
+            Host,
+            /// `none`.
+            None,
+        }
+
+        impl ::goodfetch_protocol::catalog::SettingWord for Affinity {
+            fn word(&self) -> &'static str {
+                match self {
+                    Self::Host => "host",
+                    Self::None => "none",
+                }
+            }
+        }
+
+        /// A word a setting of this module takes, as the catalog spells it.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum Growth {
+            /// `on_demand`.
+            OnDemand,
+            /// `eager`.
+            Eager,
+        }
+
+        impl ::goodfetch_protocol::catalog::SettingWord for Growth {
+            fn word(&self) -> &'static str {
+                match self {
+                    Self::OnDemand => "on_demand",
+                    Self::Eager => "eager",
+                }
+            }
+        }
     }
 }
 

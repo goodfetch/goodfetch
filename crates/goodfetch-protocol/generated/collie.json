@@ -12157,6 +12157,7 @@
             "compilations",
             "configuration_reads",
             "constant_lookups",
+            "contexts_created",
             "cpu_stat_opens",
             "declaration_reads",
             "decodes",

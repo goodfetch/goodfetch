@@ -68,7 +68,7 @@ impl DomainKeys {
 
 /// The host of `url`: what follows its scheme, without credentials, port,
 /// path, query or fragment, and an IPv6 address without its brackets.
-fn host_of(url: &str) -> &str {
+pub fn host_of(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     let host_and_port = authority

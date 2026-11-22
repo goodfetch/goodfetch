@@ -94,6 +94,15 @@ critical_free = 4
 [settings.browser_cache]
 max_unused_age = 30000
 
+[settings.browser]
+mirror = "https://mirror.example/chrome-for-testing-public"
+headless = true
+headless_shell = true
+cdp_command_log = true
+block_resources = ["image"]
+service_workers = "allow"
+access_mode = "standard"
+
 [settings.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
@@ -115,14 +124,6 @@ ipv6 = 64
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
 accept_invalid_certs = { "example.test" = "example" }
-
-[settings.browser]
-headless = true
-headless_shell = true
-cdp_command_log = true
-block_resources = ["image"]
-service_workers = "allow"
-access_mode = "standard"
 
 [settings.live_view]
 hiding = "auto"
@@ -506,6 +507,15 @@ critical_free = 4
 [lock.browser_cache]
 max_unused_age = 30000
 
+[lock.browser]
+mirror = "https://mirror.example/chrome-for-testing-public"
+headless = true
+headless_shell = true
+cdp_command_log = true
+block_resources = ["image"]
+service_workers = "allow"
+access_mode = "standard"
+
 [lock.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
@@ -527,14 +537,6 @@ ipv6 = 64
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
 accept_invalid_certs = { "example.test" = "example" }
-
-[lock.browser]
-headless = true
-headless_shell = true
-cdp_command_log = true
-block_resources = ["image"]
-service_workers = "allow"
-access_mode = "standard"
 
 [lock.live_view]
 hiding = "auto"

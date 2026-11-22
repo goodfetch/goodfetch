@@ -4,9 +4,9 @@ use rstest::rstest;
 use super::{CONFIGURED_KINDS, ConfiguredKind, EgressClass};
 
 /// Each kind of configured destination has one row of the table, the one
-/// it is classed by: every one ADR 0017 and the spec list, and the
-/// Clean-up rules' sources.
-/// Covers: story:4-16
+/// it is classed by: every one ADR 0017 and the spec list, the Clean-up
+/// rules' sources and a browser mirror.
+/// Covers: story:4-16, setting:browser.mirror
 #[rstest]
 #[case::a_model_provider(ConfiguredKind::ModelProvider)]
 #[case::a_secret_provider(ConfiguredKind::SecretProvider)]
@@ -16,6 +16,7 @@ use super::{CONFIGURED_KINDS, ConfiguredKind, EgressClass};
 #[case::the_plugin_index(ConfiguredKind::PluginIndex)]
 #[case::a_cdp_url(ConfiguredKind::CdpUrl)]
 #[case::a_clean_up_rules_source(ConfiguredKind::CleanUpRulesSource)]
+#[case::a_browser_mirror(ConfiguredKind::BrowserMirror)]
 fn each_configured_kind_has_one_row_of_the_table(#[case] kind: ConfiguredKind) {
     assert_eq!(
         (

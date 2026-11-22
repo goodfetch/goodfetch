@@ -9,8 +9,8 @@ use rstest::rstest;
 
 use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
-    Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
-    UNOWNED, gate_input, narrowed, plan, unit,
+    Action, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Planned, Step,
+    Touched, UNOWNED, gate_input, narrowed, plan, unit,
 };
 use super::steps::{Form, Kind, entries};
 use super::{plan_value, render, runs};
@@ -42,6 +42,7 @@ fn green(origin: &str) -> Outcome {
         origin: origin.to_owned(),
         tree: format!("{origin}-tree"),
         at: NOW - 60,
+        by: Layer::Merge,
         earned_on: None,
     }
 }
@@ -171,7 +172,7 @@ const ALWAYS: [&str; 12] = [
 
 #[test]
 fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
-    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_LAZYFS=/lazyfs";
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs";
 
     assert_eq!(
         step_variables(launched),
@@ -249,10 +250,11 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
             ("stress", only)
         ])
     );
-    // Perf, TLC, the MSRV build, Miri, loom and the Windows build read
-    // nothing the change reaches.
+    // Perf, the counted rows, TLC, the MSRV build, Miri, loom and the
+    // Windows build read nothing the change reaches.
     for step in [
         Step::Perf,
+        Step::Counts,
         Step::Tlc,
         Step::Msrv,
         Step::Miri,
@@ -286,7 +288,7 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
 
     let (full, _) = reruns(&planned(Some(&record), &touched_since_earlier(touched)));
 
-    for step in ["perf", "linux", "msrv", "miri", "loom", "windows"] {
+    for step in ["perf", "counts", "linux", "msrv", "miri", "loom", "windows"] {
         assert!(full.contains(&step), "{step} in {full:?}");
     }
     assert!(!full.contains(&"tlc") && !full.contains(&"visual"));
@@ -662,8 +664,7 @@ fn a_member_a_shuffling_runner_tests_keeps_no_passes() {
 /// they began on; a record without that field is one that counted none.
 #[test]
 fn a_result_that_counted_earlier_passes_reads_back_with_their_head() {
-    let text =
-        "base\tb\nhost\th\nstress:a\tpass\tfeed\tt\t10\tc0ffee\nstress:b\tpass\tfeed\tt\t10\n";
+    let text = "base\tb\nhost\th\nstress:a\tpass\tfeed\tt\t10\tmerge\tc0ffee\nstress:b\tpass\tfeed\tt\t10\tmerge\n";
 
     let record = runs::parse("feed", text).unwrap();
 
@@ -805,7 +806,7 @@ fn every_member_rerun_runs_the_step_in_full() {
 
 #[test]
 fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
-    let text = "base\tb4se\nhost\th0st\nperf\tpass\tc0ffee\tt1\t10\nquick:xtask\tpass\tc0ffee\tt1\t10\nperf\tfail\tfeed\tt2\t20\n";
+    let text = "base\tb4se\nhost\th0st\nperf\tpass\tc0ffee\tt1\t10\tmerge\nquick:xtask\tpass\tc0ffee\tt1\t10\tmerge\nperf\tfail\tfeed\tt2\t20\tpreflight\n";
 
     let record = runs::parse("feed", text).unwrap();
 
@@ -820,10 +821,21 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             origin: "feed".to_owned(),
             tree: "t2".to_owned(),
             at: 20,
+            by: Layer::Preflight,
             earned_on: None,
         })
     );
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+}
+
+/// Each result names the layer that ran it (`by`), so one recorded before
+/// the field, or by no layer the gate knows, is no record: such records are
+/// dropped, not read (the pre-release policy).
+#[rstest]
+#[case::without_the_layer("base\tb\nhost\th\nperf\tpass\tfeed\tt\t10\n")]
+#[case::an_unknown_layer("base\tb\nhost\th\nperf\tpass\tfeed\tt\t10\thosted-someday\n")]
+fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
+    assert!(runs::parse("feed", text).is_err());
 }
 
 /// The checks a run on the tree of their green result reuses.
@@ -1082,7 +1094,30 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 7] = ["perf", "linux", "visual", "tlc", "miri", "loom", "windows"];
+const BESIDE_STEPS: [&str; 8] = [
+    "perf", "counts", "linux", "visual", "tlc", "miri", "loom", "windows",
+];
+
+/// `just preflight` runs the gate host's units of the full gate alone, the
+/// counted rows and the stress run, through the same plan and record
+/// (ADR 0135's amendment of 2026-11-22): the floor guard and the Pre-merge
+/// suite are no longer among them.
+#[test]
+fn the_preflight_form_runs_the_counted_rows_and_the_stress_run_alone() {
+    let list = entries(Form::Preflight);
+    let names: Vec<(&str, Kind, String)> = list
+        .iter()
+        .map(|entry| (entry.name, entry.kind, entry.just.join(" ")))
+        .collect();
+
+    assert_eq!(
+        names,
+        [
+            ("counts", Kind::Beside, "counted-rows".to_owned()),
+            ("stress", Kind::Step, "stress".to_owned()),
+        ]
+    );
+}
 
 #[rstest]
 #[case::all(Form::All)]

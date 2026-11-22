@@ -11,18 +11,102 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::plan::{GateRun, Step, unit};
+use super::plan::{GateRun, Head, Layer, Step, unit};
 use super::{plan_list, plan_value, runs};
 use crate::affected::{self, Range, WorkspaceMembers};
 use crate::git;
 
-/// The record of the nearest run on `head` or one of its ancestors: the
-/// fewest commits away.
-pub(super) fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
-    recorded_ancestors(root, records, head)?
-        .first()
-        .map(|candidate| runs::read(records, candidate))
-        .transpose()
+/// The nearest run a plan reads, and the nearer records it passed over.
+struct Nearest {
+    record: Option<GateRun>,
+    /// Each nearer record of another host fingerprint, by its head, with
+    /// the layers that ran its results.
+    other_hosts: Vec<(String, Vec<Layer>)>,
+}
+
+/// The record of the nearest run on `head` or one of its ancestors, the
+/// fewest commits away, among those of this `host`: every layer of every
+/// worktree records into the one folder (ADR 0135's amendment of
+/// 2026-11-22), and a result of another host fingerprint is never reused, so
+/// a nearer record of another host would leave the plan nothing to reuse.
+/// With no record of this host, the nearest record of any, whose plan then
+/// says the host changed since it.
+fn nearest(root: &Path, records: &Path, head: &str, host: &str) -> Result<Nearest> {
+    let mut other_hosts = Vec::new();
+    let mut nearest_of_any = None;
+    for candidate in recorded_ancestors(root, records, head)? {
+        let record = runs::read(records, &candidate)?;
+        if record.host == host {
+            return Ok(Nearest {
+                record: Some(record),
+                other_hosts,
+            });
+        }
+        let mut layers: Vec<Layer> = Vec::new();
+        for outcome in record.units.values() {
+            if !layers.contains(&outcome.by) {
+                layers.push(outcome.by);
+            }
+        }
+        other_hosts.push((candidate, layers));
+        nearest_of_any.get_or_insert(record);
+    }
+    Ok(Nearest {
+        record: nearest_of_any,
+        other_hosts: Vec::new(),
+    })
+}
+
+/// The earlier run a plan reads.
+pub(super) struct Previous {
+    pub(super) record: Option<GateRun>,
+    /// Why there is none, when there is none.
+    pub(super) why_none: String,
+    /// The nearer records passed over, of another host fingerprint, with
+    /// their layers.
+    pub(super) other_hosts: Vec<(String, Vec<Layer>)>,
+}
+
+/// The earlier run a plan on `head` reads, or why it reads none: none for a
+/// `full` run, the `assumed` green run for a dry run that names one, else
+/// the nearest recorded run on the head or an ancestor, this host's before a
+/// nearer one of another host.
+pub(super) fn previous(
+    root: &Path,
+    records: &Path,
+    head: &str,
+    gated: &Head<'_>,
+    full: bool,
+    assumed: Option<&str>,
+) -> Result<Previous> {
+    let none = |why: &str| Previous {
+        record: None,
+        why_none: why.to_owned(),
+        other_hosts: Vec::new(),
+    };
+    if full {
+        return Ok(none("a full run was asked for (GOODFETCH_GATE_FULL)"));
+    }
+    if let Some(assumed) = assumed {
+        let assumed = git::commit(root, assumed)?;
+        return Ok(Previous {
+            record: Some(super::assumed_green(root, &assumed, gated)?),
+            ..none("")
+        });
+    }
+    let Nearest {
+        record,
+        other_hosts,
+    } = nearest(root, records, head, gated.host)?;
+    Ok(Previous {
+        why_none: if record.is_some() {
+            String::new()
+        } else {
+            "no earlier gate run on this head or an ancestor".to_owned()
+        },
+        record,
+        other_hosts,
+    })
 }
 
 /// The heads with a record that are `tip` or one of its ancestors, the fewest

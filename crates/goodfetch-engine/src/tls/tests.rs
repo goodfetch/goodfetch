@@ -171,13 +171,11 @@ fn a_trusted_cas_entry_that_names_no_host_is_refused(#[case] domain: &str) {
 
 #[test]
 fn each_listed_domain_is_a_scope_with_its_own_and_its_parents_authorities() {
-    let (endpoint, _) = authority("endpoint");
     let (parent, _) = authority("parent");
     let (child, _) = authority("child");
-    let endpoint = endpoint.der().clone();
     let parent = parent.der().clone();
     let child = child.der().clone();
-    let trust = Trust::endpoint(std::slice::from_ref(&endpoint))
+    let trust = Trust::default_roots()
         .with_trusted_cas("example.test", vec![parent.clone()])
         .unwrap()
         .with_trusted_cas("Sub.Example.test.", vec![child.clone()])
@@ -188,15 +186,15 @@ fn each_listed_domain_is_a_scope_with_its_own_and_its_parents_authorities() {
         vec![
             TrustScope {
                 domain: None,
-                authorities: vec![endpoint.clone()],
+                authorities: Vec::new(),
             },
             TrustScope {
                 domain: Some("example.test".to_owned()),
-                authorities: vec![endpoint.clone(), parent.clone()],
+                authorities: vec![parent.clone()],
             },
             TrustScope {
                 domain: Some("sub.example.test".to_owned()),
-                authorities: vec![endpoint, child, parent],
+                authorities: vec![child, parent],
             },
         ]
     );

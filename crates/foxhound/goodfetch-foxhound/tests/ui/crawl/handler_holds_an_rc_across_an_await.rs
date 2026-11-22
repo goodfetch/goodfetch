@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use goodfetch_foxhound::{Crawl, CrawlContext};
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Visit {
     depth: u32,
 }

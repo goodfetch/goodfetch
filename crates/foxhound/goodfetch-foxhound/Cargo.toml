@@ -128,7 +128,8 @@ goodfetch-page.workspace = true
 # tower Service (tests/it/sdk/crawl.rs).
 axum.workspace = true
 tower-service.workspace = true
-# The crawl's compile-fail cases (tests/it/compile_fail.rs, tests/ui/).
+# The crawl's and the Payloads' compile-fail cases (tests/it/compile_fail.rs,
+# tests/ui/).
 trybuild.workspace = true
 
 [package.metadata.cargo-shear]

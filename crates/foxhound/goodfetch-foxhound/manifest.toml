@@ -121,6 +121,7 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -150,6 +151,7 @@ receiver = "(crate)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which the program holds with no connection and `crawl.start` sends."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl"]
 form = "type"
 
@@ -206,6 +208,7 @@ receiver = "(crate)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles, with its Payload's type (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["label"]
 form = "type"
 
@@ -224,6 +227,7 @@ receiver = "(crate)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."
+only = "Python's crawl declaration joins with #1468."
 words = ["dataset"]
 form = "type"
 
@@ -302,6 +306,7 @@ receiver = "(crate)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound::start_crawl` opens and `Crawl::serve` serves."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 
@@ -379,6 +384,7 @@ receiver = "(crate)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler is given for one attempt of a request of its Label (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "context"]
 form = "type"
 
@@ -561,6 +567,7 @@ crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 

@@ -38,7 +38,7 @@ fn address() -> SocketAddr {
 
 /// An Exposed Daemon's options: its listener at [`ADDRESS`] also carries
 /// the protocol over WebSocket.
-fn exposed() -> DaemonOptions {
+pub(super) fn exposed() -> DaemonOptions {
     DaemonOptions {
         endpoint: DaemonEndpoint::Tcp(address()),
         websocket: Some(Authorities::loopback(address())),

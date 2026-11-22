@@ -413,9 +413,22 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * Starts a Run its program drives, and answers once it is started. A Run
+   * ID names the Run for good, and a start under one acts on what the Run
+   * index holds (ADR 0102): no such Run begins it, `new`; an interrupted
+   * Run, stopped, failed, or running with no live writer, resumes from its
+   * committed state at the next run epoch, `resumed`, as `run.resume` does;
+   * a finished Run is answered as it ended with no handler called, `ended`.
+   * A Run live with a writer, in this engine or another, fails with
+   * `run_in_use`; a Run started with other inputs or by another caller with
+   * `run_conflict` listing each difference; a Run the Run index lists whose
+   * state is missing or unreadable with `run_state_unavailable`, never
+   * starting afresh.
+   *
    * Leaving the scope or `close()` stops the Run with a Checkpoint;
-   * `finish()` ends it. Starts a Run and returns once it is started
-   * (ADR 0102).
+   * `finish()` ends it.
+   *
+   * @experimental
    */
   async start(options: StartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "run.start");
@@ -549,11 +562,17 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * Shows each setting's effective value, the layer that set it and the
+   * layer that locked it, from the built-in defaults, the Operator policy,
+   * user configuration, the project configuration given and the run layer:
+   * the Connection's own settings with the run values given over them, or a
+   * live Run's as it opened when `run_id` names one; and lists the keys only
+   * the other Product honours as that Product's.
+   *
    * What the Connection runs with (ADR 0083): each setting under `keys`,
    * each a key or a prefix of keys such as `timeout`, every one when left
-   * out, with its effective value, the layer and origin that set it and
-   * the layer that locked it, as `goodfetch config explain` shows them.
-   * Fails with `closed` once the Connection is closed.
+   * out, with the origin that set it too, as `goodfetch config explain`
+   * shows them. Fails with `closed` once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     this.#openOrThrow("config.explain");

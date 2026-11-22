@@ -23,6 +23,12 @@ class Collie(Generic[T], ConnectionMembers):
         """Connects."""
         return cls()
 
+    def launch(self) -> None:
+        """Starts a Run, and answers once it is started.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+
     def close(self) -> None:
         """Closes it."""
 

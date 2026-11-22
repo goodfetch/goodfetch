@@ -13,8 +13,9 @@ JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
 `JSONObject`, `JSONSchema`), and `AsyncConnection` and
 `Connection`, which both Products' Connections extend, and AI work's
 `AIWorkResult`, matched on `Finished` and `Stopped`, whose
-`require_verified()` raises `NotVerifiedError`, all of which this
-package re-exports;
+`require_verified()` raises `NotVerifiedError`, and `ExperimentalWarning`,
+the category of an Experimental member's warning (ADR 0030), which a
+program's filter names, all of which this package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
 `goodfetch_collie.testing` opens a Connection over a transport a test holds.
 
@@ -175,6 +176,7 @@ from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.limits import Limits, Money, Prices
+from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
@@ -237,6 +239,7 @@ __all__ = [
     "EngineOutputInvalidError",
     "EnginePanickedError",
     "ExecutableBlockedBySmartAppControlError",
+    "ExperimentalWarning",
     "ExplainedSetting",
     "FileWriteFailedError",
     "Finished",

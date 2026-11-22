@@ -3,6 +3,7 @@
 //! projection by the same rules each generator applies, so a manifest line
 //! is checked against the generators rather than a copy of their rules.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -32,13 +33,50 @@ fn read_json(root: &Path, name: &str) -> Result<Value> {
     serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
+/// The committed bundle and Collie's projection, which Collie's layer is
+/// built from: it reads neither Foxhound's projection nor the version.
+fn collie_inputs(root: &Path) -> Result<(Value, Value)> {
+    Ok((
+        read_json(root, "bundle.json")?,
+        read_json(root, input_name(Product::Collie))?,
+    ))
+}
+
+/// The entries some member every language's generator writes on Collie's
+/// handles serves: each member, a sub-object's included, each read and each
+/// `on` listener. Foxhound's operations add none yet: its generators write
+/// no handle.
+pub(crate) fn handle_entries(root: &Path) -> Result<BTreeSet<String>> {
+    let (bundle, collie) = collie_inputs(root)?;
+    let layer = Layer::new(&bundle, &collie, &Value::Null, Product::Collie, "")?;
+    let mut entries = BTreeSet::new();
+    for handle in handles::handles(&layer)? {
+        let members = handle
+            .members
+            .iter()
+            .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+            .map(|member| member.operation);
+        let reads = handle.reads().iter().map(|read| read.operation);
+        let listeners = handle
+            .listener
+            .iter()
+            .chain(&handle.published_listener)
+            .map(|listener| listener.operation);
+        entries.extend(
+            members
+                .chain(reads)
+                .chain(listeners)
+                .map(|operation| operation.name.clone()),
+        );
+    }
+    Ok(entries)
+}
+
 /// The members every language's generator writes on Collie's handles, which
 /// each Product's SDK hands out (ADR 0095). Foxhound's operations add none
 /// yet: its generators write no handle.
 pub(crate) fn handle_members(root: &Path) -> Result<Vec<HandleMember>> {
-    let bundle = read_json(root, "bundle.json")?;
-    let collie = read_json(root, input_name(Product::Collie))?;
-    // Collie's layer reads neither Foxhound's projection nor the version.
+    let (bundle, collie) = collie_inputs(root)?;
     let layer = Layer::new(&bundle, &collie, &Value::Null, Product::Collie, "")?;
     let mut members = Vec::new();
     for handle in handles::handles(&layer)? {

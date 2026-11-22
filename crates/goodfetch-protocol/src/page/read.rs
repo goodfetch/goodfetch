@@ -31,7 +31,9 @@ use super::{ARRIVED_IN, PageId};
 use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
 
 /// One named field (ADR 0147): a value field, a list or rows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+// It reads from an object as serde's untagged enum of the three, with no
+// copy of it first, and from nothing else (`decode`, issue 3324).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum PageField {
     /// The first element its locator finds.
@@ -153,7 +155,9 @@ impl PageField {
 /// What finds a field's element, named by `kind`: a CSS selector or an
 /// `XPath` expression, each read alike on every tier, a page a fetch tier
 /// serves from its document reading it as a browser reads it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+// It reads from an object as serde's internally tagged enum, with no copy
+// of it first, and from nothing else (`decode`, issue 3324).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FieldLocator {
     /// A CSS selector.
@@ -372,6 +376,8 @@ pub const PAGE_READ: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+mod decode;
 
 #[cfg(test)]
 mod tests;

@@ -1044,7 +1044,10 @@ export class Channel {
     return inCall(error, method, this.#owner.operationNames);
   }
 
-  /** Stops the served request the engine cancelled, and answers it `call_cancelled` (ADR 0038). */
+  /**
+   * Stops the served request the engine cancelled, and answers it `call_cancelled` (ADR 0038).
+   * The engine cancels through `$/cancel` as the requesting Client, so `by` is `client` (ADR 0113).
+   */
   #cancelServed(id: MessageId): void {
     const serving = this.#serving.get(id);
     if (serving === undefined) {
@@ -1052,7 +1055,7 @@ export class Channel {
     }
     this.#serving.delete(id);
     const cancelled = new CallCancelledError("the engine cancelled its request", {
-      details: { by: "engine" },
+      details: { by: "client" },
     });
     serving.abort(cancelled);
     this.#send({ id, error: replyOfError(cancelled) });

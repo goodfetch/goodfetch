@@ -1158,15 +1158,8 @@ fn authority(
     let above_configuration =
         given.run_authority || matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);
     let recipe_or_model = layer == SettingsLayer::Recipe || for_model;
-    let afar = from_afar(layer, given);
-    let configuration_only = || {
-        refused(
-            current.clone(),
-            format!(
-                "{afar}`{name}` is taken only from an Operator policy and user and project configuration"
-            ),
-        )
-    };
+    let exposed = sent_to_an_exposed_daemon(layer, given);
+    let configuration_only = || refused(current.clone(), configuration_only(name, exposed));
     match key.setting.authority {
         Authority::Fixed => Err(refused(
             current.clone(),
@@ -1219,12 +1212,7 @@ fn authority(
             ))
         }
         Authority::Narrowed if above_configuration && !narrows(key, value, &current.value) => {
-            Err(refused(
-                current.clone(),
-                format!(
-                    "{afar}a Recipe or a run only narrows `{name}`; widen it in configuration or an Operator policy"
-                ),
-            ))
+            Err(refused(current.clone(), only_narrowed(name, exposed)))
         }
         Authority::HostsNarrowedByRecipeOrModel(list)
             if recipe_or_model && !hosts::narrows(list, value, &current.value) =>
@@ -1254,14 +1242,38 @@ fn authority(
     }
 }
 
-/// What a refusal says first of a value at `layer`, when `given` holds it
-/// to the run layer's authority: a project configuration sent to an
-/// Exposed Daemon (ADR 0083). Nothing otherwise.
-fn from_afar(layer: SettingsLayer, given: Given) -> &'static str {
-    if given.run_authority && layer == SettingsLayer::ProjectConfiguration {
-        "a project file sent to an Exposed Daemon has only the run layer's authority there, and "
+/// Whether a value at `layer`, as `given` says, is a project
+/// configuration sent to an Exposed Daemon, held to the run layer's
+/// authority there (ADR 0083).
+fn sent_to_an_exposed_daemon(layer: SettingsLayer, given: Given) -> bool {
+    given.run_authority && layer == SettingsLayer::ProjectConfiguration
+}
+
+/// The `fix` of `name`, which only configuration and an Operator policy
+/// set, refused at a layer above them, or from a project file `exposed`
+/// to a Daemon.
+fn configuration_only(name: &str, exposed: bool) -> String {
+    if exposed {
+        format!(
+            "a project file sent to an Exposed Daemon has only the run layer's authority there: set `{name}` in the Daemon's own Operator policy or configuration, on its machine"
+        )
     } else {
-        ""
+        format!("`{name}` is taken only from an Operator policy and user and project configuration")
+    }
+}
+
+/// The `fix` of `name`, which a Recipe and a run only narrow, widened at
+/// a layer above configuration, or from a project file `exposed` to a
+/// Daemon.
+fn only_narrowed(name: &str, exposed: bool) -> String {
+    if exposed {
+        format!(
+            "a project file sent to an Exposed Daemon has only the run layer's authority there, which only narrows `{name}`: widen it in the Daemon's own Operator policy or configuration, on its machine"
+        )
+    } else {
+        format!(
+            "a Recipe or a run only narrows `{name}`; widen it in configuration or an Operator policy"
+        )
     }
 }
 

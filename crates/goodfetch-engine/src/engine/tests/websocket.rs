@@ -22,7 +22,6 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::daemon::{TOKEN, daemon as served, hello_with, no_handover, options as daemon_options};
 use super::events::{body_bytes, credit, engine as streaming_engine};
-use super::run::call;
 use super::{Client, engine, records_of};
 use crate::daemon::DaemonOptions;
 use crate::endpoint::Authorities;
@@ -39,7 +38,7 @@ fn address() -> SocketAddr {
 
 /// An Exposed Daemon's options: its listener at [`ADDRESS`] also carries
 /// the protocol over WebSocket.
-fn exposed() -> DaemonOptions {
+pub(super) fn exposed() -> DaemonOptions {
     DaemonOptions {
         endpoint: DaemonEndpoint::Tcp(address()),
         websocket: Some(Authorities::loopback(address())),
@@ -384,109 +383,4 @@ fn a_message_longer_than_the_limit_is_answered_message_too_large_and_the_websock
         (json!("message_too_large"), Vec::<Value>::new()),
         "{answer}"
     );
-}
-
-/// A project file a Client sends keeps layer 3's rank everywhere, but on an
-/// Exposed Daemon only the run layer's authority (ADR 0083): a value that
-/// widens what ADR 0028 reserves to configuration, such as `trusted_cas` or
-/// `pay_domains`, is refused there with `setting_locked`, on `run.start`
-/// as on `config.explain`, while this machine's Daemon takes it as
-/// `project_configuration`.
-///
-/// Covers: story:11-75, error:setting_locked, operation:config.explain, setting:tls.trusted_cas, setting:paid_fetch.domains
-#[rstest]
-#[case::trusted_cas_explained_on_the_machines_daemon(
-    Product::Collie,
-    false,
-    "config.explain",
-    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
-    None
-)]
-#[case::trusted_cas_explained_on_an_exposed_daemon(
-    Product::Collie,
-    true,
-    "config.explain",
-    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
-    Some("tls.trusted_cas")
-)]
-#[case::trusted_cas_started_on_an_exposed_daemon(
-    Product::Collie,
-    true,
-    "run.start",
-    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
-    Some("tls.trusted_cas")
-)]
-#[case::pay_domains_explained_on_an_exposed_daemon(
-    Product::Foxhound,
-    true,
-    "config.explain",
-    json!({ "paid_fetch": { "domains": ["shop.example"] } }),
-    Some("paid_fetch.domains")
-)]
-fn a_project_file_sent_to_an_exposed_daemon_widens_nothing_reserved_to_configuration(
-    #[case] product: Product,
-    #[case] is_exposed: bool,
-    #[case] method: &str,
-    #[case] settings: Value,
-    #[case] locked: Option<&str>,
-) {
-    let options = if is_exposed {
-        exposed()
-    } else {
-        daemon_options(true, &no_handover())
-    };
-    let needs = product.as_str();
-    let (_, answer) = served(
-        &engine(product),
-        &TestEnv::new(),
-        options,
-        |dialer| async move {
-            let (reader, writer) = dialer.connect().await.unwrap().split();
-            let mut client = Client {
-                lines: BufReader::new(reader).lines(),
-                writer,
-            };
-            client
-                .send(&[hello_with(needs, "0.1", "sdk_typescript", Some(TOKEN))])
-                .await;
-            client.next().await;
-            let project = json!({ "path": "/work/goodfetch.toml", "settings": settings });
-            call(&mut client, 1, method, json!({ "project": project })).await
-        },
-    );
-
-    let outcome = if locked.is_some() {
-        let data = &answer["error"]["data"];
-        (
-            data["code"].clone(),
-            data["key"].clone(),
-            data["layer"].clone(),
-        )
-    } else {
-        let explained = answer["result"]["settings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|setting| setting["key"] == json!("tls.trusted_cas"))
-            .cloned()
-            .unwrap_or_default();
-        (
-            json!(null),
-            explained["key"].clone(),
-            explained["layer"].clone(),
-        )
-    };
-    let expected = match locked {
-        Some(key) => (
-            json!("setting_locked"),
-            json!(key),
-            json!("project_configuration"),
-        ),
-        None => (
-            json!(null),
-            json!("tls.trusted_cas"),
-            json!("project_configuration"),
-        ),
-    };
-    assert_eq!(outcome, expected, "{answer}");
 }

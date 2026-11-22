@@ -26,6 +26,8 @@ class it names is a member of that name:
 
 A member is generated when the module declaring it has a `generated`
 segment, and the language library's when it comes from outside the SDK.
+Each carries its docstring, `doc`, and its decorators' names, `markers`,
+such as PEP 702's `deprecated`.
 An `__all__` declared other than as one list of strings, or naming what
 its module neither defines nor imports, fails the read: its message goes
 to stderr and the exit code is 1.
@@ -301,15 +303,57 @@ def instance_fields(init: ast.FunctionDef) -> list[str]:
     return fields
 
 
+def decorator_name(decorator: ast.expr) -> str | None:
+    """The last name of a decorator, `deprecated` for `@warnings.deprecated(…)`."""
+    expression = decorator.func if isinstance(decorator, ast.Call) else decorator
+    if isinstance(expression, ast.Name):
+        return expression.id
+    if isinstance(expression, ast.Attribute):
+        return expression.attr
+    return None
+
+
+def documentation(nodes: list[ast.stmt]) -> tuple[str, list[str]]:
+    """The docstring and decorators' names of a member's statements.
+
+    An overloaded function's statements are its `@overload` stubs and its
+    implementation: the first docstring among them is its doc, and every
+    decorator of any of them is its marker, as PEP 702's `@deprecated` is.
+    """
+    doc = ""
+    markers: list[str] = []
+    for node in nodes:
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        doc = doc or (ast.get_docstring(node) or "")
+        for decorator in node.decorator_list:
+            name = decorator_name(decorator)
+            if name is not None and name not in markers:
+                markers.append(name)
+    return doc, markers
+
+
+def named(body: list[ast.stmt], name: str) -> list[ast.stmt]:
+    """The functions and classes of `body` named `name`."""
+    return [
+        node
+        for node in body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        and node.name == name
+    ]
+
+
 def row(
     entry: Module,
     receiver: str,
     member: str,
     declared: Declared | Library,
     identity: str,
+    nodes: list[ast.stmt],
 ) -> dict[str, object]:
-    """One exported member, as `exports.rs` reads it."""
+    """One exported member, as `exports.rs` reads it, `nodes` its statements."""
     library = isinstance(declared, Library) or is_dunder(member)
+    doc, markers = documentation(nodes)
     return {
         "entry": entry.name,
         "receiver": receiver,
@@ -319,6 +363,8 @@ def row(
         "package": declared.module.package if isinstance(declared, Declared) else None,
         "generated": isinstance(declared, Declared) and declared.module.generated,
         "library": library,
+        "doc": doc,
+        "markers": markers,
     }
 
 
@@ -347,7 +393,10 @@ def class_rows(
             continue
         seen.add(name)
         identity = f"{owner.module.name}:{owner.name}.{name}"
-        rows.append(row(entry, receiver, name, owner, identity))
+        nodes = (
+            named(owner.node.body, name) if isinstance(owner.node, ast.ClassDef) else []
+        )
+        rows.append(row(entry, receiver, name, owner, identity, nodes))
     return rows
 
 
@@ -378,7 +427,12 @@ def exports(sdk: Path) -> list[dict[str, object]]:
                 if isinstance(declared, Declared)
                 else f"{declared.module}:{declared.name}"
             )
-            rows.append(row(module, MODULE, name, declared, identity))
+            nodes = (
+                named(statements(declared.module.tree.body), declared.name)
+                if isinstance(declared, Declared)
+                else []
+            )
+            rows.append(row(module, MODULE, name, declared, identity, nodes))
             if isinstance(declared, Declared) and isinstance(
                 declared.node, ast.ClassDef
             ):

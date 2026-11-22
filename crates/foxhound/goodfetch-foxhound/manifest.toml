@@ -121,6 +121,7 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -150,6 +151,7 @@ receiver = "(crate)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which the program holds with no connection and `crawl.start` sends."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl"]
 form = "type"
 
@@ -206,6 +208,7 @@ receiver = "(crate)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles, with its Payload's type (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["label"]
 form = "type"
 
@@ -224,6 +227,7 @@ receiver = "(crate)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."
+only = "Python's crawl declaration joins with #1468."
 words = ["dataset"]
 form = "type"
 
@@ -302,6 +306,7 @@ receiver = "(crate)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound::start_crawl` opens and `Crawl::serve` serves."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 
@@ -379,6 +384,7 @@ receiver = "(crate)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler is given for one attempt of a request of its Label (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "context"]
 form = "type"
 
@@ -561,6 +567,7 @@ crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -821,6 +828,38 @@ reason = "The `paid_fetch` Usage kind a Limit caps, which only Foxhound counts (
 only = "TypeScript names the Usage kind as the `paidFetches` key of its `Limits` object, plain data, where Rust's `Limits` takes a `UsageKind` value (ADR 0080)."
 words = ["paid", "fetches"]
 form = "constant"
+
+[[unreached]]
+entries = ["sample.crawl"]
+reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
+
+[[unreached]]
+entries = ["crawl.serve"]
+reason = "A handler process of `workers=N` offers its handler with it (ADR 0024); issue 2804 adds `serve`."
+
+[[unreached]]
+entries = ["crawl_request.links"]
+reason = "What a per-link Payload function of `enqueueLinks` reads; `enqueue_links` takes one Payload for every link, so nothing reads it yet."
+
+[[unreached]]
+entries = ["dataset.list", "dataset.page", "dataset.query"]
+reason = "No member reads a Run's Datasets yet."
+
+[[unreached]]
+entries = ["run.export", "export.save_as", "export.stream"]
+reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
+
+[[unreached]]
+entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
+reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
+
+[[unreached]]
+entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
+reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+
+[[unreached]]
+entries = ["run.rejected_records"]
+reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[target]]
 crate = "goodfetch-collie-client"

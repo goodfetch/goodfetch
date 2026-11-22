@@ -264,7 +264,6 @@ fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
 /// resumable by its Run ID, and exits `130` once it stopped.
 ///
 /// Covers: story:11-1132, command:crawl.start, command:run.report, exit:interrupted
-#[cfg(unix)]
 #[test]
 fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130() {
     let env = TestEnv::new();
@@ -299,7 +298,6 @@ fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130() {
 /// test shows that it stops the Run with its Checkpoint.
 ///
 /// Covers: story:11-1132, command:crawl.start, exit:interrupted
-#[cfg(unix)]
 #[test]
 fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
     const ARGUMENTS: [&str; 8] = [
@@ -335,11 +333,9 @@ fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
             "the command never sent run.stop"
         );
     }
-    let status = process.interrupt_and_wait(SECOND_INTERRUPT_DEADLINE);
-    let code = status
-        .as_ref()
-        .ok()
-        .and_then(std::process::ExitStatus::code);
+    process.interrupt().unwrap();
+    let status = process.wait_within(SECOND_INTERRUPT_DEADLINE).unwrap();
+    let code = status.and_then(|status| status.code());
     record_command(&env, &ARGUMENTS, code).unwrap();
     let played = scripted.child().wait().unwrap();
 
@@ -349,7 +345,6 @@ fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
 /// How long a command may take to exit after a second interrupt: far
 /// less than it would wait for the unanswered `run.stop`, which is for
 /// ever.
-#[cfg(unix)]
 const SECOND_INTERRUPT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Without `--follow`, `run records` prints each Record as it arrives,

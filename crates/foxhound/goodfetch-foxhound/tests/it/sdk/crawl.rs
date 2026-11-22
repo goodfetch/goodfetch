@@ -749,6 +749,52 @@ fn a_crawl_with_a_label_left_unhandled_is_not_started() {
     });
 }
 
+/// A crawl's Run carries the project file its connection read (ADR 0083):
+/// `crawl.start` sends it, so the Run explains the file's value at
+/// `project_configuration`.
+///
+/// Covers: story:11-75
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes its project file before any async worker runs"
+)]
+fn a_crawls_run_carries_the_project_file_its_connection_read() {
+    let env = TestEnv::new();
+    let project = env.folder().join("goodfetch.toml");
+    std::fs::write(
+        &project,
+        "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 45000\n",
+    )
+    .unwrap();
+    let explained = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(super::options(&env).project(&project))
+            .await
+            .unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        crawl
+            .handle(&page, |_ctx: CrawlContext<Visit>| async { Ok(()) })
+            .unwrap();
+        let seed = Seed::new("https://shop.test/", &page, Visit { depth: 0 });
+        let run = foxhound.start_crawl(&crawl, [seed]).await.unwrap();
+        let explained = run
+            .run()
+            .explain_settings()
+            .keys(["timeout.navigation"])
+            .await
+            .unwrap();
+        foxhound.close().await.unwrap();
+        explained
+    });
+
+    let setting = &explained.settings[0];
+    assert_eq!(
+        json!([setting.value, setting.layer]),
+        json!([45_000, "project_configuration"])
+    );
+}
+
 /// A seed of another crawl's Label fails the start with `label_unknown`.
 #[test]
 fn a_seed_of_another_crawls_label_is_refused() {

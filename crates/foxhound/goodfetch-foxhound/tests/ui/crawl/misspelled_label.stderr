@@ -1,0 +1,11 @@
+error[E0425]: cannot find value `pgae` in this scope
+  --> tests/ui/crawl/misspelled_label.rs:15:27
+   |
+15 |     let _ = crawl.handle(&pgae, |_ctx: CrawlContext<Visit>| async { Ok(()) });
+   |                           ^^^^
+   |
+help: a local variable with a similar name exists
+   |
+15 -     let _ = crawl.handle(&pgae, |_ctx: CrawlContext<Visit>| async { Ok(()) });
+15 +     let _ = crawl.handle(&page, |_ctx: CrawlContext<Visit>| async { Ok(()) });
+   |

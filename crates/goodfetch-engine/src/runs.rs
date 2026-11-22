@@ -44,6 +44,8 @@
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
 //! whole so every change to a Run's state passes through one loop. A Run's
+//! disk work runs beside that loop, which keeps each Run's calls in order
+//! meanwhile, `beside`'s; a start's or a resume's opening is `opening`'s. A Run's
 //! identity and the value that asks it to stop are `run_identity`'s; its
 //! charging, with what a refusal does to it, the ledger's charging
 //! module's; its Secrets with the making of its data key `keys`', its Run
@@ -78,7 +80,7 @@ use goodfetch_protocol::run::{
     RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC, RUN_STATE_COMMIT_INTERVAL,
     RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
     RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
-    StartInput, StartedAs, StopReason, Tags,
+    StartInput, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
@@ -104,11 +106,9 @@ pub use self::reindex::{Reindexed, reindex};
 pub use self::report::{ReportPart, ReportWarnings};
 pub use self::writer::{Writer, test_writer};
 
+use self::beside::{Order, Queues, Reach, Reply};
 use self::ended::{EndedHere, EndedRuns};
-use self::folder::{
-    Compared, FixedSettings, Found, RunRow, canonical_inputs, input_differences, masked_tags,
-    read_found, read_report, text, write_end,
-};
+use self::folder::{Compared, FixedSettings, RunRow, read_report, text, write_end};
 use self::keys::KeysParts;
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::Progressing;
@@ -116,7 +116,7 @@ use self::reader::Following;
 use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
-use self::writer::{LockError, retried, take_lock, try_lock};
+use self::writer::{LockError, take_lock};
 use crate::CallError;
 use crate::admission::{self, Admission, Gates};
 use crate::audit::{AuditLog, Origin};
@@ -134,8 +134,7 @@ use crate::governor::{
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{
-    Allowance, ChargeError, Charged, Charging, ChargingParts, Refusal, Reservation, RunCharging,
-    UnjournaledCharges,
+    Allowance, ChargeError, Charged, ChargingParts, Reservation, RunCharging, UnjournaledCharges,
 };
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
@@ -150,8 +149,8 @@ use crate::run_index::{self, RunIndex};
 use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, BatchSync, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions,
-    RunStateTables, SecretColumn, Syncing,
+    BatchSync, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
+    SecretColumn, Syncing,
 };
 use crate::run_trace::{self, RawCallLine};
 use crate::sandbox_probe::SandboxProbe;
@@ -1167,6 +1166,58 @@ enum Command {
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
     LastResort(LastResort),
+    /// The disk work beside the registry of the Run it names, or of none,
+    /// ended (`beside`).
+    Done(Option<RunId>),
+    /// A decision that work beside the registry hands it (`opening`).
+    Decide(Box<dyn FnOnce(&mut Registry) + Send>),
+}
+
+impl Command {
+    /// Which calls it waits behind while a Run's disk work goes beside the
+    /// registry (`beside`): a call on a Run behind that Run's, a drain or
+    /// a stop of every Run behind every Run's, and a report of what no call
+    /// on a Run changes behind none.
+    fn reach(&self) -> Reach {
+        match self {
+            Self::Start(start, ..) => match &start.0.run_id {
+                Some(run_id) => Reach::Run(run_id.clone()),
+                None => Reach::InOrder,
+            },
+            Self::Resume(resume, ..) => Reach::Run(resume.0.run_id.clone()),
+            Self::Finish(run_id, ..)
+            | Self::ProgressMessage(run_id, ..)
+            | Self::Abort(run_id, ..)
+            | Self::End(run_id, _)
+            | Self::Uses(run_id, _)
+            | Self::Live(run_id, _)
+            | Self::Checkpoint(run_id, ..)
+            | Self::Stop(run_id, ..)
+            | Self::StoredKey(run_id, ..)
+            | Self::SafeStop(run_id, ..)
+            | Self::Reader(run_id, _)
+            | Self::Progress(run_id, _)
+            | Self::Locate(run_id, _)
+            | Self::Discard(run_id, _) => Reach::Run(run_id.clone()),
+            Self::Outlive(_) => Reach::InOrder,
+            Self::Drain(..) | Self::StopAll(..) | Self::StopConnection(..) => Reach::Every,
+            Self::Ended(..)
+            | Self::Checkpointed(..)
+            | Self::Discarded(..)
+            | Self::LiveCount(_)
+            | Self::Health(_)
+            | Self::Folder(..)
+            | Self::Governor(_)
+            | Self::Machine(_)
+            | Self::GenerateId(_)
+            | Self::Index(_)
+            | Self::Storage(_)
+            | Self::StorageFailed(_)
+            | Self::LastResort(_)
+            | Self::Done(_)
+            | Self::Decide(_) => Reach::Never,
+        }
+    }
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
@@ -2369,11 +2420,13 @@ impl Runs {
             gates: setup.gates.clone(),
             politeness,
         });
+        let for_one_run = owner.child_for(OwnerKind::Run);
         let registry = Registry {
             setup,
             admitting,
             owner: owner.part("Run registry's shared work"),
-            for_one_run: owner.child_for(OwnerKind::Run),
+            disk: Arc::new(for_one_run.child()),
+            for_one_run,
             ending_owner: owner.child_for(OwnerKind::Run),
             itself: Arc::clone(&runs.registry),
             readers,
@@ -2381,7 +2434,8 @@ impl Runs {
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
-            machine: None,
+            machine: Machine::Unread,
+            turned_busy: Vec::new(),
             draining: false,
             outliving: std::collections::BTreeSet::new(),
             found_ended: std::collections::BTreeSet::new(),
@@ -3823,8 +3877,15 @@ struct Registry {
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
-    /// The machine's identity, once read.
-    machine: Option<String>,
+    /// The machine's identity, read once.
+    machine: Machine,
+    /// The Runs whose disk work the last command sent beside the loop,
+    /// which the loop marks busy before it takes the next one; it keeps
+    /// the commands that wait meanwhile itself, since they are not `Sync`.
+    turned_busy: Vec<RunId>,
+    /// The owner of that disk work, of one Run: its blocking reads and
+    /// writes, a start's and a resume's.
+    disk: Arc<TaskOwner>,
     /// Whether the engine drains, taking no Run (ADR 0049).
     draining: bool,
     /// The Daemon's Connections whose Runs go on once they end: the CLI's,
@@ -3845,6 +3906,17 @@ struct Registry {
     /// The Runs being discarded, beside the registry: no start, resume or
     /// read of one is taken until its discard ends.
     discarding: std::collections::BTreeSet<RunId>,
+}
+
+/// Where the read of the machine's identity stands (ADR 0056): read once,
+/// beside the registry, by the first resume of a Run bound to its machine.
+enum Machine {
+    /// Not read yet.
+    Unread,
+    /// Being read, for these.
+    Reading(Vec<oneshot::Sender<Result<String, RunError>>>),
+    /// Read.
+    Read(String),
 }
 
 /// Where the governor's last resort stands (ADR 0040): it stops one Run at
@@ -3899,16 +3971,77 @@ impl Registry {
         startup.await;
         self.reclaim().await;
         self.follow_governor();
-        while let Some(command) = mailbox.recv().await {
+        let mut queues = Queues::new();
+        loop {
+            // The calls a Run's disk work kept waiting go before the
+            // mailbox, in the order they came (`beside`).
+            let (command, order) = match queues.next() {
+                Some(next) => next,
+                None => match mailbox.recv().await {
+                    Some(command) => (command, Order::Arrived),
+                    None => break,
+                },
+            };
+            if let Command::Done(run_id) = &command {
+                if let Some(run_id) = run_id {
+                    queues.done(run_id);
+                }
+                continue;
+            }
+            let reach = command.reach();
+            let Some(command) = queues.unless_waiting(command, reach, order) else {
+                continue;
+            };
             if let Some(command) = self.unless_discarding(command) {
                 self.ending_line(&command);
                 self.answer(command).await;
+            }
+            for run_id in self.turned_busy.drain(..) {
+                queues.busy(&run_id);
             }
         }
         self.readers.wait().await;
         self.ending_owner.wait().await;
         self.for_one_run.wait().await;
+        self.disk.wait().await;
         self.owner.wait().await;
+    }
+
+    /// Does `work`, the disk work of the Run `run_id` or of none, beside
+    /// the loop, which keeps the calls on that Run waiting until it ends
+    /// and answers every other meanwhile (`beside`). A panic in it ends it
+    /// too, then goes on to its owner, of one Run.
+    fn beside(&mut self, run_id: Option<RunId>, work: impl Future<Output = ()> + Send + 'static) {
+        use futures_util::FutureExt as _;
+        if let Some(run_id) = &run_id {
+            self.turned_busy.push(run_id.clone());
+        }
+        let registry = self.runs.clone();
+        self.for_one_run.spawn(async move {
+            let ended = std::panic::AssertUnwindSafe(work).catch_unwind().await;
+            if let Some(registry) = registry.upgrade() {
+                let _ = registry.send(Command::Done(run_id)).await;
+            }
+            if let Err(panic) = ended {
+                std::panic::resume_unwind(panic);
+            }
+        });
+    }
+
+    /// Sends `answer` what `reply` answers for the Run `run_id`: now, or
+    /// once its disk work beside the loop is done.
+    fn reply<T: Send + 'static>(
+        &mut self,
+        run_id: &RunId,
+        reply: Reply<T>,
+        answer: oneshot::Sender<T>,
+    ) {
+        match reply {
+            Reply::Now(answered) => _ = answer.send(answered),
+            Reply::Later(work) => self.beside(Some(run_id.clone()), async move {
+                let _ = answer.send(work.await);
+            }),
+        }
     }
 
     /// Handles `command`, one of a Run the engine is not discarding.
@@ -3927,24 +4060,21 @@ impl Registry {
             Command::Drain(cause, answer) => {
                 let _ = answer.send(self.drain(cause).await);
             }
-            Command::Start(start, connection, answer) => {
-                let (start, secrets, link) = *start;
-                let started = self.start(start, secrets, connection, &link).await;
-                let _ = answer.send(started);
-            }
+            Command::Start(start, connection, answer) => self.start(start, connection, answer),
             Command::Finish(run_id, letting, _, answer) => {
-                let _ = answer.send(self.finish(&run_id, letting).await);
+                let finished = self.finish(&run_id, letting).await;
+                self.reply(&run_id, finished, answer);
             }
             Command::ProgressMessage(run_id, message, answer) => {
-                let _ = answer.send(self.progress_message(&run_id, message).await);
+                self.progress_message(run_id, message, answer);
             }
             Command::Abort(run_id, by, forwarded, raw, answer) => {
-                let _ = answer.send(self.abort(&run_id, by, forwarded, raw).await);
+                let aborted = self.abort(&run_id, by, forwarded, raw).await;
+                self.reply(&run_id, aborted, answer);
             }
-            Command::End(run_id, end) => {
-                let _ = self.end_or_report(&run_id, end).await;
-            }
-            Command::Uses(run_id, product) => self.uses(&run_id, product).await,
+            // An ended Run's report is read for no one.
+            Command::End(run_id, end) => _ = self.end_or_report(&run_id, end).await,
+            Command::Uses(run_id, product) => self.uses(&run_id, product),
             Command::Ended(run_id, ended) => self.ended(run_id, *ended),
             Command::StopAll(cause, answer) => {
                 let ids: Vec<RunId> = self.live.keys().cloned().collect();
@@ -3967,7 +4097,7 @@ impl Registry {
             Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
             Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
             Command::Checkpoint(run_id, location, answer) => {
-                self.checkpoint(run_id, location, answer).await;
+                self.checkpoint(run_id, location, answer);
             }
             Command::Checkpointed(run_id, checkpoint) => {
                 if let Some(live) = self.live.get_mut(&run_id) {
@@ -3978,25 +4108,20 @@ impl Registry {
                 }
             }
             Command::Stop(run_id, reason, location, _, answer) => {
-                let _ = answer.send(self.stop(&run_id, reason, location).await);
+                let stopped = self.stop(&run_id, reason, location).await;
+                self.reply(&run_id, stopped, answer);
             }
             Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
             Command::StoredKey(run_id, checkpoint, answer) => {
-                let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
+                self.stored_key(run_id, checkpoint, answer);
             }
             Command::Resume(resume, connection, answer) => {
-                let (resume, link, keys, stored) = *resume;
-                let resumed = self.resume(resume, keys, stored, connection).await;
-                if let Ok(Resumed::New { run, .. }) = &resumed {
-                    link.add_to(run.span());
-                }
-                let _ = answer.send(resumed);
+                self.resume(resume, connection, answer);
             }
-            Command::Machine(answer) => {
-                let _ = answer.send(self.machine().await);
-            }
+            Command::Machine(answer) => self.machine(answer),
             Command::SafeStop(run_id, by, raw, answer) => {
-                let _ = answer.send(self.safe_stop(&run_id, by, raw).await);
+                let stopped = self.safe_stop(&run_id, by, raw).await;
+                self.reply(&run_id, stopped, answer);
             }
             Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
             Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
@@ -4007,6 +4132,9 @@ impl Registry {
             Command::Storage(sample) => self.storage(&sample),
             Command::StorageFailed(folder) => self.storage_failed(&folder),
             Command::LastResort(last_resort) => self.last_resort(last_resort),
+            // The loop takes it before any command waits.
+            Command::Done(_) => {}
+            Command::Decide(decision) => decision(self),
         }
     }
 
@@ -4190,43 +4318,6 @@ impl Registry {
         }
     }
 
-    /// Whether this engine may resume the Run `run_id` that `held` holds in
-    /// `folder`: one bound to its machine only there (ADR 0056), one of its
-    /// Product only, and none while the filesystem of its run state or of
-    /// the Goodfetch home is at `critical` (ADR 0122).
-    async fn may_resume(
-        &mut self,
-        run_id: &RunId,
-        held: &checkpoint::Held,
-        folder: &Path,
-    ) -> Result<(), RunError> {
-        if let Some(RunBinding::Machine { machine }) = &held.binding
-            && *machine != self.machine().await?
-        {
-            return Err(RunError::BoundToMachine(run_id.clone()));
-        }
-        if !self.setup.product.contains(held.needs) {
-            return Err(RunError::NotInProduct {
-                run_id: run_id.clone(),
-                needs: held.needs,
-            });
-        }
-        let essential = vec![
-            self.run_state_of(folder),
-            self.setup.engine.home().root().to_owned(),
-        ];
-        match self.critical_among(essential).await {
-            Some((folder, filesystem)) => {
-                Err(RunError::ResourcesExhausted(Box::new(StorageExhausted {
-                    run_id: run_id.clone(),
-                    folder,
-                    filesystem,
-                })))
-            }
-            None => Ok(()),
-        }
-    }
-
     /// Stops every live Run at its next safe point, as at `critical`, after
     /// a write of a file they all depend on, in `folder`, met a full disk or
     /// an I/O error (ADR 0122).
@@ -4237,15 +4328,6 @@ impl Registry {
                 folder: Some(folder.display().to_string()),
             });
         }
-    }
-
-    /// The first of `folders` whose filesystem is at `critical` now, read
-    /// afresh rather than from the last sample (ADR 0122), with it.
-    async fn critical_among(&self, folders: Vec<PathBuf>) -> Option<(PathBuf, Filesystem)> {
-        let governor = self.setup.governor.clone();
-        self.owner
-            .blocking(move || critical_among(&governor, folders))
-            .await
     }
 
     /// Takes no Run from now on, stops each live Run for the drain with a
@@ -4259,7 +4341,9 @@ impl Registry {
             if cause == Cause::Panic {
                 self.warn_engine_panicked(&run_id).await;
             }
-            if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
+            // A live Run's end is decided here, with no disk work beside.
+            let stopped = self.stop(&run_id, StopReason::Drain, None).await;
+            if let Ok(report) = stopped.resolve().await {
                 reports.push(report);
             }
         }
@@ -4274,7 +4358,7 @@ impl Registry {
             let end = End::Stopped(StopReason::Abort {
                 by: StoppedBy::Client,
             });
-            if let Ok(report) = self.end_or_report(&run_id, end).await {
+            if let Ok(report) = self.end_or_report(&run_id, end).await.resolve().await {
                 reports.push(report);
             }
         }
@@ -4290,7 +4374,7 @@ impl Registry {
         for run_id in ids {
             self.warn_engine_panicked(&run_id).await;
             let end = End::Stopped(StopReason::EnginePanicked);
-            if let Ok(report) = self.end_or_report(&run_id, end).await {
+            if let Ok(report) = self.end_or_report(&run_id, end).await.resolve().await {
                 reports.push(report);
             }
         }
@@ -4615,317 +4699,6 @@ impl Registry {
             .expect("invariant: a lowercase ULID is a Run ID")
     }
 
-    async fn start(
-        &mut self,
-        mut start: Start,
-        secrets: RunSecrets,
-        connection: Option<ConnectionId>,
-        link: &Link,
-    ) -> Result<Started, StartError> {
-        let run_id = match &start.run_id {
-            Some(run_id) => run_id.clone(),
-            None => self.generated_id(),
-        };
-        // Its tags and inputs pass through the `Mask` before run state and
-        // the Run index keep them (spec #564), as every writer does.
-        let given = canonical_inputs(&start.inputs);
-        let mut kept = start.inputs.clone();
-        for value in kept.values_mut() {
-            self.setup.masks.apply_value(value, Scope::Kept);
-        }
-        let inputs = canonical_inputs(&kept);
-        start.tags = masked_tags(&self.setup.masks, &start.tags);
-        // A run file a crash left at `off` is discarded, never read: the Run
-        // starts again (ADR 0138).
-        let discarded = self
-            .discard_unclean(&run_id, start.settings.as_ref())
-            .await?;
-        if let Some(found) = self.existing(&run_id).await? {
-            let mut differences = Vec::new();
-            if found.needs != start.needs {
-                differences.push(StartInput::Product);
-            }
-            if found.kind != start.kind {
-                differences.push(StartInput::Kind);
-            }
-            if found.caller != CALLER {
-                differences.push(StartInput::Caller);
-            }
-            // A value that left the masks since the Run kept its inputs
-            // masked is no difference: an input differs when it differs
-            // both masked and as given.
-            let unmasked = input_differences(&found.inputs, &given);
-            differences.extend(
-                input_differences(&found.inputs, &inputs)
-                    .into_iter()
-                    .filter(|input| unmasked.contains(input)),
-            );
-            if !differences.is_empty() {
-                return Err(StartError::Conflict {
-                    run_id,
-                    differences,
-                });
-            }
-            // A start declares the whole Run again: every key fixed for
-            // its life keeps the value it began with (ADRs 0102 and 0120).
-            FixedSettings::of(start.settings.as_ref(), &self.setup.masks)
-                .unchanged(&run_id, &found.fixed_settings, Compared::Every)
-                .map_err(StartError::FixedSetting)?;
-            if let Err(refused) = lifecycle::apply(found.lifecycle, RunEvent::Start) {
-                let folder = self.folder(&run_id);
-                return Err(match RunError::refused(&run_id, &folder, refused) {
-                    RunError::InUse { run_id, folder } => StartError::InUse { run_id, folder },
-                    other => StartError::Internal {
-                        run_id,
-                        message: other.to_string(),
-                    },
-                });
-            }
-            // The start table (ADR 0102): a Run this engine runs is in use,
-            // a finished one is answered as it ended, and any other is
-            // interrupted, which its caller resumes.
-            if self.live.contains_key(&run_id) {
-                let folder = self.folder(&run_id);
-                return Err(StartError::Live { run_id, folder });
-            }
-            if found.lifecycle != Lifecycle::Finished {
-                self.may_resume_after_limit(&run_id, connection).await?;
-                return Ok(Started::Interrupted(run_id));
-            }
-            self.found_ended.insert(run_id.clone());
-            return Ok(Started::Ended(RunStarted {
-                run_id,
-                started_as: StartedAs::Ended,
-                lifecycle: found.lifecycle,
-                needs: found.needs,
-            }));
-        }
-        // A Run the Run index lists whose state is gone is never started
-        // afresh (ADR 0102); one discarded, on purpose or after a crash at
-        // `off`, starts again. A generated Run ID names no listed Run.
-        if !discarded && start.run_id.is_some() {
-            self.listed_present(&run_id).await?;
-        }
-        let essential = self.engine_folders().essential();
-        if let Some((folder, filesystem)) = self.critical_among(essential).await {
-            return Err(StartError::ResourcesExhausted(Box::new(StorageExhausted {
-                run_id,
-                folder,
-                filesystem,
-            })));
-        }
-        let started = self
-            .begin(
-                run_id,
-                start,
-                inputs,
-                Keys { secrets, key: None },
-                connection,
-            )
-            .await?;
-        if let Started::New(run) = &started {
-            link.add_to(run.span());
-        }
-        Ok(started)
-    }
-
-    /// Discards the state of the Run `run_id`, which this engine does not
-    /// run, when its run file is one a crash left at `off` (ADR 0138), the
-    /// Run's Durability level now being the one its `settings` name: under
-    /// its writer lock, as a discard does, so another engine's live Run is
-    /// never touched.
-    #[cfg_attr(
-        windows,
-        expect(
-            clippy::result_large_err,
-            reason = "a Windows path is wider than a Unix one, and the error is a start's rare failure"
-        )
-    )]
-    async fn discard_unclean(
-        &mut self,
-        run_id: &RunId,
-        settings: Option<&RunSettings>,
-    ) -> Result<bool, UncleanDiscard> {
-        if self.live.contains_key(run_id) {
-            return Ok(false);
-        }
-        let folder = self.folder(run_id);
-        let discarding = discard::Discarding {
-            owner: &self.owner,
-            clock: &self.setup.engine.clock(),
-            entropy: &mut self.setup.entropy,
-        };
-        let discarded = discard::discard_unclean(
-            discarding,
-            run_id.as_str(),
-            &folder,
-            self.setup.run_state.vfs.as_deref(),
-            self.setup.install.as_ref(),
-            durability_of(settings),
-        )
-        .await
-        .map_err(|error| UncleanDiscard {
-            run_id: run_id.clone(),
-            folder,
-            error,
-        })?;
-        if discarded {
-            tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
-            // Its Run index row is marked *erased*, as a discard marks it, so
-            // a later start under its Run ID begins it rather than finding a
-            // listed Run whose state is missing (ADR 0102).
-            if let Err(error) = self.setup.engine.run_index().erase(run_id.clone()).await {
-                tracing::warn!(%error, run_id = %run_id, "the discarded Run's Run index row was not marked erased");
-            }
-            self.ended.forget(run_id);
-            self.found_ended.remove(run_id);
-            self.unrecorded.remove(run_id);
-        }
-        Ok(discarded)
-    }
-
-    /// Refuses with `Unavailable` a start under the ID of a Run the Run
-    /// index lists, not erased, whose state was not found: a start never
-    /// begins afresh a Run whose state is lost (ADR 0102). An index that
-    /// cannot be read lists nothing, as a start's check of it says.
-    async fn listed_present(&self, run_id: &RunId) -> Result<(), StartError> {
-        match self.setup.engine.run_index().read(run_id.clone()).await {
-            Ok(Some(row)) if row.presence != Presence::Erased => Err(StartError::Unavailable {
-                run_id: run_id.clone(),
-                folder: self.folder(run_id),
-                error: "the Run index lists the Run, but its state is missing".to_owned(),
-            }),
-            Ok(_) => Ok(()),
-            Err(error) => {
-                tracing::warn!(%error, run_id = %run_id, "the Run index cannot be read; the Run starts without it");
-                Ok(())
-            }
-        }
-    }
-
-    /// The Run of `run_id` this engine runs or ran, or whose state its
-    /// folder holds.
-    async fn existing(&self, run_id: &RunId) -> Result<Option<Found>, StartError> {
-        if let Some(live) = self.live.get(run_id) {
-            return Ok(Some(Found {
-                kind: live.kind,
-                needs: live.needs,
-                caller: CALLER.to_owned(),
-                inputs: live.inputs.clone(),
-                lifecycle: live.lifecycle,
-                fixed_settings: live.fixed_settings.clone(),
-            }));
-        }
-        let folder = self.folder(run_id);
-        let file = folder.join(RUN_FILE);
-        let vfs = self.setup.run_state.vfs.clone();
-        let found = self
-            .owner
-            .blocking(move || read_found(&file, vfs.as_deref()))
-            .await;
-        found.map_err(|error| StartError::Unavailable {
-            run_id: run_id.clone(),
-            folder,
-            error,
-        })
-    }
-
-    /// Takes the lock of the Run of `run_id` in `folder`, which no other
-    /// engine may hold while it runs there; one found held, perhaps only by
-    /// a reader's test, is retried as every writer retries it (ADR 0031).
-    async fn lock(&mut self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
-        let (owner, clock) = (&self.owner, &self.setup.engine.clock());
-        let taken = match try_lock(owner, folder).await {
-            Ok(Some(lock)) => Ok(Some(lock)),
-            // Only a retry draws from the engine's `Entropy`.
-            Ok(None) => retried(clock, &mut self.setup.entropy, || try_lock(owner, folder)).await,
-            Err(error) => Err(error),
-        };
-        match taken {
-            Ok(Some(lock)) => Ok(lock),
-            Ok(None) => Err(StartError::InUse {
-                run_id: run_id.clone(),
-                folder: folder.to_path_buf(),
-            }),
-            Err(error) => Err(StartError::Unavailable {
-                run_id: run_id.clone(),
-                folder: folder.to_path_buf(),
-                error,
-            }),
-        }
-    }
-
-    /// The charging of the new Run `run_id`, started on `connection`, its
-    /// state in `folder`, once it may start: every Limit that holds it has
-    /// something left, and none it cannot be placed outside of is one this
-    /// engine cannot evaluate (ADR 0041). A ledger that cannot be read
-    /// refuses it. The Run then holds the Limits this read, on the
-    /// connection it opened, so its charges open nothing (ADR 0140's E3),
-    /// and reads them again as its resolved `settings` say.
-    async fn may_start(
-        &self,
-        run_id: &RunId,
-        folder: &Path,
-        connection: Option<ConnectionId>,
-        settings: Option<&RunSettings>,
-    ) -> Result<Charging, StartError> {
-        let now = self.limits.now();
-        let mut charging = self.limits.charging(
-            run_id,
-            folder,
-            1,
-            self.limits.placement(run_id, connection),
-            ledger_read_interval(settings),
-        );
-        let may_start = self
-            .owner
-            .blocking(move || charging.may_start(now).map(|()| charging))
-            .await;
-        match may_start {
-            Ok(charging) => Ok(charging),
-            Err(Refusal::Reached(reached)) => Err(StartError::LimitReached(reached)),
-            Err(Refusal::NotUnderstood(limit)) => Err(StartError::LimitNotUnderstood(limit)),
-            Err(Refusal::Ledger(error)) => Err(StartError::Unavailable {
-                run_id: run_id.clone(),
-                folder: self.limits.ledger.path().to_owned(),
-                error: error.to_string(),
-            }),
-        }
-    }
-
-    /// Refuses the start of the interrupted Run `run_id` that a Limit
-    /// stopped while a Limit that holds it still has nothing left: no
-    /// person raised it and its period has not started again (ADR 0102's
-    /// start table), as [`Registry::may_start`] refuses a new Run. A Run
-    /// stopped for another reason resumes whatever its Limits hold; its
-    /// next charge reads them.
-    async fn may_resume_after_limit(
-        &self,
-        run_id: &RunId,
-        connection: Option<ConnectionId>,
-    ) -> Result<(), StartError> {
-        // A Run whose run file holds no report, killed while it ran, was
-        // stopped by no Limit; one whose file cannot be read fails the
-        // resume that follows with that cause.
-        let Ok(ended) = self.report_of(run_id).await else {
-            return Ok(());
-        };
-        let stopped_by_limit = matches!(
-            &*ended.borrow(),
-            Some(Ended::Report(report) | Ended::Unwritten(report))
-                if matches!(report.stop_reason, Some(StopReason::Limit(_)))
-        );
-        if !stopped_by_limit {
-            return Ok(());
-        }
-        // Only whether it may start: its charging, and the interval it
-        // would read at, go with this check.
-        let folder = self.folder(run_id);
-        self.may_start(run_id, &folder, connection, None)
-            .await
-            .map(drop)
-    }
-
     /// The Run `run_id`'s own row as `start` begins it at `started_at`.
     fn run_row(
         &self,
@@ -4949,105 +4722,6 @@ impl Registry {
             clean_up_digest: start.clean_up_digest.clone(),
             fixed_settings: FixedSettings::of(start.settings.as_ref(), &self.setup.masks).kept(),
         }
-    }
-
-    async fn begin(
-        &mut self,
-        run_id: RunId,
-        start: Start,
-        inputs: String,
-        keys: Keys,
-        connection: Option<ConnectionId>,
-    ) -> Result<Started, StartError> {
-        let folder = self.folder(&run_id);
-        let unavailable = |error: String| StartError::Unavailable {
-            run_id: run_id.clone(),
-            folder: folder.clone(),
-            error,
-        };
-        self.check_index().await?;
-        let charging = self
-            .may_start(&run_id, &folder, connection, start.settings.as_ref())
-            .await?;
-        let lock = self.lock(&run_id, &folder).await?;
-        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let state = RunState::open(
-            folder.join(RUN_FILE),
-            &self.opened_with(start.settings.as_ref()),
-            self.setup.tables.clone(),
-            1,
-            &writer,
-        )
-        .await
-        .map_err(|error| unavailable(error.to_string()))?;
-        let started_at = self.now();
-        let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
-        let fixed_settings = row.fixed_settings.clone();
-        let (tags, initialize) = (start.tags.clone(), start.initialize);
-        state
-            .write_with(self.start_syncing(start.kind), move |connection| {
-                row.insert(connection)?;
-                for (position, tag) in tags.iter().enumerate() {
-                    connection
-                        .prepare_cached("INSERT INTO tags (position, tag) VALUES (?1, ?2)")?
-                        .execute((i64::try_from(position).unwrap_or(i64::MAX), tag.as_str()))?;
-                }
-                match initialize {
-                    Some(initialize) => initialize(connection),
-                    None => Ok(()),
-                }
-            })
-            .await
-            .map_err(|error| unavailable(error.to_string()))?;
-        let (run, let_finish) =
-            self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
-        run.shared.charging.hold(charging);
-        let live = Live {
-            id: run_id.clone(),
-            progress: run.shared.progress.clone(),
-            run: Some(run),
-            let_finish,
-            folder,
-            kind: start.kind,
-            needs: start.needs,
-            tags: start.tags,
-            inputs,
-            fixed_settings,
-            ended_by: start.ended_by,
-            started_at,
-            policy_version: start.policy_version,
-            weakened: start.weakened,
-            report: watch::Sender::new(None),
-            writer,
-            lock: Arc::new(lock),
-            connection,
-            checkpoint: None,
-            progress_message: None,
-            lifecycle: Lifecycle::Running,
-            storage: None,
-            warned_low: std::collections::BTreeSet::new(),
-            sampled_after: self.setup.governor.storage_samples_begun(),
-            raw_endings: Vec::new(),
-        };
-        let row = self.index_row(&live, Lifecycle::Running, None);
-        self.write_index(row).await;
-        let run = live.run.clone().expect("invariant: a Run begins live");
-        run.watch_safe_points(start.timeout, start.ended_by);
-        self.setup.metrics.run_live(live.kind);
-        self.live.insert(run_id.clone(), live);
-        if let Some(interval) = start.checkpoint_interval {
-            run.spawn(periodic_checkpoints(run.clone(), interval));
-        }
-        self.setup
-            .events
-            .publish_axes(RunAxes {
-                run_id,
-                lifecycle: Lifecycle::Running,
-                verdict: None,
-                completeness: None,
-            })
-            .await;
-        Ok(Started::New(run))
     }
 
     fn index_row(
@@ -5081,44 +4755,13 @@ impl Registry {
         }
     }
 
-    /// Refuses a start when the Run index's marker refuses this engine
-    /// (ADR 0098): an engine that finds its lowest minor raised past itself
-    /// takes no new Run. An index that cannot be opened stops no Run; its
-    /// row is restored by `runs reindex`.
-    async fn check_index(&self) -> Result<(), StartError> {
-        match self.setup.engine.run_index().check().await {
-            Err(RunStateError::Format {
-                format,
-                found,
-                compatibility,
-                install,
-            }) => Err(StartError::Format {
-                format,
-                found,
-                compatibility,
-                install,
-            }),
-            Err(error) => {
-                tracing::warn!(%error, "the Run index cannot be read; the Run starts without it");
-                Ok(())
-            }
-            Ok(()) => Ok(()),
-        }
-    }
-
-    async fn write_index(&self, row: RunIndexRow) {
-        if let Err(error) = self.setup.engine.run_index().write(row).await {
-            tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
-        }
-    }
-
     async fn finish(
         &mut self,
         run_id: &RunId,
         letting: Letting,
-    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
         let Some(live) = self.live.get(run_id) else {
-            return self.ended_report(run_id).await;
+            return self.ended_report(run_id);
         };
         match (live.ended_by, letting) {
             (EndedBy::Finish, Letting::Finish) => {
@@ -5128,51 +4771,73 @@ impl Registry {
                 if live.run.is_some() {
                     live.let_finish.send_replace(true);
                 }
-                Ok(live.report.subscribe())
+                Reply::Now(Ok(live.report.subscribe()))
             }
-            (_, Letting::Wait) => Ok(live.report.subscribe()),
+            (_, Letting::Wait) => Reply::Now(Ok(live.report.subscribe())),
         }
     }
 
     /// Sets the program's status line about the live Run `run_id`, as
-    /// [`Runs::set_progress_message`] says.
-    async fn progress_message(
+    /// [`Runs::set_progress_message`] says: its run file is written beside
+    /// the loop, then its Run index row, and the Run's progress changes
+    /// once both are.
+    fn progress_message(
         &mut self,
-        run_id: &RunId,
+        run_id: RunId,
         message: ProgressMessage,
-    ) -> Result<RunProgress, RunError> {
+        answer: oneshot::Sender<Result<RunProgress, RunError>>,
+    ) {
         let Some(state) = self
             .live
-            .get(run_id)
+            .get(&run_id)
             .and_then(|live| live.run.as_ref())
             .map(|run| run.state.clone())
         else {
-            return Err(RunError::NotFound(run_id.clone()));
+            let _ = answer.send(Err(RunError::NotFound(run_id)));
+            return;
         };
-        let text = message.as_str().to_owned();
-        state
-            .write(move |connection| {
-                connection
-                    .prepare_cached("UPDATE run SET progress_message = ?1")?
-                    .execute([text])
-                    .map(drop)
-            })
-            .await
-            .map_err(|error| RunError::of_state(run_id, &self.folder(run_id), error))?;
-        if let Some(live) = self.live.get_mut(run_id) {
-            live.progress_message = Some(message.clone());
-        }
-        let Some(live) = self.live.get(run_id) else {
-            return Err(RunError::NotFound(run_id.clone()));
-        };
-        let row = self.index_row(live, Lifecycle::Running, None);
-        self.write_index(row).await;
-        let Some(live) = self.live.get(run_id) else {
-            return Err(RunError::NotFound(run_id.clone()));
-        };
-        live.progress
-            .change(|progressing| progressing.message = Some(message));
-        Ok(live.progress.subscribe().borrow().value(run_id, self.now()))
+        let (folder, decisions) = (self.folder(&run_id), self.decisions());
+        let index = self.setup.engine.run_index().clone();
+        let clock = self.setup.engine.clock();
+        self.beside(Some(run_id.clone()), async move {
+            let text = message.as_str().to_owned();
+            let written = state
+                .write(move |connection| {
+                    connection
+                        .prepare_cached("UPDATE run SET progress_message = ?1")?
+                        .execute([text])
+                        .map(drop)
+                })
+                .await;
+            if let Err(error) = written {
+                let _ = answer.send(Err(RunError::of_state(&run_id, &folder, error)));
+                return;
+            }
+            let id = run_id.clone();
+            let kept = message.clone();
+            let decided = decisions
+                .decide(move |registry| {
+                    let live = registry.live.get_mut(&id)?;
+                    live.progress_message = Some(kept);
+                    let live = &registry.live[&id];
+                    Some((
+                        registry.index_row(live, Lifecycle::Running, None),
+                        live.progress.clone(),
+                    ))
+                })
+                .await;
+            let Ok(Some((row, progress))) = decided else {
+                let _ = answer.send(Err(RunError::NotFound(run_id)));
+                return;
+            };
+            opening::write_index(&index, row).await;
+            progress.change(|progressing| progressing.message = Some(message));
+            let value = progress
+                .subscribe()
+                .borrow()
+                .value(&run_id, clock.point_in_time());
+            let _ = answer.send(Ok(value));
+        });
     }
 
     /// What it answers about the engine's health.
@@ -5229,14 +4894,6 @@ impl Registry {
         } else {
             Syncing::Required
         }
-    }
-
-    /// Reads the Limits that hold `run` as it resumes, on the connection
-    /// its charging keeps, as a new Run's start does (ADR 0140's E3). A
-    /// read that fails is left to its first charge, which reads again and
-    /// refuses as a charge does.
-    async fn read_limits(&self, run: &Run) {
-        run.shared.charging.read_limits(&self.owner).await;
     }
 
     /// The live Run `run_id`, of `kind`, as its driver holds it, writing
@@ -5386,24 +5043,25 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         end: End,
-    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
         self.end_with(run_id, end, None).await
     }
 
     /// [`Registry::end_or_report`], a stop writing its Checkpoint to
-    /// `location` rather than where the engine keeps them.
+    /// `location` rather than where the engine keeps them. A live Run's
+    /// answer comes now; an ended one's report is read beside the loop.
     async fn end_with(
         &mut self,
         run_id: &RunId,
         end: End,
         location: Option<PathBuf>,
-    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
         let Some(row) = self
             .live
             .get(run_id)
             .map(|live| self.index_row(live, Lifecycle::Running, None))
         else {
-            return self.report_of(run_id).await;
+            return self.report_of(run_id);
         };
         let clock = self.setup.engine.clock();
         let nonce = self.setup.entropy.next_u64();
@@ -5412,8 +5070,10 @@ impl Registry {
         let live = &self.live[run_id];
         let next = match lifecycle::apply(live.lifecycle, end.event()) {
             Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => return Ok(live.report.subscribe()),
-            Err(refused) => return Err(RunError::refused(run_id, &live.folder, refused)),
+            Ok(Next::Unchanged) => return Reply::Now(Ok(live.report.subscribe())),
+            Err(refused) => {
+                return Reply::Now(Err(RunError::refused(run_id, &live.folder, refused)));
+            }
         };
         let stopping = match &end {
             End::Stopped(cause) => Some(cause.clone()),
@@ -5465,57 +5125,69 @@ impl Registry {
             registry: self.runs.clone(),
         };
         self.ending_owner.spawn(recording.end(closing));
-        Ok(receiver)
+        Reply::Now(Ok(receiver))
     }
 
-    /// The report of a Run whose state its folder holds, with the last
-    /// Checkpoint this engine wrote of it when this engine ended it, or the
-    /// report of one this engine ended without writing its end.
-    async fn report_of(&self, run_id: &RunId) -> Result<watch::Receiver<Option<Ended>>, RunError> {
+    /// The report of a Run whose state its folder holds, read beside the
+    /// loop, with the last Checkpoint this engine wrote of it when this
+    /// engine ended it, or, now, the report of one this engine ended
+    /// without writing its end.
+    pub(super) fn report_of(
+        &self,
+        run_id: &RunId,
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
         let checkpoint = match self.ended.get(run_id) {
             Some(EndedHere::Unwritten(report)) => {
-                return Ok(watch::Sender::new(Some(Ended::Unwritten(report.clone()))).subscribe());
+                let ended = Some(Ended::Unwritten(report.clone()));
+                return Reply::Now(Ok(watch::Sender::new(ended).subscribe()));
             }
             Some(EndedHere::Checkpointed(checkpoint)) => Some(checkpoint.clone()),
             None => None,
         };
         if let Some(exhausted) = self.unrecorded.get(run_id) {
-            return Ok(watch::Sender::new(Some(Ended::Unrecorded(exhausted.clone()))).subscribe());
+            let ended = Some(Ended::Unrecorded(exhausted.clone()));
+            return Reply::Now(Ok(watch::Sender::new(ended).subscribe()));
         }
         let file = self.folder(run_id).join(RUN_FILE);
         let vfs = self.setup.run_state.vfs.clone();
-        let report = self
-            .owner
-            .blocking(move || read_report(&file, vfs.as_deref()))
-            .await;
-        match report {
-            Ok(Some(mut report)) => {
-                if checkpoint.is_some() {
-                    report.checkpoint = checkpoint;
+        let (disk, run_id) = (Arc::clone(&self.disk), run_id.clone());
+        Reply::later(async move {
+            let report = disk
+                .blocking(move || read_report(&file, vfs.as_deref()))
+                .await;
+            match report {
+                Ok(Some(mut report)) => {
+                    if checkpoint.is_some() {
+                        report.checkpoint = checkpoint;
+                    }
+                    let ended = Some(Ended::Report(Box::new(report)));
+                    Ok(watch::Sender::new(ended).subscribe())
                 }
-                Ok(watch::Sender::new(Some(Ended::Report(Box::new(report)))).subscribe())
+                Ok(None) | Err(_) => Err(RunError::NotFound(run_id)),
             }
-            Ok(None) | Err(_) => Err(RunError::NotFound(run_id.clone())),
-        }
+        })
     }
 
     /// The report of an ended Run as [`Registry::report_of`] gives it, saying
     /// the call did nothing when a start found the Run finished (ADR 0102).
-    async fn ended_report(
+    fn ended_report(
         &self,
         run_id: &RunId,
-    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
-        let answered = self.report_of(run_id).await?;
-        if !self.found_ended.contains(run_id) {
-            return Ok(answered);
-        }
-        let mut report = answered.borrow().clone();
-        if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
-            report.nothing_done = Some(NothingDone::AlreadyEnded {
-                ended_at: report.ended_at,
-            });
-        }
-        Ok(watch::Sender::new(report).subscribe())
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
+        let found_ended = self.found_ended.contains(run_id);
+        self.report_of(run_id).map(move |answered| {
+            let answered = answered?;
+            if !found_ended {
+                return Ok(answered);
+            }
+            let mut report = answered.borrow().clone();
+            if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
+                report.nothing_done = Some(NothingDone::AlreadyEnded {
+                    ended_at: report.ended_at,
+                });
+            }
+            Ok(watch::Sender::new(report).subscribe())
+        })
     }
 
     /// Keeps the line of the raw call whose mark `command` carries, when
@@ -5550,15 +5222,17 @@ impl Registry {
         run_id: &RunId,
         by: StoppedBy,
         raw: Option<RawMark>,
-    ) -> Result<Waiting, RunError> {
+    ) -> Reply<Result<Waiting, RunError>> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
                 run.stop_at_safe_point(StopReason::Abort { by });
             }
-            return Ok(Waiting::Report(live.report.subscribe()));
+            return Reply::Now(Ok(Waiting::Report(live.report.subscribe())));
         }
         if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
-            return self.ended_report(run_id).await.map(Waiting::Report);
+            return self
+                .ended_report(run_id)
+                .map(|report| report.map(Waiting::Report));
         }
         self.abort(run_id, by, Forwarded::No, raw).await
     }
@@ -5575,15 +5249,15 @@ impl Registry {
         by: StoppedBy,
         forwarded: Forwarded,
         raw: Option<RawMark>,
-    ) -> Result<Waiting, RunError> {
+    ) -> Reply<Result<Waiting, RunError>> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
                 .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
                 .await
-                .map(Waiting::Report);
+                .map(|report| report.map(Waiting::Report));
         }
         if forwarded == Forwarded::Yes {
-            return Err(RunError::NotOwned(run_id.clone()));
+            return Reply::Now(Err(RunError::NotOwned(run_id.clone())));
         }
         let folder = self.folder(run_id);
         let take_over = TakeOver {
@@ -5610,27 +5284,27 @@ impl Registry {
             };
             let _ = answer.send(aborted);
         });
-        Ok(Waiting::TakeOver(answered))
+        Reply::Now(Ok(Waiting::TakeOver(answered)))
     }
 
     /// Writes a Checkpoint of `run_id` in a task of its own, which answers
-    /// `answer` once its file is complete.
-    async fn checkpoint(
+    /// `answer` once its file is complete. A Run this engine does not run
+    /// has its run file read beside the loop first.
+    fn checkpoint(
         &mut self,
         run_id: RunId,
         location: Option<PathBuf>,
         answer: oneshot::Sender<Result<Checkpoint, RunError>>,
     ) {
+        if let Some(live) = self.live.get(&run_id) {
+            let lifecycle = live.lifecycle;
+            self.take_checkpoint(run_id, location, lifecycle, answer);
+            return;
+        }
+        let (disk, decisions) = (self.disk_of(&run_id), self.decisions());
         let folder = self.folder(&run_id);
-        let live_state = self
-            .live
-            .get(&run_id)
-            .and_then(|live| live.run.as_ref())
-            .map(|run| run.state.clone());
-        let live_epoch = live_state.as_ref().map(RunState::epoch);
-        let state = match self.live.get(&run_id) {
-            Some(live) => live.lifecycle,
-            None => match self.existing(&run_id).await {
+        self.beside(Some(run_id.clone()), async move {
+            let lifecycle = match disk.existing().await {
                 Ok(Some(found)) => found.lifecycle,
                 Ok(None) => {
                     let _ = answer.send(Err(RunError::NotFound(run_id)));
@@ -5640,12 +5314,36 @@ impl Registry {
                     let _ = answer.send(Err(RunError::Unavailable {
                         run_id,
                         folder,
-                        error: error.to_string(),
+                        error,
                     }));
                     return;
                 }
-            },
-        };
+            };
+            // A dropped answer says the engine stopped.
+            let _ = decisions
+                .decide(move |registry| {
+                    registry.take_checkpoint(run_id, location, lifecycle, answer);
+                })
+                .await;
+        });
+    }
+
+    /// Writes a Checkpoint of `run_id`, whose Lifecycle is `lifecycle`, in a
+    /// task of its own, as [`Registry::checkpoint`] says.
+    fn take_checkpoint(
+        &mut self,
+        run_id: RunId,
+        location: Option<PathBuf>,
+        state: Lifecycle,
+        answer: oneshot::Sender<Result<Checkpoint, RunError>>,
+    ) {
+        let folder = self.folder(&run_id);
+        let live_state = self
+            .live
+            .get(&run_id)
+            .and_then(|live| live.run.as_ref())
+            .map(|run| run.state.clone());
+        let live_epoch = live_state.as_ref().map(RunState::epoch);
         if let Err(refused) = lifecycle::apply(state, RunEvent::Checkpoint) {
             let _ = answer.send(Err(RunError::refused(&run_id, &folder, refused)));
             return;
@@ -5681,65 +5379,86 @@ impl Registry {
         run_id: &RunId,
         reason: StopReason,
         location: Option<PathBuf>,
-    ) -> Result<watch::Receiver<Option<Ended>>, RunError> {
+    ) -> Reply<Result<watch::Receiver<Option<Ended>>, RunError>> {
         self.end_with(run_id, End::Stopped(reason), location).await
     }
 
-    /// The machine's identity, read from the home or drawn and kept there
-    /// the first time.
-    async fn machine(&mut self) -> Result<String, RunError> {
-        if let Some(machine) = &self.machine {
-            return Ok(machine.clone());
+    /// Answers `answer` the machine's identity, read from the home beside
+    /// the loop, or drawn and kept there, the first time: the calls that
+    /// ask meanwhile wait for that read (ADR 0056).
+    fn machine(&mut self, answer: oneshot::Sender<Result<String, RunError>>) {
+        match &mut self.machine {
+            Machine::Read(machine) => _ = answer.send(Ok(machine.clone())),
+            Machine::Reading(waiting) => waiting.push(answer),
+            Machine::Unread => {
+                self.machine = Machine::Reading(vec![answer]);
+                let root = self.setup.engine.home().root().to_owned();
+                let drawn = format!(
+                    "{:016x}{:016x}",
+                    self.setup.entropy.next_u64(),
+                    self.setup.entropy.next_u64()
+                );
+                let (disk, decisions) = (Arc::clone(&self.disk), self.decisions());
+                self.beside(None, async move {
+                    let file = root.join(MACHINE_FILE);
+                    let read = disk
+                        .blocking(move || folder::machine_identity(&file, &drawn))
+                        .await
+                        .map_err(|error| error.to_string());
+                    // A dropped answer says the engine stopped.
+                    let _ = decisions
+                        .decide(move |registry| registry.machine_read(root, read))
+                        .await;
+                });
+            }
         }
-        let root = self.setup.engine.home().root().to_owned();
-        let drawn = format!(
-            "{:016x}{:016x}",
-            self.setup.entropy.next_u64(),
-            self.setup.entropy.next_u64()
-        );
-        let machine = self
-            .owner
-            .blocking(move || folder::machine_identity(&root.join(MACHINE_FILE), &drawn))
-            .await
-            .map_err(|error| RunError::Unavailable {
-                run_id: RunId::parse("machine").expect("invariant: `machine` is a Run ID"),
-                folder: self.setup.engine.home().root().to_owned(),
-                error: error.to_string(),
-            })?;
-        self.machine = Some(machine.clone());
-        Ok(machine)
     }
 
-    /// The wrapped data key of the Run `run_id` that this engine does not
-    /// run, in the Checkpoint `checkpoint` or else its run file here.
-    async fn stored_key(
-        &self,
-        run_id: &RunId,
-        checkpoint: Option<&Path>,
-    ) -> Result<Option<StoredKey>, RunError> {
-        if self.live.contains_key(run_id) {
-            return Ok(None);
+    /// Keeps the machine's identity `read` from the home `root`, and
+    /// answers the calls that waited for it; a failed read is tried again
+    /// by the next call.
+    fn machine_read(&mut self, root: PathBuf, read: Result<String, String>) {
+        let waiting = match std::mem::replace(&mut self.machine, Machine::Unread) {
+            Machine::Reading(waiting) => waiting,
+            Machine::Unread | Machine::Read(_) => Vec::new(),
+        };
+        match read {
+            Ok(machine) => {
+                for answer in waiting {
+                    let _ = answer.send(Ok(machine.clone()));
+                }
+                self.machine = Machine::Read(machine);
+            }
+            Err(error) => {
+                for answer in waiting {
+                    let _ = answer.send(Err(RunError::Unavailable {
+                        run_id: RunId::parse("machine").expect("invariant: `machine` is a Run ID"),
+                        folder: root.clone(),
+                        error: error.clone(),
+                    }));
+                }
+            }
         }
-        Ok(self.held(run_id, checkpoint).await?.key)
     }
 
-    /// What [`Self::held`] reads, refused when its wrapped data key is not
-    /// `stored`, the one a resume unwrapped before the registry took it.
-    async fn held_with_key(
-        &self,
-        run_id: &RunId,
-        checkpoint: Option<&Path>,
-        stored: Option<StoredKey>,
-    ) -> Result<checkpoint::Held, RunError> {
-        let held = self.held(run_id, checkpoint).await?;
-        if held.key != stored {
-            return Err(RunError::Unavailable {
-                run_id: run_id.clone(),
-                folder: self.folder(run_id),
-                error: "its data key changed while it resumed; resume it again".to_owned(),
-            });
+    /// Answers `answer` the wrapped data key of the Run `run_id` that this
+    /// engine does not run, in the Checkpoint `checkpoint` or else its run
+    /// file here, read beside the loop.
+    fn stored_key(
+        &mut self,
+        run_id: RunId,
+        checkpoint: Option<PathBuf>,
+        answer: oneshot::Sender<Result<Option<StoredKey>, RunError>>,
+    ) {
+        if self.live.contains_key(&run_id) {
+            let _ = answer.send(Ok(None));
+            return;
         }
-        Ok(held)
+        let disk = self.disk_of(&run_id);
+        self.beside(Some(run_id), async move {
+            let held = disk.held(checkpoint.as_deref()).await;
+            let _ = answer.send(held.map(|held| held.key));
+        });
     }
 
     /// The answer to a resume of the Run `run_id` when it is live in this
@@ -5762,284 +5481,9 @@ impl Registry {
         )
     }
 
-    /// Resumes an interrupted Run, as [`Runs::resume`] says.
-    async fn resume(
-        &mut self,
-        resume: Resume,
-        keys: Keys,
-        stored: Option<StoredKey>,
-        connection: Option<ConnectionId>,
-    ) -> Result<Resumed, RunError> {
-        let Resume {
-            run_id,
-            checkpoint,
-            checkpoint_interval,
-            timeout,
-            settings,
-            retry_failed,
-        } = resume;
-        // Fixed keys the resume gives keep their values, in any state (ADR 0102).
-        let fixed = FixedSettings::of(settings.as_ref(), &self.setup.masks);
-        if let Some(live) = self.resumed_live(&run_id, &fixed) {
-            return live;
-        }
-        // A run file a crash left at `off` is discarded, never read: the Run
-        // is then not found, and starts again (ADR 0138).
-        self.discard_unclean(&run_id, settings.as_ref()).await?;
-        let held = self
-            .held_with_key(&run_id, checkpoint.as_deref(), stored)
-            .await?;
-        let folder = self.folder(&run_id);
-        self.may_resume(&run_id, &held, &folder).await?;
-        fixed.unchanged(&run_id, &held.fixed_settings, Compared::Given)?;
-        let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
-            Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
-            Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
-        };
-        let options = self.opened_with(settings.as_ref());
-        let (lock, writer, state) = self
-            .reopen(&run_id, held.lifecycle, checkpoint, &options)
-            .await?;
-        let recorded = self.recorded(&run_id, &folder).await?;
-        self.ended.forget(&run_id);
-        self.unrecorded.remove(&run_id);
-        let progress_message = recorded
-            .progress_message
-            .as_deref()
-            .and_then(ProgressMessage::parse);
-        let listed = recorded.weakened;
-        let weakened = joined_weakened(&listed, settings.as_ref(), &state)
-            .await
-            .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        let (run, let_finish) =
-            self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
-        self.read_limits(&run).await;
-        if held.lifecycle == Lifecycle::Running {
-            warn_over_charged(&run).await;
-        }
-        progress(&run).resumed(lifecycle, progress_message.clone());
-        let live = Live {
-            id: run_id.clone(),
-            progress: run.shared.progress.clone(),
-            run: Some(run),
-            let_finish,
-            folder,
-            kind: recorded.kind,
-            needs: recorded.needs,
-            tags: recorded.tags,
-            inputs: recorded.inputs,
-            fixed_settings: held.fixed_settings.clone(),
-            ended_by: self.driving(recorded.kind).ended_by,
-            started_at: recorded.started_at,
-            policy_version: recorded.policy_version,
-            weakened,
-            report: watch::Sender::new(None),
-            writer,
-            lock: Arc::new(lock),
-            connection,
-            checkpoint: None,
-            progress_message,
-            lifecycle,
-            storage: None,
-            warned_low: std::collections::BTreeSet::new(),
-            sampled_after: self.setup.governor.storage_samples_begun(),
-            raw_endings: Vec::new(),
-        };
-        let row = self.index_row(&live, lifecycle, None);
-        self.write_index(row).await;
-        let run = live.run.clone().expect("invariant: a Run resumes live");
-        run.watch_safe_points(timeout, live.ended_by);
-        let (kind, needs) = (live.kind, live.needs);
-        self.setup.metrics.run_live(kind);
-        self.live.insert(run_id.clone(), live);
-        self.setup
-            .events
-            .publish_axes(RunAxes {
-                run_id,
-                lifecycle,
-                verdict: None,
-                completeness: None,
-            })
-            .await;
-        if let Some(interval) = checkpoint_interval {
-            run.spawn(periodic_checkpoints(run.clone(), interval));
-        }
-        Ok(Resumed::New {
-            run: Box::new(run),
-            kind,
-            needs,
-            listed,
-        })
-    }
-
-    /// What the run file of `run_id` in `folder` records of the Run.
-    async fn recorded(&self, run_id: &RunId, folder: &Path) -> Result<folder::Recorded, RunError> {
-        let (read, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
-        self.owner
-            .blocking(move || folder::read_recorded(&read, vfs.as_deref()))
-            .await
-            .map_err(|error| RunError::Unavailable {
-                run_id: run_id.clone(),
-                folder: folder.to_owned(),
-                error: error.to_string(),
-            })?
-            .ok_or_else(|| RunError::NotFound(run_id.clone()))
-    }
-
-    /// What the Checkpoint `checkpoint`, or else the run file of `run_id`
-    /// here, holds of the Run, refusing a version this engine cannot read.
-    async fn held(
-        &self,
-        run_id: &RunId,
-        checkpoint: Option<&Path>,
-    ) -> Result<checkpoint::Held, RunError> {
-        let folder = self.folder(run_id);
-        let held = if let Some(checkpoint) = checkpoint {
-            let path = checkpoint.to_owned();
-            self.owner
-                .blocking(move || checkpoint::read(&checkpoint::open_checkpoint(&path)?, &path))
-                .await
-        } else {
-            let found = self
-                .existing(run_id)
-                .await
-                .map_err(|error| RunError::Unavailable {
-                    run_id: run_id.clone(),
-                    folder: folder.clone(),
-                    error: error.to_string(),
-                })?;
-            if found.is_none() {
-                return Err(RunError::NotFound(run_id.clone()));
-            }
-            let (path, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
-            self.owner
-                .blocking(move || {
-                    checkpoint::read(&run_state::open_reader(&path, vfs.as_deref())?, &path)
-                })
-                .await
-        }
-        .map_err(|error| RunError::of_state(run_id, &folder, error))?;
-        if held.run_id != run_id.as_str() {
-            return Err(RunError::Unavailable {
-                run_id: run_id.clone(),
-                folder,
-                error: format!("the Checkpoint holds the Run `{}`", held.run_id),
-            });
-        }
-        Ok(held)
-    }
-
-    /// Takes the writer role of `run_id`, `held` as its state says: its
-    /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
-    /// given, then the next run epoch, under which its writer opens and
-    /// marks it running again.
-    async fn reopen(
-        &mut self,
-        run_id: &RunId,
-        held: Lifecycle,
-        checkpoint: Option<PathBuf>,
-        options: &RunStateOptions,
-    ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
-        let folder = self.folder(run_id);
-        let file = folder.join(RUN_FILE);
-        let lock = self
-            .lock(run_id, &folder)
-            .await
-            .map_err(|error| match error {
-                StartError::InUse { run_id, folder } => {
-                    match lifecycle::apply(held, RunEvent::WriterFound) {
-                        Err(refused) => RunError::refused(&run_id, &folder, refused),
-                        Ok(_) => RunError::InUse { run_id, folder },
-                    }
-                }
-                StartError::Unavailable {
-                    run_id,
-                    folder,
-                    error,
-                } => RunError::Unavailable {
-                    run_id,
-                    folder,
-                    error,
-                },
-                StartError::Internal { run_id, message } => RunError::Internal { run_id, message },
-                StartError::Format {
-                    format,
-                    found,
-                    compatibility,
-                    install,
-                } => RunError::Format {
-                    run_id: run_id.clone(),
-                    format,
-                    found,
-                    compatibility,
-                    install,
-                },
-                StartError::ResourcesExhausted(exhausted) => {
-                    RunError::ResourcesExhausted(exhausted)
-                }
-                StartError::Discarding { run_id, folder } => {
-                    RunError::Discarding { run_id, folder }
-                }
-                StartError::FixedSetting(changed) => RunError::FixedSetting(changed),
-                StartError::Conflict { .. }
-                | StartError::Live { .. }
-                | StartError::LimitReached(_)
-                | StartError::LimitNotUnderstood(_)
-                | StartError::Draining { .. }
-                | StartError::Secret(_)
-                | StartError::Refused(_)
-                | StartError::Stopped => RunError::Stopped,
-            })?;
-        let mut after = 0;
-        if let Some(checkpoint) = checkpoint {
-            // The run epoch of a run file of this Run already here, which the
-            // Checkpoint replaces: the resume's goes past it too.
-            if let Ok(Some(_)) = self.existing(run_id).await
-                && let Ok(here) = self.held(run_id, None).await
-            {
-                after = here.run_epoch;
-            }
-            let (into, vfs) = (file.clone(), self.setup.run_state.vfs.clone());
-            self.owner
-                .blocking(move || checkpoint::install(&checkpoint, &into, vfs.as_deref()))
-                .await
-                .map_err(|error| RunError::of_write(run_id, &folder, error))?;
-        }
-        let (taking, tables, next) = (options.clone(), self.setup.tables.clone(), file.clone());
-        let epoch = self
-            .owner
-            .blocking(move || run_state::next_epoch(&next, &taking, &tables, after))
-            .await
-            .map_err(|error| RunError::of_state(run_id, &folder, error))?;
-        tracing::info!(
-            target: "goodfetch::lease",
-            transition = "take_epoch",
-            run_id = %run_id,
-            run_epoch = epoch,
-            "took the Run's writer role to resume it"
-        );
-        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
-            .await
-            .map_err(|error| RunError::of_state(run_id, &folder, error))?;
-        state
-            .write(|connection| {
-                connection
-                    .prepare_cached(
-                        "UPDATE run SET lifecycle = ?1, stop_reason = NULL, verdict = NULL,
-                         completeness = NULL, ended_at = NULL",
-                    )?
-                    .execute([Lifecycle::Running.as_str()])
-                    .map(drop)
-            })
-            .await
-            .map_err(|error| RunError::of_state(run_id, &folder, error))?;
-        Ok((lock, writer, state))
-    }
-
-    async fn uses(&mut self, run_id: &RunId, product: Product) {
+    /// Records that the live Run `run_id` needs `product` now: in the loop,
+    /// then in its run file and its Run index row beside it.
+    fn uses(&mut self, run_id: &RunId, product: Product) {
         let Some(live) = self.live.get_mut(run_id) else {
             return;
         };
@@ -6052,19 +5496,22 @@ impl Registry {
         live.needs = product;
         let needs = text(&product);
         let state = run.state.clone();
-        if let Err(error) = state
-            .write(move |connection| {
-                connection
-                    .prepare_cached("UPDATE run SET needs = ?1")?
-                    .execute([needs])
-                    .map(drop)
-            })
-            .await
-        {
-            tracing::warn!(%error, "the Product the Run needs was not recorded");
-        }
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
-        self.write_index(row).await;
+        let index = self.setup.engine.run_index().clone();
+        self.beside(Some(run_id.clone()), async move {
+            if let Err(error) = state
+                .write(move |connection| {
+                    connection
+                        .prepare_cached("UPDATE run SET needs = ?1")?
+                        .execute([needs])
+                        .map(drop)
+                })
+                .await
+            {
+                tracing::warn!(%error, "the Product the Run needs was not recorded");
+            }
+            opening::write_index(&index, row).await;
+        });
     }
 }
 
@@ -6546,6 +5993,7 @@ impl Closing {
     }
 }
 
+mod beside;
 mod clean_up;
 mod discard;
 mod end;
@@ -6555,6 +6003,7 @@ mod import;
 mod keys;
 pub mod lifecycle;
 mod list;
+mod opening;
 pub mod outcome;
 mod progress;
 mod reader;

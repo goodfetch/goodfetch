@@ -59,6 +59,7 @@ mod env;
 mod exercise;
 mod facts;
 mod fuzz;
+mod held_vfs;
 mod hostile;
 mod invariants;
 mod journey_run;
@@ -152,6 +153,7 @@ pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
 pub use facts::{CHROME_FOR_TESTING_BUILD, DISPATCH_TARGET, LIGHTPANDA_BUILD, OUTCOME_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
+pub use held_vfs::{HeldAccess, HeldVfs, LONGEST_HOLD};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
     HostileTableError, HostileTables, JsonChannel, LimitSetting, MessageChannel, Os, PathHazard,

@@ -222,27 +222,29 @@ fn a_subscriber_that_grants_no_credits_falls_behind_to_a_resync_and_holds_back_n
         client
             .send(&[call(2, "events.subscribe", json!({})), credit(2, 100)])
             .await;
-        let starts: Vec<Value> = (0..RUNS)
-            .map(|index| {
-                call(
+        // One start at a time, each read before the next: starts on several
+        // Runs at once publish their events at once, which a queue of two
+        // would drop for any subscriber.
+        let (mut answered, mut read) = (0, Vec::new());
+        for index in 0..RUNS {
+            client
+                .send(&[call(
                     10 + i64::try_from(index).unwrap(),
                     "run.start",
                     json!({ "run_id": format!("run-{index}") }),
-                )
-            })
-            .collect();
-        client.send(&starts).await;
-        let (mut answered, mut read) = (0, Vec::new());
-        while answered < RUNS || read.len() < RUNS {
-            let Some(message) = next_unheld(&mut client).await else {
-                return (false, read, Vec::new());
-            };
-            if let Some(batch) = batch(&message, 2) {
-                read.extend(batch);
-            } else if message["result"]["lifecycle"] == "running" {
-                answered += 1;
-            } else {
-                panic!("an unexpected message: {message}");
+                )])
+                .await;
+            while answered <= index || read.len() <= index {
+                let Some(message) = next_unheld(&mut client).await else {
+                    return (false, read, Vec::new());
+                };
+                if let Some(batch) = batch(&message, 2) {
+                    read.extend(batch);
+                } else if message["result"]["lifecycle"] == "running" {
+                    answered += 1;
+                } else {
+                    panic!("an unexpected message: {message}");
+                }
             }
         }
         client.send(&[credit(1, 100)]).await;

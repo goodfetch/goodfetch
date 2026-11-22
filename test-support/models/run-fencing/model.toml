@@ -13,5 +13,6 @@ traces = [
   "crates/goodfetch-engine/src/run_state.rs",
   "crates/goodfetch-engine/src/run_state/",
   "crates/goodfetch-engine/src/runs.rs",
+  "crates/goodfetch-engine/src/runs/opening.rs",
   "crates/goodfetch-engine/src/runs/takeover.rs",
 ]

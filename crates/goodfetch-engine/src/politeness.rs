@@ -539,7 +539,7 @@ trait Erased: Send + Sync {
         key: &str,
         holder: &Holder,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> rusqlite::Result<(Taken, Option<Turn>)>;
 
     fn given_back(
@@ -556,7 +556,7 @@ trait Erased: Send + Sync {
         key: &str,
         holder: &Holder,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> (Taken, Option<Turn>);
 
     fn given_back_in_memory(
@@ -616,7 +616,7 @@ impl<R: PermitRule> Erased for R {
         key: &str,
         holder: &Holder,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> rusqlite::Result<(Taken, Option<Turn>)> {
         taken_in(transaction, context, key, holder, self, now, in_turn)
     }
@@ -637,7 +637,7 @@ impl<R: PermitRule> Erased for R {
         key: &str,
         holder: &Holder,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> (Taken, Option<Turn>) {
         store.taken(key, holder, self, now, in_turn)
     }
@@ -837,6 +837,28 @@ enum Backend {
 }
 
 type Job = Box<dyn FnOnce(&mut Backend, &Context) + Send>;
+
+/// What a take does with its holder's place among a key's waiters (ADR
+/// 0053's turns).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InTurn {
+    /// A take beside a request its holder already sent: a refusal
+    /// registers no waiter, and a grant leaves the holder's place as it
+    /// was.
+    Beside,
+    /// A refusal makes its holder a waiter; a grant ends its turn.
+    Leaves,
+    /// As [`InTurn::Leaves`], but a grant puts its holder at the back of
+    /// the turns, for its next request that the grant leaves no room for.
+    Keeps,
+}
+
+impl InTurn {
+    /// Whether the take is its holder's own request, in turn.
+    fn waits(self) -> bool {
+        self != Self::Beside
+    }
+}
 
 /// A waiter whose turn it is, to wake; or, when `recall`, the engine
 /// that holds the Delegation of the wake's key, to recall it.
@@ -1110,14 +1132,8 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
-        if self.0.in_memory {
-            self.0.work.count(Row::PolitenessReadRoundTrips);
-        }
-        let (taken, turn) = self.taking(key, holder, rule, now, true).await?;
-        if let Some(turn) = turn {
-            self.wake_turn(turn).await;
-        }
-        Ok(taken)
+        self.take_in_turn(key, holder, rule, now, InTurn::Leaves)
+            .await
     }
 
     /// Takes a Permit under `key` for `holder` at `now` as [`take`] does,
@@ -1144,7 +1160,53 @@ impl Politeness {
     ) -> Result<Taken, PolitenessError> {
         // Its round trip counts on `F3.second_copy_round_trips`, where the
         // second copy takes it.
-        let (taken, _) = self.taking(key, holder, rule, now, false).await?;
+        let (taken, _) = self.taking(key, holder, rule, now, InTurn::Beside).await?;
+        Ok(taken)
+    }
+
+    /// Takes a Permit under `key` for `holder` at `now` as [`take`] does,
+    /// for a request whose grant leaves no room for `holder`'s next one
+    /// under `key`: a grant puts `holder` at the back of the key's waiters,
+    /// as the refused take of that next request would, so the next asks
+    /// nothing until a give back wakes it (ADR 0053's turns, #1899).
+    ///
+    /// [`take`]: Politeness::take
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::take`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::take`].
+    pub async fn take_keeping_turn(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: SharedRule,
+        now: SystemTime,
+    ) -> Result<Taken, PolitenessError> {
+        self.take_in_turn(key, holder, rule, now, InTurn::Keeps)
+            .await
+    }
+
+    /// A take of its holder's own request, which `in_turn` says how it
+    /// waits in turn for, waking the waiter whose turn it passes on.
+    async fn take_in_turn(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: SharedRule,
+        now: SystemTime,
+        in_turn: InTurn,
+    ) -> Result<Taken, PolitenessError> {
+        if self.0.in_memory {
+            self.0.work.count(Row::PolitenessReadRoundTrips);
+        }
+        let (taken, turn) = self.taking(key, holder, rule, now, in_turn).await?;
+        if let Some(turn) = turn {
+            self.wake_turn(turn).await;
+        }
         Ok(taken)
     }
 
@@ -1385,7 +1447,7 @@ impl Politeness {
         holder: &Holder,
         rule: SharedRule,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> Result<(Taken, Option<Turn>), PolitenessError> {
         let key = key.to_owned();
         let holder = holder.clone();
@@ -1776,9 +1838,13 @@ impl OwnPoliteness {
         now: SystemTime,
     ) -> Taken {
         self.drain();
-        let (taken, turn) =
-            rule.0
-                .taken_in_memory(memory_of(&mut self.backend), key, holder, now, true);
+        let (taken, turn) = rule.0.taken_in_memory(
+            memory_of(&mut self.backend),
+            key,
+            holder,
+            now,
+            InTurn::Leaves,
+        );
         self.context.wake(turn);
         taken
     }
@@ -1886,11 +1952,13 @@ fn taken_in<R: PermitRule>(
     holder: &Holder,
     rule: &R,
     now: SystemTime,
-    in_turn: bool,
+    in_turn: InTurn,
 ) -> rusqlite::Result<(Taken, Option<Turn>)> {
     if let Some(holding) = delegation::held_elsewhere(transaction, context, key, rule, now)? {
         let mut recall = None;
-        if in_turn && let Some(endpoint) = &context.endpoint {
+        if in_turn.waits()
+            && let Some(endpoint) = &context.endpoint
+        {
             // The turn a woken waiter would pass on finds the key held
             // too: the holder's give back wakes the waiter in turn.
             wait_in_turn(transaction, key, &holder.run_id, endpoint, now)?;
@@ -1921,10 +1989,17 @@ fn taken_in<R: PermitRule>(
             let id = transaction.last_insert_rowid();
             let writes = rule.started(&mut state, now);
             state.save(transaction, key, &writes)?;
-            if in_turn {
+            if in_turn.waits() {
                 transaction
                     .prepare_cached(LEAVE_TURNS)
                     .and_then(|mut cached| cached.execute((key, &holder.run_id)))?;
+            }
+            if in_turn == InTurn::Keeps
+                && let Some(endpoint) = &context.endpoint
+            {
+                // Out of the turns, it joins at their back, for the next
+                // give back to wake in its turn.
+                wait_in_turn(transaction, key, &holder.run_id, endpoint, now)?;
             }
             Taken::Granted(Permit {
                 id,
@@ -1936,7 +2011,9 @@ fn taken_in<R: PermitRule>(
         Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
         Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
-            if in_turn && let Some(endpoint) = &context.endpoint {
+            if in_turn.waits()
+                && let Some(endpoint) = &context.endpoint
+            {
                 turn = wait_in_turn(transaction, key, &holder.run_id, endpoint, now)?;
             }
             Taken::Wait(None)

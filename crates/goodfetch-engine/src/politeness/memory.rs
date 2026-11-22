@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use super::{
-    Ending, Holder, IN_MEMORY_ENDPOINT, KeyState, Permit, PermitRule, Step, Taken, Turn, Verdict,
-    WAKE_GRACE, Wake, milliseconds,
+    Ending, Holder, IN_MEMORY_ENDPOINT, InTurn, KeyState, Permit, PermitRule, Step, Taken, Turn,
+    Verdict, WAKE_GRACE, Wake, milliseconds,
 };
 
 /// The values a Politeness of one Run's own keeps for its contributions,
@@ -114,7 +114,7 @@ impl Store {
         holder: &Holder,
         rule: &R,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> (Taken, Option<Turn>) {
         let in_flight = self.taken_room(key, &holder.run_id, now);
         let mut state = R::State::load_from(&self.tables, key, rule.reads(Step::Take));
@@ -130,14 +130,22 @@ impl Store {
                 // A take in turn is a crawl request's own: its send is
                 // reserved with its grant. A copy beside it sends at once.
                 let send_at = in_turn
+                    .waits()
                     .then(|| rule.reserved(&mut state, now))
                     .flatten()
                     .map(|(send_at, writes)| {
                         state.save_to(&mut self.tables, key, &writes);
                         send_at
                     });
-                if in_turn && let Some(waiters) = self.waiters.get_mut(key) {
+                if in_turn.waits()
+                    && let Some(waiters) = self.waiters.get_mut(key)
+                {
                     waiters.retain(|waiter| waiter.run_id != holder.run_id);
+                }
+                if in_turn == InTurn::Keeps {
+                    // As the file's: out of the turns, it joins at their
+                    // back, for the next give back to wake in its turn.
+                    self.wait_in_turn(key, &holder.run_id, now);
                 }
                 Taken::Granted(Permit {
                     id,
@@ -149,7 +157,7 @@ impl Store {
             Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
             Verdict::Refused(until) => Taken::Refused(until),
             Verdict::Busy => {
-                if in_turn {
+                if in_turn.waits() {
                     turn = self.wait_in_turn(key, &holder.run_id, now);
                 }
                 Taken::Wait(None)

@@ -536,6 +536,23 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
         }))
 }
 
+/// The member's call on its host, `awaits` before it, sending `sent`.
+///
+/// A call's own timeout also bounds its wait in the Client's queue under
+/// the engine's cap on calls in flight, failing naming its setting
+/// (ADR 0038; issue 3188).
+fn host_call(member: &Member<'_>, awaits: &str, sent: &str) -> String {
+    let deadline = member
+        .timeout_setting
+        .as_ref()
+        .map(|setting| format!(", timeout_setting={setting:?}"))
+        .unwrap_or_default();
+    format!(
+        "{awaits}self._host.call({:?}, {sent}{deadline})",
+        member.operation.name
+    )
+}
+
 /// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
@@ -623,18 +640,7 @@ fn member(
         &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
-    // A call's own timeout also bounds its wait in the Client's queue under
-    // the engine's cap on calls in flight, failing naming this setting
-    // (ADR 0038; issue 3188).
-    let deadline = member
-        .timeout_setting
-        .as_ref()
-        .map(|setting| format!(", timeout_setting={setting:?}"))
-        .unwrap_or_default();
-    let call = format!(
-        "{awaits}self._host.call({:?}, {sent}{deadline})",
-        operation.name
-    );
+    let call = host_call(member, awaits, &sent);
     match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => {
             let _ = writeln!(text, "        return result_of({result}, {call})");

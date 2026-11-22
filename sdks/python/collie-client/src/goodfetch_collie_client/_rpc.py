@@ -83,18 +83,19 @@ class _Bound:
 
     key: str
     """Its key, as the wire and the engine's details write it."""
-    segment: str
-    """Its name under `connection`."""
     fallback: int
     """Its default."""
 
+    @property
+    def segment(self) -> str:
+        """Its name under `connection`."""
+        return self.key.removeprefix("connection.")
 
-_PENDING_CALLS = _Bound("connection.max_pending_calls", "max_pending_calls", 10_000)
+
+_PENDING_CALLS = _Bound("connection.max_pending_calls", 10_000)
 """The bound on calls waiting for their answer, sent or queued."""
 
-_QUEUED_WRITE_BYTES = _Bound(
-    "connection.max_queued_write_bytes", "max_queued_write_bytes", 64 * 1024 * 1024
-)
+_QUEUED_WRITE_BYTES = _Bound("connection.max_queued_write_bytes", 64 * 1024 * 1024)
 """The bound on bytes waiting to be written to the engine."""
 
 
@@ -132,17 +133,35 @@ def bounds_of(settings: Mapping[str, object] | None) -> ChannelBounds:
 def _whole_bound(bound: _Bound, connection: Mapping[str, object]) -> int:
     if bound.segment not in connection:
         return bound.fallback
-    given = connection[bound.segment]
-    if isinstance(given, int) and not isinstance(given, bool) and given >= 1:
-        return given
-    reason = f"{given!r} is no whole number of 1 or more"
-    raise SettingInvalidError(
-        f"`{bound.key}` is not valid: {reason}",
+    return whole_bound(
+        connection[bound.segment],
+        key=bound.key,
         fix=(
             f"Set `{bound.key}` in connect()'s settings to a whole number of 1 or"
             f" more, or leave it out for its default of {bound.fallback}."
         ),
-        details={"key": bound.key, "layer": "run", "reason": reason},
+        layer="run",
+    )
+
+
+def whole_bound(given: object, *, key: str, fix: str, layer: str | None = None) -> int:
+    """`given`, the Client's own bound `key`, when a whole number of 1 or more.
+
+    It takes any value, since a program may pass one its type checker would
+    refuse. TypeScript's `wholeBound` is its twin.
+
+    Raises:
+        SettingInvalidError: `given` is no whole number of 1 or more, with
+            `fix`, and `layer` in its details when the bound is a setting.
+    """
+    if isinstance(given, int) and not isinstance(given, bool) and given >= 1:
+        return given
+    reason = f"{given!r} is no whole number of 1 or more"
+    details: dict[str, object] = {"key": key, "reason": reason}
+    if layer is not None:
+        details["layer"] = layer
+    raise SettingInvalidError(
+        f"`{key}` is not valid: {reason}", fix=fix, details=details
     )
 
 
@@ -323,10 +342,11 @@ class Channel:
     ) -> object:
         """Sends `method` as `call` does; `notified` hears each notification naming it.
 
-        `sent` is told the call's id once it is written, so the caller can
-        grant credits with `notify`, which the engine drops for a call it
-        has not received; `notified` runs on the reading task and must not
-        block.
+        `sent` is told the call's id once it is sent, ahead of anything
+        written later, so the caller can grant credits with `notify`, which
+        the engine drops for a call it has not received; a call that ended
+        first, as one failed while queued, is never told. `notified` runs on
+        the reading task and must not block.
 
         Raises:
             GoodfetchError: As `call` raises.
@@ -354,7 +374,7 @@ class Channel:
             else:
                 self._in_flight.add(message_id)
                 await self._write_bytes(request)
-            if sent is not None:
+            if sent is not None and waiter.outcome is None:
                 sent(message_id)
             outcome = await self._wait_for(waiter)
         except BaseException:
@@ -621,7 +641,7 @@ class Channel:
                 waiter = self._waiting.get(message_id)
                 if waiter is not None:
                     waiter.wake()
-                await self._send_held(request)
+                await self._send_locked(request)
 
     def _hand_over(self, notification: Notification) -> None:
         members = object_members(notification.params)
@@ -635,6 +655,9 @@ class Channel:
 
     def _settle(self, reply: Result | Failure) -> None:
         if not isinstance(reply.id, int) or isinstance(reply.id, bool):
+            return
+        if reply.id in self._queued:
+            # A reply to a call never sent answers nothing.
             return
         # Answered, the call frees its place, a call cancelled since included.
         self._in_flight.discard(reply.id)
@@ -657,9 +680,9 @@ class Channel:
         # A message is never cut short: cancellation waits for the whole line.
         with anyio.CancelScope(shield=True):
             async with self._write_lock:
-                await self._send_held(data)
+                await self._send_locked(data)
 
-    async def _send_held(self, data: bytes) -> None:
+    async def _send_locked(self, data: bytes) -> None:
         """Sends `data`, counted as waiting, under the write lock its caller holds."""
         try:
             if self._ending:

@@ -73,6 +73,10 @@ class HandPlayedEngine(ByteStream):
         self._answered.add(index)
         self._reply({"id": self.calls[index]["id"], "result": result})
 
+    def reply_to(self, call_id: int, result: object) -> None:
+        """Answers with `result` the id `call_id`, whether or not it was sent."""
+        self._reply({"id": call_id, "result": result})
+
     async def answer_once_sent(self, index: int, result: object) -> None:
         """Answers the request in place `index` once the Client has sent it."""
         await self.until(lambda: len(self.calls) > index)
@@ -306,6 +310,56 @@ async def test_drops_a_queued_call_cancelled_with_its_task_never_sending_it() ->
     await collie.close()
 
     assert engine.methods() == ["run.list"]
+    assert engine.notified == []
+
+
+@pytest.mark.anyio
+async def test_sends_a_queued_raw_call_whose_timeout_the_engine_refuses() -> None:
+    """A `timeout` of 0 bounds no wait: the call is sent in its turn, as given."""
+    engine = HandPlayedEngine(1)
+    collie = await async_connect_over(engine)
+    answers: list[JSONValue] = []
+
+    async def refused_by_the_engine() -> None:
+        answers.append(await collie.call("run.list", {}, timeout=timedelta(0)))
+
+    async with anyio.create_task_group() as calls:
+        calls.start_soon(collie.call, "run.list", _NO_PARAMS)
+        await engine.until(lambda: len(engine.calls) == 1)
+        calls.start_soon(refused_by_the_engine)
+        await anyio.wait_all_tasks_blocked()
+        engine.answer(0, {"runs": []})
+        await engine.answer_once_sent(1, {"runs": []})
+    await collie.close()
+
+    sent = cast("Mapping[str, object]", engine.calls[1]["params"])
+    assert sent["timeout"] == 0
+    assert answers == [{"runs": []}]
+
+
+@pytest.mark.anyio
+async def test_ignores_a_reply_to_a_queued_call_and_sends_it_in_its_turn() -> None:
+    """A reply naming a call not yet sent answers nothing; the call waits on."""
+    engine = HandPlayedEngine(1)
+    collie = await async_connect_over(engine)
+    answers: list[JSONValue] = []
+
+    async def queued() -> None:
+        answers.append(await collie.call("config.explain", {}))
+
+    async with anyio.create_task_group() as calls:
+        calls.start_soon(collie.call, "run.list", _NO_PARAMS)
+        await engine.until(lambda: len(engine.calls) == 1)
+        calls.start_soon(queued)
+        await anyio.wait_all_tasks_blocked()
+        engine.reply_to(2, {"settings": ["too early"]})
+        await anyio.wait_all_tasks_blocked()
+        engine.answer(0, {"runs": []})
+        await engine.answer_once_sent(1, {"settings": []})
+    await collie.close()
+
+    assert engine.methods() == ["run.list", "config.explain"]
+    assert answers == [{"settings": []}]
 
 
 @pytest.mark.anyio
@@ -330,8 +384,8 @@ async def test_keeps_a_sent_calls_place_until_the_engine_answers_its_cancel() ->
         first.cancel()
         calls.start_soon(later)
         await engine.until(lambda: "$/cancel" in engine.notified)
-        # Time for a wrongly freed place to send the later call.
-        await anyio.sleep(0.01)
+        # Every task blocked: a wrongly freed place would have sent it.
+        await anyio.wait_all_tasks_blocked()
         sent_before_the_answer = engine.methods()
         engine.answer(0, {"runs": []})
         await engine.answer_once_sent(1, {"settings": []})

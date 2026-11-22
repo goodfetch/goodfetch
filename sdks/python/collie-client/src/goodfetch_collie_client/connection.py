@@ -775,9 +775,13 @@ def connect_limit(
 
 
 def _deadline_of(key: str, wire: Mapping[str, object]) -> CallDeadline | None:
-    """The call's own timeout, `key`, as its params `wire` carry it, if they do."""
+    """The call's own timeout, `key`, as its params `wire` carry it, if they do.
+
+    A timeout the engine refuses, as 0, bounds nothing here: the call is
+    sent, in its turn, for the engine's `setting_invalid` (ADR 0080).
+    """
     value = wire.get("timeout")
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
         return CallDeadline(key, value)
     return None
 

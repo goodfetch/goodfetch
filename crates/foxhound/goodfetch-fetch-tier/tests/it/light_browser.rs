@@ -23,6 +23,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tls::Trust;
 use goodfetch_fetch_tier::{light_browser_pins, prepare_light_browser};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
@@ -134,7 +135,9 @@ fn moved(mut pin: PinnedArtifact, stand_in: &StandIn) -> (PinnedArtifact, Fetchi
     );
     let fetching = Fetching {
         resolve: HostMapping::default().with(host, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
-        trusted_certificates: vec![stand_in.authority.clone()],
+        trust: Trust::default_roots()
+            .with_trusted_cas(host, vec![stand_in.authority.clone()])
+            .expect("invariant: the stand-in's host names a host"),
         ..Fetching::new(Clock::system())
     };
     (pin, fetching)

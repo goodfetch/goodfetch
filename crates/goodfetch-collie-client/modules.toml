@@ -29,7 +29,9 @@
 # `event_stream` is the stream of a listener's events, read by meaning
 # (ADR 0081), with the credits it grants and the cancel its drop sends,
 # and the values a call opens, such as a page's WebSockets, whose own
-# events the same call carries to each value's own stream (ADR 0085).
+# events the same call carries to each value's own stream (ADR 0085);
+# `connection` opens through it a Product's stream of items, such as
+# Foxhound's Records (ADR 0103).
 # `settings` is the one `Settings` type every scope's opening takes, with
 # the typed keys `xtask codegen` writes from the catalog, and refuses a key
 # the scope does not set (ADR 0083).
@@ -61,7 +63,7 @@ blocking = ["answer", "call", "connection", "error", "event_stream", "field_valu
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
-connection = ["call", "call_bounds", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
+connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]

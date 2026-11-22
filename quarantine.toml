@@ -16,15 +16,3 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
-
-[[test]]
-runner = "nextest"
-id = "xtask::bin/xtask rss::page_cache::tests::each_mode_leaves_the_executable_s_pages_where_it_says"
-issue = 3301
-date = 2026-11-22
-
-[[test]]
-runner = "nextest"
-id = "goodfetch-foxhound::it navigation_gate::a_handlers_page_past_its_work_items_lease_sends_nothing_more"
-issue = 3092
-date = 2026-11-22

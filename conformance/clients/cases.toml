@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "46"
+version = "47"
 
 [[capability]]
 name = "lifecycle"
@@ -231,15 +231,16 @@ modes = ["attached", "linked"]
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
 # Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python SDK joins with issue 1468 and the Rust SDK with issue 2804.
+# Python SDK joins with issue 1468. The Rust SDK runs it `linked`, served
+# by `crawl.serve` (issue 3229).
 [[capability]]
 name = "crawl"
 
 [[capability.case]]
 id = "crawl-catalog-program"
 covers = ["story:11-1013", "story:11-1015"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-rust = ["linked"] }
 
 # A handler's attempts (ADRs 0003 and 0093; issue 1467): a Crawl request
 # whose attempt failed is delivered again, and only the Records of the

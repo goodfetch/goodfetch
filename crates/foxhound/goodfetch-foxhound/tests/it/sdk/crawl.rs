@@ -10,8 +10,6 @@
 )]
 
 use std::collections::BTreeMap;
-use std::future::IntoFuture as _;
-use std::pin::pin;
 use std::sync::Arc;
 
 use goodfetch_foxhound::settings::{Settings, egress, fetch, network};
@@ -113,7 +111,7 @@ fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
     });
 }
 
-/// Covers: story:11-1025, story:11-1102
+/// Covers: story:11-1025
 #[test]
 fn a_panic_in_a_handler_fails_its_request_with_handler_failed_and_serve_goes_on() {
     let env = TestEnv::new();
@@ -476,11 +474,10 @@ fn a_run_resumed_on_a_new_connection_continues_the_requests_given_back() {
 /// `run.crawl_requests()` hands each Crawl request as a `CrawlCall`, whose
 /// context pushes as a handler's does and whose `finish` answers it as a
 /// handler's return does. A call dropped unanswered goes back to pending,
-/// uncounted, and comes again as its first attempt; the Run finishes once
-/// every call is finished. Its `serve` fails at once with
-/// `label_unhandled`.
+/// uncounted, and comes again as its first attempt; the stream ends once
+/// the Run ends, as `serve` returns then.
 ///
-/// Covers: story:11-1105, story:11-1016, error:label_unhandled
+/// Covers: story:11-1105
 #[test]
 fn a_program_answers_its_crawl_requests_itself() {
     let env = TestEnv::new();
@@ -499,35 +496,30 @@ fn a_program_answers_its_crawl_requests_itself() {
             Seed::new(&empty, &page, Visit { depth: 1 }),
         ];
         let run = foxhound.start_crawl(&crawl, seeds).await.unwrap();
-        let unhandled = crawl.serve(&run).await.unwrap_err();
-
-        let mut ended = pin!(run.run().report().no_timeout().into_future());
         let mut calls = run.crawl_requests();
         let mut dropped = None;
         let mut seen = Vec::new();
-        let ended = loop {
-            tokio::select! {
-                ended = &mut ended => break ended.unwrap(),
-                call = calls.next() => {
-                    let call = call.expect("the stream ends with the connection").unwrap();
-                    let context = call.context();
-                    seen.push((context.url().to_owned(), context.attempt()));
-                    if dropped.is_none() {
-                        dropped = Some(context.url().to_owned());
-                        drop(call);
-                        continue;
-                    }
-                    let visit: Visit = serde_json::from_value(context.payload().clone()).unwrap();
-                    let visited = Visited { url: context.url().to_owned(), depth: visit.depth };
-                    context.push(&pages, &visited).await.unwrap();
-                    call.finish(Ok(())).unwrap();
-                }
+        while let Some(call) = calls.next().await {
+            let call = call.unwrap();
+            let context = call.context();
+            seen.push((context.url().to_owned(), context.attempt()));
+            if dropped.is_none() {
+                dropped = Some(context.url().to_owned());
+                drop(call);
+                continue;
             }
-        };
+            let visit: Visit = serde_json::from_value(context.payload().clone()).unwrap();
+            let visited = Visited {
+                url: context.url().to_owned(),
+                depth: visit.depth,
+            };
+            context.push(&pages, &visited).await.unwrap();
+            call.finish(Ok(())).unwrap();
+        }
         drop(calls);
+        let ended = run.run().report().no_timeout().await.unwrap();
         foxhound.close().await.unwrap();
 
-        assert_eq!(unhandled.code(), error_code::LABEL_UNHANDLED, "{unhandled}");
         let dropped = dropped.unwrap();
         let attempts: Vec<u32> = seen
             .iter()
@@ -543,6 +535,31 @@ fn a_program_answers_its_crawl_requests_itself() {
             (2, 0),
             "{requests:?}"
         );
+    });
+}
+
+/// A crawl that attaches no handler starts, for the program to answer its
+/// requests itself, but its `serve` fails at once with `label_unhandled`
+/// rather than wait on requests no handler answers.
+///
+/// Covers: error:label_unhandled
+#[test]
+fn serving_a_crawl_with_no_handler_fails_with_label_unhandled() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let book = site.url("shop.test", "/book");
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<Visit>("page").unwrap();
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
+            .await
+            .unwrap();
+        let unhandled = crawl.serve(&run).await.unwrap_err();
+        foxhound.close().await.unwrap();
+
+        assert_eq!(unhandled.code(), error_code::LABEL_UNHANDLED, "{unhandled}");
     });
 }
 

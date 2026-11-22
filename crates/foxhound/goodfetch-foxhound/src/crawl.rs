@@ -14,13 +14,16 @@ use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::marker::PhantomData;
 use std::panic::AssertUnwindSafe;
-use std::pin::{Pin, pin};
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, PoisonError};
+use std::task::{Context, Poll, ready};
 
-use futures_util::stream::{self, FuturesUnordered};
-use futures_util::{FutureExt as _, StreamExt as _};
-use goodfetch_collie_client::{BoxError, ClientConnection, Error, EventStream, HandlerCall, Run};
+use futures_util::stream::FuturesUnordered;
+use futures_util::{FutureExt as _, Stream, StreamExt as _};
+use goodfetch_collie_client::{
+    BoxError, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
+};
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
@@ -40,7 +43,7 @@ use serde_json::{Value, json};
 
 use crate::Foxhound;
 use crate::crawl_requests::CrawlRequests;
-use crate::sync::AtomicU64;
+use crate::sync::{AtomicU64, Mutex};
 
 mod context;
 #[cfg(test)]
@@ -70,7 +73,14 @@ type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Sen
 
 /// A Label's handler, called once for each attempt: it reads the
 /// attempt's Payload, then returns the handler's future.
-type Handler<'a> = Box<dyn Fn(Arc<Attempt>) -> Result<HandlerFuture<'a>, Error> + Send + Sync + 'a>;
+type Handler<'a> = Box<dyn Fn(Delivered) -> Result<HandlerFuture<'a>, Error> + Send + Sync + 'a>;
+
+/// One attempt the engine delivered, and its request's Payload, taken out
+/// of its params so it is read without a copy.
+struct Delivered {
+    attempt: Arc<Attempt>,
+    payload: Value,
+}
 
 /// A crawl the program declares (ADRs 0093 and 0112): its Labels, the
 /// handler of each, and its Datasets. Declaring needs no connection, and a
@@ -201,10 +211,8 @@ impl<'a> Crawl<'a> {
                 &json!({ "label": &*label.name }),
             ));
         }
-        *slot = Some(Box::new(move |attempt: Arc<Attempt>| {
-            let payload = attempt.params.crawl_request.payload.as_ref();
-            let payload =
-                P::deserialize(payload.unwrap_or(&Value::Null)).map_err(payload_invalid)?;
+        *slot = Some(Box::new(move |Delivered { attempt, payload }| {
+            let payload = P::deserialize(payload).map_err(payload_invalid)?;
             let handler = handler.clone();
             let future: HandlerFuture<'a> = Box::pin(handler(CrawlContext::new(attempt, payload)));
             Ok(future)
@@ -270,16 +278,7 @@ impl<'a> Crawl<'a> {
             run_id: run_id.clone(),
         };
         let declared: Arc<[String]> = self.declared().into();
-        let report = run
-            .connection
-            .call::<CrawlRunReport>(
-                RUN_REPORT.name,
-                &RunParams {
-                    run_id: run_id.clone(),
-                },
-            )
-            .no_timeout();
-        let mut report = pin!(report.into_future());
+        let mut report = run.ended();
         let mut attempts = FuturesUnordered::new();
         let mut reading = true;
         let ended = loop {
@@ -307,9 +306,9 @@ impl<'a> Crawl<'a> {
         declared: &Arc<[String]>,
     ) {
         let (outcome, ending) = match self.handler_of(&call, connection, declared) {
-            Ok((label, handler, attempt)) => {
-                let held = Arc::clone(&attempt);
-                let outcome = AssertUnwindSafe(async move { handler(attempt)?.await })
+            Ok((label, handler, delivered)) => {
+                let held = Arc::clone(&delivered.attempt);
+                let outcome = AssertUnwindSafe(async move { handler(delivered)?.await })
                     .catch_unwind()
                     .await;
                 let outcome = outcome
@@ -318,12 +317,7 @@ impl<'a> Crawl<'a> {
             }
             Err(error) => (Err(Box::new(error) as BoxError), None),
         };
-        if let Err(error) = answer(call, ending, outcome) {
-            tracing::debug!(
-                %error,
-                "A Crawl request's answer did not reach the engine: its connection has ended."
-            );
-        }
+        sent(answer(call, ending, outcome));
     }
 
     /// The Label of `call`, its handler and the attempt it is handed, which
@@ -334,15 +328,15 @@ impl<'a> Crawl<'a> {
         call: &HandlerCall,
         connection: &ClientConnection,
         declared: &Arc<[String]>,
-    ) -> Result<(Arc<str>, &Handler<'a>, Arc<Attempt>), Error> {
-        let attempt = attempt_of(call, connection, self.id, declared)
+    ) -> Result<(Arc<str>, &Handler<'a>, Delivered), Error> {
+        let delivered = delivered(call, connection, self.id, declared)
             .map_err(|error| params_unread(&error))?;
-        let label = attempt.params.crawl_request.label.as_str();
+        let label = delivered.attempt.params.crawl_request.label.as_str();
         let Some((name, Some(handler))) = self.labels.iter().find(|(name, _)| **name == *label)
         else {
             return Err(label_unknown(label, declared.to_vec()));
         };
-        Ok((Arc::clone(name), handler, attempt))
+        Ok((Arc::clone(name), handler, delivered))
     }
 
     /// The `label_unhandled` of the crawl's first Label with no handler,
@@ -441,26 +435,39 @@ fn payload_invalid(error: serde_json::Error) -> Error {
     Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
 }
 
-/// The attempt `call` is, of the crawl `crawl` whose Labels are
-/// `declared`.
+/// The attempt `call` delivers, of the crawl `crawl` whose Labels are
+/// `declared`, with its request's Payload, `null` when it has none.
 ///
 /// # Errors
 ///
 /// Why its params do not read as this SDK's, which [`params_unread`]
 /// refuses.
-fn attempt_of(
+fn delivered(
     call: &HandlerCall,
     connection: &ClientConnection,
     crawl: CrawlId,
     declared: &Arc<[String]>,
-) -> Result<Arc<Attempt>, serde_json::Error> {
-    let params = CrawlRequestHandleParams::deserialize(call.params())?;
-    Ok(Arc::new(Attempt::new(
+) -> Result<Delivered, serde_json::Error> {
+    let mut params = CrawlRequestHandleParams::deserialize(call.params())?;
+    let payload = params.crawl_request.payload.take().unwrap_or(Value::Null);
+    let attempt = Arc::new(Attempt::new(
         connection.clone(),
         params,
         crawl,
         Arc::clone(declared),
-    )))
+    ));
+    Ok(Delivered { attempt, payload })
+}
+
+/// Logs an answer to a Crawl request that did not reach the engine, whose
+/// connection has ended: nothing waits for it.
+fn sent(answered: Result<(), Error>) {
+    if let Err(error) = answered {
+        tracing::debug!(
+            %error,
+            "A Crawl request's answer did not reach the engine: its connection has ended."
+        );
+    }
 }
 
 /// The `invalid_params` of a Crawl request whose params do not read as
@@ -750,9 +757,11 @@ impl CrawlRun {
     /// (ADRs 0093 and 0112): the stream beneath [`Crawl::serve`], for a
     /// crawl that attaches no handler, such as one whose state cannot be
     /// `Send`. Each item is a [`CrawlCall`], answered with
-    /// [`CrawlCall::finish`]; the stream ends once the connection has
-    /// ended. A request whose params do not read is answered with that
-    /// error, which is the stream's item in its place.
+    /// [`CrawlCall::finish`]; the stream ends once the Run ends, as the
+    /// serve returns then, or once the connection has ended, and the Run's
+    /// `report` then reads how it ended. A request whose params do not
+    /// read is answered with that error, which is the stream's item in its
+    /// place.
     ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, Foxhound, Seed};
@@ -785,7 +794,9 @@ impl CrawlRun {
     /// [`CrawlCall`] it handed out is given back when it is dropped
     /// unanswered.
     pub fn crawl_requests(&self) -> EventStream<CrawlCall> {
-        let reading = Reading {
+        EventStream::from_items(Reading {
+            next: None,
+            ended: Some(Mutex::new(self.ended())),
             forget: Forget {
                 requests: Arc::clone(&self.requests),
                 run_id: self.id().clone(),
@@ -793,49 +804,82 @@ impl CrawlRun {
             connection: self.connection.clone(),
             crawl: self.crawl,
             declared: Arc::clone(&self.declared),
-        };
-        EventStream::from_items(stream::unfold(reading, |reading| async move {
-            let call = reading.forget.requests.next(&reading.forget.run_id).await?;
-            let item = reading.call_of(call);
-            Some((item, reading))
-        }))
+        })
+    }
+
+    /// The Run's report, which the engine answers once the Run ends.
+    fn ended(&self) -> Reply<CrawlRunReport> {
+        self.connection
+            .call::<CrawlRunReport>(
+                RUN_REPORT.name,
+                &RunParams {
+                    run_id: self.id().clone(),
+                },
+            )
+            .no_timeout()
+            .into_future()
     }
 }
 
-/// What the stream of a Run's Crawl requests reads with.
+/// The next Crawl request of a Run, or `None` once the connection ended.
+type NextRequest = Pin<Box<dyn Future<Output = Option<HandlerCall>> + Send + Sync>>;
+
+/// The stream of a Run's Crawl requests, which ends with the Run.
 struct Reading {
+    /// The read of the Run's next request, once one was asked for: dropped
+    /// before `forget`, so no request it read stays kept for the Run.
+    next: Option<NextRequest>,
+    /// The Run's report, whose answer ends the stream, or `None` once the
+    /// stream ended. The lock only makes the stream `Sync`: the report is
+    /// polled through `get_mut`, never locked.
+    ended: Option<Mutex<Reply<CrawlRunReport>>>,
     forget: Forget,
     connection: ClientConnection,
     crawl: CrawlId,
     declared: Arc<[String]>,
 }
 
+impl Stream for Reading {
+    type Item = Result<CrawlCall, Error>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let reading = self.get_mut();
+        let Some(ended) = reading.ended.as_mut() else {
+            return Poll::Ready(None);
+        };
+        let report = ended.get_mut().unwrap_or_else(PoisonError::into_inner);
+        if report.as_mut().poll(context).is_ready() {
+            reading.next = None;
+            reading.ended = None;
+            return Poll::Ready(None);
+        }
+        let forget = &reading.forget;
+        let next = reading.next.get_or_insert_with(|| {
+            let requests = Arc::clone(&forget.requests);
+            let run_id = forget.run_id.clone();
+            Box::pin(async move { requests.next(&run_id).await })
+        });
+        let call = ready!(next.as_mut().poll(context));
+        reading.next = None;
+        let Some(call) = call else {
+            reading.ended = None;
+            return Poll::Ready(None);
+        };
+        Poll::Ready(Some(reading.call_of(call)))
+    }
+}
+
 impl Reading {
     /// The [`CrawlCall`] of `call`, or the refusal of params that do not
     /// read, which answers it.
     fn call_of(&self, call: HandlerCall) -> Result<CrawlCall, Error> {
-        match attempt_of(&call, &self.connection, self.crawl, &self.declared) {
-            Ok(attempt) => {
-                let payload = attempt
-                    .params
-                    .crawl_request
-                    .payload
-                    .clone()
-                    .unwrap_or(Value::Null);
-                Ok(CrawlCall {
-                    call,
-                    context: CrawlContext::new(attempt, payload),
-                })
-            }
+        match delivered(&call, &self.connection, self.crawl, &self.declared) {
+            Ok(Delivered { attempt, payload }) => Ok(CrawlCall {
+                call,
+                context: CrawlContext::new(attempt, payload),
+            }),
             Err(error) => {
-                let answered =
-                    call.fail(Box::new(params_unread(&error)), error_code::HANDLER_FAILED);
-                if let Err(closed) = answered {
-                    tracing::debug!(
-                        %closed,
-                        "A Crawl request's answer did not reach the engine: its connection has ended."
-                    );
-                }
+                sent(answer(call, None, Err(Box::new(params_unread(&error)))));
                 Err(params_unread(&error))
             }
         }

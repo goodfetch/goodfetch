@@ -205,6 +205,11 @@ fn run_of(opened_in: &OpenedIn) -> &str {
         .expect("the page opened before any locator call")
 }
 
+/// The value the engine heard `#card` filled with: the canary, which shows
+/// the Secret reached the engine before no failure rendered it. A static,
+/// since the composition is a `fn`; nextest gives the test its own process.
+static CARD_FILLED_WITH: OnceLock<String> = OnceLock::new();
+
 /// A locator call's handler, failing as [`failing`] says for its selector.
 fn locator_call(
     opened_in: &OpenedIn,
@@ -213,6 +218,11 @@ fn locator_call(
     let opened_in = Arc::clone(opened_in);
     move |params: Value, _: CallContext| {
         let selector = params["locator"]["selector"].as_str().unwrap_or_default();
+        if selector == "#card" {
+            CARD_FILLED_WITH
+                .set(params["value"].as_str().unwrap_or_default().to_owned())
+                .expect("the case fills `#card` once");
+        }
         std::future::ready(Err(failing(selector, run_of(&opened_in))))
     }
 }
@@ -601,5 +611,10 @@ fn an_outcome_is_returned_and_each_failure_carries_its_code_on_the_linked_engine
     assert_program_and_refused(unbound, input_refused);
     assert_page_and_deadline(not_unique, deadline);
     assert_unavailable_model_and_internal(unavailable, from_outside, panicked);
+    assert_eq!(
+        CARD_FILLED_WITH.get().map(String::as_str),
+        Some(CANARY),
+        "the Secret reached the engine"
+    );
     assert_no_secret_rendered(&env, &played.errors, &log.written());
 }

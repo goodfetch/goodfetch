@@ -17,6 +17,7 @@ import {
   InternalError,
   type Logger,
   ModelError,
+  type Page,
   PageError,
   ProgramError,
   RefusedError,
@@ -80,7 +81,7 @@ function loggingEverything(): {
 
 /** What the case's calls answered, in the script's order. */
 interface Played {
-  readonly missing: unknown;
+  readonly missing: Awaited<ReturnType<Page["goto"]>>;
   readonly unbound: GoodfetchError;
   readonly inputRefused: GoodfetchError;
   readonly notUnique: GoodfetchError;

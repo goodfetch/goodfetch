@@ -46,7 +46,9 @@ export class Collie implements Connection {
   /**
    * Starts Collie's engine as an Attached engine and completes `hello`
    * before returning, so a `GOODFETCH_` variable off the closed list
-   * (`setting_unknown`) or one set but empty (`setting_invalid`), a missing
+   * (`setting_unknown`) or one set but empty (`setting_invalid`), a project
+   * file that cannot be read (`setting_invalid`, or
+   * `format_version_unsupported` for its version), a missing
    * executable (`engine_not_found`) or a refused Product or version fails
    * here, with a `fix`. An aborted
    * `signal` fails it with the signal's reason, leaving no engine behind.
@@ -88,9 +90,9 @@ export class Collie implements Connection {
    * each a key or a prefix of keys such as `timeout`, every one when left
    * out, with its effective value, the layer and origin that set it and
    * the layer that locked it, as `goodfetch config explain` shows them: the
-   * Connection's own `settings` over configuration and the Operator
-   * policy, which each Run it starts inherits. Fails with `closed` once
-   * the Connection is closed.
+   * Connection's own `settings` over the project file `connect()` read,
+   * configuration and the Operator policy, which each Run it starts
+   * inherits. Fails with `closed` once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     return this.#connection.explainSettings(keys);

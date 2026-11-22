@@ -1,0 +1,57 @@
+{
+  "description": "A Foxhound Client starts a crawl carrying on `crawl.start` the project file it read, which sets `crawl.handler.concurrency` to 0; the engine refuses it with `setting_invalid` at `project_configuration` (ADR 0083; story 11-75). A test replaces `/work/goodfetch.toml` with the path of the file its Client read.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "page": {} },
+          "seeds": [{ "url": "https://shop.test/a", "label": "page" }],
+          "run_id": "nightly",
+          "project": {
+            "path": "/work/goodfetch.toml",
+            "settings": { "crawl": { "handler": { "concurrency": 0 } } }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "`crawl.handler.concurrency` is not valid in project_configuration: expected a whole number of 1 or more, found `0`",
+          "data": {
+            "code": "setting_invalid",
+            "retryable": false,
+            "key": "crawl.handler.concurrency",
+            "layer": "project_configuration",
+            "reason": "expected a whole number of 1 or more, found `0`"
+          }
+        }
+      }
+    }
+  ]
+}

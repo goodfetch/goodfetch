@@ -54,6 +54,7 @@ export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
 export {
   productEnv,
+  projectScript,
   scriptedEngineClientMethods,
   scriptedEngineEnv,
   type Product,

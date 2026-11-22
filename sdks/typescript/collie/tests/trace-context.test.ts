@@ -2,7 +2,8 @@
 // `trace-context` client conformance case: with `@opentelemetry/api`
 // installed, a call made in the program's active span sends that span's
 // `traceparent`, and its `tracestate`, in its `_meta`, a raw call's beside
-// its raw mark; a call made outside any span sends no `_meta`, nor does
+// its raw mark, and never the Baggage the program set; a call made outside
+// any span sends no `_meta`, nor does
 // `hello`, the Connection's own, though opened in the span. The Scripted
 // engine fails on params it does not expect and on a step left unused, so a
 // play with no warning, or a Daemon's clean exit, says each call carried
@@ -19,7 +20,14 @@ import {
   startScriptedDaemon,
   test,
 } from "@goodfetch/test-support";
-import { context, trace, TraceFlags, type SpanContext, type TraceState } from "@opentelemetry/api";
+import {
+  context,
+  propagation,
+  trace,
+  TraceFlags,
+  type SpanContext,
+  type TraceState,
+} from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { afterAll, beforeAll, describe, expect } from "vitest";
 
@@ -43,9 +51,17 @@ const PROGRAM_SPAN: SpanContext = {
   traceState: TRACE_STATE,
 };
 
-/** `calls`, run with the program's span active, as an instrumented function runs its body. */
+/**
+ * `calls`, run with the program's span active, as an instrumented function
+ * runs its body, in a context that also holds the program's Baggage, which
+ * no request carries.
+ */
 function inProgramSpan<T>(calls: () => Promise<T>): Promise<T> {
-  return context.with(trace.setSpanContext(context.active(), PROGRAM_SPAN), calls);
+  const withBaggage = propagation.setBaggage(
+    context.active(),
+    propagation.createBaggage({ user: { value: "secret" } }),
+  );
+  return context.with(trace.setSpanContext(withBaggage, PROGRAM_SPAN), calls);
 }
 
 /** The case: inside the program's span, the opening and three calls; two outside any. */

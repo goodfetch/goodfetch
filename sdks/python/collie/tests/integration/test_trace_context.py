@@ -4,7 +4,8 @@ The `trace-context` client conformance case, three ways: async on asyncio,
 async on Trio and through the sync `Collie`. With `opentelemetry-api`
 installed, a call made in the program's current span sends that span's
 `traceparent`, and its `tracestate`, in its `_meta`, a raw call's beside
-its raw mark; a call made outside any span sends no `_meta`, nor does
+its raw mark, and never the Baggage the program set; a call made outside
+any span sends no `_meta`, nor does
 `hello`, the Connection's own, though opened in the span. The sync API
 sends the context of the thread that calls it, not the private thread's:
 two threads in two spans share one `Collie`. Without `opentelemetry-api`,
@@ -36,7 +37,7 @@ from goodfetch_test_support import (
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
-from opentelemetry import trace
+from opentelemetry import baggage, context, trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
 
 COVERS = pytest.mark.covers("story:11-138")
@@ -70,15 +71,22 @@ OTHER_SPAN = NonRecordingSpan(
 
 
 async def play_the_case(opening: Awaitable[AsyncCollie]) -> None:
-    """The case: the opening and three calls in the program's span, two outside."""
-    with trace.use_span(PROGRAM_SPAN):
-        collie = await opening
+    """The case: the opening and three calls in the program's span, two outside.
+
+    Every call is made where the program has set Baggage, which none carries.
+    """
+    with_baggage = context.attach(baggage.set_baggage("user", "secret"))
+    try:
+        with trace.use_span(PROGRAM_SPAN):
+            collie = await opening
+            await collie.explain_settings()
+            await collie.call("run.list", {"lifecycle": "running"})
+            run = await collie.start()
         await collie.explain_settings()
-        await collie.call("run.list", {"lifecycle": "running"})
-        run = await collie.start()
-    await collie.explain_settings()
-    await run.finish()
-    await collie.close()
+        await run.finish()
+        await collie.close()
+    finally:
+        context.detach(with_baggage)
 
 
 @COVERS

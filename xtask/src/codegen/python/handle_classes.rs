@@ -163,9 +163,10 @@ struct Imports {
     /// The settings types its members take, from the generated settings
     /// module, with [`SETTINGS_ON_WIRE`] when there is one.
     settings: BTreeSet<&'static str>,
-    /// Whether a member answers a page's response, which it wraps in the
-    /// hand-written `Response` of [`RESPONSE_MODULE`].
-    response: bool,
+    /// The classes of [`RESPONSE_MODULE`] it imports: both, when a member
+    /// answers a page's response, which it wraps in the hand-written
+    /// `Response`.
+    response: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -553,6 +554,27 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
 }
 
 /// One member, a method of the class that holds `self._host`.
+/// The `Response` class `member` answers, when it answers a page's
+/// response, and what it returns: that class, or `None` beside it for an
+/// optional one, in place of `returns`.
+fn responded(
+    member: &Member<'_>,
+    prefix: &str,
+    returns: String,
+    imports: &mut Imports,
+) -> (Option<String>, String) {
+    if !member.responds {
+        return (None, returns);
+    }
+    imports.response.extend(["AsyncResponse", "Response"]);
+    let class = format!("{prefix}Response");
+    let returns = match &member.unwrapped {
+        Some(unwrapped) if !unwrapped.required => format!("{class} | None"),
+        _ => class.clone(),
+    };
+    (Some(class), returns)
+}
+
 fn member(
     layer: &Layer,
     member: &Member<'_>,
@@ -594,15 +616,7 @@ fn member(
         Form::Opens(opened) => format!("{prefix}{}", pascal(opened)),
         Form::Closes => "None".to_owned(),
     };
-    let response = member.responds.then(|| {
-        imports.response = true;
-        format!("{prefix}Response")
-    });
-    let returns = match (&response, &member.unwrapped) {
-        (Some(class), Some(unwrapped)) if !unwrapped.required => format!("{class} | None"),
-        (Some(class), _) => class.clone(),
-        (None, _) => returns,
-    };
+    let (response, returns) = responded(member, prefix, returns, imports);
     let mut text = String::new();
     if let Some(deprecated) = &operation.deprecated {
         imports.deprecated = true;
@@ -917,11 +931,9 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     );
     text.push_str(&markers_import(&imports.markers));
     let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
-    if imports.response {
-        let _ = writeln!(
-            text,
-            "from {RESPONSE_MODULE} import AsyncResponse, Response"
-        );
+    if !imports.response.is_empty() {
+        let classes = imports.response.iter().copied().collect::<Vec<_>>();
+        let _ = writeln!(text, "from {RESPONSE_MODULE} import {}", classes.join(", "));
     }
     if !imports.settings.is_empty() {
         let _ = writeln!(

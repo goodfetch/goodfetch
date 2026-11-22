@@ -89,6 +89,10 @@ class NothingToAnswer(PlayFailed):
     """A `reply` or `await_reply` step follows no request to answer."""
 
 
+class DropUnsupported(PlayFailed):
+    """A `drop` step, which only the executable's `websocket` mode plays."""
+
+
 class _Absent(Enum):
     """The params of a message that carries none, unlike JSON's `null`."""
 
@@ -148,6 +152,11 @@ class _Close:
 
 
 @dataclass(frozen=True)
+class _Drop:
+    pass
+
+
+@dataclass(frozen=True)
 class _Raw:
     text: str
 
@@ -165,6 +174,7 @@ _Step: TypeAlias = (
     | _AwaitReply
     | _Stall
     | _Close
+    | _Drop
     | _Raw
     | _Exit
 )
@@ -388,6 +398,10 @@ class _Player:
                     self.messages.append(PlayedRaw(from_="engine", raw=text))
                 case _Close():
                     self._end(Closed())
+                case _Drop():
+                    # An in-process play has one Client: no other connects.
+                    self._fail(_drop_unsupported(index))
+                    return
                 case _Exit(code):
                     self._end(Exited(code))
                 case _:
@@ -615,6 +629,12 @@ def _nothing_to_answer(step: int) -> NothingToAnswer:
     )
 
 
+def _drop_unsupported(step: int) -> DropUnsupported:
+    return DropUnsupported(
+        f"drop_unsupported: step {step} drops the Client, and this mode takes no other"
+    )
+
+
 def _members(call: _Call) -> dict[str, object]:
     """A call's `method`, and its `params` unless it has none."""
     if call.params is _ABSENT:
@@ -654,6 +674,8 @@ def _step(value: dict[str, object]) -> _Step:
             return _Stall()
         case "close":
             return _Close()
+        case "drop":
+            return _Drop()
         case "raw":
             return _Raw(cast("str", fields["text"]))
         case "exit":
@@ -666,6 +688,7 @@ def _step(value: dict[str, object]) -> _Step:
 __all__ = [
     "CORPUS",
     "Closed",
+    "DropUnsupported",
     "Ending",
     "Exited",
     "Finished",

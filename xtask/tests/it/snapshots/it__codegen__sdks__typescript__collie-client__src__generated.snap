@@ -79,6 +79,11 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "sample.echo": "sample.echo",
 };
 
+/** The class of each of Collie's operations (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079). */
+export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes, "read" | "idempotent_write" | "effect">> = {
+  "sample.echo": "read",
+};
+
 /** Collie's operations that send a message, each an async method. */
 export class CollieOperations {
   readonly #caller: Caller<CollieOperationTypes>;

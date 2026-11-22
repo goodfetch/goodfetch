@@ -48,6 +48,7 @@ from goodfetch_test_support.journey import (
 from goodfetch_test_support.locales import TimeZoneCase, locales, time_zones
 from goodfetch_test_support.play_script import (
     Closed,
+    DropUnsupported,
     Ending,
     Exited,
     Finished,
@@ -97,6 +98,7 @@ __all__ = [
     "Closed",
     "Daemon",
     "DaemonNotRequested",
+    "DropUnsupported",
     "Encoding",
     "Ending",
     "EngineAnswering",

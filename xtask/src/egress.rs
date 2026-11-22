@@ -144,22 +144,19 @@ pub(crate) enum CanaryCommand {
 }
 
 /// How the deny recorded the canary's attempt: exactly one of its counters
-/// before and after, the Windows firewall's log, or macOS's sandbox.
+/// before and after, or the Windows firewall's log.
 #[derive(clap::Args)]
 #[group(required = true, multiple = true)]
 pub(crate) struct RecordArguments {
     /// The deny's counters before the attempt, as `nft --json` lists them.
-    #[arg(long, requires = "after", conflicts_with_all = ["firewall_log", "sandbox"])]
+    #[arg(long, requires = "after", conflicts_with = "firewall_log")]
     before: Option<PathBuf>,
     /// The deny's counters after the attempt.
-    #[arg(long, requires = "before", conflicts_with_all = ["firewall_log", "sandbox"])]
+    #[arg(long, requires = "before", conflicts_with = "firewall_log")]
     after: Option<PathBuf>,
     /// The Windows firewall's log of dropped packets.
-    #[arg(long, conflicts_with = "sandbox")]
-    firewall_log: Option<PathBuf>,
-    /// The attempt ran under macOS's sandbox, whose refusal is its record.
     #[arg(long)]
-    sandbox: bool,
+    firewall_log: Option<PathBuf>,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -198,11 +195,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 record.after.map(|path| environment.path(&path)),
                 record.firewall_log.map(|path| environment.path(&path)),
             );
-            let record = match (&paths, record.sandbox) {
-                ((Some(before), Some(after), _), false) => Record::Counters { before, after },
-                ((None, None, Some(log)), false) => Record::FirewallLog(log),
-                ((None, None, None), true) => Record::Sandbox,
-                _ => anyhow::bail!("give --before and --after, --firewall-log or --sandbox"),
+            let record = match &paths {
+                (Some(before), Some(after), _) => Record::Counters { before, after },
+                (None, None, Some(log)) => Record::FirewallLog(log),
+                _ => anyhow::bail!("give --before and --after, or --firewall-log"),
             };
             Ok(crate::check::report(&verdict(
                 root,

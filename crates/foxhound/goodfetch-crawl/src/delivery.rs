@@ -511,7 +511,14 @@ async fn deliver(
         }
         let starved = run.governor().waits(WorkKind::Http);
         pages.dismiss();
-        if pages.idle() && settling.is_empty() {
+        // A work item leased whose Session waits to be drawn keeps the
+        // crawl from idling, unless it stops: then it goes back to pending
+        // uncounted, as the program's own stop counts nothing (#2178).
+        let undrawn = state.undrawn() > 0;
+        if pages.idle() && settling.is_empty() && (stop.is_some() || !undrawn) {
+            if undrawn {
+                release(run, state.stored()).await;
+            }
             let state = (&mut admission, &mut state);
             let serving = (&mut *servers, &mut *arrivals, in_flight);
             match idled((run, resolved), state, serving, (stop.take(), starved)).await {
@@ -567,6 +574,12 @@ async fn deliver(
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
+            // With no attempt running, nothing else settles a Session of
+            // the browser client: a browser-page place given to the Run is
+            // what draws the work items that wait. While one runs, a page's
+            // own admission may wait for that turn, so the loop leaves it
+            // to the page and draws again as an attempt ends (#2178).
+            () = run.governor().turn(WorkKind::BrowserPage), if undrawn && pages.idle() => {}
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
@@ -1030,7 +1043,11 @@ impl<'a> Pooled<'a> {
 /// them and draws the Session of the pool that serves each in one write of
 /// run state, committed before any handler request is sent, and starts an
 /// attempt for each on that Connection, which holds its admission until it
-/// ends (ADR 0040). A Run the governor gave none waits for its turn.
+/// ends (ADR 0040). A Run the governor gave none waits for its turn. While
+/// a work item leased waits for its Session of the browser client to be
+/// drawn, the Run draws those again first, in their turn, and admits no
+/// other work item, so no more wait than its Connections have room for
+/// (#2178).
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
@@ -1047,18 +1064,17 @@ async fn lease_to_servers(
         // A Run with no work item ready asks the governor for nothing, and
         // passes any turn it waits for to the Runs that wait.
         let now = run.clock().now();
-        if admission.ready_at(now).is_none_or(|ready| ready > now) {
+        let undrawn = pooled.state.undrawn();
+        if undrawn == 0 && admission.ready_at(now).is_none_or(|ready| ready > now) {
             run.governor().pass(WorkKind::Http);
             return Ok(());
         }
-        let mut permits: Vec<Permit> =
-            std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
-                .take(policy.handler_concurrency - server.in_flight)
-                .collect();
+        let room = policy.handler_concurrency - server.in_flight;
+        let mut permits = http_admissions(run, room, undrawn);
         if permits.is_empty() {
             return Ok(());
         }
-        let served = admit(run, admission, permits.len(), &mut pooled).await?;
+        let served = served(run, admission, permits.len(), &mut pooled).await?;
         let pool = pooled.state.pool();
         for rotated in pool.rotated_within_block() {
             warn_rotated(run, rotated).await;
@@ -1842,6 +1858,7 @@ async fn admit(
         if !drawn
             .iter()
             .any(|drawn| drawn.leased.crawl_request.id == *id)
+            && !pooled.state.waits_to_draw(id)
         {
             admission.ended(id, key, now, Ended::Done).await;
         }
@@ -1854,15 +1871,55 @@ async fn admit(
 
 /// Leases each pending work item of `asked`, by ID with its domain key, in
 /// `pooled`'s Run state, whose claim journals `charges`, and draws the
-/// Session that serves each and how its tier is chosen (ADR 0142).
+/// Session that serves each and how its tier is chosen (ADR 0142); one
+/// whose request needs the browser and finds no Session of that client
+/// with room nor a browser-page place waits in the Run state (#2178).
 async fn leased_and_drawn(
     run: &Run,
     charges: UnjournaledCharges,
     asked: Vec<(String, String)>,
     pooled: &mut Pooled<'_>,
 ) -> Result<Vec<Drawn>, StateError> {
+    let drawing = drawing(run, pooled);
+    pooled.state.lease(run, charges, asked, &drawing).await
+}
+
+/// The HTTP admissions the Run's share gives now, at most `room`, and no
+/// more than the `undrawn` work items that wait to be drawn while any does
+/// (#2178).
+fn http_admissions(run: &Run, room: usize, undrawn: usize) -> Vec<Permit> {
+    let room = if undrawn == 0 {
+        room
+    } else {
+        room.min(undrawn)
+    };
+    std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
+        .take(room)
+        .collect()
+}
+
+/// At most `room` work items to start now, each with its Sessions drawn:
+/// while any leased waits for a Session of the browser client to have
+/// room or for a browser-page place, those drawn again, in their turn;
+/// else those [`admit`] admits now (#2178).
+async fn served(
+    run: &Run,
+    admission: &mut Admission,
+    room: usize,
+    pooled: &mut Pooled<'_>,
+) -> Result<Vec<Drawn>, StateError> {
+    if pooled.state.undrawn() == 0 {
+        return admit(run, admission, room, pooled).await;
+    }
+    let drawing = drawing(run, pooled);
+    Ok(pooled.state.redraw(&drawing, room))
+}
+
+/// What the Run's settings say of a draw in `pooled`, at the Run's wall
+/// clock now.
+fn drawing<'a>(run: &'a Run, pooled: &Pooled<'a>) -> Drawing<'a> {
     let fetching = pooled.fetching;
-    let drawing = Drawing {
+    Drawing {
         labels: &fetching.labels,
         settings: pooled.settings,
         run_tier: fetching.run_tier,
@@ -1874,8 +1931,8 @@ async fn leased_and_drawn(
                 .site_preferences
                 .reads_robots_txt(goodfetch_fetch_tier::Request::CrawlRequest),
         wall: (run.clock().wall(), wall_ms(run)),
-    };
-    pooled.state.lease(run, charges, asked, &drawing).await
+        places: run.governor(),
+    }
 }
 
 /// Writes what the gate changed into the run file.

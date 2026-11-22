@@ -74,8 +74,12 @@ fn cli() {
                 .iter()
                 .map(|(host, address)| (host.clone(), json!([address])))
                 .collect();
+            // Growth is `eager`: the pages go one at a time, so on demand
+            // one Session would serve them all from one address; eager
+            // opens one per page, and the Sessions spread over both (#2178).
             let settings = json!({
                 "fetch": { "tier": "http" },
+                "session": { "pool": { "growth": "eager" } },
                 "network": { "resolve": resolve },
                 "egress": {
                     "private_ranges": resolve.keys().collect::<Vec<_>>(),

@@ -2,6 +2,8 @@
 //! committed once as `test-support/fixtures/snapshot-filters.json`, which
 //! insta applies here and the TypeScript and Python packages apply for
 //! Vitest and inline-snapshot, so the three snapshot tools redact alike.
+//! The CLI's wire record (`goodfetch-collie`'s `wire_record` module) reads
+//! the same file's patterns, and measures each message's bytes after them.
 //!
 //! A rule replaces either one of a run's values (the test's folder, the
 //! executable's Product version and commit), matched literally, or every

@@ -27,43 +27,20 @@
 # RUSTC_WRAPPER only when its file is named sccache, and so does
 # ci/compiler-launcher.sh for CMake, hence this file's name. Every other
 # call, Rust compiles and `--show-stats` included, reaches sccache
-# unchanged. Without an sccache to run, a compile runs the compiler itself.
+# unchanged. Without that sccache it fails, as a missing RUSTC_WRAPPER does.
+# The build script passes sources, objects and include folders (`-I`) by
+# path, and the `cc` crate no other path for DuckDB, so only those move.
 set -euo pipefail
 
 self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
-
-# Prints the sccache named $1, a path or a name on PATH, unless it is this
-# script.
-other_sccache() {
-  local candidate=$1 folder
-  if [[ "$candidate" == */* ]]; then
-    [[ -x "$candidate" ]] || return 1
-    [[ "$(cd "$(dirname "$candidate")" && pwd -P)/$(basename "$candidate")" != "$self" ]] || return 1
-    echo "$candidate"
-    return 0
-  fi
-  local IFS=:
-  for folder in $PATH; do
-    [[ -n "$folder" ]] || folder=.
-    if [[ -x "$folder/$candidate" && "$(cd "$folder" && pwd -P)/$candidate" != "$self" ]]; then
-      echo "$folder/$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-sccache=$(other_sccache "${GOODFETCH_SCCACHE:-sccache}" || other_sccache sccache || true)
+saved=${GOODFETCH_SCCACHE:-sccache}
+sccache=$(command -v "$saved" || true)
+if [[ -z "$sccache" || "$(cd "$(dirname "$sccache")" && pwd -P)/$(basename "$sccache")" == "$self" ]]; then
+  echo "error: $0 runs the sccache saved in GOODFETCH_SCCACHE, and $saved is missing or this script" >&2
+  exit 2
+fi
 run() {
-  if [[ -n "$sccache" ]]; then
-    exec "$sccache" "$@"
-  fi
-  # No sccache: the compiler itself, or a report for a call meant for sccache.
-  [[ "${1:-}" != -* && -n "${1:-}" ]] || {
-    echo "error: $0 found no sccache other than itself (GOODFETCH_SCCACHE, PATH)" >&2
-    exit 2
-  }
-  exec "$@"
+  exec "$sccache" "$@"
 }
 
 out=${OUT_DIR:-}
@@ -104,16 +81,10 @@ for argument in "$@"; do
         relocate "$argument"
         argument=$path
         ;;
-      -I | -isystem | -iquote | -idirafter | -include | -imacros) path_follows=true ;;
-      -isystem?* | -iquote?* | -idirafter?* | -I?*)
-        case "$argument" in
-          -isystem*) flag=-isystem ;;
-          -iquote*) flag=-iquote ;;
-          -idirafter*) flag=-idirafter ;;
-          *) flag=-I ;;
-        esac
-        relocate "${argument#"$flag"}"
-        argument="$flag$path"
+      -I) path_follows=true ;;
+      -I?*)
+        relocate "${argument#-I}"
+        argument="-I$path"
         ;;
     esac
   fi

@@ -33,7 +33,8 @@ export NEXTEST_DOUBLE_SPAWN := "0"
 # every profile and target folder shares one compile of each source (issue
 # 3231; TESTING.md, Compiler cache). A nested `just` keeps the sccache its
 # parent saved. Elsewhere the wrapper stays the environment's, none when it
-# sets none.
+# sets none: a wrapper set only in Cargo's configuration (`build.rustc-wrapper`)
+# is then overridden, so set it in RUSTC_WRAPPER.
 _rustc_wrapper := env("RUSTC_WRAPPER", "")
 export GOODFETCH_SCCACHE := if os_family() != "unix" { "" } else if _rustc_wrapper =~ '/ci/compiler-cache/sccache$' { env("GOODFETCH_SCCACHE", "sccache") } else if _rustc_wrapper =~ '(^|/)sccache$' { _rustc_wrapper } else { "" }
 export RUSTC_WRAPPER := if GOODFETCH_SCCACHE != "" { justfile_directory() / "ci/compiler-cache/sccache" } else { _rustc_wrapper }

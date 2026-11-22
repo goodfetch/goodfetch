@@ -428,6 +428,7 @@ fn duckdb_compile(out: &Path) -> Vec<String> {
     [
         "c++".to_owned(),
         "-O3".to_owned(),
+        "--target=x86_64-unknown-linux-gnu".to_owned(),
         "-I".to_owned(),
         format!("{out}/duckdb/src/include"),
         "-I".to_owned(),
@@ -472,6 +473,7 @@ fn a_duckdb_compile_reaches_sccache_alike_from_any_target_folder() {
     let relative = [
         "c++",
         "-O3",
+        "--target=x86_64-unknown-linux-gnu",
         "-I",
         "duckdb/src/include",
         "-I",
@@ -502,12 +504,16 @@ fn a_duckdb_compile_reaches_sccache_alike_from_any_target_folder() {
     );
 }
 
-/// A change of the compiler, the target, a define or a flag reaches sccache's
-/// key, and nothing else does: the two compiles differ in that argument
-/// alone, though they ran in two target folders.
+/// A change of the compiler, the target, the optimization, a define or a
+/// flag reaches sccache's key, and nothing else does: the two compiles differ
+/// in that argument alone, though they ran in two target folders.
 #[rstest]
 #[case::compiler("c++", "clang++")]
-#[case::target("-O3", "--target=x86_64-unknown-linux-musl")]
+#[case::target(
+    "--target=x86_64-unknown-linux-gnu",
+    "--target=x86_64-unknown-linux-musl"
+)]
+#[case::optimization("-O3", "-O1")]
 #[case::define("-DNDEBUG", "-DDEBUG")]
 #[case::flag("-std=c++17", "-std=c++20")]
 fn a_changed_compile_reaches_sccache_changed(#[case] before: &str, #[case] after: &str) {
@@ -574,28 +580,39 @@ fn every_other_call_reaches_sccache_unchanged(#[case] package: &str, #[case] pro
     );
 }
 
-/// A saved sccache that names this wrapper, as a nested `just` could leave
-/// it, is passed over for the sccache on `PATH` instead of running itself.
-#[test]
-fn the_wrapper_never_runs_itself_as_sccache() {
+/// A saved sccache that is missing, or that names this wrapper, fails the
+/// call, as a missing wrapper would, rather than compiling outside the cache
+/// or running itself.
+#[rstest]
+#[case::missing(false)]
+#[case::this_wrapper(true)]
+fn a_wrapper_without_its_sccache_fails(#[case] itself: bool) {
     let workspace = Workspace::from_fixture("empty");
-    let from = folder(&workspace, PACKAGE);
-    let wrapper = repository_script("compiler-cache/sccache");
-    let arguments = vec!["--show-stats".to_owned()];
+    let out = folder(&workspace, OUT_DIRS[0]);
+    let sccache = recording_sccache(&workspace);
+    let saved = if itself {
+        repository_script("compiler-cache/sccache")
+    } else {
+        workspace.path().join("missing/sccache")
+    };
 
-    let call = wrap(
-        &workspace,
-        &from,
-        &arguments,
-        &[("GOODFETCH_SCCACHE", &wrapper)],
-    );
+    let status = workspace
+        .command(repository_script("compiler-cache/sccache"))
+        .current_dir(folder(&workspace, PACKAGE))
+        .args(duckdb_compile(&out))
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", sccache.parent().unwrap().display()),
+        )
+        .env("CARGO_PKG_NAME", "libduckdb-sys")
+        .env("OUT_DIR", &out)
+        .env("GOODFETCH_SCCACHE", &saved)
+        .status()
+        .unwrap();
 
     assert_eq!(
-        call,
-        Call {
-            folder: from,
-            arguments
-        }
+        (status.code(), sccache.with_file_name("call").exists()),
+        (Some(2), false)
     );
 }
 
@@ -616,56 +633,44 @@ fn evaluate(workspace: &Workspace, variable: &str, variables: &[(&str, &str)]) -
 
 /// Where the environment's Rust compiler wrapper is sccache, the justfile's
 /// recipes build through ci/compiler-cache/sccache and save that sccache for
-/// it; a nested `just` keeps the one its parent saved; any other wrapper, or
-/// none, stays the environment's.
+/// it; a nested `just` keeps the one its parent saved.
 #[rstest]
-#[case::sccache_on_path(&[("RUSTC_WRAPPER", "sccache")], true, "sccache")]
-#[case::sccache_by_path(&[("RUSTC_WRAPPER", "/opt/bin/sccache")], true, "/opt/bin/sccache")]
-#[case::nested(&[("RUSTC_WRAPPER", "WRAPPER"), ("GOODFETCH_SCCACHE", "/opt/bin/sccache")], true, "/opt/bin/sccache")]
-#[case::another_wrapper(&[("RUSTC_WRAPPER", "ccache")], false, "")]
-#[case::no_wrapper(&[], false, "")]
+#[case::sccache_on_path(&[("RUSTC_WRAPPER", "sccache")], "sccache")]
+#[case::sccache_by_path(&[("RUSTC_WRAPPER", "/opt/bin/sccache")], "/opt/bin/sccache")]
+#[case::nested(
+    &[("RUSTC_WRAPPER", "/checkout/ci/compiler-cache/sccache"), ("GOODFETCH_SCCACHE", "/opt/bin/sccache")],
+    "/opt/bin/sccache"
+)]
 fn recipes_build_through_the_wrapper_where_sccache_wraps_rustc(
     #[case] variables: &[(&str, &str)],
-    #[case] wrapped: bool,
     #[case] saved: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
-    let wrapper = repository_script("compiler-cache/sccache")
-        .canonicalize()
-        .unwrap();
-    let wrapper_text = wrapper.display().to_string();
-    let variables: Vec<(&str, &str)> = variables
-        .iter()
-        .map(|&(name, value)| {
-            let value = if value == "WRAPPER" {
-                wrapper_text.as_str()
-            } else {
-                value
-            };
-            (name, value)
-        })
-        .collect();
 
-    let rustc_wrapper = evaluate(&workspace, "RUSTC_WRAPPER", &variables);
-    let sccache = evaluate(&workspace, "GOODFETCH_SCCACHE", &variables);
+    let rustc_wrapper = evaluate(&workspace, "RUSTC_WRAPPER", variables);
+    let sccache = evaluate(&workspace, "GOODFETCH_SCCACHE", variables);
 
-    let expected = if wrapped {
-        wrapper_text.clone()
-    } else {
-        variables
-            .iter()
-            .find(|(name, _)| *name == "RUSTC_WRAPPER")
-            .map_or("", |(_, value)| value)
-            .to_owned()
-    };
-    let resolved = if wrapped {
-        Path::new(&rustc_wrapper)
-            .canonicalize()
-            .unwrap()
-            .display()
-            .to_string()
-    } else {
-        rustc_wrapper
-    };
-    assert_eq!((resolved, sccache.as_str()), (expected, saved));
+    assert_eq!(
+        (Path::new(&rustc_wrapper).canonicalize().unwrap(), sccache),
+        (
+            repository_script("compiler-cache/sccache")
+                .canonicalize()
+                .unwrap(),
+            saved.to_owned()
+        )
+    );
+}
+
+/// Any other Rust compiler wrapper, or none, stays the environment's, and no
+/// sccache is saved.
+#[rstest]
+#[case::another_wrapper(&[("RUSTC_WRAPPER", "ccache")], "ccache")]
+#[case::no_wrapper(&[], "")]
+fn recipes_keep_any_other_wrapper(#[case] variables: &[(&str, &str)], #[case] wrapper: &str) {
+    let workspace = Workspace::from_fixture("empty");
+
+    let rustc_wrapper = evaluate(&workspace, "RUSTC_WRAPPER", variables);
+    let sccache = evaluate(&workspace, "GOODFETCH_SCCACHE", variables);
+
+    assert_eq!((rustc_wrapper.as_str(), sccache.as_str()), (wrapper, ""));
 }

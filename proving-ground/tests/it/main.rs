@@ -13,6 +13,7 @@ mod adversarial;
 mod agent;
 mod body_limits;
 mod browser;
+mod browser_builds;
 mod browserless;
 mod canaries;
 mod canvas;

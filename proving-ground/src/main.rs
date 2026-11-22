@@ -11,6 +11,7 @@ mod adversarial;
 mod agent;
 mod authority;
 mod blackhole;
+mod browser_builds;
 mod browser_pages;
 mod catalog;
 mod certificates;
@@ -70,6 +71,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
+use crate::browser_builds::BrowserBuilds;
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
 use crate::interface::ServeLine;
 use crate::network::{Loss, Network, Profile};
@@ -95,20 +97,24 @@ fn run(serve: &Serve) -> Result<()> {
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;
-    let &Serve {
+    let Serve {
         seed,
         address,
         network_profile,
         loss,
         shaper,
+        ref browser_builds,
         ..
-    } = serve;
+    } = *serve;
+    let builds = match browser_builds {
+        Some(folder) => BrowserBuilds::read(folder)?,
+        None => BrowserBuilds::default(),
+    };
     runtime.block_on(shape_and_serve(
         seed,
         address,
-        network_profile,
-        loss,
-        shaper,
+        (network_profile, loss, shaper),
+        builds,
     ))
 }
 
@@ -119,9 +125,8 @@ fn run(serve: &Serve) -> Result<()> {
 async fn shape_and_serve(
     seed: u64,
     address: SocketAddr,
-    network_profile: NetworkProfile,
-    loss: Loss,
-    shaper: Shaper,
+    (network_profile, loss, shaper): (NetworkProfile, Loss, Shaper),
+    builds: BrowserBuilds,
 ) -> Result<()> {
     let stop_signal = StopSignal::listen()?;
     let profile = match network_profile.round_trip() {
@@ -132,16 +137,19 @@ async fn shape_and_serve(
     let (network, server) = match (profile, shaper) {
         (None, _) => (
             Network::unshaped(),
-            Server::bind(address, None, seed).await?,
+            Server::bind(address, None, seed, builds).await?,
         ),
         (Some(profile), Shaper::Proxy) => {
             let network = Network::proxy(profile, seed, address).await?;
             let reached_on = network.proxy_address().map(|proxy| proxy.port());
             let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-            (network, Server::bind(behind, reached_on, seed).await?)
+            (
+                network,
+                Server::bind(behind, reached_on, seed, builds).await?,
+            )
         }
         (Some(profile), Shaper::Netem) => {
-            let server = Server::bind(address, None, seed).await?;
+            let server = Server::bind(address, None, seed, builds).await?;
             (
                 Network::netem(profile, server.address().port()).await?,
                 server,

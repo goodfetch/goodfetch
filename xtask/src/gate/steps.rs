@@ -20,6 +20,11 @@ pub(crate) enum Form {
     Quick,
     /// The gate of a change of documents alone.
     Docs,
+    /// `just preflight`: the full gate's units only the gate host runs, the
+    /// counted rows and the stress run, planned and recorded as the full
+    /// gate's are, so the full gate on the same tree reuses them (ADR 0135's
+    /// amendment of 2026-11-22).
+    Preflight,
 }
 
 /// How the gate runs an entry of its list.
@@ -87,7 +92,7 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
     match form {
         Form::Docs => entries.push(command(LINT_DOCUMENTS)),
         Form::Quick => entries.push(command(CODEGEN_TESTS)),
-        Form::All | Form::Changed => {}
+        Form::All | Form::Changed | Form::Preflight => {}
     }
     entries
 }
@@ -101,6 +106,7 @@ const fn runs_in(step: Step, form: Form) -> bool {
                 || matches!(step, Step::Lint | Step::Quick | Step::JourneysTasks)
         }
         Form::Docs => step.reads_the_commits(),
+        Form::Preflight => matches!(step, Step::Counts | Step::Stress),
     }
 }
 
@@ -116,6 +122,9 @@ fn just(step: Step, form: Form) -> Vec<&'static str> {
         Step::PreMerge => vec!["_suite", "pre-merge"],
         Step::Tlc => vec!["_tlc"],
         Step::Kennel => vec!["_kennel"],
+        // The counted rows are a recipe of their own, apart from `just
+        // perf`, so `just preflight` runs them without the bench build.
+        Step::Counts => return vec!["counted-rows"],
         other => return vec![other.name()],
     };
     if matches!(form, Form::All | Form::Quick) {

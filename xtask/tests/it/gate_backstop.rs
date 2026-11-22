@@ -14,7 +14,8 @@ use crate::merge_pr::{NO_PROCESS, until};
 use crate::workspace::{Workspace, write_executable};
 
 /// A stand-in `just` that appends its arguments, with `GOODFETCH_GATE_FULL`,
-/// to `calls`, prints `compare`'s content as `just _gate-compare`, and fails
+/// to `calls`, and as `just pre-merge` the records folder and layer it was
+/// given to `recording`, prints `compare`'s content as `just _gate-compare`, and fails
 /// with status 3 for the calls `failing` lists, one a line. As `just
 /// sweep-target` it appends to `sweeps` its arguments, `locked` when the
 /// backstop's worktree is held, `written` when the day's line is in
@@ -28,6 +29,9 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let script = format!(
         r#"#!/bin/sh
 echo "$*|${{GOODFETCH_GATE_FULL:-}}" >>"{calls}"
+if [ "$1" = pre-merge ]; then
+  echo "${{GOODFETCH_GATE_RECORDS:-}}|${{GOODFETCH_GATE_LAYER:-}}" >>"{recording}"
+fi
 if [ "$1" = _gate-compare ] && [ -f "{compare}" ]; then
   cat "{compare}"
 fi
@@ -52,6 +56,7 @@ fi
         hold = folder.join("hold").display(),
         stopped = folder.join("stopped").display(),
         calls = folder.join("calls").display(),
+        recording = folder.join("recording").display(),
         compare = folder.join("compare").display(),
         failing = folder.join("failing").display(),
         sweeps = folder.join("sweeps").display(),
@@ -90,6 +95,15 @@ fn commit_to_main(workspace: &Workspace, files: &[(&str, &[u8])]) {
     workspace.git(&["switch", "--quiet", "main"]);
     for (file, contents) in files {
         workspace.write(file, contents);
+        // A script is executable, as the repository's are.
+        if contents.starts_with(b"#!") {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(
+                workspace.path().join(file),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
         workspace.git(&["add", file]);
     }
     workspace.git(&["commit", "--quiet", "--message", "Change the scripts"]);
@@ -118,9 +132,18 @@ pub(crate) fn backstop_repository() -> Workspace {
                 "ci/backstop-green.sh",
                 &repository_script("backstop-green.sh"),
             ),
+            ("ci/gate-records.sh", &repository_script("gate-records.sh")),
         ],
     );
     workspace
+}
+
+/// The folder of the records every local layer shares, which the backstop
+/// compares its own full run with: `goodfetch-gate-runs` in the repository's
+/// common directory (`ci/gate-records.sh`).
+fn shared_records(workspace: &Workspace) -> PathBuf {
+    let common = workspace.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    Path::new(common.trim_end()).join("goodfetch-gate-runs")
 }
 
 /// What a commit's script does instead of the backstop, to tell that it ran.
@@ -250,12 +273,18 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
         "{:?}",
         run.calls
     );
-    // In a worktree of its own, never `just merge`'s, whose records it
-    // reads.
+    // In a worktree of its own, never `just merge`'s; its full run records
+    // there as the backstop's layer, and it compares that record with the
+    // ones every local layer shares, which it only reads.
     let worktrees = workspace.path().join(".claude/worktrees");
     assert!(worktrees.join("gate-backstop/.git").exists());
     assert!(!worktrees.join("merge-gate").exists());
-    let merged_runs = worktrees.join("merge-gate/target/gate-runs");
+    let own_runs = worktrees.join("gate-backstop/target/gate-runs");
+    assert_eq!(
+        std::fs::read_to_string(stand_in.join("recording")).unwrap(),
+        format!("{}|backstop\n", own_runs.display())
+    );
+    let merged_runs = shared_records(&workspace);
     assert!(
         run.calls
             .iter()
@@ -351,9 +380,7 @@ fn each_day_compares_since_the_last_green_run_main_holds(
     let run = backstop(&workspace, &stand_in);
 
     assert_eq!(run.code, Some(0), "{}", run.log);
-    let merged_runs = workspace
-        .path()
-        .join(".claude/worktrees/merge-gate/target/gate-runs");
+    let merged_runs = shared_records(&workspace);
     let tail = if since_green {
         format!(" {} {green}|", merged_runs.display())
     } else {

@@ -86,13 +86,28 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
 
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
 /// the host's: TLC's with `all` in the full gate, without it alone.
-const BESIDE_CALLS: [&str; 8] = [
-    "perf", "linux", "visual", "_tlc all", "_tlc", "miri", "loom", "windows",
+const BESIDE_CALLS: [&str; 9] = [
+    "perf",
+    "counted-rows",
+    "linux",
+    "visual",
+    "_tlc all",
+    "_tlc",
+    "miri",
+    "loom",
+    "windows",
 ];
 
 /// The full gate's calls beside the host's, sorted.
-const ALL_BESIDE_CALLS: [&str; 7] = [
-    "_tlc all", "linux", "loom", "miri", "perf", "visual", "windows",
+const ALL_BESIDE_CALLS: [&str; 8] = [
+    "_tlc all",
+    "counted-rows",
+    "linux",
+    "loom",
+    "miri",
+    "perf",
+    "visual",
+    "windows",
 ];
 
 /// The calls `just pre-merge quick` makes, in their order: last, xtask's
@@ -294,7 +309,7 @@ struct Run {
     code: Option<i32>,
     /// The steps' calls, the incremental gate's own aside.
     calls: Vec<String>,
-    /// The incremental gate's calls: `_gate-plan`, `_gate-record <step> <status>`;
+    /// The incremental gate's calls: `_gate-plan`, `_gate-record <layer> <head> <step> <status>`;
     /// the step list's, `_gate-steps <form>`, are in neither.
     gate: Vec<String>,
     /// Each call as `<arguments>|<session bus>|<GOODFETCH_OS_SERVICES>|<GOODFETCH_TEST_DNS_NAMESPACE>`.
@@ -335,6 +350,9 @@ fn pre_merge_with_env(
         .args(args)
         .env("PATH", path)
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+        // The fixture is no repository, whose common directory holds the
+        // records (ci/gate-records.sh).
+        .env("GOODFETCH_GATE_RECORDS", "records")
         .envs(variables.iter().copied())
         .stdout(std::fs::File::create(&stdout).unwrap())
         .stderr(std::fs::File::create(&stderr).unwrap())
@@ -400,7 +418,16 @@ fn without_all_the_suites_run_over_what_changed() {
     beside.sort();
     assert_eq!(
         beside,
-        ["_tlc", "linux", "loom", "miri", "perf", "visual", "windows"]
+        [
+            "_tlc",
+            "counted-rows",
+            "linux",
+            "loom",
+            "miri",
+            "perf",
+            "visual",
+            "windows"
+        ]
     );
     assert_eq!(
         host,
@@ -436,6 +463,38 @@ fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
     assert_eq!(
         run.calls,
         calls_between(&[], &DOCS_CALLS, &["_skips-report"])
+    );
+}
+
+/// `just preflight` runs the full gate's units only the gate host runs, the
+/// counted rows beside the stress run, and records each by the layer
+/// `preflight`, so the full gate on the same tree reuses them.
+#[test]
+fn the_preflight_form_runs_the_counted_rows_and_the_stress_run_and_records_them_as_preflight() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["preflight"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let (beside, host): (Vec<String>, Vec<String>) = run
+        .calls
+        .into_iter()
+        .partition(|call| BESIDE_CALLS.contains(&call.as_str()));
+    assert_eq!(beside, ["counted-rows"]);
+    assert_eq!(
+        host,
+        calls_between(HOST_SETUP, &["stress"], &["_skips-report"])
+    );
+    let mut recorded = run.gate[1..].to_vec();
+    recorded.sort();
+    assert_eq!(
+        recorded,
+        [
+            "_gate-record preflight planned counts pass",
+            "_gate-record preflight planned stress pass",
+        ]
     );
 }
 
@@ -475,7 +534,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 24] = [
+const RECORDED_STEPS: [&str; 25] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -494,6 +553,7 @@ const RECORDED_STEPS: [&str; 24] = [
     "kennel",
     "msrv",
     "perf",
+    "counts",
     "linux",
     "visual",
     "tlc",
@@ -602,12 +662,12 @@ fn one_red_step(call: &str, step: &str, recorded_red: &[&str], host_calls: &[&st
         host,
         calls_between(HOST_SETUP, host_calls, &["_skips-report"])
     );
-    // Each record is `_gate-record planned <step> <pass|fail>`, then a red
+    // Each record is `_gate-record merge planned <step> <pass|fail>`, then a red
     // step's evidence.
     let records: Vec<(&str, &str)> = run.gate[1..]
         .iter()
         .map(|record| {
-            let mut words = record.split(' ').skip(2);
+            let mut words = record.split(' ').skip(3);
             (words.next().unwrap(), words.next().unwrap())
         })
         .collect();
@@ -721,7 +781,7 @@ fn a_result_that_cannot_be_recorded_ends_the_gate_there() {
     std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     std::fs::write(
         stand_in.join("statuses"),
-        "lint=3\n_gate-record planned lint fail=4\n",
+        "lint=3\n_gate-record merge planned lint fail=4\n",
     )
     .unwrap();
 
@@ -1179,7 +1239,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     }
     for rerun in [
         "test quick --shuffled-all a b website/pages.spec.ts",
-        "stress  earlier target/gate-runs/planned.earned  a :unowned",
+        "stress  earlier records/planned.earned  a :unowned",
         "lint",
         "linux",
         "visual",
@@ -1204,7 +1264,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         .into_iter()
         .filter(|step| step.kind != "command")
         .filter(|step| !["perf", "pre-merge", "tlc"].contains(&step.name.as_str()))
-        .map(|step| format!("_gate-record planned {} pass", step.name))
+        .map(|step| format!("_gate-record merge planned {} pass", step.name))
         .collect();
     expected.sort();
     assert_eq!(recorded, expected);
@@ -1255,7 +1315,7 @@ fn a_part_of_the_stress_run_compares_its_head_with_the_last_full_gates_too() {
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(
         stress_calls(&run),
-        ["stress full-gated earlier target/gate-runs/planned.earned  a :unowned"]
+        ["stress full-gated earlier records/planned.earned  a :unowned"]
     );
 }
 
@@ -1287,7 +1347,7 @@ fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    let recorded = format!("_gate-record planned {recorded}");
+    let recorded = format!("_gate-record merge planned {recorded}");
     assert!(
         run.gate.iter().any(|call| call.starts_with(&recorded)),
         "{:?}",
@@ -1364,7 +1424,7 @@ fn a_pre_merge_suite_red_in_nextest_alone_still_runs_the_exercise_audit(
     );
     assert!(
         run.gate
-            .contains(&format!("_gate-record planned {recorded}")),
+            .contains(&format!("_gate-record merge planned {recorded}")),
         "{:?}",
         run.gate
     );
@@ -1478,8 +1538,8 @@ fn a_step_beside_still_running_when_a_host_step_fails_runs_to_its_end_and_is_rec
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     for recorded in [
-        "_gate-record planned lint fail",
-        "_gate-record planned perf pass",
+        "_gate-record merge planned lint fail",
+        "_gate-record merge planned perf pass",
     ] {
         assert!(
             run.gate.contains(&recorded.to_owned()),
@@ -1565,10 +1625,7 @@ fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
         .arg("60")
         .spawn()
         .unwrap();
-    workspace.write(
-        "target/gate-runs/lock/pid",
-        holder.id().to_string().as_bytes(),
-    );
+    workspace.write("target/gate-lock/pid", holder.id().to_string().as_bytes());
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
@@ -1576,6 +1633,37 @@ fn a_gate_run_while_another_holds_the_records_fails_before_any_step() {
     holder.wait().unwrap();
     assert_eq!(run.code, Some(1), "{}", run.stderr);
     assert!(run.stderr.contains("another gate run"), "{}", run.stderr);
+    assert!(
+        run.calls.iter().all(|call| call == "_skips-report"),
+        "{:?}",
+        run.calls
+    );
+}
+
+/// One gate run at a time on a head, in whichever worktree: every worktree
+/// records into the one folder, where a second run would replace the plan
+/// and record of the head the first still records into.
+#[test]
+fn a_gate_run_while_another_holds_the_heads_record_fails_before_any_step() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let mut holder = std::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .unwrap();
+    // The fixture is no repository, so its head is `none`.
+    workspace.write("records/none.lock/pid", holder.id().to_string().as_bytes());
+
+    let run = pre_merge(&workspace, &stand_in, &["preflight"]);
+
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("holds the record of this head"),
+        "{}",
+        run.stderr
+    );
     assert!(
         run.calls.iter().all(|call| call == "_skips-report"),
         "{:?}",
@@ -1640,7 +1728,7 @@ fn the_shuffling_runners_rerun_in_the_heads_order_and_their_failure_fails_the_ga
     assert!(run.calls.iter().any(|ran| ran == call), "{:?}", run.calls);
     assert!(
         run.gate
-            .contains(&"_gate-record planned pre-merge fail".to_owned()),
+            .contains(&"_gate-record merge planned pre-merge fail".to_owned()),
         "{:?}",
         run.gate
     );
@@ -1673,7 +1761,7 @@ fn a_gate_that_cannot_go_on_stops_every_process_a_step_beside_started() {
     std::fs::write(stand_in.join("failing"), "lint").unwrap();
     std::fs::write(
         stand_in.join("statuses"),
-        "_gate-record planned lint fail=3\n",
+        "_gate-record merge planned lint fail=3\n",
     )
     .unwrap();
 
@@ -1712,7 +1800,7 @@ fn a_second_sigterm_does_not_cut_the_suites_end_short() {
     std::fs::write(stand_in.join("hold"), "").unwrap();
     std::fs::write(
         stand_in.join("holding"),
-        "lint\n_gate-record planned perf pass\n",
+        "lint\n_gate-record merge planned perf pass\n",
     )
     .unwrap();
     workspace.write(
@@ -1725,6 +1813,7 @@ fn a_second_sigterm_does_not_cut_the_suites_end_short() {
         .arg("all")
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+        .env("GOODFETCH_GATE_RECORDS", "records")
         .stdout(std::fs::File::create(&stdout).unwrap())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -1748,14 +1837,14 @@ fn a_second_sigterm_does_not_cut_the_suites_end_short() {
 
     terminate();
     until("the suite's end recording `perf`", || {
-        held("_gate-record planned perf pass")
+        held("_gate-record merge planned perf pass")
     });
     terminate();
     std::fs::remove_file(stand_in.join("hold")).unwrap();
     suite.wait().unwrap();
 
     assert!(
-        !workspace.path().join("target/gate-runs/lock").exists(),
+        !workspace.path().join("target/gate-lock").exists(),
         "the gate's records stayed locked"
     );
 }

@@ -136,9 +136,9 @@ async fn get(
             headers.push(("authorization", format!("Bearer {token}")));
         }
         async move {
-            rule_sources::get(url, &headers, &sources.sourcing, limit)
+            rule_sources::get(url, &headers, &sources.fetching, limit)
                 .await
-                .map_err(|failure| Unobtained::of(failure, &sources.sourcing.fetching))
+                .map_err(|failure| Unobtained::of(failure, &sources.fetching))
         }
     };
     let fetched = send(token.as_ref()).await?;
@@ -189,7 +189,7 @@ async fn anonymous_token(
     let Some(url) = realm.and_then(|realm| url::Url::parse_with_params(realm, &query).ok()) else {
         return Ok(None);
     };
-    let Ok(answer) = rule_sources::get(url.as_str(), &[], &sources.sourcing, SMALL_LIMIT).await
+    let Ok(answer) = rule_sources::get(url.as_str(), &[], &sources.fetching, SMALL_LIMIT).await
     else {
         return Ok(None);
     };

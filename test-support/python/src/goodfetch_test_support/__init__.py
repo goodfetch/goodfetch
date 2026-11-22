@@ -23,6 +23,7 @@ from goodfetch_test_support.case_log import (
 )
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import (
+    BrowserDownload,
     ProcessesAlive,
     Product,
     TestEnv,
@@ -90,6 +91,7 @@ from goodfetch_test_support.workspace import WORKSPACE
 
 __all__ = [
     "WORKSPACE",
+    "BrowserDownload",
     "Canary",
     "CanaryHit",
     "CanaryOutputUnreadable",

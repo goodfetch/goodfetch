@@ -18,8 +18,7 @@ use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::{FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{
-    ProvingGround, ProvingGroundDescription, TestEnv, ToolStatus, browser_cache_in_home, case_logs,
-    real_time_runtime,
+    ProvingGround, TestEnv, ToolStatus, browser_cache_in_home, case_logs, real_time_runtime,
 };
 use serde::Deserialize;
 use serde_json::{Number, Value, json};
@@ -38,30 +37,8 @@ const FETCH_EDGE: &str = "fetch-edge.test";
 fn proving_ground(env: &TestEnv) -> ProvingGround {
     browser_cache_in_home(env).unwrap();
     let proving_ground = ProvingGround::start(env, SEED).unwrap();
-    env.user_configuration(&reaching(proving_ground.description()));
+    env.user_configuration(&proving_ground.description().reaching());
     proving_ground
-}
-
-/// The lines of a user configuration with which an engine reaches
-/// `proving_ground`'s hosts: each mapped to its address and listed in
-/// `egress.private_ranges`, since that address is loopback, as
-/// `goodfetch-test-env` writes them for the other SDKs' tests.
-fn reaching(proving_ground: &ProvingGroundDescription) -> String {
-    let hosts: Vec<String> = proving_ground
-        .resolve
-        .keys()
-        .map(|host| format!("{host:?}"))
-        .collect();
-    let mapping: Vec<String> = proving_ground
-        .resolve
-        .iter()
-        .map(|(host, address)| format!("{host:?} = [{address:?}]"))
-        .collect();
-    format!(
-        "egress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
-        hosts.join(", "),
-        mapping.join(", ")
-    )
 }
 
 /// The Error code of the engine's failure `result` is, and the failure.

@@ -3,8 +3,9 @@
 //! cannot drift apart.
 
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 
-use super::{NOT_RUN_YET, ROWS, UnderValgrind};
+use super::{B1, CALLGRIND_NAMES_VARIABLE, NOT_RUN_YET, ROWS, UnderValgrind, build_command};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
@@ -93,4 +94,37 @@ fn a_family_reads_its_rows_under_valgrind_from_one_place() {
         .copied()
         .collect();
     assert!(both.is_empty(), "families read from both: {both:?}");
+}
+
+/// The benchmarks' build of an example sets the variable on which the
+/// cfg's two readers set `goodfetch_callgrind_names` on themselves, and
+/// gives no flag to every crate nor a build folder of its own, so its
+/// dependencies are those of the benchmarks' own build; the dev build sets
+/// nothing.
+#[test]
+fn the_optimized_build_gives_the_callgrind_names_to_its_readers_alone() {
+    let sets_variable = |optimized: bool| {
+        build_command(&B1, optimized, OsStr::new("cargo"))
+            .get_envs()
+            .any(|(name, value)| name == CALLGRIND_NAMES_VARIABLE && value.is_some())
+    };
+    let optimized = build_command(&B1, true, OsStr::new("cargo"));
+    let arguments: Vec<&OsStr> = optimized.get_args().collect();
+
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == [OsStr::new("--profile"), OsStr::new("bench")]),
+        "the optimized build is the benchmarks' profile: {arguments:?}"
+    );
+    assert!(
+        !arguments.iter().any(|argument| {
+            *argument == "--target-dir"
+                || *argument == "--config"
+                || argument.to_string_lossy().contains("rustflags")
+        }),
+        "no build folder or flags of its own: {arguments:?}"
+    );
+    assert!(sets_variable(true), "the optimized build sets the variable");
+    assert!(!sets_variable(false), "the dev build does not");
 }

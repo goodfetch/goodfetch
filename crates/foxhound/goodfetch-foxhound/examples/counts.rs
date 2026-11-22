@@ -55,9 +55,11 @@
 //! [`WHOLE_RUN`]. `xtask counts --valgrind` builds this example in the
 //! benchmarks' profile for it: unoptimized, the decoding and encoding code
 //! would weigh several times what the product's does. It builds it with
-//! `--cfg goodfetch_callgrind_names`, in a build folder of its own, under
-//! which the engine's wire functions are never inlined, so that Callgrind
-//! names them; the product keeps them inlined. The line's read is an `async`
+//! `GOODFETCH_CALLGRIND_NAMES` set, on which the build scripts of
+//! `goodfetch-engine` and `goodfetch-fetch-tier` set
+//! `goodfetch_callgrind_names` on those two crates alone, under which the
+//! wire's functions are never inlined, so that Callgrind names them; the
+//! product keeps them inlined. The line's read is an `async`
 //! function, whose body Callgrind names as its closure.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,

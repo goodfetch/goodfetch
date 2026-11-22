@@ -1,15 +1,22 @@
 // The Channel over a transport the test plays the engine's side of: what it
 // writes, the replies it reads in any order, and how a call that cannot be
 // sent fails alone.
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { encodeMessage } from "./framing.ts";
 import {
   CallCancelledError,
   ClosedError,
+  ConnectionLostError,
   ConnectionOverloadedError,
   RunNotFoundError,
 } from "./generated/index.ts";
-import { Channel, type ChannelOwner, type Transport, type TransportEnd } from "./rpc.ts";
+import {
+  Channel,
+  type ChannelOwner,
+  type ChannelRelinking,
+  type Transport,
+  type TransportEnd,
+} from "./rpc.ts";
 
 /** The engine's side of an in-memory transport: what the Client wrote, and what it reads next. */
 interface PlayedEngine {
@@ -570,4 +577,229 @@ describe("a Channel serving the engine's requests", () => {
 
     expect(signals[0]?.reason).toMatchObject({ code: "closed" });
   });
+});
+
+/**
+ * A Channel over `first` that reaches the engine again over each of `links`
+ * in turn, then over none, greeting each with `hello`.
+ */
+function relinkingChannel(
+  first: PlayedEngine,
+  links: PlayedEngine[],
+  within: number | null = 30_000,
+): { channel: Channel; reopened: () => number; closing: AbortController } {
+  let reopened = 0;
+  const closing = new AbortController();
+  const relinking: ChannelRelinking = {
+    // `run.new_page` stands for an Effect, every other operation for a read.
+    resends: (method) => method !== "run.new_page",
+    within,
+    signal: closing.signal,
+    reopen: () => {
+      reopened += 1;
+      const link = links.shift();
+      return link === undefined
+        ? Promise.reject(new Error("connection refused"))
+        : Promise.resolve(link.transport);
+    },
+    greet: async (call) => {
+      await call("hello", { protocol_version: "1" });
+    },
+    gaveUp: (cause) =>
+      new ClosedError("reaching the engine again failed within timeout.connect", { cause }),
+  };
+  const channel = new Channel(first.transport, owner);
+  channel.relinkWith(relinking);
+  return { channel, reopened: () => reopened, closing };
+}
+
+/** Answers the `hello` the Client sent `engine`. */
+function answerHello(engine: PlayedEngine): void {
+  const hello = engine.written.find(
+    (message): message is { id: number } =>
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === "hello",
+  );
+  if (hello === undefined) {
+    throw new Error("the Client sent no hello");
+  }
+  engine.send({ id: hello.id, result: {} });
+}
+
+describe("a Channel that reconnects after its link dropped", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test(
+    "sends a read in flight again by its id once the new link is greeted, then the calls made meanwhile",
+    { tags: ["story:11-6", "story:11-32"] },
+    async () => {
+      const [first, second] = [playedEngine(), playedEngine()];
+      const { channel, reopened } = relinkingChannel(first, [second]);
+      const read = channel.call("run.report", { run_id: "nightly" });
+      await settled();
+
+      first.end();
+      await settled();
+      const meanwhile = channel.call("run.list", {});
+      await vi.advanceTimersByTimeAsync(249);
+      const beforeTheDelay = reopened();
+      await vi.advanceTimersByTimeAsync(1);
+      await settled();
+      const greeting = [...second.written];
+      answerHello(second);
+      await settled();
+      second.send({ id: 0, result: { report: "done" } });
+      second.send({ id: 1, result: { runs: [] } });
+
+      expect({
+        beforeTheDelay,
+        greeting,
+        written: second.written,
+        answers: await Promise.all([read, meanwhile]),
+      }).toEqual({
+        beforeTheDelay: 0,
+        greeting: [{ jsonrpc: "2.0", id: 2, method: "hello", params: { protocol_version: "1" } }],
+        written: [
+          { jsonrpc: "2.0", id: 2, method: "hello", params: { protocol_version: "1" } },
+          { jsonrpc: "2.0", id: 0, method: "run.report", params: { run_id: "nightly" } },
+          { jsonrpc: "2.0", id: 1, method: "run.list", params: {} },
+        ],
+        answers: [{ report: "done" }, { runs: [] }],
+      });
+    },
+  );
+
+  test(
+    "fails an Effect in flight with connection_lost and a stream it cannot resume, and sends neither again",
+    { tags: ["story:11-32"] },
+    async () => {
+      const [first, second] = [playedEngine(), playedEngine()];
+      const { channel } = relinkingChannel(first, [second]);
+      const effect = failure(channel.call("run.new_page", { run_id: "nightly" }));
+      const stream = failure(
+        channel.open("export.stream", {}, { notified: () => undefined }).result,
+      );
+      await settled();
+
+      first.end();
+      const errors = await Promise.all([effect, stream]);
+      await vi.advanceTimersByTimeAsync(250);
+      answerHello(second);
+      await settled();
+
+      expect({
+        lost: errors.map((error) => error instanceof ConnectionLostError),
+        errors,
+        written: second.written,
+      }).toEqual({
+        lost: [true, true],
+        errors: [
+          expect.objectContaining({
+            code: "connection_lost",
+            group: "unavailable",
+            operation: "run.new_page",
+          }),
+          expect.objectContaining({ code: "connection_lost", operation: "export.stream" }),
+        ],
+        written: [{ jsonrpc: "2.0", id: 2, method: "hello", params: { protocol_version: "1" } }],
+      });
+    },
+  );
+
+  test(
+    "resubscribes a stream from where it was, with the credit it still had",
+    { tags: ["story:11-6"] },
+    async () => {
+      const [first, second] = [playedEngine(), playedEngine()];
+      const { channel } = relinkingChannel(first, [second]);
+      const events: unknown[] = [];
+      const stream = channel.open(
+        "events.subscribe",
+        {},
+        {
+          notified: (_method, params) => events.push(params),
+          resume: () => ({ params: { after: { engine_instance: "a", position: 2 } }, credits: 14 }),
+        },
+      );
+      channel.notify("$/credit", { id: stream.id, credits: 16 });
+      await settled();
+
+      first.end();
+      await vi.advanceTimersByTimeAsync(250);
+      answerHello(second);
+      await settled();
+      second.send({ method: "$/events", params: { id: 0, events: [{ position: 3 }] } });
+      await settled();
+
+      expect({ written: second.written.slice(1), events }).toEqual({
+        written: [
+          {
+            jsonrpc: "2.0",
+            id: 0,
+            method: "events.subscribe",
+            params: { after: { engine_instance: "a", position: 2 } },
+          },
+          { jsonrpc: "2.0", method: "$/credit", params: { id: 0, credits: 14 } },
+        ],
+        events: [{ id: 0, events: [{ position: 3 }] }],
+      });
+    },
+  );
+
+  test(
+    "gives up with its owner's error once the next attempt would start past timeout.connect",
+    { tags: ["story:11-6"] },
+    async () => {
+      const first = playedEngine();
+      const { channel, reopened } = relinkingChannel(first, [], 1_000);
+      const read = failure(channel.call("run.report", {}));
+      await settled();
+
+      first.end();
+      await vi.advanceTimersByTimeAsync(750);
+      const error = await read;
+
+      // Attempts start at 250 ms and 750 ms; the next would start at 1,750 ms.
+      expect({ reopened: reopened(), error }).toEqual({
+        reopened: 2,
+        error: expect.objectContaining({
+          code: "closed",
+          operation: "run.report",
+          cause: new Error("connection refused"),
+        }),
+      });
+    },
+  );
+
+  test(
+    "ends as its owner says once it is closed while it waits to reach the engine again",
+    { tags: ["story:11-6"] },
+    async () => {
+      const first = playedEngine();
+      const { channel, reopened, closing } = relinkingChannel(first, [playedEngine()]);
+      const read = failure(channel.call("run.report", {}));
+      await settled();
+
+      first.end();
+      await settled();
+      closing.abort();
+      await channel.ended;
+
+      expect({ reopened: reopened(), error: await read }).toEqual({
+        reopened: 0,
+        error: expect.objectContaining({
+          code: "closed",
+          message: "run.report: the transport ended",
+        }),
+      });
+    },
+  );
 });

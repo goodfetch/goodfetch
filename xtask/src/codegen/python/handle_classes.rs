@@ -623,7 +623,18 @@ fn member(
         &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
-    let call = format!("{awaits}self._host.call({:?}, {sent})", operation.name);
+    // A call's own timeout also bounds its wait in the Client's queue under
+    // the engine's cap on calls in flight, failing naming this setting
+    // (ADR 0038; issue 3188).
+    let deadline = member
+        .timeout_setting
+        .as_ref()
+        .map(|setting| format!(", timeout_setting={setting:?}"))
+        .unwrap_or_default();
+    let call = format!(
+        "{awaits}self._host.call({:?}, {sent}{deadline})",
+        operation.name
+    );
     match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => {
             let _ = writeln!(text, "        return result_of({result}, {call})");

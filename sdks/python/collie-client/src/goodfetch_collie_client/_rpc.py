@@ -10,15 +10,25 @@ the owner says which error every call still waiting fails with, and every
 later call fails with it too. A stream is a call whose notifications, such
 as `$/chunk`, name its id: the reader hands each to the stream's listener,
 and the caller grants credits with `notify`; a notification that names no
-call, such as the engine's `$/log`, goes to the owner. TypeScript's `rpc.ts`
-is its twin; served requests and the channel's bounds come with the tickets
-that use them.
+call, such as the engine's `$/log`, goes to the owner.
+
+At most the engine's cap of calls, which `hello`'s result advertises, are
+in flight; the rest wait in a queue, and the reader sends them in the order
+they were made as answers free their places (ADR 0038). A call cancelled
+once sent keeps its place until the engine answers it. A queued call takes
+its turn at reading, since the calls holding the places may all have been
+cancelled, and fails alone, never sent, when its own timeout passes or its
+task is cancelled there. What waits is bounded: past the Connection's
+bound on calls waiting, sent or queued, or on bytes waiting to be written,
+a new call is refused at once with `connection_overloaded`. TypeScript's
+`rpc.ts` is its twin; served requests come with the ticket that uses them.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar, cast
 
 import anyio
 
@@ -37,8 +47,16 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
     ERROR_GROUP_OF_PROTOCOL_FAILURE,
     ERROR_GROUP_OF_WIRE_CLASS,
+    ConnectionOverloadedError,
+    DeadlineExceededError,
+    SettingInvalidError,
 )
-from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
+from goodfetch_collie_client.generated.models import (
+    ModelUsage,
+    RunOrigin,
+    SettingLimit,
+    SettingsLayer,
+)
 from goodfetch_collie_client.goodfetch_error import GoodfetchError, in_call
 
 if TYPE_CHECKING:
@@ -57,6 +75,111 @@ _Field = TypeVar("_Field")
 
 METHOD_NOT_FOUND = -32601
 """JSON-RPC's code for a method the receiver does not serve."""
+
+
+@dataclass(frozen=True)
+class _Bound:
+    """One of the Client's own bounds, a setting of `connect()`'s own `settings`."""
+
+    key: str
+    """Its key, as the wire and the engine's details write it."""
+    segment: str
+    """Its name under `connection`."""
+    fallback: int
+    """Its default."""
+
+
+_PENDING_CALLS = _Bound("connection.max_pending_calls", "max_pending_calls", 10_000)
+"""The bound on calls waiting for their answer, sent or queued."""
+
+_QUEUED_WRITE_BYTES = _Bound(
+    "connection.max_queued_write_bytes", "max_queued_write_bytes", 64 * 1024 * 1024
+)
+"""The bound on bytes waiting to be written to the engine."""
+
+
+@dataclass(frozen=True)
+class ChannelBounds:
+    """What a Connection lets wait before it refuses a call, `connection_overloaded`."""
+
+    max_pending_calls: int = _PENDING_CALLS.fallback
+    """How many calls may wait for their answer at once, sent or queued."""
+    max_queued_write_bytes: int = _QUEUED_WRITE_BYTES.fallback
+    """How many bytes may wait to be written to the engine.
+
+    One message larger than this is still taken while nothing waits.
+    """
+
+
+def bounds_of(settings: Mapping[str, object] | None) -> ChannelBounds:
+    """The bounds `connect()`'s own `settings` set, each left out its default.
+
+    Checked before anything is reached. A value may be one a type checker
+    would refuse, since a program may pass it. TypeScript's `boundsOf` is
+    its twin.
+
+    Raises:
+        SettingInvalidError: A bound is no whole number of 1 or more, which
+            would refuse every call, or none.
+    """
+    connection = object_members((settings or {}).get("connection")) or {}
+    return ChannelBounds(
+        max_pending_calls=_whole_bound(_PENDING_CALLS, connection),
+        max_queued_write_bytes=_whole_bound(_QUEUED_WRITE_BYTES, connection),
+    )
+
+
+def _whole_bound(bound: _Bound, connection: Mapping[str, object]) -> int:
+    if bound.segment not in connection:
+        return bound.fallback
+    given = connection[bound.segment]
+    if isinstance(given, int) and not isinstance(given, bool) and given >= 1:
+        return given
+    reason = f"{given!r} is no whole number of 1 or more"
+    raise SettingInvalidError(
+        f"`{bound.key}` is not valid: {reason}",
+        fix=(
+            f"Set `{bound.key}` in connect()'s settings to a whole number of 1 or"
+            f" more, or leave it out for its default of {bound.fallback}."
+        ),
+        details={"key": bound.key, "layer": "run", "reason": reason},
+    )
+
+
+@dataclass(frozen=True)
+class CallDeadline:
+    """A call's own timeout, which fails it while it waits in the queue (issue 3188)."""
+
+    key: str
+    """What sets it: the setting a typed call's `timeout` sets, or a raw call's."""
+    value: int
+    """How long, in milliseconds."""
+
+
+def phase_exceeded(
+    message: str,
+    *,
+    fix: str,
+    limit: SettingLimit,
+    started_at: float,
+    waited_for: Literal["hello", "close", "calls_in_flight"],
+) -> DeadlineExceededError:
+    """The `deadline_exceeded` of a phase `limit` bounds (ADR 0080).
+
+    Its wait for `waited_for` started at `started_at`, on anyio's clock.
+    """
+    return DeadlineExceededError(
+        message,
+        code="deadline_exceeded",
+        group="deadline_exceeded",
+        retryable=True,
+        fix=fix,
+        limit=limit,
+        details={
+            "elapsed": round((anyio.current_time() - started_at) * 1000),
+            "waited_for": waited_for,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -140,14 +263,27 @@ class Channel:
         transport: ByteStream,
         owner: ChannelOwner,
         error_classes: Mapping[str, ErrorClass],
+        bounds: ChannelBounds | None = None,
     ) -> None:
-        """Takes the transport, the owner told of its end, and the code classes."""
+        """Takes the transport, the owner told of its end, the code classes and bounds.
+
+        `bounds`, already checked by `bounds_of`, are the defaults' when left out.
+        """
         self._transport = transport
         self._owner = owner
         self._error_classes = error_classes
+        self._bounds = bounds or ChannelBounds()
         self._lines = LineReader()
         self._next_id = 0
         self._waiting: dict[int, _Waiter] = {}
+        self._in_flight: set[int] = set()
+        """The calls sent and not yet answered, a cancelled one included."""
+        self._queued: dict[int, bytes] = {}
+        """Each call held back for a place, its encoded request, in the order made."""
+        self._cap: float = math.inf
+        """How many calls may be in flight at once: as `hello` names it, if it does."""
+        self._unwritten_bytes = 0
+        """The bytes queued or waiting to be written, a message being written too."""
         self._listeners: dict[int, Callable[[str, object], None]] = {}
         self._drainers: list[_Waiter] = []
         self._reading = False
@@ -157,17 +293,24 @@ class Channel:
         self._failure: GoodfetchError | None = None
         self._ended = anyio.Event()
 
-    async def call(self, method: str, params: object) -> object:
+    async def call(
+        self, method: str, params: object, *, deadline: CallDeadline | None = None
+    ) -> object:
         """Sends `method` with `params` and returns the engine's result.
+
+        `deadline`, the call's own timeout, fails it while it waits in the
+        queue for a place among the engine's calls in flight.
 
         Raises:
             GoodfetchError: The engine answered with an error, or the
-                channel ended or was cancelled before the reply.
+                channel ended or was cancelled before the reply, or the call
+                was refused with `connection_overloaded`, or its `deadline`
+                passed while it was queued.
             BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
                 answered `attempt_ended`, whose class is outside `Exception`
                 (ADR 0093).
         """
-        return await self.stream(method, params, None)
+        return await self.stream(method, params, None, deadline=deadline)
 
     async def stream(
         self,
@@ -176,16 +319,17 @@ class Channel:
         notified: Callable[[str, object], None] | None,
         *,
         sent: Callable[[int], None] | None = None,
+        deadline: CallDeadline | None = None,
     ) -> object:
         """Sends `method` as `call` does; `notified` hears each notification naming it.
 
         `sent` is told the call's id once it is written, so the caller can
-        grant credits with `notify`; `notified` runs on the reading task
-        and must not block.
+        grant credits with `notify`, which the engine drops for a call it
+        has not received; `notified` runs on the reading task and must not
+        block.
 
         Raises:
-            GoodfetchError: The engine answered with an error, or the
-                channel ended or was cancelled before the reply.
+            GoodfetchError: As `call` raises.
             BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
                 answered `attempt_ended`, whose class is outside `Exception`
                 (ADR 0093).
@@ -193,21 +337,33 @@ class Channel:
         if self._failure is not None:
             raise in_call(self._failure, method)
         message_id = self._next_id
+        # Encoded before the call waits, so params that cannot be encoded
+        # fail this call alone, and its length is known to the bounds.
+        request = encode_message({"id": message_id, "method": method, "params": params})
+        overloaded = self._overloaded_by(len(request))
+        if overloaded is not None:
+            raise in_call(overloaded, method)
         self._next_id += 1
         waiter = _Waiter()
         self._waiting[message_id] = waiter
         if notified is not None:
             self._listeners[message_id] = notified
         try:
-            await self._write({"id": message_id, "method": method, "params": params})
+            if self._queued or len(self._in_flight) >= self._cap:
+                await self._wait_queued(message_id, request, method, deadline)
+            else:
+                self._in_flight.add(message_id)
+                await self._write_bytes(request)
             if sent is not None:
                 sent(message_id)
             outcome = await self._wait_for(waiter)
         except BaseException:
             if waiter.outcome is None:
                 del self._waiting[message_id]
-                with anyio.CancelScope(shield=True):
-                    await self._notify_cancel(message_id)
+                # A queued call leaves the queue unsent; a sent one is cancelled.
+                if not self._unqueue(message_id) and message_id in self._in_flight:
+                    with anyio.CancelScope(shield=True):
+                        await self._notify_cancel(message_id)
                 self._wake_all()
             raise
         finally:
@@ -215,6 +371,104 @@ class Channel:
         if isinstance(outcome, _Raised):
             raise outcome.error if outcome.answered else in_call(outcome.error, method)
         return outcome.result
+
+    def cap_calls_in_flight(self, cap: int) -> None:
+        """Keeps at most `cap` calls in flight from now on, as `hello`'s result says.
+
+        Set once `hello` is answered, before any call can be queued.
+        """
+        self._cap = cap
+
+    async def _wait_queued(
+        self,
+        message_id: int,
+        request: bytes,
+        method: str,
+        deadline: CallDeadline | None,
+    ) -> None:
+        """Holds the call back until the reader sends it, as a place frees.
+
+        Raises:
+            DeadlineExceededError: `deadline` passed first; the call, never
+                sent, is still queued, for the caller to drop.
+        """
+        self._queued[message_id] = request
+        self._unwritten_bytes += len(request)
+        waiter = self._waiting[message_id]
+
+        def left_the_queue() -> bool:
+            return waiter.outcome is not None or message_id not in self._queued
+
+        if deadline is None:
+            await self._wait_until(waiter, left_the_queue)
+            return
+        started_at = anyio.current_time()
+        with anyio.move_on_after(deadline.value / 1000):
+            await self._wait_until(waiter, left_the_queue)
+        if left_the_queue():
+            return
+        raise in_call(
+            phase_exceeded(
+                f"the call waited {deadline.value} ms, its `{deadline.key}`, for a"
+                " place among the engine's calls in flight, so it was not sent",
+                fix=(
+                    "Make fewer calls at once on this Connection, or give the call"
+                    " a longer `timeout`."
+                ),
+                limit=SettingLimit(
+                    key=deadline.key,
+                    value=deadline.value,
+                    layer=SettingsLayer.run,
+                    origin=RunOrigin.argument,
+                ),
+                started_at=started_at,
+                waited_for="calls_in_flight",
+            ),
+            method,
+        )
+
+    def _unqueue(self, message_id: int) -> bool:
+        """Takes the call `message_id` out of the queue: whether it was queued."""
+        request = self._queued.pop(message_id, None)
+        if request is None:
+            return False
+        self._unwritten_bytes -= len(request)
+        return True
+
+    def _overloaded_by(self, length: int) -> ConnectionOverloadedError | None:
+        """The error a new call of `length` bytes is refused with, past a bound.
+
+        Notifications are never refused: each belongs to a call already
+        counted, and a `$/cancel` is what frees one.
+        """
+        max_pending_calls = self._bounds.max_pending_calls
+        if len(self._waiting) >= max_pending_calls:
+            return ConnectionOverloadedError(
+                f"the Connection already holds {len(self._waiting)} calls waiting for"
+                " their answer, sent or queued, its bound, so this call was not sent",
+                fix=(
+                    "Wait for earlier calls to end, or raise"
+                    f" `{_PENDING_CALLS.key}` in connect()'s settings."
+                ),
+                details={"bound": "pending_calls", "value": max_pending_calls},
+            )
+        unwritten = self._unwritten_bytes
+        max_queued_write_bytes = self._bounds.max_queued_write_bytes
+        if unwritten > 0 and unwritten + length > max_queued_write_bytes:
+            return ConnectionOverloadedError(
+                f"the Connection already holds {unwritten} bytes waiting to be written"
+                f" to the engine, and this call's {length} would pass its bound of"
+                f" {max_queued_write_bytes}, so it was not sent",
+                fix=(
+                    "Wait for the engine to read earlier calls, or raise"
+                    f" `{_QUEUED_WRITE_BYTES.key}` in connect()'s settings."
+                ),
+                details={
+                    "bound": "queued_write_bytes",
+                    "value": max_queued_write_bytes,
+                },
+            )
+        return None
 
     async def notify(self, method: str, params: object) -> None:
         """Sends the notification `method`, such as `$/credit`, unless it ended."""
@@ -226,10 +480,12 @@ class Channel:
         """Fails every call still waiting with `error`, and stops the reader.
 
         Returns:
-            The ids of the calls cancelled, whose `$/cancel` the caller sends
-            with `notify_cancelled`.
+            The ids of the sent calls cancelled, whose `$/cancel` the caller
+            sends with `notify_cancelled`; a queued one is never sent.
         """
-        cancelled = list(self._waiting)
+        cancelled = [
+            message_id for message_id in self._waiting if not self._unqueue(message_id)
+        ]
         for waiter in self._waiting.values():
             waiter.settle(_Raised(error))
         self._waiting.clear()
@@ -278,7 +534,15 @@ class Channel:
         return outcome.error
 
     async def _wait_for(self, waiter: _Waiter) -> _Answered | _Raised:
-        while waiter.outcome is None:
+        await self._wait_until(waiter, lambda: waiter.outcome is not None)
+        if waiter.outcome is None:
+            message = "invariant: a waiter waited for is settled"
+            raise TypeError(message)
+        return waiter.outcome
+
+    async def _wait_until(self, waiter: _Waiter, done: Callable[[], bool]) -> None:
+        """Waits, woken through `waiter`, until `done`, reading while none else does."""
+        while not done():
             if self._reading:
                 waiter.wakeup = anyio.Event()
                 await waiter.wakeup.wait()
@@ -287,13 +551,12 @@ class Channel:
             try:
                 with anyio.CancelScope() as scope:
                     self._reader_scope = scope
-                    while waiter.outcome is None:
+                    while not done():
                         await self._read_one()
             finally:
                 self._reading = False
                 self._reader_scope = None
                 self._wake_all()
-        return waiter.outcome
 
     def _wake_all(self) -> None:
         # Each woken waiter checks its outcome, and the first unsettled one reads.
@@ -337,6 +600,28 @@ class Channel:
                         },
                     }
                 )
+        if self._queued and len(self._in_flight) < self._cap:
+            # Answers freed places: the next queued calls take them.
+            with anyio.CancelScope(shield=True):
+                await self._drain()
+
+    async def _drain(self) -> None:
+        """Sends queued calls, in the order they were made, while places are free.
+
+        One hold of the write lock sends them all, so they reach the
+        engine in that order whichever task each call runs in.
+        """
+        async with self._write_lock:
+            while (
+                self._queued and len(self._in_flight) < self._cap and not self._ending
+            ):
+                message_id, request = next(iter(self._queued.items()))
+                del self._queued[message_id]
+                self._in_flight.add(message_id)
+                waiter = self._waiting.get(message_id)
+                if waiter is not None:
+                    waiter.wake()
+                await self._send_held(request)
 
     def _hand_over(self, notification: Notification) -> None:
         members = object_members(notification.params)
@@ -351,6 +636,8 @@ class Channel:
     def _settle(self, reply: Result | Failure) -> None:
         if not isinstance(reply.id, int) or isinstance(reply.id, bool):
             return
+        # Answered, the call frees its place, a call cancelled since included.
+        self._in_flight.discard(reply.id)
         waiter = self._waiting.pop(reply.id, None)
         if waiter is None:
             # The reply to a call cancelled since.
@@ -362,16 +649,27 @@ class Channel:
             waiter.settle(_Raised(error, answered=True))
 
     async def _write(self, message: Mapping[str, object]) -> None:
-        data = encode_message(message)
+        await self._write_bytes(encode_message(message))
+
+    async def _write_bytes(self, data: bytes) -> None:
+        """Writes `data` whole, its bytes counted as waiting until written."""
+        self._unwritten_bytes += len(data)
         # A message is never cut short: cancellation waits for the whole line.
         with anyio.CancelScope(shield=True):
             async with self._write_lock:
-                if self._ending:
-                    return
-                try:
-                    await self._transport.send(data)
-                except Exception as cause:
-                    await self._finish(WriteFailed(cause))
+                await self._send_held(data)
+
+    async def _send_held(self, data: bytes) -> None:
+        """Sends `data`, counted as waiting, under the write lock its caller holds."""
+        try:
+            if self._ending:
+                return
+            try:
+                await self._transport.send(data)
+            except Exception as cause:
+                await self._finish(WriteFailed(cause))
+        finally:
+            self._unwritten_bytes -= len(data)
 
     async def _notify_cancel(self, message_id: int) -> None:
         if self._ending:
@@ -388,6 +686,9 @@ class Channel:
             for waiter in [*self._waiting.values(), *self._drainers]:
                 waiter.settle(_Raised(failure))
             self._waiting.clear()
+            for message_id in list(self._queued):
+                self._unqueue(message_id)
+            self._in_flight.clear()
             self._ended.set()
             if self._reader_scope is not None:
                 self._reader_scope.cancel()

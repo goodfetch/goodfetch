@@ -9,7 +9,7 @@
 use goodfetch_protocol::catalog::{Product, Setting, SettingScope};
 use goodfetch_protocol::connection::{
     CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
-    Surface, applies_client_bounds,
+    Surface, applies_client_bound,
 };
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -75,19 +75,23 @@ pub fn check_client_bounds(
     surface: Surface,
     engine: Product,
 ) -> Result<(), SettingsError> {
-    if applies_client_bounds(surface) {
+    let unapplied: Vec<&Setting> = CLIENT_BOUNDS
+        .into_iter()
+        .filter(|bound| !applies_client_bound(surface, bound))
+        .collect();
+    if unapplied.is_empty() {
         return Ok(());
     }
     let own = Values::read(SettingsLayer::Run, own, engine)?;
-    let applied_by_the_client = own
+    let not_applied_by_the_client = own
         .keys()
-        .find(|key| CLIENT_BOUNDS.iter().any(|bound| bound.name == *key));
-    match applied_by_the_client {
+        .find(|key| unapplied.iter().any(|bound| bound.name == *key));
+    match not_applied_by_the_client {
         Some(key) => Err(SettingsError::NotApplicable {
             key: key.to_owned(),
             layer: SettingsLayer::Run,
             fix: format!(
-                "remove `{key}`: only the TypeScript Client reads its transport's bounds from `settings`; this Client takes them, where it has them, as options of its own `connect`"
+                "remove `{key}`: this Client does not read it from `settings`; it takes it, where it has it, as an option of its own `connect`"
             ),
         }),
         None => Ok(()),

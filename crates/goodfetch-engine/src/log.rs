@@ -547,5 +547,26 @@ pub fn origin(url: &str) -> String {
     )
 }
 
+/// The targets under which a WebSocket crate logs each frame's payload at
+/// `trace`, through the `log` crate: an Exposed Daemon's `hello` and its
+/// token, and a Borrowed browser's CDP traffic at its `cdp_url`.
+pub const FRAME_PAYLOAD_TARGETS: [&str; 2] = ["tungstenite", "tokio_tungstenite"];
+
+/// The process subscriber's global filter that keeps every WebSocket
+/// frame's payload out of its logs, since secrets never reach logs (ADR
+/// 0067): it caps [`FRAME_PAYLOAD_TARGETS`] at `debug` and lets every other
+/// target through, at any level.
+///
+/// Joined to the subscriber before its layers, outside their own filters,
+/// it decides first for every record, a `log` record a bridge hands to
+/// `tracing` under its own target as much as a `tracing` event: no
+/// `log.level`, `RUST_LOG` directive or later bridge lifts it.
+pub fn frame_payloads_unlogged() -> tracing_subscriber::filter::Targets {
+    FRAME_PAYLOAD_TARGETS.into_iter().fold(
+        tracing_subscriber::filter::Targets::new().with_default(LevelFilter::TRACE),
+        |targets, target| targets.with_target(target, LevelFilter::DEBUG),
+    )
+}
+
 #[cfg(test)]
 mod tests;

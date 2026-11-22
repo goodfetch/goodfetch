@@ -523,3 +523,62 @@ fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_l
         (THREADS * LINES, Vec::<&str>::new())
     );
 }
+
+/// A WebSocket crate's `trace` records, which hold each frame's payload and
+/// so an Exposed Daemon's token, never reach the executable's logs, though
+/// `log.level` asks for `trace` and names those targets (ADR 0067); its
+/// `debug` records and every other target's `trace` records still do. A
+/// `log` record a bridge hands over is filtered under the same target, as
+/// the Rust SDK's `frame_logs` test shows over a live WebSocket. The test
+/// installs the process's global subscriber, so it runs in a process of
+/// its own, as `just test` runs every test.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the file the subscriber wrote, outside any async worker"
+)]
+fn the_executables_logs_never_hold_a_websocket_frames_payload_at_trace() {
+    const TOKEN: &str = "endpoint-token-canary-3209c0ffee51";
+    let env = goodfetch_test_support::TestEnv::new();
+    let folder = env.folder().join("logs");
+    let file = LogFile::open(
+        &folder,
+        "collie-1",
+        Rotation {
+            max_size: 1 << 30,
+            max_files: 1,
+        },
+        Clock::system(),
+    )
+    .unwrap();
+    let installed = super::logs::install(super::logs::Logs {
+        filter: "trace,tungstenite=trace,tokio_tungstenite=trace".to_owned(),
+        file: Some(file),
+        to: super::logs::LogsTo::Stderr,
+        settings: None,
+        events: &goodfetch_engine::log::LogEvents::new(),
+        masks: &Masks::new(),
+        product: Product::Collie,
+        handles: super::logs::Handles {
+            clock: Clock::system(),
+            trace_ids: None,
+        },
+    });
+
+    tracing::trace!(target: "tungstenite::protocol::frame", "writing frame {TOKEN}");
+    tracing::trace!(target: "tokio_tungstenite::compat", "Write.write {TOKEN}");
+    tracing::debug!(target: "tungstenite::handshake::server", "Server handshake done.");
+    tracing::trace!(target: "goodfetch_engine::rpc", "a trace record of the engine's own");
+    drop(installed);
+
+    let text = std::fs::read_to_string(folder.join("collie-1.jsonl")).unwrap();
+    assert_eq!(
+        [
+            text.contains(TOKEN),
+            text.contains("Server handshake done."),
+            text.contains("a trace record of the engine's own"),
+        ],
+        [false, true, true],
+        "{text}"
+    );
+}

@@ -9,7 +9,8 @@
 //! at its own level; the spans exported over OTLP/HTTP once
 //! `otlp.traces_endpoint` names a collector, and never otherwise, their
 //! trace and span IDs drawn from an `Entropy` of their own. Every
-//! timestamp reads the `Clock`.
+//! timestamp reads the `Clock`. No level records a WebSocket frame's
+//! payload, which the `tungstenite` crates log at `trace` (ADR 0067).
 //!
 //! `log.output` defaults to `file` for a Daemon a start launched, which has
 //! no terminal, to `stdout` under `daemon run`, whose JSON lines on stdout
@@ -449,6 +450,9 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             }))
     });
     tracing_subscriber::registry()
+        // Before every layer and its filter, so nothing `log.level` says
+        // lifts it (ADR 0067).
+        .with(goodfetch_engine::log::frame_payloads_unlogged())
         .with(text)
         .with(lines)
         .with(file)

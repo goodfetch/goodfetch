@@ -8,9 +8,16 @@ use std::process::Command as Process;
 
 use sha2::{Digest as _, Sha256};
 
-/// The variables only `ci/merge-pr.sh` reads, before any step starts: they
-/// decide whether a gate begins, never what a step runs or how.
-const LAUNCHER_VARIABLES: [&str; 1] = ["GOODFETCH_GATE_MIN_FREE_GB"];
+/// The variables only the gate's launchers read: `ci/merge-pr.sh`'s, before
+/// any step starts, which decides whether a gate begins, and those that say
+/// where the record is and which layer runs (`ci/gate-records.sh`,
+/// `ci/pre-merge.sh`). None changes what a step runs or how, so every layer
+/// fingerprints one host alike.
+const LAUNCHER_VARIABLES: [&str; 3] = [
+    "GOODFETCH_GATE_MIN_FREE_GB",
+    "GOODFETCH_GATE_RECORDS",
+    "GOODFETCH_GATE_LAYER",
+];
 
 /// The variables the gate removes from its environment before any step, so
 /// each uses every thread whatever the shell that started it capped

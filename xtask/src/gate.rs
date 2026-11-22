@@ -64,10 +64,10 @@ use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, github, metadata, output};
 use attribution::{Evidence, Judged, StressEvidence};
-use earlier::StressBase;
+use earlier::{Previous, StressBase};
 use evidence::RustInputs;
 use plan::{
-    Action, GateRun, Head, LintReads, Outcome, Planned, Step, Touched, UNOWNED, short, unit,
+    Action, GateRun, Head, Layer, LintReads, Outcome, Planned, Step, Touched, UNOWNED, short, unit,
 };
 
 /// The branch whose merge base with the head is the change's base.
@@ -116,6 +116,9 @@ pub(crate) enum Command {
         /// The head the plan was made for: HEAD must still be it.
         #[arg(long)]
         head: String,
+        /// The layer that ran the step, which its result names.
+        #[arg(long, value_enum)]
+        by: Layer,
         /// Now, in seconds since the Unix epoch.
         #[arg(long)]
         now: u64,
@@ -219,6 +222,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::Record {
             records,
             head,
+            by,
             now,
             step,
             status,
@@ -268,6 +272,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 &environment.path(&records),
                 &Recorded {
                     head,
+                    by,
                     now,
                     step,
                     status,
@@ -329,7 +334,15 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         now: options.now,
         lint: LintReads::new(&lint_holds),
     };
-    let (previous, no_previous) = previous_run(root, records, &head, &gated, options)?;
+    let earlier = earlier::previous(
+        root,
+        records,
+        &head,
+        &gated,
+        options.full,
+        options.assume_green.as_deref(),
+    )?;
+    let previous = earlier.record.as_ref();
     let target = match &options.target_dir {
         Some(folder) => environment.path(folder),
         None => metadata::target_directory(&environment.cargo, root)?,
@@ -341,12 +354,12 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         head: &head,
         target: &target,
     };
-    let (touched, beyond) = match &previous {
+    let (touched, beyond) = match previous {
         Some(previous) => reader.touched_by_origin(previous)?,
         None => (BTreeMap::new(), Vec::new()),
     };
-    let planned = plan::plan(&gated, previous.as_ref(), &no_previous, &touched);
-    let previous_head = previous.as_ref().map(|record| record.head.as_str());
+    let planned = plan::plan(&gated, previous, &earlier.why_none, &touched);
+    let previous_head = previous.map(|record| record.head.as_str());
     let stress_base = earlier::stress_base(root, &members_read, records, &head, &base)?;
     let machine = render(
         previous_head,
@@ -356,16 +369,13 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         &unowned,
         &planned,
     );
-    let mut log = describe(previous_head, &planned);
-    log.push_str(&describe_stress_base(&stress_base));
-    if !beyond.is_empty() {
-        log.push_str(
-            "Evidence reaches these members, which `xtask affected` does not select (they rerun):\n",
-        );
-        log.push_str(&beyond.join("\n"));
-        log.push('\n');
-    }
-    output::error(&log);
+    output::error(&plan_log(
+        records,
+        &earlier,
+        &planned,
+        &stress_base,
+        &beyond,
+    ));
     output::line(machine.trim_end());
     if options.dry_run {
         return Ok(());
@@ -386,33 +396,51 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     write(records, &carried, &machine)
 }
 
-/// The earlier run this one plans from, or why it plans from none: an
-/// assumed green run for a dry run that names one, else the nearest recorded
-/// run on the head or an ancestor, and none for a full run.
-fn previous_run(
-    root: &Path,
+/// The plan's log: each record passed over for another host fingerprint,
+/// the plan in words, the stress run's base, and the members the evidence
+/// reaches beyond `xtask affected`'s selection.
+fn plan_log(
     records: &Path,
-    head: &str,
-    gated: &Head<'_>,
-    options: &PlanArguments,
-) -> Result<(Option<GateRun>, String)> {
-    if options.full {
-        return Ok((
-            None,
-            "a full run was asked for (GOODFETCH_GATE_FULL)".to_owned(),
-        ));
+    previous: &Previous,
+    planned: &[Planned],
+    stress_base: &StressBase,
+    beyond: &[String],
+) -> String {
+    let mut log = String::new();
+    for (other, layers) in &previous.other_hosts {
+        let _ = writeln!(
+            log,
+            "Gate (ADR 0135): the record {} (by {}) is of another host fingerprint, so its results cannot be reused: it is passed over.",
+            runs::file(records, other).display(),
+            layer_names(layers)
+        );
     }
-    if let Some(assumed) = &options.assume_green {
-        let assumed = git::commit(root, assumed)?;
-        return Ok((Some(assumed_green(root, &assumed, gated)?), String::new()));
+    let record = previous
+        .record
+        .as_ref()
+        .map(|record| (record.head.as_str(), runs::file(records, &record.head)));
+    log.push_str(&describe(
+        record.as_ref().map(|(head, file)| (*head, file.as_path())),
+        planned,
+    ));
+    log.push_str(&describe_stress_base(stress_base));
+    if !beyond.is_empty() {
+        log.push_str(
+            "Evidence reaches these members, which `xtask affected` does not select (they rerun):\n",
+        );
+        log.push_str(&beyond.join("\n"));
+        log.push('\n');
     }
-    Ok(match earlier::nearest(root, records, head)? {
-        Some(record) => (Some(record), String::new()),
-        None => (
-            None,
-            "no earlier gate run on this head or an ancestor".to_owned(),
-        ),
-    })
+    log
+}
+
+/// The layers' names, joined by commas.
+fn layer_names(layers: &[Layer]) -> String {
+    layers
+        .iter()
+        .map(|layer| layer.name())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The plan of a run on a working tree with uncommitted changes: nothing
@@ -641,6 +669,7 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
         origin: assumed.to_owned(),
         tree,
         at: head.now,
+        by: Layer::Merge,
         earned_on: None,
     };
     let mut units = BTreeMap::new();
@@ -770,11 +799,12 @@ fn describe_stress_base(stress_base: &StressBase) -> String {
 }
 
 /// The plan in words, for the run's log: each step rerun or reused, and
-/// from which run and head.
-fn describe(previous: Option<&str>, planned: &[Planned]) -> String {
+/// from which run, record, head and layer.
+fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
     let mut text = match previous {
-        Some(previous) => format!(
-            "Gate (ADR 0135): the nearest earlier gate run is the run on {previous}; each step:\n"
+        Some((previous, record)) => format!(
+            "Gate (ADR 0135): the nearest earlier gate run is the run on {previous}, recorded in {}; each step:\n",
+            record.display()
         ),
         None => "Gate (ADR 0135): no earlier result is reused; each step:\n".to_owned(),
     };
@@ -797,7 +827,7 @@ fn describe(previous: Option<&str>, planned: &[Planned]) -> String {
             Action::Reuse { .. } => format!(
                 "reused, green on {} (carried by the run on {})",
                 origins(carried),
-                previous.map_or("-", short)
+                previous.map_or("-", |(previous, _)| short(previous))
             ),
         };
         let _ = writeln!(text, "  {}: {line}", step.name());
@@ -814,17 +844,19 @@ fn describe(previous: Option<&str>, planned: &[Planned]) -> String {
     text
 }
 
+/// The heads carried results ran on, each with the layer that ran them.
 fn origins(carried: &BTreeMap<String, Outcome>) -> String {
-    let origins: BTreeSet<&str> = carried
+    let origins: BTreeSet<String> = carried
         .values()
-        .map(|outcome| short(&outcome.origin))
+        .map(|outcome| format!("{} by {}", short(&outcome.origin), outcome.by.name()))
         .collect();
-    origins.into_iter().collect::<Vec<_>>().join(" ")
+    origins.into_iter().collect::<Vec<_>>().join(", ")
 }
 
 /// A step's result, for the head its plan was made for.
 struct Recorded {
     head: String,
+    by: Layer,
     now: u64,
     step: Step,
     status: Status,
@@ -853,6 +885,7 @@ fn snapshot_holders(root: &Path, members: &WorkspaceMembers) -> Result<BTreeSet<
 fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
     let Recorded {
         head,
+        by,
         now,
         step,
         status,
@@ -916,6 +949,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
             origin: head.clone(),
             tree: tree.clone(),
             at: counted.map_or(*now, |passes| passes.at),
+            by: *by,
             earned_on: counted.map(|passes| passes.origin.clone()),
         }
     };

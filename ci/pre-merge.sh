@@ -9,11 +9,16 @@
 # change itself, issue 2892). `docs` is the gate of such a change
 # made of documents alone (`gate=docs`): the checks that read its commits and
 # the bar, then `just lint-documents`, the checks of `just lint` that read
-# documents; no code lint and no suite.
+# documents; no code lint and no suite. `preflight` is `just preflight`: the
+# full gate's units that only the gate host runs, the counted rows and the
+# stress run, planned and recorded as `all`'s are, by the layer `preflight`,
+# so the full gate on the same tree, in whichever worktree, reuses them (ADR
+# 0135's amendment of 2026-11-22).
 #
 # The checks that need Linux run beside the host steps, each in its own
 # container, with its lines marked `[<step>]`: `just perf`, the counted
-# figures (ci/perf.sh); `just linux`, the tests only Linux decides
+# figures, and `just counted-rows`, the Quality register's counted rows
+# (ci/perf.sh); `just linux`, the tests only Linux decides
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh); `just windows`, the workspace built for
@@ -101,13 +106,22 @@ conclude() {
 
 all=${1:-}
 case "$all" in
-  all | quick | docs | "") ;;
+  all | quick | docs | preflight | "") ;;
   *)
-    echo "error: the argument is \`all\`, \`quick\` or \`docs\`, not $all" >&2
+    echo "error: the argument is \`all\`, \`quick\`, \`docs\` or \`preflight\`, not $all" >&2
     exit 2
     ;;
 esac
 form=${all:-changed}
+# The forms the plan reads and the record keeps: the full gate's, and
+# preflight's units of it.
+planning=""
+[[ $form != all && $form != preflight ]] || planning=yes
+# The layer the record names for each result this run gives (`xtask gate
+# record --by`): `preflight` for that form, else `GOODFETCH_GATE_LAYER`'s,
+# which the backstop sets, and `merge` by default.
+layer=${GOODFETCH_GATE_LAYER:-merge}
+[[ $form != preflight ]] || layer=preflight
 
 # shellcheck source=ci/output-value.sh
 source "$(dirname "${BASH_SOURCE[0]}")/output-value.sh"
@@ -135,7 +149,7 @@ os_services() {
 # server's shared settings export for implementers, would cap nextest and
 # Cargo for the whole gate (the test-gate audit's F1). A run over what
 # changed keeps the caller's.
-if [[ $all == all || $all == quick || $all == docs ]]; then
+if [[ $form != changed ]]; then
   removed=()
   for variable in NEXTEST_TEST_THREADS CARGO_BUILD_JOBS; do
     if [[ -n ${!variable+set} ]]; then
@@ -204,13 +218,13 @@ beside_step() {
   echo "$status" >"$ended/$name"
   return "$status"
 }
-# At the end, releases the gate's records, then lists what this host
+# At the end, releases the gate's locks, then lists what this host
 # skipped. A gate that ends before it has waited for its steps beside, on a
 # fault of its own or a stop, first stops the process groups of those still
 # running and records each that had already ended. A step stopped while it
 # ran records nothing, so the next run reruns it. `kill` signals each group
 # it is given, even past one that has ended.
-lock=""
+locks=()
 # A stop reaches this script twice under `just merge`'s stop, through its
 # process group and again from the `just` above it, and the second must not
 # end it before it has done this.
@@ -225,7 +239,7 @@ on_exit() {
     done
   fi
   [[ -z $ended ]] || rm -rf "$ended"
-  [[ -z $lock ]] || rm -rf "$lock"
+  [[ ${#locks[@]} -eq 0 ]] || rm -rf "${locks[@]}"
   just _skips-report
 }
 trap on_exit EXIT
@@ -234,39 +248,50 @@ trap on_exit EXIT
 # executables under test would record results a normal run then reuses, so
 # it fails before any step (ADR 0135). The rest of the environment that
 # changes how tests run is part of the record's host fingerprint.
-if [[ $all == all ]]; then
+if [[ -n $planning ]]; then
   for variable in GOODFETCH_TEST_SELECTION GOODFETCH_TEST_ENGINE GOODFETCH_ORDER_SEED; do
     if [[ -n "${!variable:-}" ]]; then
-      echo "error: $variable is set, which narrows or changes what \`just pre-merge all\` runs; unset it for a gate run" >&2
+      echo "error: $variable is set, which narrows or changes what \`just pre-merge $form\` runs; unset it for a gate run" >&2
       exit 2
     fi
   done
 fi
 
-# One gate run at a time records into a workspace's target/gate-runs/: a
-# second run while the first's process lives fails before any step, since
-# both would share the tests' JUnit files and exercise records too.
-if [[ $all == all ]]; then
-  mkdir -p target/gate-runs
-  if ! mkdir target/gate-runs/lock 2>/dev/null; then
-    holder=$(cat target/gate-runs/lock/pid 2>/dev/null || true)
+# Takes the lock `$1` for this run, a folder holding its process ID, or
+# fails before any step naming what it guards (`$2`) while the process that
+# holds it lives; a lock whose holder ended without releasing it is taken.
+take_lock() {
+  local holder
+  mkdir -p "$(dirname "$1")"
+  if ! mkdir "$1" 2>/dev/null; then
+    holder=$(cat "$1/pid" 2>/dev/null || true)
     if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
-      echo "error: another gate run (process $holder) holds target/gate-runs/; run it again when that run ends" >&2
+      echo "error: another gate run (process $holder) holds $2; run it again when that run ends" >&2
       exit 1
     fi
-    # The run that held it ended without releasing it.
-    rm -rf target/gate-runs/lock
-    mkdir target/gate-runs/lock
+    rm -rf "$1"
+    mkdir "$1"
   fi
-  lock=target/gate-runs/lock
-  echo "$$" >"$lock/pid"
+  locks+=("$1")
+  echo "$$" >"$1/pid"
+}
+# One gate run at a time in a worktree, since two would share the tests'
+# JUnit files and exercise records; and one at a time on a head, in whichever
+# worktree, since every worktree records into the one folder
+# (ci/gate-records.sh), where a second run's plan would replace the first's
+# record and plan of that head while the first still records into them.
+records=""
+if [[ -n $planning ]]; then
+  records=$("$(dirname "${BASH_SOURCE[0]}")/gate-records.sh")
+  take_lock target/gate-lock "this worktree's gate"
+  take_lock "$records/$(git rev-parse --verify --quiet HEAD 2>/dev/null || echo none).lock" "the record of this head"
 fi
 
 os_services
 
 # The incremental gate (ADR 0135), over the whole workspace only: `xtask
-# gate plan` reads the results earlier gate runs recorded in
-# target/gate-runs/ and, from what `xtask affected` selects for the change
+# gate plan` reads the results earlier gate runs of every layer recorded in
+# the shared folder (ci/gate-records.sh) and, from what `xtask affected` selects for the change
 # since the head each green result ran on, says for each step whether this
 # run reruns it in full (`run`), reruns its tests of some members only
 # (`part`), or reuses its green results (`reuse`); it logs each choice with
@@ -286,7 +311,8 @@ plan=""
 previous=""
 planned=""
 stress_base=""
-if [[ $form == all ]]; then
+if [[ -n $planning ]]; then
+  [[ $form != preflight ]] || echo "Preflight: the full gate's units only the gate host runs, the counted rows and the stress run, recorded by the layer preflight in $records, so the full gate on the same tree reuses them (ADR 0135)."
   plan=$(just _gate-plan)
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")
@@ -329,9 +355,9 @@ reused() {
 # crate a red stress run left short of its counts, with no failing test, keeps
 # its clean passes for the next run, unless that failure takes them all.
 record() {
-  [[ $form == all && $planned != none ]] || return 0
+  [[ -n $planning && $planned != none ]] || return 0
   if [[ $2 -eq 0 ]]; then
-    just _gate-record "$planned" "$1" pass
+    just _gate-record "$layer" "$planned" "$1" pass
     return
   fi
   local evidence=() folder
@@ -348,7 +374,7 @@ record() {
       done
       ;;
   esac
-  just _gate-record "$planned" "$1" fail ${evidence[@]+"${evidence[@]}"}
+  just _gate-record "$layer" "$planned" "$1" fail ${evidence[@]+"${evidence[@]}"}
 }
 # Removes what an earlier run of a step left of the files its record reads,
 # so they are this run's.
@@ -435,7 +461,7 @@ run_part() {
     stress)
       part=$(output_value stress.members "$plan")
       read -ra members <<<"$part"
-      gated stress just stress "$stress_base" "$previous" "target/gate-runs/$planned.earned" "" "${members[@]}"
+      gated stress just stress "$stress_base" "$previous" "$records/$planned.earned" "" "${members[@]}"
       ;;
     *)
       echo "error: the plan runs a part of $1, which runs no member's tests" >&2

@@ -549,17 +549,27 @@ mod keychain {
     /// which macOS's Security framework finds a user's default keychain:
     /// made and unlocked with a throwaway password, as `ci/os-services.sh`
     /// makes the job's, it holds this test's items alone and leaves the
-    /// user's keychains untouched.
+    /// user's keychains untouched. `security` writes the default into
+    /// `$HOME/Library/Preferences/com.apple.security.plist` and, where that
+    /// folder is missing, writes nothing and still succeeds, so the folder
+    /// is made first and the default read back.
     #[cfg(target_os = "macos")]
     fn keychain_of_its_own(env: &TestEnv) {
         let path = own_keychain(env);
+        let home = std::path::Path::new(&env.env()["HOME"]);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(home.join("Library/Preferences")).unwrap();
         let (path, password) = (path.to_str().unwrap(), throwaway_password(env));
         security(env, &["create-keychain", "-p", &password, path]);
         security(env, &["unlock-keychain", "-p", &password, path]);
         security(env, &["set-keychain-settings", path]);
         security(env, &["list-keychains", "-d", "user", "-s", path]);
         security(env, &["default-keychain", "-d", "user", "-s", path]);
+        let default = security(env, &["default-keychain", "-d", "user"]);
+        assert!(
+            default.contains("goodfetch-test.keychain-db"),
+            "the test's keychain is not its HOME's default: {default}"
+        );
     }
 
     /// Elsewhere the variables [`session`] passes on are enough.
@@ -581,9 +591,9 @@ mod keychain {
 
     /// Runs macOS's `security` with `arguments` under `env`, as the engine
     /// runs, its `HOME` the test's own; a failure names the command, never
-    /// a password.
+    /// a password. Returns what it printed.
     #[cfg(target_os = "macos")]
-    fn security(env: &TestEnv, arguments: &[&str]) {
+    fn security(env: &TestEnv, arguments: &[&str]) -> String {
         let output = env
             .process_command("/usr/bin/security")
             .args(arguments)
@@ -595,6 +605,7 @@ mod keychain {
             arguments[0],
             String::from_utf8_lossy(&output.stderr)
         );
+        String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
     /// The partitions an item must name for the engine to read it without a

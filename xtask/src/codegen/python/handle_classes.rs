@@ -72,7 +72,10 @@ use super::settings::{
 };
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
+mod answered;
 mod listeners;
+
+use answered::{Returned, answered, returned};
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
@@ -540,55 +543,6 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
         }))
 }
 
-/// The member's call on its host, `awaits` before it, sending `sent`.
-///
-/// A call's own timeout also bounds its wait in the Client's queue under
-/// the engine's cap on calls in flight, failing naming its setting
-/// (ADR 0038; issue 3188).
-fn host_call(member: &Member<'_>, awaits: &str, sent: &str) -> String {
-    let deadline = member
-        .timeout_setting
-        .as_ref()
-        .map(|setting| format!(", timeout_setting={setting:?}"))
-        .unwrap_or_default();
-    format!(
-        "{awaits}self._host.call({:?}, {sent}{deadline})",
-        member.operation.name
-    )
-}
-
-/// What `member` answers in place of its result when the result has one
-/// property (`Member::unwrapped`, issue 2883): that property's annotation,
-/// with `None` for an optional one, which is absent, and the property.
-fn answered(
-    layer: &Layer,
-    member: &Member<'_>,
-    imports: &mut Imports,
-) -> Result<Option<(String, String)>> {
-    let Some(unwrapped) = &member.unwrapped else {
-        return Ok(None);
-    };
-    let operation = member.operation;
-    let property = layer
-        .definitions
-        .get(&operation.result.0)
-        .map(|result| &result["properties"][&unwrapped.property])
-        .with_context(|| format!("operation `{}` has no result type", operation.name))?;
-    let Some(spelled) = annotation(property, imports) else {
-        bail!(
-            "operation `{}`: no Python annotation for its result's `{}`, which it answers in place of the result",
-            operation.name,
-            unwrapped.property
-        );
-    };
-    let returns = if unwrapped.required || spelled.ends_with("None") {
-        spelled
-    } else {
-        format!("{spelled} | None")
-    };
-    Ok(Some((returns, unwrapped.property.clone())))
-}
-
 /// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
@@ -691,42 +645,6 @@ fn member(
         &sent,
     ));
     Ok(text)
-}
-
-/// What a member's body returns, beside how it calls: the result's model,
-/// the annotation it returns, and the one property it answers in place of
-/// the result, if any.
-#[derive(Clone, Copy)]
-struct Returned<'text> {
-    result: &'text str,
-    returns: &'text str,
-    property: Option<&'text str>,
-}
-
-/// The last lines of `member`'s body, which send `sent` and return what
-/// its form answers.
-fn returned(member: &Member<'_>, returned: Returned<'_>, awaits: &str, sent: &str) -> String {
-    let Returned {
-        result,
-        returns,
-        property,
-    } = returned;
-    let call = host_call(member, awaits, sent);
-    match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => {
-            let property = property
-                .map(|property| format!(".{property}"))
-                .unwrap_or_default();
-            format!("        return result_of({result}, {call}){property}\n")
-        }
-        Form::Opens(opened) => format!(
-            "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))\n"
-        ),
-        Form::Closes => format!(
-            "        {awaits}self._host.close({:?}, {sent})\n",
-            member.operation.name
-        ),
-    }
 }
 
 /// The sentence that gives the default of `setting`, the Duration setting

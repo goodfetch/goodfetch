@@ -2,7 +2,9 @@
 //! in-memory network (spec #213's Seam 3): `run.start`'s `settings` and the
 //! Goodfetch home's Operator policy and user configuration resolved before
 //! the Run begins, refused with their Error codes, the run report naming
-//! the policy's version and the settings that weaken, and `config.explain`.
+//! the policy's version and the settings that weaken, `config.explain`,
+//! and a project file sent to an Exposed Daemon, held there to the run
+//! layer's authority.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests write the Goodfetch home's settings files themselves"
@@ -13,8 +15,11 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use super::daemon::{TOKEN, daemon as served, hello_with, no_handover, options as daemon_options};
 use super::run::call;
-use super::{attached_on, engine_with, hello};
+use super::websocket::exposed;
+use super::{attached_on, engine, engine_with, hello};
+use crate::daemon::DaemonOptions;
 
 /// Writes `text` as `file` of the test home's per-major folder.
 fn write(env: &TestEnv, file: &str, text: &str) {
@@ -472,5 +477,130 @@ fn a_refused_setting_reads_in_the_declared_form(
         ),
         (&json!(key), &closest),
         "{started}"
+    );
+}
+
+/// Calls `method` on a Daemon of `product` served with `options`, with
+/// `settings` as the project file `/work/goodfetch.toml` a Client sends;
+/// answers its reply.
+fn sent_with_a_project(
+    product: Product,
+    options: DaemonOptions,
+    method: &'static str,
+    settings: Value,
+) -> Value {
+    let (_, answer) = served(
+        &engine(product),
+        &TestEnv::new(),
+        options,
+        |dialer| async move {
+            let mut client = super::daemon::connect(&dialer).await;
+            let said = hello_with(product.as_str(), "0.1", "sdk_typescript", Some(TOKEN));
+            client.send(&[said]).await;
+            client.next().await;
+            let project = json!({ "path": "/work/goodfetch.toml", "settings": settings });
+            call(&mut client, 1, method, json!({ "project": project })).await
+        },
+    );
+    answer
+}
+
+/// A project file sent to an Exposed Daemon keeps layer 3's rank but has
+/// only the run layer's authority there (ADR 0083): a value that widens
+/// what ADR 0028 reserves to configuration is refused with
+/// `setting_locked`, on `run.start` as on `config.explain`.
+///
+/// Covers: story:11-75, error:setting_locked
+#[rstest]
+/// Covers: operation:config.explain, setting:tls.trusted_cas
+#[case::trusted_cas_explained(
+    Product::Collie,
+    "config.explain",
+    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
+    "tls.trusted_cas"
+)]
+/// Covers: operation:run.start, setting:tls.trusted_cas
+#[case::trusted_cas_started(
+    Product::Collie,
+    "run.start",
+    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
+    "tls.trusted_cas"
+)]
+/// Covers: operation:config.explain, setting:tls.accept_invalid_certs
+#[case::any_invalid_certificate_explained(
+    Product::Collie,
+    "config.explain",
+    json!({ "tls": { "accept_invalid_certs": { "intranet.example": "any" } } }),
+    "tls.accept_invalid_certs"
+)]
+/// Covers: operation:config.explain, setting:consent.domains
+#[case::consent_domains_explained(
+    Product::Collie,
+    "config.explain",
+    json!({ "consent": { "domains": ["news.example"] } }),
+    "consent.domains"
+)]
+/// Covers: operation:config.explain, setting:paid_fetch.domains
+#[case::paid_fetch_domains_explained(
+    Product::Foxhound,
+    "config.explain",
+    json!({ "paid_fetch": { "domains": ["shop.example"] } }),
+    "paid_fetch.domains"
+)]
+fn a_project_file_sent_to_an_exposed_daemon_widens_nothing_reserved_to_configuration(
+    #[case] product: Product,
+    #[case] method: &'static str,
+    #[case] settings: Value,
+    #[case] key: &str,
+) {
+    let answer = sent_with_a_project(product, exposed(), method, settings);
+
+    let data = &answer["error"]["data"];
+    assert_eq!(
+        (&data["code"], &data["key"], &data["layer"]),
+        (
+            &json!("setting_locked"),
+            &json!(key),
+            &json!("project_configuration")
+        ),
+        "{answer}"
+    );
+}
+
+/// A project file's value is taken at `project_configuration` wherever its
+/// authority allows it: a reserved one on this machine's Daemon, and on an
+/// Exposed Daemon one the run layer may give, as a domain listed for trust
+/// on first use (ADR 0083).
+///
+/// Covers: story:11-75, operation:config.explain
+#[rstest]
+/// Covers: setting:tls.trusted_cas
+#[case::trusted_cas_on_the_machines_daemon(
+    daemon_options(true, &no_handover()),
+    json!({ "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } }),
+    "tls.trusted_cas"
+)]
+/// Covers: setting:tls.accept_invalid_certs
+#[case::trust_on_first_use_on_an_exposed_daemon(
+    exposed(),
+    json!({ "tls": { "accept_invalid_certs": { "intranet.example": null } } }),
+    "tls.accept_invalid_certs"
+)]
+fn a_project_files_value_is_taken_as_project_configuration_where_its_authority_allows(
+    #[case] options: DaemonOptions,
+    #[case] settings: Value,
+    #[case] key: &str,
+) {
+    let answer = sent_with_a_project(Product::Collie, options, "config.explain", settings);
+
+    let explained = answer["result"]["settings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|setting| setting["key"] == json!(key));
+    assert_eq!(
+        explained.map(|setting| &setting["layer"]),
+        Some(&json!("project_configuration")),
+        "{answer}"
     );
 }

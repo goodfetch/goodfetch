@@ -15,12 +15,14 @@ use serde_json::{Map, Value};
 use super::error::SettingsError;
 use super::keys::{self, Key};
 
-/// Who gave a value: where a run-layer value came from, and whether a
-/// Client acting for a model gave it.
+/// Who gave a value: where a run-layer value came from, whether a Client
+/// acting for a model gave it, and whether it has only the run layer's
+/// authority wherever its layer ranks it.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Given {
     pub(crate) origin: Option<RunOrigin>,
     pub(crate) for_model: bool,
+    pub(crate) run_authority: bool,
 }
 
 /// What one layer sets.
@@ -31,6 +33,9 @@ pub struct Values {
     pub(crate) origin: Option<RunOrigin>,
     /// Whether a Client acting for a model gave them (ADR 0092).
     pub(crate) for_model: bool,
+    /// Whether they have only the run layer's authority, as a project
+    /// configuration sent to an Exposed Daemon (ADR 0083).
+    pub(crate) run_authority: bool,
 }
 
 impl Values {
@@ -66,11 +71,22 @@ impl Values {
         self
     }
 
+    /// The same, with only the run layer's authority while keeping its
+    /// layer's rank, as a project configuration a Client sends to an
+    /// Exposed Daemon: it widens nothing reserved to configuration (ADR
+    /// 0083).
+    #[must_use]
+    pub fn with_run_authority(mut self) -> Self {
+        self.run_authority = true;
+        self
+    }
+
     /// Who gave its values.
     pub(crate) fn given(&self) -> Given {
         Given {
             origin: self.origin,
             for_model: self.for_model,
+            run_authority: self.run_authority,
         }
     }
 

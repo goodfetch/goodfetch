@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 
+from goodfetch_collie_client._trace_context import untraced
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.listeners import (
@@ -150,7 +151,9 @@ class _Open:
         try:
             async with anyio.create_task_group() as group:
                 group.start_soon(self._grant_all)
-                with self._call:
+                # It belongs to no one caller, so it carries no Trace
+                # context, whichever listener's join spawned it (ADR 0132).
+                with self._call, untraced():
                     try:
                         await self._connection.stream(
                             "events.subscribe", {}, self._notified, sent=self._sent

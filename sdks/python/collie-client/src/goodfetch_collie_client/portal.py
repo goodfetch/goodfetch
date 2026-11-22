@@ -73,7 +73,10 @@ class PrivateLoop:
         without waiting, and propagates unchanged (ADR 0081). The portal
         would raise an error outside `Exception` in the loop's thread too,
         which ends it, so `attempt_ended`'s comes back as a value and is
-        raised here alone (ADR 0093).
+        raised here alone (ADR 0093). The portal runs `function` in a copy
+        of the calling thread's context, so each request it makes carries
+        that thread's Trace context (ADR 0132), as
+        `test_trace_context.py`'s two threads show.
 
         Raises:
             LoopStopped: The loop has stopped, so its Connection is closed.

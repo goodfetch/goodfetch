@@ -287,6 +287,46 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "crawl_requests"
+entry = "none"
+reason = "The Run's Crawl requests, the stream beneath `Crawl::serve`, for a program that answers them itself (ADRs 0093 and 0112)."
+only = "Rust's handlers are `Send` (ADR 0112), so a program whose state is not reads the requests itself; TypeScript's run on the event loop."
+words = ["crawl", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "CrawlCall"
+entry = "none"
+reason = "One Crawl request a program answers itself, read from `CrawlRun::crawl_requests` (ADRs 0093 and 0109)."
+only = "Rust's handlers are `Send` (ADR 0112), so a program whose state is not reads the requests itself; TypeScript's run on the event loop."
+words = ["crawl", "call"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlCall"
+member = "context"
+entry = "none"
+reason = "The attempt's context, as a handler is given it, read without a round trip."
+only = "Rust's handlers are `Send` (ADR 0112), so a program whose state is not reads the requests itself; TypeScript's run on the event loop."
+words = ["context"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlCall"
+member = "finish"
+entry = "none"
+reason = "Answers the attempt as a handler's return does: `Ok` commits it, an `Err` fails it with `handler_failed` (ADR 0109)."
+only = "Rust's handlers are `Send` (ADR 0112), so a program whose state is not reads the requests itself; TypeScript's run on the event loop."
+words = ["finish"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "CrawlContext"
 entry = "none"

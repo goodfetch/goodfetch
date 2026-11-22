@@ -646,6 +646,16 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "EventStream"
+member = "from_items"
+entry = "none"
+reason = "The stream a Product's crate hands out over items it reads itself, such as the requests Foxhound's `run.crawl_requests()` yields (ADR 0093)."
+only = "TypeScript's Products build their streams on the runtime's `Sequence`."
+words = ["from", "items"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "Exchange"
 entry = "none"

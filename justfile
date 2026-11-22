@@ -1430,14 +1430,13 @@ compare-admission *args:
 kennel:
     kennel/scripts/install.sh
 
-# The Kennel's checks (ADR 0141): its workspace's Clippy and tests, the
-# Client's against goodfetch-scripted-engine and the Run controls' against a
-# real Daemon of goodfetch-collie, which the root workspace builds with the
-# tests' profile. On macOS every crate; elsewhere the
-# non-graphical crate, with the graphical one type-checked for macOS and,
-# on Linux, for the host, each listed as skipped without its Rust target or
-# GTK 3's and libdbus's development files (kennel/scripts/check.sh).
-# Runs the Kennel's Clippy and tests.
+# The Kennel's checks (ADR 0141): its module check and its workspace's
+# tests, the Client's against goodfetch-scripted-engine and the Run controls'
+# against a real Daemon of goodfetch-collie, which the root workspace builds
+# with the tests' profile. On macOS every crate; elsewhere the non-graphical
+# crate (kennel/scripts/check.sh). Its Clippy is `just lint`'s
+# (ci/clippy-excluded.sh), so no gate lints it twice.
+# Runs the Kennel's module check and tests.
 kennel-check:
     kennel/scripts/check.sh {{ test_profile }}
 

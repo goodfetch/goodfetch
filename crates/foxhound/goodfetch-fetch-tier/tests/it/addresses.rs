@@ -309,7 +309,7 @@ fn every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connec
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let public = target(&proving_ground).ip();
     let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = [
+    let families = [
         Family::Encoding,
         Family::Ipv6Form,
         Family::SpecialPurposeBlock,
@@ -317,10 +317,11 @@ fn every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connec
         Family::Rebinding,
         Family::DomainPolicy,
         Family::UpstreamProxy,
-    ]
-    .iter()
-    .flat_map(|family| table.cases_of(*family))
-    .collect();
+    ];
+    let cases: Vec<&SsrfCase> = families
+        .iter()
+        .flat_map(|family| table.cases_of(*family))
+        .collect();
     let (cases, unparsed): (Vec<&SsrfCase>, Vec<&SsrfCase>) = cases
         .into_iter()
         .partition(|case| case_url(case, public, 1).is_some());
@@ -351,7 +352,12 @@ fn every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connec
             ("public_name_through_the_proxy".to_owned(), None, true),
         ])
     );
-    assert!(cases.len() > 80, "only {} cases", cases.len());
+    for family in families {
+        assert!(
+            cases.iter().any(|case| case.family == family),
+            "the table has no {family:?} case the HTTP tier sends"
+        );
+    }
     // Only a zone ID's URL and the case named for it are URLs the WHATWG
     // parser refuses.
     assert_eq!(

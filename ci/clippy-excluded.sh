@@ -17,14 +17,14 @@
 # offline, so it takes the versions the root locks and writes no lockfile
 # into the source tree.
 #
-# The Kennel reads its prerequisites as `just kennel-check` does
-# (kennel/scripts/prerequisites.sh). On a host other than macOS it is also
-# linted for macOS (aarch64-apple-darwin), so its macOS-only code is, which
-# needs the Rust target and no macOS SDK. On Linux its graphical crate,
-# goodfetch-kennel-app, needs the development files of GTK 3 and libdbus,
-# found by pkg-config. Without the target or those files, that lint leaves
-# out what it cannot build and lists it as skipped on a local host, and the
-# step fails in CI (ADR 0061).
+# This is the Kennel's only Clippy: `just kennel-check` tests it and lints
+# none of it (#3217). On a host other than macOS it is also linted for macOS
+# (aarch64-apple-darwin), so its macOS-only code is, which needs the Rust
+# target and no macOS SDK. On Linux its graphical crate, goodfetch-kennel-app,
+# needs system libraries that kennel/scripts/prerequisites.sh probes for.
+# Without the target or those libraries, that lint leaves out what it cannot
+# build and lists it as skipped on a local host, and the step fails in CI
+# (ADR 0061).
 set -euo pipefail
 
 root=$(pwd -P)

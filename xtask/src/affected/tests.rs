@@ -1010,6 +1010,34 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
     "crates/goodfetch-collie/tests/it/log.rs",
     true
 )]
+#[case::a_fixture_splitting_the_crate_and_a_path_from_here(
+    "test-support/fixtures/ssrf/layers.toml",
+    r#"{ crate = "goodfetch-collie", test = "./tests/it/navigation_egress.rs" }"#,
+    "crates/goodfetch-collie/tests/it/navigation_egress.rs",
+    true
+)]
+// Split, so this file names no folder of the repository's own Collie tests.
+#[case::a_doc_example_fenced_by_tildes(
+    "crates/goodfetch-conformance/src/lib.rs",
+    concat!(
+        "//! ~~~\n//! let cases = std::fs::read_dir(\"../goodfetch-",
+        "collie/tests/it\").unwrap();\n//! ~~~\n"
+    ),
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::another_package_naming_the_crate_anchoring_its_own_tests(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "PRODUCT = \"goodfetch-collie\"\nCASES = Path(__file__).resolve().parent / \"tests\" / \"it\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+#[case::another_package_naming_the_crate_anchoring_at_its_folder(
+    "crates/goodfetch-conformance/web/cases.ts",
+    "const PRODUCT = \"goodfetch-collie\";\nconst CASES = path.join(import.meta.dirname, \"tests\");\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
 #[case::the_parent_of_a_value_naming_the_crate(
     "test-support/python/src/goodfetch_test_support/cases.py",
     "COLLIE_MANIFEST = ROOT / \"crates\" / \"goodfetch-collie\" / \"Cargo.toml\"\nCASES = COLLIE_MANIFEST.parent / \"tests\" / \"it\"\n",

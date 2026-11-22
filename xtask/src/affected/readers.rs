@@ -163,11 +163,11 @@ struct Naming {
 /// crate, or as a path from `tests` on a line that names the crate. Then
 /// it reaches what a change to the crate reaches, as before. Every file is
 /// read, those of hidden folders and fixtures too, but the documents no test
-/// reads (`needs_no_tests`); a comment line names a file without reading it,
-/// but for a doctest's lines, Markdown names one only through the crate's
-/// folder or name, and xtask's
-/// files, whose fixtures name such paths, only through a literal that climbs
-/// out of xtask (`../`), as for `literal_readers`.
+/// reads (`needs_no_tests`). A comment line names a file without reading it,
+/// unless it is a line of a doctest; Markdown names one only through the
+/// crate's folder or name; and xtask's files, whose fixtures name such
+/// paths, only through a literal that climbs out of xtask (`../`), as for
+/// `literal_readers`.
 pub(crate) fn tests_read_elsewhere(
     root: &Path,
     members: &WorkspaceMembers,
@@ -233,9 +233,9 @@ fn in_a_name(character: char) -> bool {
 
 const QUOTES: [char; 3] = ['"', '\'', '`'];
 
-/// The values that are a file's own location, so that a `tests` after one,
-/// or after an expression that starts from one, is that file's crate's or
-/// package's own (`CARGO_MANIFEST_DIR`, `import.meta.dirname`,
+/// The values a file's own location starts from, so that a `tests` after
+/// one, or after an expression that starts from one, is that file's crate's
+/// or package's own (`CARGO_MANIFEST_DIR`, `import.meta.dirname`,
 /// `Path(__file__).parent`).
 const LOCATIONS: [&str; 4] = ["CARGO_MANIFEST_DIR", "__dirname", "__file__", "import.meta"];
 
@@ -374,9 +374,10 @@ fn names_the_crate(code: &str, names: &[&str]) -> bool {
 /// or name; in the crate's own file, unless another folder of the crate is
 /// that piece (`src/egress/tests`); in another member's file, when a
 /// computed value is that piece and the file names the crate anywhere, but
-/// not one of its own location (`LOCATIONS`, and a `CLIMBS` step from one),
-/// or when the path starts at `tests` on a line that names the crate (`{
-/// crate = "goodfetch-collie", test = "tests/it/log.rs" }`). Markdown counts
+/// not one of its own location (`LOCATIONS`, and a `CLIMBS` step in an
+/// expression that starts from one), or when the path starts at `tests` or
+/// `./tests` on a line that names the crate (`{ crate = "goodfetch-collie",
+/// test = "tests/it/log.rs" }`). Markdown counts
 /// only through the crate's folder or name, and xtask's files only on a line
 /// that climbs out of xtask (`../`).
 fn names_a_tests_file(code: &str, naming: Naming, tests_file: &TestsFile<'_>) -> bool {
@@ -411,33 +412,51 @@ fn names_a_tests_file(code: &str, naming: Naming, tests_file: &TestsFile<'_>) ->
             let another_folder = joined == Joined::Slash && !matches!(piece, "" | "." | "..");
             return !another_folder;
         }
-        match joined {
-            Joined::Start => {
-                let line_end = after
-                    .find('\n')
-                    .map_or(code.len(), |end| start + TESTS_FOLDER.len() + end);
-                let whole_line = &code[start - line.len()..line_end];
-                names_the_crate(whole_line, &tests_file.names)
-            }
-            Joined::Computed => {
-                let last = piece.rsplit('.').next().unwrap_or(piece);
-                let anchored = (LOCATIONS.contains(&last) || CLIMBS.contains(&last))
-                    && LOCATIONS
-                        .iter()
-                        .any(|location| expression.contains(location));
-                !anchored && mentioned
-            }
-            Joined::Slash | Joined::Quote => false,
+        let from_tests = joined == Joined::Start || (joined == Joined::Slash && piece == ".");
+        if from_tests {
+            let line_end = after
+                .find('\n')
+                .map_or(code.len(), |end| start + TESTS_FOLDER.len() + end);
+            let whole_line = &code[start - line.len()..line_end];
+            return names_the_crate(whole_line, &tests_file.names);
         }
+        let last = piece.rsplit('.').next().unwrap_or(piece);
+        let anchored = (LOCATIONS.contains(&last) || CLIMBS.contains(&last))
+            && starts_from_a_location(expression);
+        joined == Joined::Computed && !anchored && mentioned
     })
+}
+
+/// Whether `expression` starts from one of a file's own locations
+/// (`LOCATIONS`), past the calls that wrap it (`Path(__file__)`,
+/// `new(env!("CARGO_MANIFEST_DIR"))`): `COLLIE_MANIFEST.parent` does not.
+fn starts_from_a_location(expression: &str) -> bool {
+    let mut rest = expression;
+    loop {
+        let at_a_location = LOCATIONS.iter().any(|location| {
+            rest.strip_prefix(location).is_some_and(|after| {
+                !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            })
+        });
+        if at_a_location {
+            return true;
+        }
+        let callee = rest.trim_start_matches(|c: char| in_a_name(c) || c == '!');
+        let Some(argument) = callee.strip_prefix('(') else {
+            return false;
+        };
+        rest = argument.trim_start_matches(|c: char| c.is_whitespace() || QUOTES.contains(&c));
+    }
 }
 
 /// `text` without its whole-line comments, by the marker that opens one in
 /// `file`'s language: `#` in Python, shell, `justfile`, TOML and YAML, `//`
 /// elsewhere. A line that opens with `*` may be code (`*slot = …`), so it
 /// stays, as does any line a comment marker does not open. In Rust, the
-/// lines of a fenced example in a `///` or `//!` comment stay too: they are
-/// a doctest's code, which `cargo test --doc` runs.
+/// lines of a fenced example (three backticks or `~~~`) in a `///` or `//!`
+/// comment stay too, as a doctest's code, which `cargo test --doc` runs; a
+/// fence of another language (`text`) stays as well, since the search must
+/// miss no reader.
 fn without_comments(text: &str, file: &RepoPath) -> String {
     let name = file.as_str().rsplit('/').next().unwrap_or_default();
     let extension = Path::new(name)
@@ -458,12 +477,12 @@ fn without_comments(text: &str, file: &RepoPath) -> String {
             let doc = ["///", "//!"]
                 .iter()
                 .find_map(|opening| line.strip_prefix(opening))
-                .filter(|_| rust);
+                .filter(|doc| rust && !doc.starts_with('/'));
             let Some(doc) = doc else {
                 in_example = false;
                 return !line.starts_with(marker);
             };
-            if doc.trim_start().starts_with("```") {
+            if doc.trim_start().starts_with("```") || doc.trim_start().starts_with("~~~") {
                 in_example = !in_example;
                 return false;
             }

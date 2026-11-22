@@ -967,14 +967,16 @@ fn auto(
     Ok(runs)
 }
 
-/// The cells of `measured` the Callgrind cell runs: those ADR 0140's rows
-/// read, Foxhound's instructions over Spider's, in scenario 1 and in the
-/// extraction scenario (see [`instruction_counted`]).
-fn instruction_cells(measured: &[(&'static Cell, Config)]) -> Vec<(&'static Cell, Config)> {
-    measured
-        .iter()
-        .copied()
+/// The cells of a run of `options` the Callgrind cell runs: the measured
+/// cells ADR 0140's rows read, Foxhound's instructions over Spider's, in
+/// scenario 1 and in the extraction scenario (see [`instruction_counted`]),
+/// then each default-cost cell it asks for, one run set per Foxhound
+/// default (#2438).
+fn instruction_cells(options: &Options) -> Vec<(&'static Cell, Config)> {
+    measured(options)
+        .into_iter()
         .filter(|(cell, _)| instruction_counted(cell))
+        .chain(matrix::default_costs().filter(|(cell, _)| asked(options, cell)))
         .collect()
 }
 
@@ -991,7 +993,7 @@ fn preflown(executables: &Executables<'_>, options: &Options) -> Result<()> {
         Vec::new()
     };
     let callgrind = if callgrind_missing().is_none() {
-        instruction_cells(&measured)
+        instruction_cells(options)
     } else {
         Vec::new()
     };
@@ -1274,7 +1276,7 @@ fn parts(
             executables,
             options,
             measuring,
-            &instruction_cells(&measured),
+            &instruction_cells(options),
             state,
         )?;
         merge_counted(&mut comparison.instructions, again, only);

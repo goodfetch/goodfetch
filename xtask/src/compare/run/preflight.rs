@@ -45,7 +45,9 @@ pub(super) struct Probe {
 
 /// The pre-flight's runs: each of `measured` plain, then under strace when
 /// it is one of `strace` and under Callgrind when it is one of `callgrind`,
-/// then each of `ruled` and `auto` in its own pass. A caller whose host
+/// then each other of `callgrind`, a default-cost cell that Callgrind alone
+/// runs (#2438), under Callgrind, then each of `ruled` and `auto` in its
+/// own pass. A caller whose host
 /// lacks a counting tool hands it no cell, as the run will run none.
 pub(super) fn probes(
     measured: &[(&'static Cell, Config)],
@@ -80,6 +82,12 @@ pub(super) fn probes(
                 under,
             })
         })
+        .chain(
+            callgrind
+                .iter()
+                .filter(|(cell, _)| !among(measured, cell))
+                .map(probe(Under::Callgrind)),
+        )
         .chain(ruled.iter().map(probe(Under::Rules)))
         .chain(auto.iter().map(probe(Under::Auto)))
         .collect()

@@ -35,9 +35,10 @@ pub(crate) enum Job {
     Evaluation,
     /// TLC on `models`, with their small constants (ADR 0060).
     Tlc,
-    /// The Kennel's checks, `just kennel-check` (ADR 0141): its workspace's
-    /// Clippy and tests, run when a change reaches its workspace, a root
-    /// crate it is built on, or the code of an executable its tests run.
+    /// The Kennel's checks, `just kennel-check` (ADR 0141): its module
+    /// check and its workspace's tests, run when a change reaches its
+    /// workspace, a root crate it is built on, or the code of an executable
+    /// its tests run.
     Kennel,
 }
 

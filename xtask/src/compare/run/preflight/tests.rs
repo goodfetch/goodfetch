@@ -18,12 +18,14 @@ fn named(probes: &[Probe]) -> Vec<(&'static str, &'static str, Under)> {
 }
 
 /// The pre-flight runs each measured cell plain, then under each counting
-/// tool the run will run it under, and each hostile pages' and auto cell
-/// in its own pass: no tool the run starts goes unproved.
+/// tool the run will run it under, each default-cost cell under Callgrind
+/// alone, the one tool that runs it (#2438), and each hostile pages' and
+/// auto cell in its own pass: no tool the run starts goes unproved.
 #[test]
 fn the_pre_flight_runs_each_cell_under_each_tool_the_run_runs_it_under() {
     let foxhound = cell(Scenario::Raw, "foxhound");
     let spider = cell(Scenario::Raw, "spider");
+    let records = cell(Scenario::Raw, "foxhound records on");
     let long = matrix::measured()
         .find(|(cell, _)| cell.scenario == Scenario::Long)
         .expect("invariant: the long scenario has a measured cell");
@@ -37,7 +39,7 @@ fn the_pre_flight_runs_each_cell_under_each_tool_the_run_runs_it_under() {
     let listed = probes(
         &[foxhound, spider, long],
         &[foxhound, spider],
-        &[foxhound],
+        &[foxhound, records],
         &[ruled],
         &[auto],
     );
@@ -51,6 +53,7 @@ fn the_pre_flight_runs_each_cell_under_each_tool_the_run_runs_it_under() {
             ("raw", "spider", Under::Plain),
             ("raw", "spider", Under::Strace),
             ("long", long.0.name, Under::Plain),
+            ("raw", "foxhound records on", Under::Callgrind),
             (ruled.0.scenario.name(), ruled.0.name, Under::Rules),
             (auto.0.scenario.name(), auto.0.name, Under::Auto),
         ]

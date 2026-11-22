@@ -231,7 +231,7 @@ pub use sqlite_files::{DamageTableError, damage_table, wal_of};
 pub use ssrf::{
     Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, Layer,
     LayerGap, LayerGaps, LayerRunner, LetThrough, Miss, Outcome, Pending, Redirect, Refusal, Route,
-    RunFailed, Runner, SsrfCase, SsrfLayers, SsrfTable, SsrfTableError, UnknownRunner, run_cases,
+    RunFailed, Runner, RunnerError, SsrfCase, SsrfLayers, SsrfTable, SsrfTableError, run_cases,
 };
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,

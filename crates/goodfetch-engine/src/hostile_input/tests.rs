@@ -29,7 +29,9 @@ fn shape(target: PathTarget) -> Option<PathShape> {
 
 /// Every header case of the committed table whose value Goodfetch would
 /// send, from every source, is refused naming the header: the table runs
-/// at this layer, every miss collected before the test fails.
+/// at this layer, every miss collected before the test fails. The cases
+/// come from the table alone, so a case it gains runs here too; the test
+/// only checks that every source Goodfetch sends from is among them.
 #[test]
 fn every_header_value_the_table_names_is_refused() {
     let tables = HostileTables::committed().unwrap();
@@ -46,7 +48,18 @@ fn every_header_value_the_table_names_is_refused() {
         .map(|case| case.name.clone())
         .collect();
 
-    assert_eq!(sent.len(), 20, "the table's sent header cases");
+    for source in [
+        HeaderSource::Recipe,
+        HeaderSource::Sink,
+        HeaderSource::Webhook,
+        HeaderSource::PageRequest,
+        HeaderSource::Route,
+    ] {
+        assert!(
+            sent.iter().any(|case| case.input.source == source),
+            "the table has no header case sent from {source:?}"
+        );
+    }
     assert_eq!(misses, Vec::<String>::new());
 }
 
@@ -94,11 +107,13 @@ fn headers_are_judged_one_by_one_until_one_is_refused() {
 /// from outside input is refused with the hazard the table names, on every
 /// OS alike, as the refusal rule is portable: each OS's cases (Windows'
 /// reserved names, streams, UNC and verbatim paths, macOS's decomposed
-/// names) on all three.
+/// names) on all three. The cases come from the table alone, so a case it
+/// gains runs here too; the test only checks that every target judged
+/// here is among them.
 #[test]
 fn every_path_case_the_table_names_is_refused_with_its_hazard_on_every_os() {
     let tables = HostileTables::committed().unwrap();
-    let mut judged = 0;
+    let mut judged = Vec::new();
     let mut misses = Vec::new();
 
     for case in &tables.paths.cases {
@@ -106,7 +121,7 @@ fn every_path_case_the_table_names_is_refused_with_its_hazard_on_every_os() {
             let Some(shape) = shape(*target) else {
                 continue;
             };
-            judged += 1;
+            judged.push(*target);
             let expected = serde_json::to_value(case.input.hazard).unwrap();
             match check_path(&case.input.name, shape) {
                 Ok(()) => misses.push(format!("{} as {target:?}: kept", case.name)),
@@ -123,7 +138,18 @@ fn every_path_case_the_table_names_is_refused_with_its_hazard_on_every_os() {
         }
     }
 
-    assert!(judged > 100, "{judged} judged");
+    for target in [
+        PathTarget::ExportName,
+        PathTarget::KeyValueStoreKey,
+        PathTarget::PlanName,
+        PathTarget::ScreenshotPath,
+        PathTarget::RunTracePath,
+    ] {
+        assert!(
+            judged.contains(&target),
+            "the table has no path case for {target:?}"
+        );
+    }
     assert_eq!(misses, Vec::<String>::new());
 }
 

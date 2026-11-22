@@ -777,7 +777,7 @@ pub(crate) const CELLS: [Cell; 132] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
-        name: "foxhound",
+        name: DEFAULT_COSTS_BASE,
         mapping: "the maximum-throughput combination (`docs/throughput.md`): code-free crawl on \
                   the `http` tier, `run_state.durability: batch`, its default, \
                   `site_preferences.respect_robots_txt: false`, `politeness.domain` delay 0 and \
@@ -788,11 +788,7 @@ pub(crate) const CELLS: [Cell; 132] = [
                   #2176's target is the cell at the catalog's defaults'",
         pending: &[],
         row: Row::Main,
-        status: Status::Measured(Config::Foxhound {
-            durability: "batch",
-            commit_interval: None,
-            auto: false,
-        }),
+        status: Status::Measured(MAXIMUM_THROUGHPUT),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -2589,6 +2585,101 @@ const CRAWLBERG_ONE_HOST: &str = "crawlberg follows a link only on its first pag
      `stay_on_domain`, which loosens document links alone, and the site's 1,000 domains are \
      each other's siblings (`polite-<d>.localhost`), so it would crawl one of them";
 
+/// How scenario 1's first cell runs Foxhound: the maximum-throughput
+/// combination (`docs/throughput.md`).
+const MAXIMUM_THROUGHPUT: Config = Config::Foxhound {
+    durability: "batch",
+    commit_interval: None,
+    auto: false,
+};
+
+/// The cell each default-cost cell is one setting apart from: scenario 1's
+/// first cell, whose median the report's table subtracts (#2438).
+pub(crate) const DEFAULT_COSTS_BASE: &str = "foxhound";
+
+/// What every default-cost cell sets, as the report's table of the
+/// instructions each default adds writes it (#2438).
+pub(crate) const DEFAULT_COST_MAPPING: &str = "scenario 1's first cell's maximum-throughput \
+     combination (`raw/foxhound`) with that one Foxhound default on";
+
+/// One Foxhound default that the maximum-throughput combination turns
+/// off, and the cell that counts its instructions: scenario 1's first
+/// cell with that one default on (#2438).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DefaultCost {
+    /// The default, as the report's table names it.
+    pub(crate) default: &'static str,
+    /// The setting's section in Foxhound's settings.
+    pub(crate) section: &'static str,
+    /// The setting's key in its section, which the cell sets to `true`.
+    pub(crate) key: &'static str,
+    /// The cell: counted by the Callgrind cell alone, three runs of it, and
+    /// read by no target, bar or ratio.
+    pub(crate) cell: Cell,
+}
+
+impl DefaultCost {
+    /// The setting the cell turns on, as the report writes it.
+    pub(crate) fn setting(&self) -> String {
+        format!("`{}.{}: true`", self.section, self.key)
+    }
+}
+
+/// The default-cost cell `name`, which turns on `section.key`.
+const fn default_cost(
+    default: &'static str,
+    section: &'static str,
+    key: &'static str,
+    name: &'static str,
+) -> DefaultCost {
+    DefaultCost {
+        default,
+        section,
+        key,
+        cell: Cell {
+            scenario: Scenario::Raw,
+            tool: Tool::Foxhound,
+            name,
+            mapping: DEFAULT_COST_MAPPING,
+            pending: &[],
+            row: Row::Sensitivity,
+            status: Status::Measured(MAXIMUM_THROUGHPUT),
+        },
+    }
+}
+
+/// The five defaults whose instructions the Callgrind cell counts one at a
+/// time, in the report's order (#2438). No line of theirs has a limit: the
+/// defaults' total is held by the cell at the catalog's defaults' ratio,
+/// `foxhound.spider_instruction_ratio_at_defaults`.
+pub(crate) const DEFAULT_COSTS: [DefaultCost; 5] = [
+    default_cost(
+        "robots.txt read and obeyed",
+        "site_preferences",
+        "respect_robots_txt",
+        "foxhound robots.txt on",
+    ),
+    default_cost(
+        "Frontier learning",
+        "frontier",
+        "learning",
+        "foxhound learning on",
+    ),
+    default_cost(
+        "the Provenance log",
+        "provenance",
+        "log",
+        "foxhound provenance log on",
+    ),
+    default_cost(
+        "Block classification",
+        "fetch",
+        "block_classification",
+        "foxhound block classification on",
+    ),
+    default_cost("Records", "dataset", "records", "foxhound records on"),
+];
+
 /// The name of Foxhound's row of the extraction scenario with its Filter
 /// lists off (#2136).
 pub(crate) const FILTER_LISTS_OFF: &str = "foxhound filter lists off";
@@ -2662,6 +2753,14 @@ impl Cell {
         }
     }
 
+    /// The default the cell turns on, when it is one of the default-cost
+    /// cells (#2438).
+    pub(crate) fn default_on(&self) -> Option<&'static DefaultCost> {
+        DEFAULT_COSTS
+            .iter()
+            .find(|cost| cost.cell.scenario == self.scenario && cost.cell.name == self.name)
+    }
+
     /// Whether the cell keeps its scenario's counted criteria: a main row
     /// other than the cell at the catalog's defaults, which reads its own
     /// target (#2176) and whose sizes and headline figures stay those of
@@ -2689,19 +2788,35 @@ impl Cell {
     }
 }
 
-/// The cell `name` of `scenario`.
+/// The cell `name` of `scenario`, among the matrix's cells and the
+/// default-cost cells.
 pub(crate) fn cell(scenario: Scenario, name: &str) -> Option<&'static Cell> {
     CELLS
         .iter()
+        .chain(DEFAULT_COSTS.iter().map(|cost| &cost.cell))
         .find(|cell| cell.scenario == scenario && cell.name == name)
+}
+
+/// Each default-cost cell with its configuration, in the report's order
+/// (#2438): cells the Callgrind cell counts, outside the matrix's timed
+/// cells.
+pub(crate) fn default_costs() -> impl Iterator<Item = (&'static Cell, Config)> {
+    DEFAULT_COSTS
+        .iter()
+        .filter_map(|cost| configured(&cost.cell))
 }
 
 /// Each cell that runs, with its configuration.
 fn running() -> impl Iterator<Item = (&'static Cell, Config)> {
-    CELLS.iter().filter_map(|cell| match cell.status {
+    CELLS.iter().filter_map(configured)
+}
+
+/// `cell` with its configuration, when it runs.
+fn configured(cell: &'static Cell) -> Option<(&'static Cell, Config)> {
+    match cell.status {
         Status::Measured(config) => Some((cell, config)),
         Status::NotSupported(_) | Status::Pending(_) => None,
-    })
+    }
 }
 
 /// Each measured cell with its configuration: each whose trials are timed.

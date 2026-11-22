@@ -654,9 +654,8 @@ const TREE_ONLY: [&str; 4] = ["lint", "feature-combinations", "fuzz-check", "pro
 
 /// The fixture as a repository whose head holds what lint reads again: a
 /// Quality register with one Exception, which expires on `expires`, and a
-/// quarantine list with no test. A first run on it at [`NOW`] (2027-01-15,
-/// 08:00 UTC) recorded each of [`TREE_ONLY`] green.
-fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf, Plan) {
+/// quarantine list with no test.
+fn gated_with_a_register(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf) {
     let (workspace, folder, records) = gated_repository(&[]);
     workspace.write(
         "TESTING.md",
@@ -669,6 +668,13 @@ fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, Path
         &workspace,
         "Add the Quality register and the quarantine list",
     );
+    (workspace, folder, records)
+}
+
+/// [`gated_with_a_register`], where a first run at [`NOW`] (2027-01-15,
+/// 08:00 UTC) recorded each of [`TREE_ONLY`] green.
+fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf, Plan) {
+    let (workspace, folder, records) = gated_with_a_register(expires);
     let first = plan(&workspace, &records);
     for step in TREE_ONLY {
         record(&workspace, &records, &first.head, step, "pass");
@@ -750,6 +756,328 @@ fn the_duplicate_run_check_passes_on_reuse_and_fails_on_a_unit_run_twice_on_one_
             "by preflight on {}, after merge on {}",
             &full.head[..10],
             &first.head[..10]
+        )),
+        "{}",
+        twice.stdout
+    );
+}
+
+/// Runs `xtask gate quick <command>` on the records in `records`, as the
+/// `_quick-held` and `_quick-record` recipes do, for `head`'s run of the form
+/// `form` against `base`, at `now`, in the run's environment `environment`,
+/// with these arguments added.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is part of the key the recipes give"
+)]
+fn quick_run(
+    workspace: &Workspace,
+    records: &Path,
+    command: &str,
+    head: &str,
+    base: &str,
+    form: &str,
+    now: &str,
+    environment: &str,
+    extra: &[&str],
+) -> Outcome {
+    let records = records.to_string_lossy();
+    let mut args = vec![
+        "gate",
+        "quick",
+        command,
+        "--records",
+        &records,
+        "--head",
+        head,
+        "--base",
+        base,
+        "--form",
+        form,
+        "--now",
+        now,
+        "--environment",
+        environment,
+    ];
+    args.extend(extra);
+    workspace.xtask(&args)
+}
+
+/// Whether `just quick` in the form `form` is held on `head` against `base`
+/// at `now` in `environment`: its outcome, which exits 0 when it is held and
+/// 1 when it is due.
+fn held(
+    workspace: &Workspace,
+    records: &Path,
+    head: &str,
+    base: &str,
+    form: &str,
+    now: &str,
+    environment: &str,
+) -> Outcome {
+    let outcome = quick_run(
+        workspace,
+        records,
+        "held",
+        head,
+        base,
+        form,
+        now,
+        environment,
+        &[],
+    );
+    assert!(
+        matches!(outcome.code, 0 | 1),
+        "{}{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    outcome
+}
+
+/// Records `head`'s run of `just quick` in the changed form against `base`,
+/// by the layer `by`, at `now`, as `status`.
+fn quick_recorded(
+    workspace: &Workspace,
+    records: &Path,
+    head: &str,
+    base: &str,
+    by: &str,
+    now: &str,
+    status: &str,
+) -> Outcome {
+    let outcome = quick_run(
+        workspace,
+        records,
+        "record",
+        head,
+        base,
+        "changed",
+        now,
+        "CI=",
+        &["--by", by, "--status", status],
+    );
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    outcome
+}
+
+/// A ticket's commit on the fixture with the register: returns its base, the
+/// commit it went off, and its head.
+fn a_ticket_on_a_register(workspace: &Workspace) -> (String, String) {
+    let base = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.write("crates/goodfetch-engine/src/lib.rs", b"//! The ticket.\n");
+    commit_all(workspace, "The ticket");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    (base, head)
+}
+
+/// `just quick` is held, and runs no lint or suite again, only by the latest
+/// run with its whole key: the tree, the form, the merge base with its base,
+/// the host fingerprint with the run's variables but those only a launcher
+/// reads, a day at most, and lint's other reads unchanged. A red run after a
+/// green one is the latest (ADR 0135's amendment of 2026-11-22).
+#[test]
+fn just_quick_is_held_by_a_green_run_with_its_whole_key_alone() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, head) = a_ticket_on_a_register(&workspace);
+    let is_held = |base: &str, form: &str, now: &str, environment: &str| {
+        held(&workspace, &records, &head, base, form, now, environment)
+    };
+
+    let before = is_held(&base, "changed", NOW, "CI=");
+    assert_eq!(before.code, 1);
+    assert!(
+        before.stdout.contains("`just quick` is due: no run"),
+        "{}",
+        before.stdout
+    );
+
+    let recorded = quick_recorded(&workspace, &records, &head, &base, "quick", NOW, "pass");
+    assert!(
+        recorded.stdout.contains("recorded its green run"),
+        "{}",
+        recorded.stdout
+    );
+
+    let after = is_held(&base, "changed", NOW, "CI=");
+    assert_eq!(after.code, 0, "{}", after.stdout);
+    assert!(
+        after
+            .stdout
+            .contains(&format!("green by quick on {}", &head[..10])),
+        "{}",
+        after.stdout
+    );
+    let launched = "CI=\nGOODFETCH_GATE_LAYER=pre-push\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps";
+    assert_eq!(is_held(&base, "changed", NOW, launched).code, 0);
+    for (why, base, form, now, environment) in [
+        ("another base", "HEAD", "changed", NOW, "CI="),
+        ("the other form", base.as_str(), "all", NOW, "CI="),
+        (
+            "another environment",
+            base.as_str(),
+            "changed",
+            NOW,
+            "CI=true",
+        ),
+        ("a day later", base.as_str(), "changed", "1800086401", "CI="),
+    ] {
+        assert_eq!(is_held(base, form, now, environment).code, 1, "{why}");
+    }
+    let online = quick_run(
+        &workspace,
+        &records,
+        "held",
+        &head,
+        &base,
+        "changed",
+        NOW,
+        "CI=",
+        &["--zizmor-online"],
+    );
+    assert_eq!(online.code, 1, "{}", online.stdout);
+
+    quick_recorded(
+        &workspace,
+        &records,
+        &head,
+        &base,
+        "pre-push",
+        "1800000060",
+        "fail",
+    );
+    let red = is_held(&base, "changed", "1800000060", "CI=");
+    assert_eq!(red.code, 1);
+    assert!(
+        red.stdout
+            .contains(&format!("by pre-push on {}, was red", &head[..10])),
+        "{}",
+        red.stdout
+    );
+}
+
+/// A run is recorded only for the head it checked, on a clean tree, and not
+/// when lint's zizmor read GitHub with the run's token.
+#[test]
+fn a_run_on_another_head_on_uncommitted_changes_or_reading_github_records_nothing() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, head) = a_ticket_on_a_register(&workspace);
+    let record = |head: &str, extra: &[&str]| {
+        let mut args = vec!["--by", "quick", "--status", "pass"];
+        args.extend(extra);
+        quick_run(
+            &workspace, &records, "record", head, &base, "changed", NOW, "CI=", &args,
+        )
+    };
+
+    let another_head = record(&base, &[]);
+    let online = record(&head, &["--zizmor-online"]);
+    workspace.write("crates/goodfetch-engine/src/lib.rs", b"//! Edited.\n");
+    let uncommitted = record(&head, &[]);
+
+    for outcome in [another_head, online, uncommitted] {
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        assert!(
+            outcome.stdout.contains("`just quick` records no run"),
+            "{}",
+            outcome.stdout
+        );
+    }
+    assert!(!records.join("quick-runs").exists());
+}
+
+/// The no-double-run walk of the local layers (spec 3373's Testing
+/// Decisions): the implementer's `just quick` on the ticket, the pre-push
+/// hook on the same head, a merge of `main`'s new tip, the implementer's and
+/// the hook's again, `just preflight` and the full gate on the merge. No
+/// unit runs twice on one tree, and the duplicate-run check passes; a hook
+/// that ran `just quick` again where it was held fails it, naming both
+/// layers.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_the_local_layers() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, ticket) = a_ticket_on_a_register(&workspace);
+    let duplicates = || {
+        workspace.xtask(&[
+            "gate",
+            "duplicates",
+            "--records",
+            &records.to_string_lossy(),
+        ])
+    };
+
+    let held_at =
+        |head: &str, now: &str| held(&workspace, &records, head, &base, "changed", now, "CI=").code;
+    let quick_at = |head: &str, by: &str, now: &str| {
+        quick_recorded(&workspace, &records, head, &base, by, now, "pass");
+    };
+
+    assert_eq!(held_at(&ticket, NOW), 1);
+    quick_at(&ticket, "quick", NOW);
+    assert_eq!(held_at(&ticket, NOW), 0, "the pre-push hook");
+
+    workspace.git(&["switch", "--quiet", "--create", "main-tip", &base]);
+    workspace.write("docs/main.md", b"# Main moved\n");
+    commit_all(&workspace, "Main moves");
+    workspace.git(&["switch", "--quiet", "-"]);
+    workspace.git(&["merge", "--quiet", "--no-edit", "main-tip"]);
+    let merged = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert_eq!(held_at(&merged, NOW), 1, "a new tree");
+    quick_at(&merged, "quick", "1800000060");
+    assert_eq!(held_at(&merged, "1800000060"), 0, "the pre-push hook");
+
+    let preflight = plan_at(&workspace, &records, "1800000120");
+    for step in ["counts", "stress"] {
+        let outcome = workspace.xtask(&[
+            "gate",
+            "record",
+            "--by",
+            "preflight",
+            "--records",
+            &records.to_string_lossy(),
+            "--head",
+            &preflight.head,
+            "--now",
+            "1800000120",
+            "--step",
+            step,
+            "--status",
+            "pass",
+        ]);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    }
+    let full = plan_at(&workspace, &records, "1800000180");
+    assert_eq!(full.previous, merged);
+    assert_eq!(action(&full, "counts").0, "reuse");
+    assert!(full.covered.contains("quick"), "{:?}", full.covered);
+    for (step, (action, _)) in &full.steps {
+        if action != "reuse" {
+            record(&workspace, &records, &full.head, step, "pass");
+        }
+    }
+
+    let once = duplicates();
+
+    assert_eq!(once.code, 0, "{}{}", once.stdout, once.stderr);
+
+    quick_at(&merged, "pre-push", "1800000240");
+
+    let twice = duplicates();
+
+    assert_eq!(twice.code, 1, "{}{}", twice.stdout, twice.stderr);
+    let fork = workspace.git(&["merge-base", &merged, &base]);
+    assert_eq!(
+        twice.findings(),
+        [crate::workspace::finding(
+            "duplicate-run",
+            &format!("just-quick:{}", fork.trim())
+        )]
+    );
+    assert!(
+        twice.stdout.contains(&format!(
+            "by pre-push on {}, after quick on {}",
+            &merged[..10],
+            &merged[..10]
         )),
         "{}",
         twice.stdout

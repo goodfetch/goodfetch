@@ -40,6 +40,9 @@
 //! - **duplicates**: from every run in the records, each unit a run ran, not
 //!   reused, on a tree where an earlier run had recorded it green, naming both
 //!   layers (`duplicates`): nothing runs twice on one tree.
+//! - **quick**: whether `just quick` already passed with a key, and a run's
+//!   result, for the implementer's `just quick` and the pre-push hook
+//!   (`quick_runs`).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -53,6 +56,7 @@ mod evidence;
 mod host;
 mod lint;
 mod plan;
+mod quick_runs;
 mod runs;
 mod steps;
 
@@ -61,7 +65,6 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -84,20 +87,7 @@ pub(crate) enum Status {
     Fail,
 }
 
-/// Each test's clean passes in the earned file `xtask gate plan` wrote, which
-/// `xtask stress select` takes from their counts; none when it is missing or
-/// cannot be read, and none of a member's past the age limit by now, since the
-/// stress run reads the file later than the plan that kept them.
-pub(crate) fn earned_passes(file: &Path) -> BTreeMap<String, u32> {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(u64::MAX, |since_the_epoch| since_the_epoch.as_secs());
-    runs::read_earned(file)
-        .into_values()
-        .filter(|earned| !plan::past_max_age(now, earned.at))
-        .flat_map(|earned| earned.passes)
-        .collect()
-}
+pub(crate) use runs::earned_passes;
 
 /// `xtask gate`'s commands.
 #[derive(clap::Subcommand)]
@@ -182,6 +172,11 @@ pub(crate) enum Command {
         /// The folder of the gate's records.
         #[arg(long)]
         records: std::path::PathBuf,
+    },
+    /// `just quick`'s runs in the gate's records (`quick_runs`).
+    Quick {
+        #[command(subcommand)]
+        command: quick_runs::Command,
     },
 }
 
@@ -305,6 +300,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::Duplicates { records } => {
             return duplicates::check(&environment.path(&records));
         }
+        Command::Quick { command } => return quick_runs::run(command, environment),
     }
     Ok(ExitCode::SUCCESS)
 }

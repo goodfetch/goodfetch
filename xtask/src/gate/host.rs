@@ -9,14 +9,28 @@ use std::process::Command as Process;
 use sha2::{Digest as _, Sha256};
 
 /// The variables only the gate's launchers read: `ci/merge-pr.sh`'s, before
-/// any step starts, which decides whether a gate begins, and those that say
+/// any step starts, which decides whether a gate begins, those that say
 /// where the record is and which layer runs (`ci/gate-records.sh`,
-/// `ci/pre-merge.sh`). None changes what a step runs or how, so every layer
-/// fingerprints one host alike.
-const LAUNCHER_VARIABLES: [&str; 3] = [
+/// `ci/pre-merge.sh`), and the base `just quick` reads its change against,
+/// which its run's unit names (`quick_runs`). None changes what a step runs
+/// or how beyond what the key holds, so every layer fingerprints one host
+/// alike.
+const LAUNCHER_VARIABLES: [&str; 4] = [
     "GOODFETCH_GATE_MIN_FREE_GB",
     "GOODFETCH_GATE_RECORDS",
     "GOODFETCH_GATE_LAYER",
+    "GOODFETCH_QUICK_BASE",
+];
+
+/// The variables of the keep-going steps (`ci/keep-going.sh`), which
+/// `just quick` sets for its own steps: where each step's log goes, the step
+/// a nested run is started from, and the listing of the steps in place of a
+/// run. None changes a step's result, and the pre-push hook asks whether a
+/// run is held outside them.
+const STEP_RUNNER_VARIABLES: [&str; 3] = [
+    "GOODFETCH_STEPS_DIR",
+    "GOODFETCH_STEP",
+    "GOODFETCH_STEPS_LIST",
 ];
 
 /// The variables the gate removes from its environment before any step, so
@@ -25,16 +39,19 @@ const LAUNCHER_VARIABLES: [&str; 3] = [
 pub(super) const REMOVED_BY_THE_GATE: [&str; 2] = ["NEXTEST_TEST_THREADS", "CARGO_BUILD_JOBS"];
 
 /// The `NAME=value` lines of `variables` a step can read: the run's without
-/// the launcher's own and those the gate removes, so a gate started under
-/// another disk floor still reuses the results of one started without it,
-/// and a plan made in a shell that caps threads or jobs fingerprints the
-/// host as the gate does (#2090's F5).
+/// the launcher's own, the keep-going steps' and those the gate removes, so a
+/// gate started under another disk floor still reuses the results of one
+/// started without it, a run inside a step fingerprints the host as one
+/// outside it does, and a plan made in a shell that caps threads or jobs
+/// fingerprints the host as the gate does (#2090's F5).
 pub(super) fn step_variables(variables: &str) -> String {
     variables
         .lines()
         .filter(|line| {
             let name = line.split_once('=').map_or(*line, |(name, _)| name);
-            !LAUNCHER_VARIABLES.contains(&name) && !REMOVED_BY_THE_GATE.contains(&name)
+            !LAUNCHER_VARIABLES.contains(&name)
+                && !STEP_RUNNER_VARIABLES.contains(&name)
+                && !REMOVED_BY_THE_GATE.contains(&name)
         })
         .collect::<Vec<_>>()
         .join("\n")

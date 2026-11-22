@@ -14,6 +14,8 @@
 #                                     kept in <name>.log; skipped, and named so,
 #                                     when a step it comes --after did not pass
 #   steps_end                         print the summary; fails when a step did not pass
+#   steps_mark                        print a mark of the steps that did not pass so far
+#   steps_red_since <mark>            succeed when a step did not pass after the mark
 #
 # A run started inside another run's step (`just quick`'s step `just lint`)
 # records its steps in the outer run's list, and only the outer run prints
@@ -94,6 +96,14 @@ step() {
     _steps_bad="$_steps_bad$name|"
     _steps_red=1
   fi
+}
+
+steps_mark() {
+  printf '%s\n' "$_steps_bad"
+}
+
+steps_red_since() {
+  [[ $_steps_bad != "$1" ]]
 }
 
 steps_end() {

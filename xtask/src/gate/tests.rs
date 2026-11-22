@@ -172,7 +172,7 @@ const ALWAYS: [&str; 12] = [
 
 #[test]
 fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
-    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs";
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps\nGOODFETCH_STEP=lint";
 
     assert_eq!(
         step_variables(launched),

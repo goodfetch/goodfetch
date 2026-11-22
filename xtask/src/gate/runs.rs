@@ -197,6 +197,21 @@ pub(crate) fn read_earned_strictly(file: &Path) -> Result<BTreeMap<String, Earne
     parse_earned(&text).with_context(|| format!("reading {}", file.display()))
 }
 
+/// Each test's clean passes in the earned file `xtask gate plan` wrote, which
+/// `xtask stress select` takes from their counts; none when it is missing or
+/// cannot be read, and none of a member's past the age limit by now, since the
+/// stress run reads the file later than the plan that kept them.
+pub(crate) fn earned_passes(file: &Path) -> BTreeMap<String, u32> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map_or(u64::MAX, |since_the_epoch| since_the_epoch.as_secs());
+    read_earned(file)
+        .into_values()
+        .filter(|earned| !super::plan::past_max_age(now, earned.at))
+        .flat_map(|earned| earned.passes)
+        .collect()
+}
+
 /// The earned passes of the run on `head`, for its record. The selection counted
 /// what the plan kept, the members `kept`, and a green result must carry that
 /// mark for the backstop: a file that cannot be read or has lost one of them is

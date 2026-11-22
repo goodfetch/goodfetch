@@ -416,6 +416,9 @@ tracing = { version = "0.1.44", default-features = false, features = ["std", "at
 # The callsites the client crate re-emits an engine's `$/log` events
 # through, whose target is known only when the event arrives (ADR 0078).
 tracing-core = { version = "0.1.36", default-features = false, features = ["std"] }
+# The `log` bridge of the test that no WebSocket frame's payload reaches a
+# log (ADR 0067): tungstenite logs its frames through `log`, not `tracing`.
+tracing-log = { version = "0.2.0", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the

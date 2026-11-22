@@ -102,6 +102,7 @@ ignore = ["D206", "D300"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
+"sdks/python/foxhound/src/goodfetch_foxhound/foxhound.py" = ["ASYNC109"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

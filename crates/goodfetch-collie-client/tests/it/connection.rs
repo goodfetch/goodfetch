@@ -46,7 +46,7 @@ pub(crate) fn hello() -> HelloParams {
 
 /// A Collie engine with only the engine's own operations, on a Goodfetch
 /// home in `home`.
-fn engine() -> Engine {
+pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Collie,
         product_version: version(),
@@ -57,7 +57,7 @@ fn engine() -> Engine {
 }
 
 /// What the engine runs on, its clock paused at the epoch.
-fn dependencies(home: &TempDir) -> Dependencies {
+pub(crate) fn dependencies(home: &TempDir) -> Dependencies {
     #[expect(
         clippy::disallowed_methods,
         reason = "the Clock's and the Entropy's test versions, in a test (ADR 0059)"

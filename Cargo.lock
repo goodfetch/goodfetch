@@ -2415,6 +2415,7 @@ dependencies = [
  "proptest",
  "prost",
  "rcgen",
+ "regex",
  "rstest",
  "rusqlite",
  "rustls",
@@ -2467,6 +2468,8 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
  "trybuild",
  "windows-sys 0.61.2",
 ]

@@ -32,6 +32,9 @@ export {
   type EnqueueLinksOptions,
   type Handler,
   type LabelOptions,
+  type PayloadInput,
+  type PayloadSchema,
+  type PayloadThen,
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";

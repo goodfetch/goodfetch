@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
 # without it, a request carries none. The engine, which the SDK links,
@@ -39,6 +39,9 @@ goodfetch-secret-providers.workspace = true
 # zone database, bundled on Windows, which has none.
 jiff = { workspace = true, optional = true, features = ["tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 mimalloc = { workspace = true, optional = true }
+# The wire record's bytes at `trace`, measured after the shared snapshot
+# redactions (ADR 0071's protocol counts).
+regex = { workspace = true, optional = true }
 # The params' JSON Schemas, from which each generated command takes its flags.
 schemars = { workspace = true, optional = true }
 # The log writers zero each line they masked, as the buffer a thread keeps

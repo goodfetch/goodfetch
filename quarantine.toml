@@ -16,9 +16,3 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
-
-[[test]]
-runner = "nextest"
-id = "goodfetch-engine tasks::state_actor::tests::an_actor_whose_job_panicked_runs_no_later_job::case_1_on_threads"
-issue = 3327
-date = 2026-11-22

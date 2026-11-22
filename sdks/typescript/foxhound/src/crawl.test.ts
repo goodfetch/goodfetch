@@ -5,6 +5,7 @@
 // expect and on a step left unused.
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
+import { z } from "zod";
 import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
 import {
   ClosedError,
@@ -103,13 +104,13 @@ describe("a Crawl", () => {
   );
 
   test(
-    "enqueues the links a locator matches with one Payload in one call, after a read and a push: four exchanges a page",
-    { tags: ["operation:crawl_request.enqueue_links"] },
+    "enqueues the links a locator matches with one Payload in one call, after a read and a push: four exchanges a page, the Label's Zod schema sent as JSON Schema",
+    { tags: ["operation:crawl_request.enqueue_links", "story:11-1018"] },
     async () => {
       const played = playScript("run/foxhound-crawl-enqueue-links.json");
       const foxhound = await connectOver(played.transport);
       const pages = new Crawl();
-      const page = pages.label<{ readonly from: string } | undefined>("page");
+      const page = pages.label("page", { payload: z.object({ from: z.string() }) });
       const titles = pages.dataset<{ readonly title: unknown }>("pages");
       let enqueued: EnqueuedLinks | undefined;
       pages.handle(page, async (context) => {
@@ -126,7 +127,7 @@ describe("a Crawl", () => {
       });
 
       await foxhound.startCrawl(pages, {
-        seeds: [seed("https://shop.test/a", page)],
+        seeds: [seed("https://shop.test/a", page, { from: "start" })],
         runId: "nightly",
       });
       await vi.waitFor(() => {

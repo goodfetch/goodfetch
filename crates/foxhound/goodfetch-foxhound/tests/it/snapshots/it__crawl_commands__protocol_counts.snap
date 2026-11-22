@@ -3,21 +3,21 @@ source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
 expression: "format!(\"crawl start --follow\\n{}\\nrun outcomes --follow\\n{}\\nrun records\\n{}\",\nfollowed_counts(&started.stderr), protocol_counts(&followed.stderr),\nprotocol_counts(&records.stderr),)"
 ---
 crawl start --follow
-1 x sent request hello
+1 x sent request hello, 213 bytes
 N x received response
-1 x sent request crawl.start
+1 x sent request crawl.start, 77174 bytes
 N x sent request run.progress
-1 x sent request run.report
+1 x sent request run.report, 76 bytes
 
 run outcomes --follow
-1 x sent request hello
-2 x received response
-1 x sent request run.outcomes
+1 x sent request hello, 213 bytes
+2 x received response, 487 bytes
+1 x sent request run.outcomes, 78 bytes
 
 run records
-1 x sent request hello
-3 x received response
-1 x sent request dataset.page
-1 x sent request run.records
-2 x sent notification $/credit
-1 x received notification $/record
+1 x sent request hello, 213 bytes
+3 x received response, 662 bytes
+1 x sent request dataset.page, 119 bytes
+1 x sent request run.records, 107 bytes
+2 x sent notification $/credit, 135 bytes
+1 x received notification $/record, 3241 bytes

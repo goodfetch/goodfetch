@@ -17,15 +17,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tokio::sync::{mpsc, oneshot};
-
 use super::TaskOwner;
+
+mod mailbox;
+
+use mailbox::{Job, Mailbox};
 
 /// How many jobs wait for the actor before a caller waits to send its own.
 const MAILBOX: usize = 64;
-
-/// A job the actor runs on its state.
-type Job<S> = Box<dyn FnOnce(&mut S) + Send>;
 
 /// An actor named `name` of `owner` that keeps a state `S`, and the
 /// mailbox its callers share.
@@ -33,7 +32,7 @@ type Job<S> = Box<dyn FnOnce(&mut S) + Send>;
 pub(crate) struct StateActor<S> {
     name: &'static str,
     owner: Arc<TaskOwner>,
-    mailbox: Mutex<Option<mpsc::Sender<Job<S>>>>,
+    mailbox: Mutex<Option<Mailbox<S>>>,
     /// Set once one of its jobs panicked.
     panicked: Arc<AtomicBool>,
 }
@@ -76,32 +75,29 @@ impl<S: Default + Send + 'static> StateActor<S> {
         T: Send + 'static,
         F: FnOnce(&mut S) -> T + Send + 'static,
     {
-        let (answer, answered) = oneshot::channel();
-        let job: Job<S> = Box::new(move |state| {
-            let _ = answer.send(work(state));
-        });
-        self.mailbox()?
-            .send(job)
-            .await
-            .map_err(|_| self.stopped())?;
-        answered.await.map_err(|_| self.stopped())
+        let mailbox = self.mailbox()?;
+        let place = mailbox.reserve().await.ok_or_else(|| self.stopped())?;
+        place.send(work).await.ok_or_else(|| self.stopped())
     }
 
     /// The actor's mailbox, the actor started now if it is not running and
     /// may start.
-    fn mailbox(&self) -> Result<mpsc::Sender<Job<S>>, ActorStopped> {
+    fn mailbox(&self) -> Result<Mailbox<S>, ActorStopped> {
         let mut mailbox = self.mailbox.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(running) = mailbox.as_ref().filter(|mailbox| !mailbox.is_closed()) {
-            return Ok(running.clone());
+        if let Some(open) = mailbox.as_ref().filter(|mailbox| !mailbox.is_closed()) {
+            return Ok(open.clone());
         }
         if self.owner.token().is_cancelled() || self.panicked.load(Ordering::Acquire) {
             return Err(self.stopped());
         }
-        let (sender, jobs) = mpsc::channel::<Job<S>>(MAILBOX);
+        let (sender, jobs, running) = Mailbox::open(MAILBOX);
         let mut state = S::default();
         let panicked = Arc::clone(&self.panicked);
         self.owner
             .actor(self.name, jobs, move |group: Vec<Job<S>>| {
+                // Moves `running` into the handler, which drops it once it
+                // ran its last job, panicked or ended with its runtime.
+                let _running = &running;
                 for job in group {
                     // Marks the actor before its mailbox closes, so a job
                     // that finds it closed after a panic starts nothing.

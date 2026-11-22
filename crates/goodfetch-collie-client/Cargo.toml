@@ -64,6 +64,10 @@ proptest.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+# The `log` bridge and the subscriber of the test that neither end of an
+# Exposed Daemon's WebSocket logs `hello`'s token at `trace` (ADR 0067).
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
 trybuild.workspace = true
 
 # The opened call's loom tests (src/event_stream/opened/loom_tests.rs),

@@ -302,18 +302,18 @@ fn retry_with(more: &str) -> String {
     )
 }
 
-/// `retry`'s submodule `child`, which defines `Delay` when it is `backoff`,
-/// with `item` before its function.
-fn submodule_with(child: &str, item: &str) -> String {
-    let (own, body) = if child == "backoff" {
-        (
-            "pub(super) struct Delay;\n\n",
-            "fn delay() -> u64 {\n    super::policy::attempts()\n}",
-        )
-    } else {
-        ("", "fn attempts() -> u64 {\n    3\n}")
-    };
-    format!("//! A retry submodule.\n\n{own}{item}\n\npub(super) {body}\n")
+/// `retry`'s submodule `backoff`, which defines `Delay`, with `item` after it.
+fn backoff_with(item: &str) -> String {
+    format!(
+        "//! How long to wait before the next attempt.\n\npub(super) struct Delay;\n\n{item}\n\npub(super) fn delay() -> u64 {{\n    super::policy::attempts()\n}}\n"
+    )
+}
+
+/// `retry`'s submodule `policy`, with `item` before its function.
+fn policy_with(item: &str) -> String {
+    format!(
+        "//! How many attempts a call gets.\n\n{item}\n\npub(super) fn attempts() -> u64 {{\n    3\n}}\n"
+    )
 }
 
 /// An item a submodule defines and its parent re-exports is that
@@ -330,8 +330,8 @@ fn submodule_import_through_the_parents_re_export_the_table_does_not_allow_fails
         RETRY,
         retry_with("pub(super) use backoff::Delay;").as_bytes(),
     );
-    workspace.write(BACKOFF, submodule_with("backoff", "").as_bytes());
-    workspace.write(POLICY, submodule_with("policy", item).as_bytes());
+    workspace.write(BACKOFF, backoff_with("").as_bytes());
+    workspace.write(POLICY, policy_with(item).as_bytes());
 
     let outcome = workspace.xtask(&["modules"]);
 
@@ -354,16 +354,14 @@ fn submodule_import_through_the_parents_re_export_the_table_does_not_allow_fails
 )]
 #[case::through_self("pub(super) use self::backoff::Delay as Wait;")]
 #[case::through_the_crate("pub(super) use crate::retry::backoff::{Delay as Wait};")]
+#[case::through_the_parents_parent("pub(super) use super::retry::backoff::Delay as Wait;")]
 fn submodule_import_through_a_re_export_the_parent_spells_another_way_fails(
     #[case] re_export: &str,
 ) {
     let workspace = Workspace::from_fixture("modules");
     workspace.write(RETRY, retry_with(re_export).as_bytes());
-    workspace.write(BACKOFF, submodule_with("backoff", "").as_bytes());
-    workspace.write(
-        POLICY,
-        submodule_with("policy", "use super::Wait;").as_bytes(),
-    );
+    workspace.write(BACKOFF, backoff_with("").as_bytes());
+    workspace.write(POLICY, policy_with("use super::Wait;").as_bytes());
 
     let outcome = workspace.xtask(&["modules"]);
 
@@ -381,19 +379,57 @@ fn submodule_import_through_a_re_export_the_parent_spells_another_way_fails(
 /// crate's (`::backoff`, whatever the submodules are called), imports no
 /// sibling.
 #[rstest]
-#[case::of_its_own_item("pub(super) use backoff::Delay;", BACKOFF, "backoff")]
-#[case::of_another_crates_item("pub(super) use ::backoff::Delay;", POLICY, "policy")]
+#[case::of_its_own_item(
+    "pub(super) use backoff::Delay;",
+    "const WAIT: super::Delay = super::Delay;",
+    ""
+)]
+#[case::of_another_crates_item(
+    "pub(super) use ::backoff::Delay;",
+    "",
+    "const WAIT: super::Delay = super::Delay;"
+)]
 fn submodule_import_through_a_re_export_of_no_sibling_passes(
     #[case] re_export: &str,
-    #[case] file: &str,
-    #[case] child: &str,
+    #[case] in_backoff: &str,
+    #[case] in_policy: &str,
 ) {
     let workspace = Workspace::from_fixture("modules");
     workspace.write(RETRY, retry_with(re_export).as_bytes());
-    workspace.write(BACKOFF, submodule_with("backoff", "").as_bytes());
+    workspace.write(BACKOFF, backoff_with(in_backoff).as_bytes());
+    workspace.write(POLICY, policy_with(in_policy).as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+/// A parent's path through the crate's root reaches a top-level module, not
+/// the submodule of the same name: naming what it brings imports no sibling.
+#[rstest]
+#[case::through_crate("pub(super) use crate::backoff::Delay;")]
+#[case::through_super("pub(super) use super::backoff::Delay;")]
+fn submodule_import_through_a_re_export_of_a_top_level_module_named_like_a_sibling_passes(
+    #[case] re_export: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
     workspace.write(
-        file,
-        submodule_with(child, "const WAIT: super::Delay = super::Delay;").as_bytes(),
+        ROOT,
+        b"//! A fixture engine crate.\n\nmod backoff;\nmod clock;\nmod dispatch;\nmod retry;\n\npub use clock::Tick;\npub use dispatch::dispatch;\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/src/backoff.rs",
+        b"//! A crate-wide back-off.\n\npub(crate) struct Delay;\n",
+    );
+    workspace.write(
+        MODULES_FILE,
+        b"[modules]\nbackoff = []\nclock = []\nretry = [\"backoff\", \"clock\"]\ndispatch = [\"retry\"]\n\n[submodules.retry]\nbackoff = [\"policy\"]\npolicy = []\n",
+    );
+    workspace.write(RETRY, retry_with(re_export).as_bytes());
+    workspace.write(
+        POLICY,
+        policy_with("const WAIT: super::Delay = super::Delay;").as_bytes(),
     );
 
     let outcome = workspace.xtask(&["modules"]);

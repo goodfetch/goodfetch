@@ -350,18 +350,18 @@ enum Walk<'a> {
     /// start, or past the `self::`, `crate::` or `crate::<module>::` that
     /// names the parent.
     Lead,
-    /// Past `crate::` within a module, whose name must come next for the
+    /// Past `crate::` or `super::` within a module, both the crate's root
+    /// since the module is a top-level one: its name must come next for the
     /// path to stay in the parent.
-    PastCrate,
+    PastRoot,
     /// Past the first name, the one the items come from.
     From(&'a syn::Ident),
 }
 
 /// Records each name a parent's `use` brings to the parent, with the first
 /// name of the path it comes from once the walk is past what names the
-/// parent, and the name itself when the parent only renames it. A path that
-/// leaves the parent (`super::`, another module's `crate::` path) records
-/// nothing.
+/// parent, and the name itself when the parent only renames it. A module's
+/// path through the root to another module records nothing.
 fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, level: &mut Level) {
     let mut record = |named: &syn::Ident, from: &syn::Ident| {
         level
@@ -375,11 +375,14 @@ fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, leve
             let walk = match (walk, scope) {
                 (Walk::From(from), _) => Walk::From(from),
                 (Walk::Lead, Scope::Crate) if path.ident == "crate" => Walk::Lead,
-                (Walk::Lead, Scope::Within(_)) if path.ident == "crate" => Walk::PastCrate,
-                (Walk::PastCrate, Scope::Within(module)) if path.ident == module => Walk::Lead,
+                (Walk::Lead, Scope::Within(_))
+                    if path.ident == "crate" || path.ident == "super" =>
+                {
+                    Walk::PastRoot
+                }
+                (Walk::PastRoot, Scope::Within(module)) if path.ident == module => Walk::Lead,
                 (Walk::Lead, _) if path.ident == "self" => Walk::Lead,
-                (Walk::PastCrate, _) => return,
-                (Walk::Lead, _) if path.ident == "super" => return,
+                (Walk::PastRoot, _) => return,
                 (Walk::Lead, _) => Walk::From(&path.ident),
             };
             record_re_exports(&path.tree, walk, scope, level);
@@ -397,7 +400,7 @@ fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, leve
         syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => match walk {
             Walk::From(from) => record(rename, from),
             Walk::Lead => record(rename, ident),
-            Walk::PastCrate => {}
+            Walk::PastRoot => {}
         },
         syn::UseTree::Glob(_) => {
             if let Walk::From(from) = walk {

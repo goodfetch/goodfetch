@@ -258,7 +258,7 @@ describe("a page's responses on an Attached engine", () => {
 
       expect(dropped).toMatchObject({
         code: "body_unavailable",
-        fix: expect.stringContaining("wait_for_request_finished"),
+        fix: expect.stringContaining("page.waitForRequestFinished"),
       });
     },
   );

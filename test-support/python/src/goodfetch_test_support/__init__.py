@@ -86,8 +86,10 @@ from goodfetch_test_support.unicode_record import (
     unicode_record,
 )
 from goodfetch_test_support.ways import Way, three_ways
+from goodfetch_test_support.workspace import WORKSPACE
 
 __all__ = [
+    "WORKSPACE",
     "Canary",
     "CanaryHit",
     "CanaryOutputUnreadable",

@@ -340,6 +340,7 @@ impl<P: Serialize> Request<P> {
             timeout,
             reply,
             notified: None,
+            streams_itself: false,
         };
         let engine_cancels = cancellable(&call.method);
         let mut waiting = Waiting {

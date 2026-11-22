@@ -16,7 +16,10 @@ goodfetch-collie-client = { workspace = true }
 # no generated module; `tests/types` holds type checkers' files, not tests.
 [tool.mutmut]
 source_paths = ["src"]
-pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args = [
+  "--case-list=../../../../conformance/clients/cases.toml",
+  "--mutation-children",
+]
 pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
 
 [build-system]

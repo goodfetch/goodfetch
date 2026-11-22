@@ -1,13 +1,15 @@
-//! The gate's records, kept with the gate's worktree under
-//! `target/gate-runs/` and never committed: `<head>.tsv`, each unit's result
-//! for the run on that head; `<head>.plan`, the plan that run follows; and
-//! `<head>.earned`, the clean passes of the members its stress run has short
-//! of their counts.
+//! The gate's records, which every worktree of the repository shares in
+//! `goodfetch-gate-runs/` of its common directory (`ci/gate-records.sh`;
+//! ADR 0135's amendment of 2026-11-22) and which are never committed:
+//! `<head>.tsv`, each unit's result for the run on that head; `<head>.plan`,
+//! the plan that run follows; and `<head>.earned`, the clean passes of the
+//! members its stress run has short of their counts.
 //! A record is a `base\t<commit>` line and a `host\t<fingerprint>` line,
-//! then one `<unit>\t<pass|fail>\t<origin commit>\t<origin tree>\t<unix time>`
-//! line per result, with `\t<commit>` after it for a stress result that counted
-//! passes from an earlier head; the last line for a unit wins, so a run appends
-//! each step's result as it ends.
+//! then one `<unit>\t<pass|fail>\t<origin commit>\t<origin tree>\t<unix time>\t<layer>`
+//! line per result, the layer being the one that ran it ([`Layer`]), with
+//! `\t<commit>` after it for a stress result that counted passes from an
+//! earlier head; the last line for a unit wins, so a run appends each step's
+//! result as it ends.
 //! An earned file is one `<member>\t<origin commit>\t<unix time>\t<passes>\t<test>`
 //! line per test. For a plan or a selection, one that is missing or cannot be
 //! read earns nothing; `gate record`, which must mark what the selection
@@ -23,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail, ensure};
 
-use super::plan::{EarnedPasses, GateRun, Outcome};
+use super::plan::{EarnedPasses, GateRun, Layer, Outcome};
 use crate::output;
 
 const PASS: &str = "pass";
@@ -38,12 +40,14 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
         match fields.as_slice() {
             ["base", commit] => base = Some((*commit).to_owned()),
             ["host", fingerprint] => host = Some((*fingerprint).to_owned()),
-            [unit, status, origin, tree, at, earned_on @ ..] if earned_on.len() <= 1 => {
+            [unit, status, origin, tree, at, by, earned_on @ ..] if earned_on.len() <= 1 => {
                 let green = match *status {
                     PASS => true,
                     FAIL => false,
                     other => bail!("the status of {unit} is pass or fail, not {other}"),
                 };
+                let by = Layer::from_name(by)
+                    .with_context(|| format!("{unit} names no layer the gate knows: {by:?}"))?;
                 units.insert(
                     (*unit).to_owned(),
                     Outcome {
@@ -53,12 +57,13 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
                         at: at
                             .parse()
                             .with_context(|| format!("the time of {unit} is {at:?}"))?,
+                        by,
                         earned_on: earned_on.first().map(|commit| (*commit).to_owned()),
                     },
                 );
             }
             _ => bail!(
-                "a record line is `<unit>\\t<status>\\t<origin>\\t<tree>\\t<time>`, not {line:?}"
+                "a record line is `<unit>\\t<status>\\t<origin>\\t<tree>\\t<time>\\t<layer>`, not {line:?}"
             ),
         }
     }
@@ -85,8 +90,11 @@ pub(crate) fn line(unit: &str, outcome: &Outcome) -> String {
     let status = if outcome.green { PASS } else { FAIL };
     let _ = write!(
         text,
-        "{unit}\t{status}\t{}\t{}\t{}",
-        outcome.origin, outcome.tree, outcome.at
+        "{unit}\t{status}\t{}\t{}\t{}\t{}",
+        outcome.origin,
+        outcome.tree,
+        outcome.at,
+        outcome.by.name()
     );
     if let Some(earned_on) = &outcome.earned_on {
         let _ = write!(text, "\t{earned_on}");

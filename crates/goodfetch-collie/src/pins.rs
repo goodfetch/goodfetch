@@ -17,16 +17,13 @@
 use goodfetch_engine::browser_cache::{
     BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, PinnedArtifact,
 };
-use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
+use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, CHROME_FOR_TESTING_STORAGE};
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 
 /// The digests of the pinned builds.
 const PINS: &str = include_str!("pins.json");
-
-/// Chrome for Testing's archives, by build and platform.
-const STORAGE: &str = "https://storage.googleapis.com/chrome-for-testing-public";
 
 /// Every artifact this version pins.
 ///
@@ -84,7 +81,9 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
                             build: build.to_owned(),
                         },
                         platform: Some(build_platform(platform)),
-                        url: format!("{STORAGE}/{build}/{platform}/{archive}-{platform}.zip"),
+                        url: format!(
+                            "{CHROME_FOR_TESTING_STORAGE}/{build}/{platform}/{archive}-{platform}.zip"
+                        ),
                         archive_digest: digest("archive_digest"),
                         digest: digest("digest")
                             .expect("invariant: each pinned platform has its digest"),

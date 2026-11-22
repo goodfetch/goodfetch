@@ -8285,6 +8285,17 @@
       ]
     },
     {
+      "id": "setting:browser.mirror",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser.service_workers",
       "kind": "setting",
       "area": 5,

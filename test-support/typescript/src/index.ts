@@ -78,6 +78,7 @@ export {
 export {
   startTestEnv,
   toolPath,
+  type BrowserDownload,
   type Program,
   type StartedTestEnv,
   type TestEnvDescription,

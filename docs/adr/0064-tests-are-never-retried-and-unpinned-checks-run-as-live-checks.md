@@ -79,6 +79,7 @@ This settles the map's fog "Where test results are kept over time and shown".
 
     > Amended by [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md): the ceiling also counts the coverage job and the in-diff mutation job, which stop once the month's count reaches 550 minutes.
   - **Once the nightly tier is on**, the repository is public and its hosted Linux minutes are free: both jobs run in the nightly tier every night, and the ceiling no longer applies.
+    > Note (2026-11-22): the repository has been public since that day ([ADR 0135](0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s note of 2026-11-22), so its standard hosted minutes draw on no included minutes and the ceiling counts none of them; the nightly tier is not on yet, and the hosted-CI spec (spec to be linked) tracks it.
 - **Durations in the store feed the suites' time budgets and the performance trends.** They never fail a test.
 
 ### A flaky test found after merge

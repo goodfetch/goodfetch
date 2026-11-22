@@ -12,8 +12,8 @@ publish = false
 # project it builds the cases in, in a target folder of its own, so this
 # crate takes only what the cases name: goodfetch-foxhound's library
 # without `executable` and without its dev-dependencies, which the cases
-# never use and which took that build about 120 more units (TESTING.md,
-# Levels and layout).
+# never use and which took that build about 120 more units (issue 3413;
+# TESTING.md, Levels and layout).
 [dependencies]
 goodfetch-workspace-hack.workspace = true
 

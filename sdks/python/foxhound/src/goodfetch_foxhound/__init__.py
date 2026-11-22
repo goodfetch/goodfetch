@@ -1,5 +1,13 @@
 """Foxhound's Python SDK, built on the Collie client package (ADR 0095).
 
+Where the main types live (ADR 0117): `goodfetch_collie` holds
+`AsyncCollie` and the sync `Collie`; the Collie client package,
+`goodfetch_collie_client`, holds `AsyncRun` and `Run`, `AsyncSession` and
+`Session`, `AsyncPage` and `Page`, `AsyncLocator` and `Locator`, with the
+results and the errors; this package, `goodfetch_foxhound`, holds
+`AsyncFoxhound` and `Foxhound`, and a crawl's `Crawl`, `Label`, `Dataset`
+and `CrawlContext` belong to it.
+
 This package, `goodfetch_foxhound`, holds `AsyncFoxhound` and the sync
 `Foxhound`, which carry every member of Collie's Connection under the same
 names and extend the Collie client package's `AsyncConnection` and

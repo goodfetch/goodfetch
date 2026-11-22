@@ -11,6 +11,7 @@ not expect, `hello` included, and on a step left unused. Collie's
 from __future__ import annotations
 
 import signal
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -264,3 +265,90 @@ async def test_fails_connect_on_a_collie_engine_with_not_in_product(way: Way) ->
         "install": "pip install goodfetch-foxhound",
     }
     assert played.done() == Closed()
+
+
+def summary(error: BaseGoodfetchError) -> dict[str, object]:
+    """What a program reads of `error`."""
+    return {
+        "code": error.code,
+        "group": error.group,
+        "fix": error.fix,
+        "details": error.details,
+    }
+
+
+@pytest.mark.covers("story:11-1007")
+@three_ways
+async def test_reads_only_foxhounds_engine_path_variable_never_collies(
+    way: Way,
+) -> None:
+    """Collie's variable, a deployment variable it knows, moves no Foxhound program.
+
+    It names an executable file, yet the Connection looks for Foxhound's
+    platform wheel, which no unit test installs.
+    """
+    env = {"GOODFETCH_COLLIE_ENGINE_PATH": sys.executable}
+
+    error = await failure(
+        way.open(
+            lambda: AsyncFoxhound.connect(env=env),
+            lambda: Foxhound.connect(env=env),
+        )
+    )
+
+    assert (error.code, error.group, error.fix) == (
+        "engine_not_found",
+        "unavailable",
+        "Install goodfetch-foxhound's platform wheel for this system, which holds "
+        "its engine, or set GOODFETCH_FOXHOUND_ENGINE_PATH to Foxhound's executable.",
+    )
+
+
+@pytest.mark.covers("story:11-1007", "error:engine_not_found")
+@three_ways
+async def test_starts_the_executable_its_engine_path_variable_names(
+    way: Way,
+) -> None:
+    """The `fix` names the variable and the executable it should point at."""
+    path = "/nonexistent/goodfetch-foxhound"
+    env = {"GOODFETCH_FOXHOUND_ENGINE_PATH": path}
+
+    error = await failure(
+        way.open(
+            lambda: AsyncFoxhound.connect(env=env),
+            lambda: Foxhound.connect(env=env),
+        )
+    )
+
+    assert summary(error) == {
+        "code": "engine_not_found",
+        "group": "unavailable",
+        "fix": (
+            f"GOODFETCH_FOXHOUND_ENGINE_PATH names {path}, which is no executable "
+            "file: point it at Foxhound's executable, goodfetch-foxhound, or leave "
+            "it unset to use the one goodfetch-foxhound installed."
+        ),
+        "details": {"path": path},
+    }
+
+
+@pytest.mark.covers("story:11-1007")
+@three_ways
+async def test_foxhounds_engine_path_variable_moves_no_collie_program(
+    way: Way,
+) -> None:
+    """Foxhound's variable names an executable file, and Collie looks for its own."""
+    env = {"GOODFETCH_FOXHOUND_ENGINE_PATH": sys.executable}
+
+    error = await failure(
+        way.open(
+            lambda: AsyncCollie.connect(env=env),
+            lambda: Collie.connect(env=env),
+        )
+    )
+
+    assert (error.code, error.fix) == (
+        "engine_not_found",
+        "Install goodfetch-collie's platform wheel for this system, which holds "
+        "its engine, or set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable.",
+    )

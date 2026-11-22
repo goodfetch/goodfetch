@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_engine::browser_cache::{BuildPlatform, content_digest};
 use goodfetch_engine::pinned_download::Digest;
+use goodfetch_protocol::browser_cache::CHROME_FOR_TESTING_STORAGE;
 use serde_json::{Value, json};
 
 fn pins_file() -> PathBuf {
@@ -160,9 +161,7 @@ fn downloaded(
     platform: &str,
     archive: &str,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let url = format!(
-        "https://storage.googleapis.com/chrome-for-testing-public/{build}/{platform}/{archive}-{platform}.zip"
-    );
+    let url = format!("{CHROME_FOR_TESTING_STORAGE}/{build}/{platform}/{archive}-{platform}.zip");
     println!("downloading {url}");
     let mut archive = Vec::new();
     ureq::get(&url)

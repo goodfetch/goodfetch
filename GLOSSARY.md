@@ -249,7 +249,7 @@ The per-user folder, shared by both Products and every major, of pinned browser 
 _Avoid_: browser registry, browsers folder
 
 **Pinned artifact**:
-A download a Product version names by URL and digest, such as a browser build, Playwright's driver or a full Clean-up rules set, which the Browser cache holds and the engine fetches with a plain HTTPS GET, the only connection nobody configures.
+A download a Product version names by URL and digest, such as a browser build, Playwright's driver or a full Clean-up rules set, which the Browser cache holds and the engine fetches with a plain HTTPS GET, the only connection nobody configures. A Chrome for Testing build is fetched instead below `browser.mirror` when configuration sets one, an Operator-configured endpoint, and its bytes still have the pinned digest.
 _Avoid_: asset (for a pinned download)
 
 **Run index**:

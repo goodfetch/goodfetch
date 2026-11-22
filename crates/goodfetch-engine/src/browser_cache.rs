@@ -48,7 +48,7 @@ pub use platform::{
 };
 
 use crate::call_error::CallError;
-use crate::pinned_download::{self, Digest, Failure, Fetching, PinnedUrl};
+use crate::pinned_download::{self, Digest, Failure, Fetching};
 use crate::tasks::BlockingThreads;
 use store::{Locking, Read};
 
@@ -557,7 +557,7 @@ impl BrowserCache {
         now: jiff::Timestamp,
         progress: &mut (dyn FnMut(DownloadProgress) + Send),
     ) -> Result<Option<HeldArtifact>, CacheError> {
-        let Some(url) = PinnedUrl::parse(&artifact.url) else {
+        let Some(url) = fetching.located(&artifact.url) else {
             return Err(CacheError::Cache {
                 path: self.root.clone(),
                 source: io::Error::new(
@@ -598,29 +598,16 @@ impl BrowserCache {
             &mut report,
         )
         .await;
-        let failure = match received {
-            Ok(()) => None,
-            Err(Failure::Offline(layer)) => return Err(self.offline(artifact, pinned_by, layer)),
-            Err(Failure::DigestMismatch) => Some(DownloadFailure::DigestMismatch),
-            Err(Failure::Network) => Some(DownloadFailure::Network),
-            Err(Failure::Status(status)) => Some(DownloadFailure::HttpStatus { status }),
-            Err(Failure::File(source)) => {
-                return Err(CacheError::Cache {
-                    path: archive,
-                    source,
-                });
-            }
-        };
-        if let Some(failure) = failure {
-            return Err(download_failed(artifact, pinned_by, &host, failure));
+        if let Err(failure) = received {
+            return Err(self.failed(failure, (artifact, pinned_by), &host, archive));
         }
         let files = store::files(partial.path());
-        if unpacked(&self.blocking, archive, files, file_name).await? != artifact.digest {
-            return Err(download_failed(
-                artifact,
-                pinned_by,
+        if unpacked(&self.blocking, archive.clone(), files, file_name).await? != artifact.digest {
+            return Err(self.failed(
+                Failure::DigestMismatch,
+                (artifact, pinned_by),
                 &host,
-                DownloadFailure::DigestMismatch,
+                archive,
             ));
         }
         let entry = BrowserCacheEntry {
@@ -688,6 +675,46 @@ impl BrowserCache {
         }
     }
 
+    /// The error of a download of `artifact` from `host` that failed with
+    /// `failure`, writing into the file at `archive`.
+    fn failed(
+        &self,
+        failure: Failure,
+        (artifact, pinned_by): (&PinnedArtifact, &PinnedBy),
+        host: &str,
+        archive: PathBuf,
+    ) -> CacheError {
+        let pinned = (artifact, pinned_by);
+        match failure {
+            Failure::Offline(layer) => self.offline(artifact, pinned_by, layer),
+            Failure::Network => {
+                download_failed(pinned, host, DownloadFailure::Network, "the network failed")
+            }
+            // A mirror the endpoint policy refuses never connected, as a
+            // Clean-up rules source it refuses (ADR 0047): the message
+            // says why in place of the network's failure.
+            Failure::Refused(refused) => {
+                download_failed(pinned, host, DownloadFailure::Network, &refused.to_string())
+            }
+            Failure::Status(status) => download_failed(
+                pinned,
+                host,
+                DownloadFailure::HttpStatus { status },
+                &format!("{host} answered {status}"),
+            ),
+            Failure::DigestMismatch => download_failed(
+                pinned,
+                host,
+                DownloadFailure::DigestMismatch,
+                "what it sent does not have the pinned digest",
+            ),
+            Failure::File(source) => CacheError::Cache {
+                path: archive,
+                source,
+            },
+        }
+    }
+
     fn offline(
         &self,
         artifact: &PinnedArtifact,
@@ -748,19 +775,14 @@ async fn unpacked(
         .map_err(CacheError::cache(&written))
 }
 
+/// `artifact_download_failed` for `failure` from `host`, whose message
+/// says `what` failed.
 fn download_failed(
-    artifact: &PinnedArtifact,
-    pinned_by: &PinnedBy,
+    (artifact, pinned_by): (&PinnedArtifact, &PinnedBy),
     host: &str,
     failure: DownloadFailure,
+    what: &str,
 ) -> CacheError {
-    let what = match failure {
-        DownloadFailure::Network => "the network failed".to_owned(),
-        DownloadFailure::HttpStatus { status } => format!("{host} answered {status}"),
-        DownloadFailure::DigestMismatch => {
-            "what it sent does not have the pinned digest".to_owned()
-        }
-    };
     let message = format!(
         "downloading {} from {host} failed: {what}",
         describe(&artifact.id, pinned_by),

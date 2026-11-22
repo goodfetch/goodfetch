@@ -1,6 +1,7 @@
 //! The Proving ground's command line: `serve`, `tasks` and their arguments.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Parser, ValueEnum};
@@ -53,6 +54,11 @@ pub(crate) struct Serve {
     /// figures, with `CAP_NET_ADMIN`.
     #[arg(long, value_enum, default_value_t = Shaper::Proxy)]
     pub(crate) shaper: Shaper,
+    /// A folder whose files `browser-builds.test` serves, each at its path
+    /// below it, read once at the start; without it, the host answers
+    /// every request `404`.
+    #[arg(long)]
+    pub(crate) browser_builds: Option<PathBuf>,
 }
 
 /// Which copy of the Proving ground runs (spec #152). The online copy is

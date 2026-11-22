@@ -20,6 +20,7 @@ import anyio
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
+from goodfetch_collie_client._project_file import ProjectTimeout
 from goodfetch_collie_client._relink import RESENT, ChannelRelinking
 from goodfetch_collie_client._rpc import (
     CallDeadline,
@@ -84,10 +85,12 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
+        ProjectSettings,
         RunLimit,
         RunStarted,
         SettingsExplanation,
@@ -161,7 +164,10 @@ class EngineInfo:
     protocol_version: str
     """The protocol version `major.minor` it speaks."""
     project_file: str | None
-    """The project file the engine read, or `None` when it read none."""
+    """The project file `connect()` read and carries to the engine (ADR 0083).
+
+    By its absolute path, or `None` when it read none.
+    """
     home: str | None
     """The Goodfetch home the engine runs in.
 
@@ -225,15 +231,21 @@ class ClientConnection:
         reached: Reached = ATTACHED_ELSEWHERE,
         listener_queue: int = MAX_LISTENER_QUEUE,
         bounds: ChannelBounds | None = None,
+        project: ProjectFile | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
         `reached` says how the engine was reached, which `engine` reports;
         `listener_queue`, already checked, bounds the queue of each listener
         of its own Subscription, and `bounds`, already checked, its calls.
+        `project` is the project file `connect()` read, which each Run's
+        start and `config.explain` carry.
         """
         self._engine = engine
         self._reached = reached
+        self._project: ProjectSettings | None = (
+            None if project is None else project.carried
+        )
         self._opener = OpeningProcess()
         self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
@@ -271,12 +283,13 @@ class ClientConnection:
         daemon: DaemonHello | None = None,
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
-        connect_timeout: int | NotGiven | None = not_given,
+        connect_timeout: ConnectTimeout = not_given,
         connect_started_at: float | None = None,
         listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Mapping[str, object] | None = None,
         bounds: ChannelBounds | None = None,
         reconnect: Reconnect | None = None,
+        project: ProjectFile | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -291,7 +304,8 @@ class ClientConnection:
         `listener_queue_of`, bounds the queue of each listener of its own
         Subscription; `bounds`, already checked by `bounds_of`, bound its
         calls from `hello` on, the defaults' when left out.
-        `connect_timeout`, already checked by `timeout_of`, is how many
+        `connect_timeout`, already checked by `timeout_of`, or the project
+        file's, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
         when left out, none for `None`, counted from `connect_started_at`,
         on anyio's clock, when given, as for a Daemon a refused one handed
@@ -302,7 +316,9 @@ class ClientConnection:
         closes the Connection before it answers `hello`, as one does for a
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
         With `reconnect`, once opened, a dropped link is reached again
-        (spec 606), as `_reconnect_with` says.
+        (spec 606), as `_reconnect_with` says. `project` is the project file
+        `connect()` read (ADR 0083), which each Run's start and
+        `config.explain` carry and `engine` names; none when left out.
         """
         connection = cls(
             transport,
@@ -312,6 +328,7 @@ class ClientConnection:
             reached,
             listener_queue,
             bounds,
+            project,
         )
         try:
             await connection._hello(
@@ -339,7 +356,7 @@ class ClientConnection:
         self,
         reconnect: Reconnect,
         limits: Sequence[RunLimit],
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
     ) -> None:
         """Reaches the engine again through `reconnect` whenever the link drops.
 
@@ -513,6 +530,8 @@ class ClientConnection:
             fields["limits"] = run_limits
         if settings is not None:
             fields["settings"] = settings_on_wire(settings)
+        if self._project is not None:
+            fields["project"] = self._project
         await self._follow_log_level()
         self.ensure_open("run.start")
         started = await self._operations.run_start(
@@ -537,11 +556,14 @@ class ClientConnection:
 
         It explains each setting under `keys`, each a key or a prefix of keys
         such as `timeout`, every one when left out, with the origin that set
-        it too. The Connection's own `settings` are what each Run it starts
-        inherits. Raises `closed` once the Connection is closed.
+        it too, the project file `connect()` read as the project
+        configuration. The Connection's own `settings` are what each Run it
+        starts inherits. Raises `closed` once the Connection is closed.
         """
         self.ensure_open("config.explain")
-        return await self._operations.config_explain(explain_params(keys))
+        return await self._operations.config_explain(
+            explain_params(keys, project=self._project)
+        )
 
     def notified(self, method: str, params: object) -> None:
         """Logs each of the engine's `$/log` events; drops any other notification."""
@@ -625,7 +647,7 @@ class ClientConnection:
         self,
         needs: Product,
         daemon: DaemonHello | None,
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
         connect_started_at: float,
         settings: Mapping[str, object] | None,
     ) -> None:
@@ -670,7 +692,7 @@ class ClientConnection:
             product=_product_of(product),
             version=version if isinstance(version, str) else "",
             protocol_version=spoken,
-            project_file=None,
+            project_file=None if self._project is None else self._project.path,
             home=self._reached.home,
             engine_path=None if self._engine is None else self._engine.path,
             url=self._reached.url,
@@ -686,14 +708,14 @@ class ClientConnection:
     async def _hello_answer(
         self,
         params: HelloParams,
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
         started_at: float,
     ) -> object:
         """`hello`'s answer, once it came within `connect_timeout` of `started_at`.
 
         Past it, raises `DeadlineExceededError`, its `limit` naming
-        `timeout.connect` at the run layer, given as an argument, or at its
-        default, and `waited_for` `hello` (ADR 0083).
+        `timeout.connect` and the layer that set it, and `waited_for`
+        `hello` (ADR 0083).
         """
         connect = connect_limit(connect_timeout)
         if connect is None:
@@ -884,19 +906,25 @@ def _usage_set_params(limit: RunLimit) -> UsageSetParams:
 
 
 def connect_limit(
-    connect_timeout: int | NotGiven | None,
+    connect_timeout: ConnectTimeout,
 ) -> tuple[int, SettingLimit] | None:
     """How many milliseconds `timeout.connect` gives `hello`, and the setting.
 
     `connect_timeout`, already checked by `timeout_of`, at the run layer,
-    given as an argument, or else `timeout.connect`'s 30 s default; `None`
-    for none.
+    given as an argument, the project file's at `project_configuration`, or
+    else `timeout.connect`'s 30 s default; `None` for none.
     """
     if connect_timeout is None:
         return None
     if isinstance(connect_timeout, NotGiven):
         return CONNECT_TIMEOUT, SettingLimit(
             key="timeout.connect", value=CONNECT_TIMEOUT, layer=SettingsLayer.default
+        )
+    if isinstance(connect_timeout, ProjectTimeout):
+        return connect_timeout.value, SettingLimit(
+            key="timeout.connect",
+            value=connect_timeout.value,
+            layer=SettingsLayer.project_configuration,
         )
     return connect_timeout, SettingLimit(
         key="timeout.connect",

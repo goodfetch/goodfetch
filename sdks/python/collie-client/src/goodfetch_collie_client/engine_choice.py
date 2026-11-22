@@ -47,8 +47,8 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream, SocketStream
 
+    from goodfetch_collie_client._project_file import ConnectTimeout
     from goodfetch_collie_client.generated.models import SettingLimit
-    from goodfetch_collie_client.handle import NotGiven
     from goodfetch_collie_client.product_connection import EngineLocation
 
 if sys.platform != "win32":
@@ -156,7 +156,7 @@ async def reach_engine(
     env: Mapping[str, str],
     executable: Callable[[], EngineLocation],
     *,
-    connect_timeout: int | NotGiven | None,
+    connect_timeout: ConnectTimeout,
     started_at: float,
 ) -> Reach:
     """Chooses the engine `choice` names, and opens the bytes to a Daemon.

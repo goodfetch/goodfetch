@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-use super::{LayerGap, LayerGaps, RunFailed, SsrfLayers, UnknownRunner};
+use super::{LayerGap, LayerGaps, RunFailed, RunnerError, SsrfLayers};
 use crate::ssrf::{EgressRule, Family, Outcome, Refusal, SsrfCase, SsrfTable};
 
 /// The fixture layers' public stand-in.
@@ -306,9 +306,34 @@ fn a_runner_takes_every_case_of_the_families_its_entry_gives_it() {
     );
     assert_eq!(
         unknown,
-        Err(UnknownRunner {
+        Err(RunnerError::Unknown {
             layer: "relay".to_owned(),
             test: "tests/client.rs::every_case".to_owned(),
+        })
+    );
+}
+
+/// A runner given a family the table has no case of would run none of
+/// that family and still pass: it cannot be taken, so its test fails
+/// naming the family, whatever the count of its other cases.
+#[test]
+fn a_runner_given_a_family_the_table_has_no_case_of_cannot_be_taken() {
+    let layers = layers(
+        r#"
+        [layers.client]
+        summary = "The engine's client."
+        runners = [{ test = "tests/client.rs::every_case", families = ["redirect", "rebinding", "encoding", "mixed_answers"] }]
+        "#,
+    );
+
+    let runner = layers.runner(&table(), "client", "tests/client.rs", "every_case");
+
+    assert_eq!(
+        runner,
+        Err(RunnerError::NoCase {
+            layer: "client".to_owned(),
+            test: "tests/client.rs::every_case".to_owned(),
+            families: vec![Family::Rebinding, Family::MixedAnswers],
         })
     );
 }

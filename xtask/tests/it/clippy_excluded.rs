@@ -10,9 +10,11 @@
 //! Linux without the development files of GTK 3 and libdbus, the Kennel's
 //! graphical crate is left out of the host's lint, and without the macOS
 //! target the macOS lint is: each is listed as skipped, and CI fails instead
-//! (ADR 0061). The script runs on a fixture workspace through stand-ins for
-//! `cargo`, which records each call, `pkg-config` and `rustup`. Repository
-//! tooling, so the module declares no Feature.
+//! (ADR 0061). It is the Kennel's only Clippy: the gate's `kennel` step,
+//! `just kennel-check`, lints none of it. The scripts run on a fixture
+//! workspace through stand-ins for `cargo`, which records each call,
+//! `pkg-config` and `rustup`. Repository tooling, so the module declares no
+//! Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -110,6 +112,29 @@ fn clippy_excluded(workspace: &Workspace, variables: &[(&str, &str)]) -> Run {
         .envs(variables.iter().copied())
         .output()
         .unwrap();
+    finished(workspace, &output)
+}
+
+/// Runs `just kennel-check`, the gate's `kennel` step, on the repository's
+/// `kennel/scripts/check.sh`, copied into the workspace, with the stand-ins
+/// first on `PATH`.
+fn kennel_check(workspace: &Workspace) -> Run {
+    let copy = workspace.path().join("kennel/scripts/check.sh");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../kennel/scripts/check.sh"),
+        copy,
+    )
+    .unwrap();
+    let output = workspace
+        .just(&workspace.path().join("stand-in"))
+        .arg("kennel-check")
+        .output()
+        .unwrap();
+    finished(workspace, &output)
+}
+
+fn finished(workspace: &Workspace, output: &std::process::Output) -> Run {
     let root = format!("{}/", root(workspace).display());
     let calls = std::fs::read_to_string(workspace.path().join("stand-in/calls"))
         .unwrap_or_default()
@@ -168,6 +193,34 @@ fn just_lint_runs_the_script() {
         lint.iter()
             .any(|command| command == "ci/clippy-excluded.sh"),
         "{lint:#?}"
+    );
+}
+
+/// The gate runs `just lint` and, for a change that reaches the Kennel, its
+/// `kennel` step (`pre_merge`'s host calls): that step tests the Kennel and
+/// lints none of it, so its Clippy, for the host and for macOS, runs once
+/// per gate, in `just lint`'s `clippy-excluded`, into the root's target
+/// folder (#3217).
+#[test]
+fn the_gates_kennel_step_tests_the_kennel_and_leaves_its_clippy_to_just_lint() {
+    let workspace = excluding();
+
+    let run = kennel_check(&workspace);
+
+    assert_eq!(run.code, Some(0), "{}\n{}", run.stdout, run.stderr);
+    assert!(
+        run.calls
+            .iter()
+            .any(|(folder, arguments)| folder == "kennel" && arguments.starts_with("test --locked")),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|(_, arguments)| arguments.starts_with("clippy")),
+        "{:?}",
+        run.calls
     );
 }
 

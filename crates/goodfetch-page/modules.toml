@@ -37,7 +37,7 @@ version_check = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]
-carry = ["world"]
+carry = ["encoding", "world"]
 cdp_response = []
 children = []
 encoding = []

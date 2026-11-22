@@ -130,13 +130,15 @@ service-manager = { max-threads = 1 }
 timing-sensitive = { max-threads = 4 }
 
 # The Daemon soak (TESTING.md, Time and Memory at scale) runs 40 crawls of
-# 300 pages on one Daemon, whose own work keeps two to three cores busy for
-# about two minutes: 100 to 142 s alone on the M1 server and 138 to 148 s in a
-# Pre-merge run (#1765), against the five-minute kill; beside the rest of a
-# Pre-merge run it took 354 to 578 s before #1765 (#1740). Its time is CPU
-# and follows the host's load: 231 to 265 s at a load of 30 to 65, and, since
-# its per-page dependencies build optimized, 76 to 97 s alone at a mean load
-# of 15 to 25 (#2050).
+# 300 pages on one Daemon, whose own work keeps two to three cores busy
+# throughout, against the five-minute kill. Its time is CPU, not waiting, and
+# follows the host's load: beside the rest of a Pre-merge run it took 354 to
+# 578 s before #1765 (#1740), and alone 231 to 265 s at a load of 30 to 65.
+# Since its per-page dependencies build optimized (#2082), the engine
+# compiles each selector once and cleans up in place (#1912) and its run-file
+# statements stay prepared (#1907), it takes 40 to 42 s alone at a load of
+# 17 to 25, with the Daemon at about 7.6 ms of CPU a page on 2.2 cores
+# (#2050).
 # It takes every test thread of the run, so nextest starts it once the
 # threads are free and starts nothing beside it until it ends: the run's
 # own load no longer decides whether it ends within its cap, which stays

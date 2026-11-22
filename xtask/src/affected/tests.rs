@@ -867,12 +867,14 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
 /// listing it, as the SSRF layers table lists Collie's runners, which test
 /// support's test reads; the crate's own code including it, or its build
 /// script watching it; another crate naming it from its folder, in one
-/// literal, in pieces or through a variable; a file of a hidden folder. It
-/// keeps a change to the crate's reach, here the conformance crate whose
-/// tests run Collie's executable. A name of another file of the folder, or
-/// of a file no `tests/` folder of that crate holds, and prose, leave it to
-/// the crate's tests (#2238). Literals that would name the repository's own
-/// Collie tests from this file are split.
+/// literal, in pieces, through a variable named before or after, through
+/// the parent of such a variable or in a doctest; a fixture line naming the
+/// crate beside a path from `tests`; a file of a hidden folder. It keeps a
+/// change to the crate's reach, here the conformance crate whose tests run
+/// Collie's executable. A name of another file of the folder, or of a file
+/// no `tests/` folder of that crate holds, and prose, leave it to the
+/// crate's tests (#2238), as do the known limits of #2240. Literals that
+/// would name the repository's own Collie tests from this file are split.
 #[rstest]
 #[case::a_path_built_from_pieces(
     "crates/goodfetch-conformance/src/lib.rs",
@@ -984,6 +986,87 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
     "crates/goodfetch-engine/src/lib.rs",
     r#"const CASES: &str = "tests/it/body_limits.rs";"#,
     "crates/goodfetch-collie/tests/it/body_limits.rs",
+    false
+)]
+#[case::a_fixture_splitting_the_crate_and_the_path(
+    "test-support/fixtures/ssrf/layers.toml",
+    r#"{ crate = "goodfetch-collie", test = "tests/it/navigation_egress.rs::every_case" }"#,
+    "crates/goodfetch-collie/tests/it/navigation_egress.rs",
+    true
+)]
+#[case::a_variable_naming_the_crate_further_down(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "def cases():\n    return CRATE / \"tests\" / \"it\"\n\n\nCRATE = ROOT / \"crates\" / \"goodfetch-collie\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+// Split, so this file names no folder of the repository's own Collie tests.
+#[case::a_doc_example_of_another_crate(
+    "crates/goodfetch-conformance/src/lib.rs",
+    concat!(
+        "/// ```\n/// let cases = std::fs::read_dir(\"../goodfetch-",
+        "collie/tests/it\").unwrap();\n/// ```\npub fn cases() {}\n"
+    ),
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::a_fixture_splitting_the_crate_and_a_path_from_here(
+    "test-support/fixtures/ssrf/layers.toml",
+    r#"{ crate = "goodfetch-collie", test = "./tests/it/navigation_egress.rs" }"#,
+    "crates/goodfetch-collie/tests/it/navigation_egress.rs",
+    true
+)]
+// Split, so this file names no folder of the repository's own Collie tests.
+#[case::a_doc_example_fenced_by_tildes(
+    "crates/goodfetch-conformance/src/lib.rs",
+    concat!(
+        "//! ~~~\n//! let cases = std::fs::read_dir(\"../goodfetch-",
+        "collie/tests/it\").unwrap();\n//! ~~~\n"
+    ),
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::another_package_naming_the_crate_anchoring_its_own_tests(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "PRODUCT = \"goodfetch-collie\"\nCASES = Path(__file__).resolve().parent / \"tests\" / \"it\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+#[case::another_package_naming_the_crate_anchoring_at_its_folder(
+    "crates/goodfetch-conformance/web/cases.ts",
+    "const PRODUCT = \"goodfetch-collie\";\nconst CASES = path.join(import.meta.dirname, \"tests\");\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+#[case::the_parent_of_a_value_naming_the_crate(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "COLLIE_MANIFEST = ROOT / \"crates\" / \"goodfetch-collie\" / \"Cargo.toml\"\nCASES = COLLIE_MANIFEST.parent / \"tests\" / \"it\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+// Known limit, ADR 0135's note of 2026-11-22: the crate is named only in
+// the file the value comes from, which the search does not follow.
+#[case::a_value_naming_the_crate_in_another_file(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "from .crates import COLLIE\n\n\ndef cases():\n    return COLLIE / \"tests\" / \"it\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+// Known limit, ADR 0135's note of 2026-11-22: a glob names no crate, and
+// the search matches no glob against paths.
+#[case::a_glob_naming_no_crate(
+    "crates/goodfetch-conformance/web/cases.ts",
+    r#"const cases = globSync("crates/*/tests/it/*.rs");"#,
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+// Known limit, ADR 0135's note of 2026-11-22: Markdown names a file only
+// through the crate's folder or name just before `tests`, so a table that
+// splits them across two columns names none.
+#[case::a_markdown_table_splitting_the_crate_and_the_path(
+    "test-support/fixtures/ssrf/README.md",
+    "| goodfetch-collie | tests/it/navigation_egress.rs |\n",
+    "crates/goodfetch-collie/tests/it/navigation_egress.rs",
     false
 )]
 fn a_tests_file_named_outside_its_folder_keeps_its_crates_reach(

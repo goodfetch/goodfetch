@@ -306,7 +306,8 @@ impl Target<'_> {
                 syn::Item::Fn(function) => self.function(module, function, inherited, tests)?,
                 syn::Item::Mod(child) => self.module(module, child, inherited, tests)?,
                 syn::Item::Macro(invocation) => {
-                    self.invocation(module, &invocation.mac, inherited, tests)?;
+                    let inherited = inherited.within(&invocation.attrs);
+                    self.invocation(module, &invocation.mac, &inherited, tests)?;
                 }
                 _ => {}
             }
@@ -329,8 +330,9 @@ impl Target<'_> {
             .path
             .segments
             .last()
-            .map(|segment| segment.ident.to_string())
-            .unwrap_or_default();
+            .expect("invariant: syn parses a macro's path with at least one segment")
+            .ident
+            .to_string();
         if (name == "prop_state_machine" || name == "proptest")
             && let Ok(PropertyTests(functions)) = syn::parse2(invocation.tokens.clone())
         {
@@ -521,20 +523,18 @@ impl syn::parse::Parse for PropertyTests {
 }
 
 /// The line of the first `Covers:` declaration among a macro's tokens, where
-/// a `///` or `//!` line is a `#[doc = "…"]` attribute.
+/// a `///` or `//!` line is a `#[doc = "…"]` attribute, as [`covers`] reads
+/// one.
 fn covers_line(tokens: proc_macro2::TokenStream) -> Option<usize> {
     tokens.into_iter().find_map(|tree| {
         let proc_macro2::TokenTree::Group(group) = tree else {
             return None;
         };
         let declares = group.delimiter() == proc_macro2::Delimiter::Bracket
-            && syn::parse2::<syn::Meta>(group.stream())
-                .ok()
-                .and_then(|meta| doc_text(&meta))
-                .is_some_and(|text| {
-                    text.split('\n')
-                        .any(|line| line.trim().starts_with("Covers:"))
-                });
+            && syn::parse2::<syn::Meta>(group.stream()).is_ok_and(|meta| {
+                let attribute: syn::Attribute = syn::parse_quote!(#[#meta]);
+                !covers([&attribute]).is_empty()
+            });
         if declares {
             Some(group.span().start().line)
         } else {
@@ -617,7 +617,7 @@ fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<S
     let mut features = Vec::new();
     let mut declaring = false;
     for attribute in attributes {
-        let Some(text) = doc_text(&attribute.meta) else {
+        let Some(text) = doc_text(attribute) else {
             declaring = false;
             continue;
         };
@@ -637,13 +637,12 @@ fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<S
     features
 }
 
-/// A doc attribute's text, as its `doc = "…"` meta holds it; `None` for any
-/// other attribute.
-fn doc_text(meta: &syn::Meta) -> Option<String> {
-    if !meta.path().is_ident("doc") {
+/// A doc attribute's text, `None` for any other attribute.
+fn doc_text(attribute: &syn::Attribute) -> Option<String> {
+    if !attribute.path().is_ident("doc") {
         return None;
     }
-    match meta {
+    match &attribute.meta {
         syn::Meta::NameValue(syn::MetaNameValue {
             value:
                 syn::Expr::Lit(syn::ExprLit {

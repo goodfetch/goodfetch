@@ -223,7 +223,7 @@ proptest::proptest! {
 #[rstest]
 #[case::another_macro("cases! {\n    /// Covers: story:1-2\n    #[test]\n    fn keeps() {}\n}\n")]
 #[case::an_unknown_form(
-    "prop_state_machine! {\n    /// Covers: story:1-2\n    #[test]\n    fn keeps(parallel 1..4 => Subject) -> u8;\n}\n"
+    "prop_state_machine! {\n    /// Covers: story:1-2\n    #[test]\n    fn keeps(sequential 1..4 => Subject) -> u8;\n}\n"
 )]
 fn scan_fails_on_a_covers_line_inside_a_macro_it_cannot_read(#[case] source: &str) {
     let workspace = Workspace::from_fixture("features");

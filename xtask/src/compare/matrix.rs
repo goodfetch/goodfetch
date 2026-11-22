@@ -841,11 +841,13 @@ pub(crate) const CELLS: [Cell; 132] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
-        name: AT_DEFAULTS_LEARNED,
+        name: AT_DEFAULTS_BROWSER,
         mapping: "the cell at the catalog's defaults with the other way of `fetch.http_from`, \
-                  `learned`: a page whose Label is learned to need no browser is sent from the \
-                  engine's own HTTP client, where the default sends it from the browser; the \
-                  row Callgrind counts",
+                  `browser`: a sample's `http` run and a page whose Label is learned to need no \
+                  browser are sent from inside the Session's browser, recorded as \
+                  `browser_fetch`, where the default, `learned`, sends them from the engine's \
+                  own HTTP client until a sample shows the site refuses it; a row Callgrind \
+                  does not count, since Valgrind follows the engine's process alone",
         pending: &[],
         row: Row::Sensitivity,
         status: Status::Measured(AT_DEFAULTS_CONFIG),
@@ -2442,20 +2444,21 @@ pub(crate) const CELLS: [Cell; 132] = [
 pub(crate) const AT_DEFAULTS: &str = "foxhound defaults";
 
 /// The name of that cell's second row, the other way of
-/// `fetch.http_from`: `learned`.
-pub(crate) const AT_DEFAULTS_LEARNED: &str = "foxhound defaults learned";
+/// `fetch.http_from`: `browser`.
+pub(crate) const AT_DEFAULTS_BROWSER: &str = "foxhound defaults browser";
 
 /// A row of Foxhound's cell at the catalog's defaults (owner, 2026-11-10,
 /// G-04 Q11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AtDefaults {
-    /// The default `fetch.http_from` in force, `browser`: the row that
-    /// carries #2176's target.
+    /// The default `fetch.http_from` in force, `learned` (#3106), whose
+    /// pages are sent from the engine's own HTTP client once learned: the
+    /// row that carries #2176's target, and the row Callgrind counts, since
+    /// Valgrind follows the engine's process alone.
     InForce,
-    /// `fetch.http_from: learned`, whose pages are sent from the engine's
-    /// own HTTP client once learned: the row Callgrind counts, since it
-    /// follows the engine's process alone.
-    Learned,
+    /// `fetch.http_from: browser`, whose HTTP is sent from inside the
+    /// Session's browser.
+    Browser,
 }
 
 /// Foxhound's run at the catalog's defaults: its Durability level `batch`,
@@ -2470,7 +2473,7 @@ const AT_DEFAULTS_CONFIG: Config = Config::Foxhound {
 const AT_DEFAULTS_MAPPING: &str = "Foxhound at the catalog's defaults, setting nothing but the \
      crawl's site and the scenario's pace, `politeness.domain.delay: 0` and \
      `politeness.domain.concurrency` at its requests in flight, which the Run reports as \
-     weakened: robots.txt respected, `fetch.tier: auto`, `fetch.http_from: browser`, Frontier \
+     weakened: robots.txt respected, `fetch.tier: auto`, `fetch.http_from: learned`, Frontier \
      learning, the Provenance log, Block classification and Records on, \
      `run_state.durability: batch` and the shared Politeness with Delegations; the tier each \
      page was sent from read from its Records' Provenance. This row carries #2176's target; the \
@@ -2654,7 +2657,7 @@ impl Cell {
     pub(crate) fn at_defaults(&self) -> Option<AtDefaults> {
         match self.name {
             AT_DEFAULTS => Some(AtDefaults::InForce),
-            AT_DEFAULTS_LEARNED => Some(AtDefaults::Learned),
+            AT_DEFAULTS_BROWSER => Some(AtDefaults::Browser),
             _ => None,
         }
     }

@@ -669,7 +669,7 @@ fn the_callgrind_cell_counts_the_cells_its_ratios_read() {
         vec![
             (Scenario::Raw, "foxhound"),
             (Scenario::Raw, "spider"),
-            (Scenario::Raw, "foxhound defaults learned"),
+            (Scenario::Raw, "foxhound defaults"),
             (Scenario::Extraction, "foxhound"),
             (Scenario::Extraction, matrix::FILTER_LISTS_OFF),
             (Scenario::Extraction, "spider"),

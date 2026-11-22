@@ -299,7 +299,7 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// robots.txt not obeyed, every other setting the catalog's default; in
 /// the cell at the catalog's defaults (#2175), nothing else but the
 /// scenario's pace, no delay and the crawl's concurrency per domain, and on
-/// its second row `fetch.http_from: learned`; otherwise the default shared
+/// its second row `fetch.http_from: browser`; otherwise the default shared
 /// Politeness at the crawl's concurrency, no delay, robots.txt not obeyed
 /// and the maximum-throughput combination's switches off, at `durability`,
 /// on the `browser` tier in the headless browser
@@ -328,8 +328,8 @@ pub(crate) fn settings(
     // `fetch.http_from`.
     if let Some(row) = cell.at_defaults() {
         settings["politeness"] = pace;
-        if row == AtDefaults::Learned {
-            settings["fetch"] = json!({ "http_from": "learned" });
+        if row == AtDefaults::Browser {
+            settings["fetch"] = json!({ "http_from": "browser" });
         }
         return settings;
     }

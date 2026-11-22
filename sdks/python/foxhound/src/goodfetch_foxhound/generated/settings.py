@@ -100,13 +100,13 @@ class ConnectionConnectionSettings(TypedDict):
     """
 
     max_pending_calls: NotRequired[int]
-    """The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+    """The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript and Python Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.
 
     `connection.max_pending_calls`.
     """
 
     max_queued_write_bytes: NotRequired[int]
-    """The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+    """The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript and Python Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.
 
     `connection.max_queued_write_bytes`.
     """

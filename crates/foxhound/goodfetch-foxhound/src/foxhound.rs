@@ -5,6 +5,8 @@
 //! (ADRs 0024 and 0087), through Collie's crate's linked connection, or
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
+use std::sync::Arc;
+
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{
@@ -12,6 +14,8 @@ use goodfetch_collie_client::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
+
+use crate::crawl_requests::CrawlRequests;
 
 /// Foxhound's linked engine: Foxhound, of [`crate::composition`].
 pub(crate) const ENGINE: Composed = Composed {
@@ -50,6 +54,9 @@ pub const PAID_FETCHES: UsageKind =
 #[derive(Clone, Debug)]
 pub struct Foxhound {
     linked: ProductConnection,
+    /// The engine's Crawl requests to the connection, which the serve of
+    /// each of its crawl Runs takes its own from.
+    crawl_requests: Arc<CrawlRequests>,
 }
 
 impl Foxhound {
@@ -87,7 +94,10 @@ impl Foxhound {
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
         let linked = ProductConnection::connect(ENGINE, options).await?;
-        Ok(Self { linked })
+        Ok(Self {
+            linked,
+            crawl_requests: Arc::default(),
+        })
     }
 
     /// Opens a connection with `options`, lends it to `body`, and closes it
@@ -231,6 +241,14 @@ impl Connection for Foxhound {
 
     async fn close(&self) -> Result<(), Error> {
         Foxhound::close(self).await
+    }
+}
+
+impl Foxhound {
+    /// The engine's Crawl requests to the connection, shared by the serves
+    /// of its crawl Runs.
+    pub(crate) fn crawl_requests(&self) -> &Arc<CrawlRequests> {
+        &self.crawl_requests
     }
 }
 

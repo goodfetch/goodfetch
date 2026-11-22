@@ -111,6 +111,7 @@ details! {
     crate::egress::LocalAddressUnavailableDetails => ErrorCode::LOCAL_ADDRESS_UNAVAILABLE,
     crate::events::ListenerEventsLostDetails => ErrorCode::LISTENER_EVENTS_LOST,
     crate::executables::ExecutableBlockedBySmartAppControlDetails => ErrorCode::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL,
+    crate::foxhound::crawl::HandlerFailedDetails => foxhound::HANDLER_FAILED,
     crate::foxhound::crawl::LabelUnknownDetails => foxhound::LABEL_UNKNOWN,
     crate::foxhound::crawl::ResponseUnavailableDetails => foxhound::RESPONSE_UNAVAILABLE,
     crate::foxhound::crawl::StagingFullDetails => foxhound::STAGING_FULL,

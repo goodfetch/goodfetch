@@ -194,6 +194,8 @@ How proven crawlers shape this work. Each was checked against its primary source
 
     > Note (owner's decision, 2026-11-17, [#2200](https://github.com/goodfetch/goodfetch/issues/2200), « Nb de cœurs (Recommandé) »): `governor.blocking_threads` takes a count of at least 1 or `per_core`, as `governor.worker_threads` does, and defaults to `per_core`, one blocking thread a core (`available_parallelism`, one when the OS cannot tell), in place of the cap of 4. The cap of 4 reached the first request 0.2 s later than Tokio's own 512. 4 and 512 stay values a person can set. The next measurement window, caps 8, 6 and 5 against `per_core` and 512, confirms the default, or it goes back to the owner.
 
+    > Note (agent decision, as built), 2026-11-19, [#2870](https://github.com/goodfetch/goodfetch/issues/2870): the system resolver's lookups (`getaddrinfo`, which the engine calls off Linux and in its own HTTP client) run on a second pool of the CPU pool's kind, threads named `gf-lookup`, at most one a core, never on Tokio's blocking pool, so a lookup waits behind no work `governor.blocking_threads` caps. On Linux a crawl's lookups still go through the engine's own resolver.
+
     > Note (agent decision, as built), 2026-11-01: a method of `TaskOwner` with permits sized to the cores in front of the owner's blocking threads, so at most that many analyses run. `BlockingPolicy` stays a `Copy` value, and `Inline` runs the analysis inline, so the paused benchmark's counts stay exact.
   - **The writer** groups commits (above).
 - **A page being analysed holds no network slot.** The slot among the requests in flight is given back once the fetch ends (ADR 0004 counts only requests in flight), and the analysis waits for the CPU pool.

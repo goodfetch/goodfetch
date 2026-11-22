@@ -1503,6 +1503,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "secrecy",
+ "security-framework",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",

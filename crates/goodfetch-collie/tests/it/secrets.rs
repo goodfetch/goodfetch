@@ -502,7 +502,7 @@ fn an_identity_file_other_users_may_read_refuses_the_run_with_the_chmod_that_clo
 }
 
 /// Covers: story:4-50, setting:run_state.key_reference
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[rstest::rstest]
 #[case::from_the_executable(false)]
 #[case::from_the_daemon(true)]
@@ -521,22 +521,25 @@ fn with_no_keychain_on_the_host_the_key_reference_defaults_to_the_encrypted_loca
 /// The real OS keychain (TESTING.md, Storage, network and OS services):
 /// each item under a service named for its test, removed after it; on
 /// Linux the child finds the Secret Service through the session bus the
-/// test was given. A host without the service skips this module.
+/// test was given, and on macOS the user's keychains, which the test
+/// links into its own `HOME`. A host without the service skips this
+/// module.
 mod keychain {
     use goodfetch_engine::secrets::Keychain;
     use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
     use goodfetch_test_support::TestEnv;
-    use secrecy::SecretString;
     use serde_json::json;
 
     use super::{audited, explained_key_reference, leaks, planted, started};
 
-    /// The variables that lead a child to this session's keychain.
+    /// The variables that lead a child to this session's keychain, once
+    /// [`reach_the_users_keychain`] gave `env` the user's on macOS.
     #[expect(
         clippy::disallowed_methods,
         reason = "the test forwards its own session's bus to the child it starts (TESTING.md)"
     )]
-    fn session() -> Vec<(&'static str, String)> {
+    fn session(env: &TestEnv) -> Vec<(&'static str, String)> {
+        reach_the_users_keychain(env);
         ["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]
             .into_iter()
             .filter_map(|name| {
@@ -544,6 +547,36 @@ mod keychain {
             })
             .collect()
     }
+
+    /// Links the user's keychains and keychain preferences into `env`'s
+    /// `HOME`, where macOS's Security framework looks for the user's
+    /// default keychain (`Library/Keychains`, `Library/Preferences/
+    /// com.apple.security.plist`); without them a child has none. A source
+    /// the user does not have is left out.
+    #[cfg(target_os = "macos")]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test leads the child it starts to its own user's keychain (TESTING.md)"
+    )]
+    fn reach_the_users_keychain(env: &TestEnv) {
+        let real = std::path::PathBuf::from(std::env::var_os("HOME").expect("the test has a HOME"));
+        let user = std::path::Path::new(&env.env()["HOME"]);
+        for part in [
+            "Library/Keychains",
+            "Library/Preferences/com.apple.security.plist",
+        ] {
+            let source = real.join(part);
+            if source.exists() {
+                let link = user.join(part);
+                std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+                std::os::unix::fs::symlink(&source, &link).unwrap();
+            }
+        }
+    }
+
+    /// Elsewhere the variables [`session`] passes on are enough.
+    #[cfg(not(target_os = "macos"))]
+    fn reach_the_users_keychain(_env: &TestEnv) {}
 
     /// Runs `work` against this OS's keychain, on a runtime of real time.
     fn in_keychain<T>(work: impl AsyncFnOnce(&Keychain, &TaskOwner) -> T) -> T {
@@ -564,13 +597,31 @@ mod keychain {
     }
 
     impl Item {
+        /// On macOS the item lets any program read it (`security -A`): one
+        /// made through the keychain API trusts only this test binary, and
+        /// the engine's read of it would wait on a confirmation no one sees.
+        #[cfg(target_os = "macos")]
+        fn stored(service: String, account: &'static str, value: &str) -> Self {
+            let added = std::process::Command::new("/usr/bin/security")
+                .args(["add-generic-password", "-A", "-U", "-s", &service])
+                .args(["-a", account, "-w", value])
+                .status()
+                .expect("macOS has `security`");
+            assert!(
+                added.success(),
+                "this host has its OS keychain (TESTING.md: `ci/os-services.sh setup`)"
+            );
+            Self { service, account }
+        }
+
+        #[cfg(not(target_os = "macos"))]
         fn stored(service: String, account: &'static str, value: &str) -> Self {
             in_keychain(async |keychain, owner| {
                 keychain
                     .store(
                         &service,
                         account,
-                        &SecretString::from(value.to_owned()),
+                        &secrecy::SecretString::from(value.to_owned()),
                         owner,
                     )
                     .await
@@ -600,7 +651,7 @@ mod keychain {
         );
         let reference = format!("keychain:{}/{}", item.service, item.account);
         env.user_configuration(&format!("run_state.key_reference = \"{reference}\"\n"));
-        let session = session();
+        let session = session(&env);
         let variables: Vec<(&str, &str)> = session
             .iter()
             .map(|(name, value)| (*name, value.as_str()))
@@ -635,7 +686,7 @@ mod keychain {
         let env = TestEnv::new();
         let reference = format!("keychain:goodfetch-test-{:016x}/absent", env.seed());
         env.user_configuration(&format!("run_state.key_reference = \"{reference}\"\n"));
-        let session = session();
+        let session = session(&env);
         let variables: Vec<(&str, &str)> = session
             .iter()
             .map(|(name, value)| (*name, value.as_str()))
@@ -659,7 +710,7 @@ mod keychain {
     #[test]
     fn with_the_os_keychain_the_key_reference_defaults_to_it() {
         let env = TestEnv::new();
-        let variables: Vec<(&str, std::ffi::OsString)> = session()
+        let variables: Vec<(&str, std::ffi::OsString)> = session(&env)
             .into_iter()
             .map(|(name, value)| (name, value.into()))
             .collect();

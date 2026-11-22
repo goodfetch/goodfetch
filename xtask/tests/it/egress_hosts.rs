@@ -1,11 +1,8 @@
 //! ADR 0043's deny where a job runs on its runner's own system rather than in
-//! the owner's machine's Linux VM: the Release suite's macOS cells, under a
-//! sandbox profile that refuses every connection but loopback, and its
-//! Windows cell, under firewall rules that block the product's programs,
-//! whose dropped connections the firewall log records.
+//! the owner's machine's Linux VM: the Release suite's Windows cell, under
+//! firewall rules that block the product's programs, whose dropped
+//! connections the firewall log records.
 //! Covers: story:1-68
-
-use rstest::rstest;
 
 use crate::workspace::{Outcome, Workspace, finding};
 
@@ -133,33 +130,4 @@ fn windows_rules_block_everything_but_the_resolved_named_endpoints_and_loopback(
          udp 2001:db8::20 *\n"
     );
     assert_eq!(outcome.code, 0);
-}
-
-fn sandbox_verdict(workspace: &Workspace, outcome: &str) -> Outcome {
-    workspace.write("outcome.txt", outcome.as_bytes());
-    workspace.xtask(&[
-        "egress",
-        "canary",
-        "verdict",
-        "--outcome",
-        "outcome.txt",
-        "--sandbox",
-    ])
-}
-
-#[rstest]
-#[case::denied_by_the_sandbox("denied", vec![])]
-#[case::timed_out_somewhere_else("timed-out", vec![finding("canary-unseen", "1.1.1.1:443")])]
-#[case::connected("connected", vec![finding("canary-reached", "1.1.1.1:443")])]
-fn macos_canary_passes_only_when_the_sandbox_refused_it(
-    #[case] ended: &str,
-    #[case] expected: Vec<crate::workspace::Finding>,
-) {
-    let workspace = Workspace::from_fixture("egress");
-
-    let outcome = sandbox_verdict(&workspace, ended);
-
-    let code = i32::from(!expected.is_empty());
-    assert_eq!(outcome.findings(), expected);
-    assert_eq!(outcome.code, code);
 }

@@ -71,8 +71,8 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('list.test',1767603656489,0);
-INSERT INTO "domains" VALUES('shop.test',1767603606732,0);
+INSERT INTO "domains" VALUES('list.test',1767603658891,0);
+INSERT INTO "domains" VALUES('shop.test',1767603605770,0);
 CREATE TABLE effect_journal (entry INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, key TEXT NOT NULL, repeatable INTEGER NOT NULL, state TEXT NOT NULL CHECK (state IN ('open', 'sent', 'done', 'uncertain', 'reconciled')), output TEXT, reason TEXT, first_command TEXT, since TEXT, performed_at TEXT, reconciled_by TEXT, reconciled_at TEXT, UNIQUE (namespace, key), CHECK (state NOT IN ('sent', 'uncertain') OR since IS NOT NULL), CHECK (state <> 'done' OR performed_at IS NOT NULL), CHECK (state <> 'uncertain' OR reason IS NOT NULL), CHECK (state <> 'reconciled' OR (reconciled_by IS NOT NULL AND reconciled_at IS NOT NULL))) STRICT;
 CREATE TABLE effect_secret (id INTEGER PRIMARY KEY CHECK (id = 1), secret BLOB NOT NULL) STRICT;
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
@@ -183,8 +183,8 @@ INSERT INTO "pool_sessions" VALUES('',1,'none','transport',1767603600000,1,0.0,N
 INSERT INTO "pool_sessions" VALUES('',2,'none','transport',1767603600000,1,0.0,NULL,1);
 INSERT INTO "pool_sessions" VALUES('',3,'none','transport',1767603600000,1,1.0,'escalated',2);
 INSERT INTO "pool_sessions" VALUES('',4,'none','transport',1767603600000,1,0.0,NULL,3);
-INSERT INTO "pool_sessions" VALUES('',5,'none','transport',1767603600000,1,0.0,NULL,4);
-INSERT INTO "pool_sessions" VALUES('',6,'none','transport',1767603600000,2,0.0,NULL,5);
+INSERT INTO "pool_sessions" VALUES('',5,'none','transport',1767603600000,2,0.0,NULL,4);
+INSERT INTO "pool_sessions" VALUES('',6,'none','transport',1767603600000,1,0.0,NULL,5);
 INSERT INTO "pool_sessions" VALUES('',7,'none','transport',1767603600000,1,0.0,NULL,6);
 INSERT INTO "pool_sessions" VALUES('',8,'none','transport',1767603600000,1,0.0,NULL,7);
 INSERT INTO "pool_sessions" VALUES('',9,'none','transport',1767603600000,1,0.0,NULL,8);

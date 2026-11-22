@@ -782,6 +782,28 @@ pub struct SharedTypeValue {
     pub arrived_in: ProtocolVersion,
 }
 
+/// What a kind of Run adds to what an entry answers or carries for every
+/// Run, such as a crawl's parts of `run.progress` (ADR 0102): on the wire
+/// beside every Run's, which a reader of the entry's own type keeps as it
+/// got them. The catalog lists it so that its Product's SDKs type it.
+pub struct KindPart {
+    /// The `module_path!()` of the module that defines it, which gives its
+    /// Product (ADR 0099).
+    pub defined_in: &'static str,
+    /// The entry it adds to: the operation whose result, and the event
+    /// whose payload, it extends.
+    pub entry: &'static str,
+    /// The kind of Run that adds it, such as `crawl`.
+    pub kind: &'static str,
+    /// What it adds.
+    pub description: &'static str,
+    /// The type of the entry's value for that kind: every Run's parts with
+    /// the kind's own.
+    pub value: SchemaOf,
+    /// The version that added it.
+    pub arrived_in: ProtocolVersion,
+}
+
 /// Every entry one module defines.
 pub struct Entries {
     /// The `module_path!()` of the module, which gives each entry's Product

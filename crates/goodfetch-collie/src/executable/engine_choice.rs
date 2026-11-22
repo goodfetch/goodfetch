@@ -61,6 +61,7 @@ use tokio::sync::mpsc;
 
 use super::daemon::{Machine, NotOpened, Wanted};
 use super::exit_codes;
+use super::wire_record::{RECEIVED, SENT, record_wire};
 use crate::runtime::{self, Threads};
 
 /// The id of `hello`.
@@ -922,45 +923,6 @@ async fn ready_values(input: Option<&mut Input<'_>>, most: usize) -> (Vec<Value>
         Some(input) => input.values.ready(most).await,
         None => std::future::pending().await,
     }
-}
-
-/// The `tracing` target of the records of the messages a command's
-/// Connection carries, from which a test counts them (ADR 0071's protocol
-/// counts).
-pub const WIRE_TARGET: &str = "goodfetch::cli::wire";
-
-/// The direction of a message the command sent.
-const SENT: &str = "sent";
-
-/// The direction of a message the command received.
-const RECEIVED: &str = "received";
-
-/// Records one message of the Connection, at `trace`: its direction, its
-/// kind (`request`, `notification`, `response` or `error`), its method
-/// when it has one, and its bytes. It never records the message's content,
-/// which may hold the Daemon's token.
-fn record_wire(direction: &str, line: &[u8]) {
-    if !tracing::enabled!(target: WIRE_TARGET, tracing::Level::TRACE) {
-        return;
-    }
-    let Ok(message) = serde_json::from_slice::<Value>(line) else {
-        return;
-    };
-    let method = message["method"].as_str().unwrap_or_default();
-    let kind = match (method.is_empty(), message.get("id").is_some()) {
-        (false, true) => "request",
-        (false, false) => "notification",
-        (true, _) if message.get("error").is_some() => "error",
-        (true, _) => "response",
-    };
-    tracing::trace!(
-        target: WIRE_TARGET,
-        direction,
-        kind,
-        method,
-        bytes = line.len(),
-        "message"
-    );
 }
 
 /// The signals that interrupt a command (`SIGINT`, or Ctrl-C and

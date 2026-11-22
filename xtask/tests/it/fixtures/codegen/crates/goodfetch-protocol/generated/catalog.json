@@ -94,6 +94,7 @@
   "exit_codes": [],
   "handler_requests": [],
   "hook_stages": [],
+  "kind_parts": [],
   "metrics": [
     {
       "arrived_in": "0.1",

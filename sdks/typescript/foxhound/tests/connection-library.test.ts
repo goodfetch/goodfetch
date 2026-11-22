@@ -27,7 +27,7 @@ const products = [
 describe("connection-library's finishOneRun", () => {
   test.for(products)(
     "takes $product's Connection and finishes a Run on it",
-    { tags: ["story:11-180"] },
+    { tags: ["story:11-180", "story:11-1011"] },
     async ({ open, finished }) => {
       const played = playScript(finished);
       const connection = await open(played.transport);

@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 
 use super::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
-    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, SchemaOf, Setting, SettingScope,
-    SharedTypeValue,
+    KindPart, Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, SchemaOf, Setting,
+    SettingScope, SharedTypeValue,
 };
 
 /// The scopes whose own `settings` a program's code sets a Setting at
@@ -34,6 +34,7 @@ pub struct Sections {
     settings: Vec<Value>,
     hook_stages: Vec<Value>,
     shared_type_values: Vec<Value>,
+    kind_parts: Vec<Value>,
 }
 
 impl Sections {
@@ -53,7 +54,16 @@ impl Sections {
             settings: Vec::new(),
             hook_stages: Vec::new(),
             shared_type_values: Vec::new(),
+            kind_parts: Vec::new(),
         }
+    }
+
+    /// Adds each of `parts`, the parts a kind of Run adds to an entry's
+    /// value, marked with the Product of the module that defines it,
+    /// generating its type's schema with `generator`.
+    pub fn add_kind_parts(&mut self, parts: &[&KindPart], generator: &mut SchemaGenerator) {
+        self.kind_parts
+            .extend(parts.iter().map(|part| kind_part_entry(part, generator)));
     }
 
     /// Adds every entry of `entries`, marked with the Product of the module
@@ -147,6 +157,7 @@ impl Sections {
             "settings": sorted(self.settings),
             "hook_stages": sorted(self.hook_stages),
             "shared_type_values": sorted(self.shared_type_values),
+            "kind_parts": sorted(self.kind_parts),
         })
     }
 }
@@ -323,6 +334,19 @@ fn hook_stage_entry(product: Product, stage: &HookStage) -> Value {
         "product": product.as_str(),
         "description": stage.description,
         "arrived_in": stage.arrived_in.to_string(),
+    })
+}
+
+/// A kind's part of an entry's value: its `name` is the entry's, and its
+/// `type` the whole value for that kind, every Run's parts with the kind's.
+fn kind_part_entry(part: &KindPart, generator: &mut SchemaGenerator) -> Value {
+    json!({
+        "name": part.entry,
+        "product": Product::of_module(part.defined_in).as_str(),
+        "kind": part.kind,
+        "description": part.description,
+        "type": (part.value)(generator),
+        "arrived_in": part.arrived_in.to_string(),
     })
 }
 

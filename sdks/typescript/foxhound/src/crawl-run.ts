@@ -26,9 +26,11 @@ import {
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import {
+  checkPayload,
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
+  payloadAndOptions,
   payloadOf,
   requestOptions,
   wireObject,
@@ -197,32 +199,34 @@ export class CrawlRun extends Run {
         }
         return page;
       },
-      async enqueue(url, label, payload, requestOptionsGiven = {}) {
+      async enqueue(url, label, ...rest) {
         warnEntry(foxhoundOperations, "crawl_request.enqueue");
         signal.throwIfAborted();
+        const name = declaredLabel(crawl, label);
+        const given = payloadAndOptions(label, rest);
+        const payload = payloadOf(label, given.payload);
+        await checkPayload(label, payload.payload);
         return calls.call(
           "crawl_request.enqueue",
-          {
-            ...attempt,
-            url,
-            label: declaredLabel(crawl, label),
-            ...payloadOf(payload),
-            ...requestOptions(requestOptionsGiven),
-          },
+          { ...attempt, url, label: name, ...payload, ...requestOptions(given.options ?? {}) },
           options,
         );
       },
-      async enqueueLinks(locator, label, payload, optionsGiven = {}) {
+      async enqueueLinks(locator, label, ...rest) {
         warnEntry(foxhoundOperations, "crawl_request.enqueue_links");
         signal.throwIfAborted();
+        const name = declaredLabel(crawl, label);
+        const given = payloadAndOptions(label, rest);
+        const payload = payloadOf(label, given.payload);
+        await checkPayload(label, payload.payload);
         return calls.call(
           "crawl_request.enqueue_links",
           {
             ...attempt,
             locator: idOfLocator(locator),
-            label: declaredLabel(crawl, label),
-            ...payloadOf(payload),
-            ...enqueueLinksOptions(optionsGiven),
+            label: name,
+            ...payload,
+            ...enqueueLinksOptions(given.options ?? {}),
           },
           options,
         );

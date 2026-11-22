@@ -144,6 +144,15 @@ fn check_notes_each_listed_surface_whose_tests_it_does_not_read_without_listings
         finding("missing", "attached-engine-stops cli attached"),
     ],
 )]
+#[case::property_test_behind_a_cfg_on_its_macro(
+    ATTACHED_ENGINE_STOPS,
+    "#[test]\nfn attached() {}\n",
+    "#[cfg(unix)]\nproptest::proptest! {\n    #[test]\n    fn attached(seed in 0..4u8) {\n        let _ = seed;\n    }\n}\n",
+    vec![
+        finding("gated", "goodfetch-collie::it client_conformance::attached_engine_stops::attached"),
+        finding("missing", "attached-engine-stops cli attached"),
+    ],
+)]
 #[case::module_behind_a_cfg_its_case_does_not_declare(
     COLLIE_CASES,
     "mod hello_refused;\n",

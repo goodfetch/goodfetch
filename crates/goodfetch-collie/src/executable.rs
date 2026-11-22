@@ -109,6 +109,7 @@ mod service;
 mod settings_flags;
 mod upgrade;
 mod usage;
+mod wire_record;
 
 /// The Goodfetch home's folder of crash reports, which stay on the machine
 /// (ADR 0043).

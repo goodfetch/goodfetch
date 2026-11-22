@@ -824,6 +824,155 @@ words = ["async", "connect", "over"]
 form = "opener"
 
 [[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Foxhound"
+entry = "none"
+reason = "The sync API's Connection to Foxhound's engine (ADR 0090), which `Foxhound.connect()` opens: the client package's `Connection`, as `Collie` is (ADR 0084)."
+words = ["foxhound"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "connect"
+entry = "none"
+reason = "`Collie.connect`'s factory for Foxhound (ADR 0078): its `hello` names Foxhound, which a Collie engine refuses with `not_in_product`."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "close"
+entry = "none"
+reason = "`Collie.close` on Foxhound's Connection (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncFoxhound"
+entry = "none"
+reason = "The async API's Connection to Foxhound's engine (ADR 0090), which `AsyncFoxhound.connect()` opens: the client package's `AsyncConnection`, as `AsyncCollie` is (ADR 0084)."
+words = ["async", "foxhound"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "connect"
+entry = "none"
+reason = "`Foxhound.connect`'s factory in the async API, which answers a `Connecting` to await or open with `async with`."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "close"
+entry = "none"
+reason = "`Collie.close` in the async API, on Foxhound's Connection (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Connecting"
+entry = "none"
+reason = "An `AsyncFoxhound` being opened, which `AsyncFoxhound.connect()` answers: awaited, or opened with `async with`."
+words = ["connecting"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound.testing"
+receiver = "(module)"
+member = "connect_over"
+entry = "none"
+reason = "Opens a sync `Foxhound` over a transport a test holds, such as the Scripted engine's in-memory player, with no process behind it (ADR 0069)."
+words = ["connect", "over"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound.testing"
+receiver = "(module)"
+member = "async_connect_over"
+entry = "none"
+reason = "Opens an `AsyncFoxhound` over a transport a test holds, as `connect_over` opens a `Foxhound` (ADR 0069)."
+words = ["async", "connect", "over"]
+form = "opener"
+
+[[member]]
 package = "goodfetch_collie_client.caller"
 receiver = "(module)"
 member = "AsyncCaller"

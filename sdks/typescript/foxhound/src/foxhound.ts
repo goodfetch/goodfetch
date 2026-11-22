@@ -31,7 +31,7 @@ import {
   type Transport,
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
-import { checkCrawlStartable, crawlDeclaration, type Crawl } from "./crawl.ts";
+import { checkCrawlStartable, checkSeedPayloads, crawlDeclaration, type Crawl } from "./crawl.ts";
 import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
 import {
   FoxhoundOperations,
@@ -174,8 +174,10 @@ export class Foxhound implements Connection {
    * one naming a finished Run returns it as it ended.
    * Before anything is sent, a Label without a handler fails with
    * `label_unhandled`, and a seed whose Label's name `crawl` does not
-   * declare with `label_unknown` (a seed carries its Label's name only).
-   * On an edge runtime, whose request ends before the handlers would run,
+   * declare with `label_unknown` (a seed carries its Label's name only),
+   * and a seed whose Payload its Label's schema refuses with
+   * `payload_invalid`, naming each issue's path; the engine checks each
+   * Payload again, its size too (ADR 0082). On an edge runtime, whose request ends before the handlers would run,
    * it fails first with `edge_handlers_unsupported` (ADR 0049): the crawl
    * runs as a Recipe on the Daemon instead.
    */
@@ -187,6 +189,7 @@ export class Foxhound implements Connection {
       handlers: "the crawl's handlers",
     });
     checkCrawlStartable(crawl, options.seeds);
+    await checkSeedPayloads(crawl, options.seeds);
     const settings = settingsOnWire(options.settings);
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),

@@ -3,7 +3,6 @@
 //! each test named by the mode it runs in.
 
 mod deprecated_command_warns;
-#[cfg(unix)]
 mod interrupt_cancels_the_call;
 mod sequence_follows_until_it_ends;
 

@@ -38,8 +38,8 @@ use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams, Tags};
-use serde::Deserialize as _;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize as _, Serialize};
 use serde_json::{Value, json};
 
 use crate::Foxhound;
@@ -180,18 +180,21 @@ impl<'a> Crawl<'a> {
     /// Declares a Label, whose requests carry a Payload of type `P`, and
     /// returns it, the handle seeds, enqueues and its handler name it by:
     /// a bare name, `crawl.label::<P>(name)`, or a [`LabelDeclaration`]
-    /// with the Label's Payload schema and settings (ADR 0099).
+    /// with the Label's Payload schema and settings (ADR 0099). A seed, an
+    /// enqueue and a handler of the Label take a `P`, so the compiler
+    /// refuses another type, `()` for a Label without a Payload; with a
+    /// schema, the engine checks each Payload against it (ADR 0082).
     ///
     /// # Errors
     ///
     /// `label_duplicate` when the crawl already declares a Label of its
     /// name, and `setting_not_applicable` for a key of its settings a
     /// Label does not set; neither declares it.
-    pub fn label<P>(
+    pub fn label<P: Serialize + DeserializeOwned>(
         &mut self,
         declaration: impl Into<LabelDeclaration<'a, P>>,
     ) -> Result<Label<P>, Error> {
-        let (name, wire) = declaration.into().into_parts()?;
+        let (name, wire, schema) = declaration.into().into_parts()?;
         if self.labels.iter().any(|declared| *declared.name == *name) {
             return Err(Error::of_sdk(
                 &LABEL_DUPLICATE,
@@ -209,7 +212,7 @@ impl<'a> Crawl<'a> {
         Ok(Label {
             name,
             crawl: self.id,
-            payload: PhantomData,
+            payload: schema.map(Arc::new),
         })
     }
 
@@ -470,8 +473,8 @@ fn label_unknown(label: &str, declared: Vec<String>) -> Error {
     )
 }
 
-/// The `payload_invalid` of a Payload that does not serialize, or does not
-/// read as its Label's type.
+/// The `payload_invalid` of a Payload that does not serialize, or of a
+/// delivered one that does not read as its Label's type.
 fn payload_invalid(error: serde_json::Error) -> Error {
     Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
 }
@@ -616,8 +619,9 @@ impl Foxhound {
     ///
     /// Awaiting it fails with `label_unhandled` for a Label with no
     /// handler, `label_unknown` for a seed of another crawl's Label,
-    /// `payload_invalid` for a Payload that does not serialize,
-    /// `invalid_params` with no seed, and what `crawl.start` fails with.
+    /// `payload_invalid` for a Payload that does not serialize, or that
+    /// its Label's schema refuses, naming each issue, `invalid_params`
+    /// with no seed, and what `crawl.start` fails with.
     pub fn start_crawl(
         &self,
         crawl: &Crawl<'_>,

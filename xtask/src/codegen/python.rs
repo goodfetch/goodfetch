@@ -30,7 +30,7 @@ use super::handles;
 use super::layer::{Deprecation, ErrorCode, Layer, Stability};
 use super::naming::{pascal, snake};
 use super::open_values::{self, OpenValues};
-use super::{Generated, TypesFile};
+use super::{EXPERIMENTAL, Generated, TypesFile};
 
 /// Collie's generated layer, as Foxhound's layer imports it.
 const CLIENT_PACKAGE: &str = "goodfetch_collie_client.generated";
@@ -128,8 +128,6 @@ mod handle_classes;
 pub(super) mod model_defaults;
 mod points_in_time;
 mod settings;
-
-const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
 /// The layer's settings module, and the plain-data fields that declare each
 /// deprecated setting there, `Class.field`, by key: the release notes' list

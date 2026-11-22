@@ -204,8 +204,28 @@ impl<P> CrawlContext<P> {
         self.inner.retry(message)
     }
 
-    /// Pushes `record` into `dataset`, as [`crate::CrawlContext::push`]
-    /// does, and blocks until the engine has staged it.
+    /// Pushes one Record or several, in one message, into a Dataset the
+    /// crawl declares from inside a handler's attempt, a handler context's
+    /// `push`, and answers once they are staged: they commit once with the
+    /// attempt's other outputs when the handler returns, and are discarded
+    /// with them when the attempt ends any other way. Each Record is
+    /// checked first. A push of no Record fails with `invalid_params`. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`, and
+    /// none of the Records is staged. A Record that is no JSON object,
+    /// fails its Dataset's JSON Schema or lacks one of its key's fields is
+    /// not staged: its rejection is staged instead, entering the Dataset's
+    /// rejection table (`run.rejected_records`) if the attempt commits,
+    /// while the Records that hold are staged and the attempt keeps what it
+    /// staged before; the call then fails with `record_invalid`, naming
+    /// each such Record by its position in the list and each of its issues
+    /// by its path. An attempt that already ended fails with
+    /// `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This pushes `record` into `dataset`, as
+    /// [`crate::CrawlContext::push`] does, and blocks until the engine has
+    /// staged it.
     ///
     /// # Errors
     ///
@@ -215,8 +235,27 @@ impl<P> CrawlContext<P> {
             .wait(self.inner.push(dataset, record))
     }
 
-    /// Enqueues the request of `url`, as [`crate::CrawlContext::enqueue`]
-    /// does, and blocks until the Frontier answers what it did with it.
+    /// Adds one request to a crawl from inside a handler's attempt, a
+    /// handler context's `enqueue`, and answers what the Frontier did with
+    /// it: added, with its crawl request's ID and its URL as parsed, or not
+    /// added, with its reason (`duplicate`, `out_of_scope`,
+    /// `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`,
+    /// `path_budget` or a URL cap's name). A relative URL resolves against
+    /// the document's base URL: its `<base href>`, resolved against the URL
+    /// the document was reached at after its redirects, or that URL itself.
+    /// A request is `duplicate` when one of its identity was already
+    /// admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`,
+    /// `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters
+    /// sorted) and its body's hash, or the `key` the program declares in
+    /// their place; it is still fetched at its own URL. The request sits
+    /// one level deeper than the one whose attempt added it. An attempt
+    /// whose lease no longer holds fails with `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This enqueues the request of `url`, as
+    /// [`crate::CrawlContext::enqueue`] does, and blocks until the Frontier
+    /// answers what it did with it.
     ///
     /// # Errors
     ///
@@ -231,7 +270,30 @@ impl<P> CrawlContext<P> {
             .wait(self.inner.enqueue(url, label, payload))
     }
 
-    /// Enqueues the link of each element `links` matches, as
+    /// Adds every link a locator matches on the page a handler's attempt
+    /// was given, a handler context's `enqueueLinks`, each a `GET` of its
+    /// `href` resolved against the document's base URL (its `<base href>`,
+    /// resolved against the URL the document was reached at after its
+    /// redirects, or that URL itself), its query percent-encoded in the
+    /// document's encoding as a browser encodes it, and answers each
+    /// matched element in document order: added, with its crawl request's
+    /// ID and URL; not added, with its reason, as `crawl_request.enqueue`
+    /// answers; `no_link` for an element without an `href`; or
+    /// `skipped_by_payload` for one whose entry in `payloads` is `null`.
+    /// Every link takes `payload`, or its own entry of `payloads`, the
+    /// program's Payload function's answers for the elements
+    /// `crawl_request.links` read; a Payload that does not fit its Label
+    /// fails the call with `payload_invalid` and adds none. `limit` adds at
+    /// most that many links: once they are added, each later element whose
+    /// link the Frontier would judge is not added, with `link_limit`.
+    /// `include` and `exclude` only narrow the crawl's scope; a pattern the
+    /// engine cannot match fails with `pattern_unsupported`. A page no
+    /// fetch tier serves fails with `closed`, and an attempt whose lease no
+    /// longer holds with `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This enqueues the link of each element `links` matches, as
     /// [`crate::CrawlContext::enqueue_links`] does, and blocks until the
     /// Frontier answers what it did with each.
     ///
@@ -256,6 +318,15 @@ impl<P> CrawlContext<P> {
 }
 
 impl Foxhound {
+    /// Starts a crawl from its seeds, and answers once its Run is started.
+    /// The engine then leases each work item to the program's handler as a
+    /// `crawl_request.handle` request, and the crawl's Run finishes once
+    /// every work item is done, or, with `crawl.keep_alive`, once
+    /// `run.finish` lets it and every work item is done. A Run ID works as
+    /// `run.start`'s.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
     /// The start of `crawl`'s Run from `seeds`, as
     /// [`crate::Foxhound::start_crawl`], which `send()` sends.
     pub fn start_crawl(&self, crawl: &Crawl, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
@@ -326,6 +397,26 @@ impl CrawlRun {
         &self.run
     }
 
+    /// Reads the committed Records of one Dataset of a crawl's Run in
+    /// number order, from the first, or after the number `after`, which
+    /// resumes a reader from the last Record it handled. Each Record goes
+    /// in a `$/record` notification with its number, its value, its
+    /// request's ID and URL and when it was committed, one per credit
+    /// granted with `$/credit`. While the Run is live it follows the Run,
+    /// sending each Record once it commits; once the Run has ended, or has
+    /// no live writer, and every Record is sent, it answers how many it
+    /// sent and the last one's number. With `through`, such as the number
+    /// `dataset.page` answers as the last committed, it reads no Record
+    /// numbered past it and answers once it sent every Record through it, a
+    /// live Run's included. Records are read from the Run's committed state
+    /// on a connection of their own, so a reader that grants no credit
+    /// never slows the crawl. With `wall` set to `true` it reads only the
+    /// Records whose page was read past a Wall, which their Provenance
+    /// marks, and with `false` only the others (ADR 0052). A Dataset the
+    /// crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
     /// The Records of `dataset` the Run has kept, as
     /// [`crate::CrawlRun::records`], as an iterator that blocks the calling
     /// thread until the next one. Dropping it cancels the read.

@@ -822,6 +822,38 @@ only = "TypeScript names the Usage kind as the `paidFetches` key of its `Limits`
 words = ["paid", "fetches"]
 form = "constant"
 
+[[unreached]]
+entries = ["sample.crawl"]
+reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
+
+[[unreached]]
+entries = ["crawl.serve"]
+reason = "A handler process of `workers=N` offers its handler with it (ADR 0024); issue 2804 adds `serve`."
+
+[[unreached]]
+entries = ["crawl_request.links"]
+reason = "What a per-link Payload function of `enqueueLinks` reads; `enqueue_links` takes one Payload for every link, so nothing reads it yet."
+
+[[unreached]]
+entries = ["dataset.list", "dataset.page", "dataset.query"]
+reason = "No member reads a Run's Datasets yet."
+
+[[unreached]]
+entries = ["run.export", "export.save_as", "export.stream"]
+reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
+
+[[unreached]]
+entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
+reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
+
+[[unreached]]
+entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
+reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+
+[[unreached]]
+entries = ["run.rejected_records"]
+reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
+
 [[target]]
 crate = "goodfetch-collie-client"
 name = "goodfetch::client"

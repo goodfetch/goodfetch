@@ -12,7 +12,9 @@
 # hand-written member an entry exports that no line lists, and a line
 # naming no such member. A dunder, such as `__enter__`, is the language's:
 # no line has to list it. `xtask sdk-manifests` checks each line's entry,
-# spelling and receiver.
+# spelling and receiver. The docstring and decorators each line's member
+# carries, and the `[[unreached]]` lines, follow the rules of
+# `sdks/typescript/manifest.toml`'s header.
 #
 # Its `[[logger]]` lines list the SDK's logger names (ADR 0078), which are
 # SDK API under semver as names, checked as such by `griffe check` once
@@ -1642,6 +1644,109 @@ entry = "none"
 reason = "A member of an open tagged union this package does not know (ADR 0099), which the generated models' unions keep."
 words = ["unknown", "member"]
 form = "type"
+
+[[unreached]]
+entries = [
+  "audit.export",
+  "audit.verify",
+  "certs.list",
+  "daemon.health",
+  "daemon.status",
+  "daemon.stop",
+  "engine.info",
+  "events.subscribe",
+  "needs_you.dismiss",
+  "needs_you.list",
+  "run.list",
+  "run.resume",
+  "signing_key.create",
+  "signing_key.directory",
+  "usage.list",
+  "usage.set",
+]
+reason = "Operations of the engine as a whole, on no handle the generators write members on (ADR 0081), and no hand-written member serves them yet. A connection sends `usage.set` for each of its `limits` (ADR 0080), and a start under a Run ID resumes it as `run.resume` does (ADR 0102)."
+
+[[unreached]]
+entries = ["sample.echo", "sample.crawl"]
+reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
+
+[[unreached]]
+entries = ["connection.set_log_level"]
+reason = "The Connection sends it itself, following the `goodfetch.engine` logger's effective level (ADR 0078); no member sets it."
+
+[[unreached]]
+entries = [
+  "dialog.accept",
+  "dialog.dismiss",
+  "page.add_init_script",
+  "page.on_dialog",
+  "page.route",
+  "route.abort",
+  "route.continue",
+  "route.fallback",
+  "route.fetch",
+  "route.fulfill",
+  "session.route",
+]
+reason = "Routes, dialogs and init scripts take a handler or script the program registers, which the generators do not write; issues 1297 and 2266 add their members."
+
+[[unreached]]
+entries = ["download.save_as"]
+reason = "Issue 3288 adds `save_as` to a download kept with the Run."
+
+[[unreached]]
+entries = ["effect.open", "effect.close"]
+reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
+
+[[unreached]]
+entries = ["page.body"]
+reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
+
+[[unreached]]
+entries = ["response.body"]
+reason = "Issue 1476 adds the body of the response a page kept, as `ctx.response.body()`."
+
+[[unreached]]
+entries = [
+  "key_value_store.get",
+  "key_value_store.set",
+  "key_value_store.get_bytes",
+  "key_value_store.set_bytes",
+  "key_value_store.delete",
+]
+reason = "The Python Key-value store has only `keys` so far; issue 1284 covers the Run's Key-value store."
+
+[[unreached]]
+entries = [
+  "crawl.start",
+  "crawl.serve",
+  "crawl_request.enqueue",
+  "crawl_request.enqueue_links",
+  "crawl_request.links",
+  "crawl_request.push",
+  "run.records",
+]
+reason = "The Python SDK has no crawl yet; issue 1468 adds `AsyncCrawl` and `Crawl` with their handlers."
+
+[[unreached]]
+entries = ["dataset.list", "dataset.page", "dataset.query"]
+reason = "No member reads a Run's Datasets yet."
+
+[[unreached]]
+entries = ["run.export", "export.save_as", "export.stream"]
+reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
+
+[[unreached]]
+entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
+reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
+
+[[unreached]]
+entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
+reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+
+[[unreached]]
+entries = ["run.rejected_records"]
+reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[logger]]
 package = "goodfetch-collie-client"

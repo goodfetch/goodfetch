@@ -98,14 +98,33 @@ export class CrawlRun extends Run {
   }
 
   /**
-   * Reads `dataset`'s committed Records in number order (ADR 0103), each
-   * as the engine streams it: while the Run is live it follows the Run,
-   * and once the Run has ended and every Record is read, the iteration
-   * ends. Its stream is sent when it is called (ADR 0081), and `break`,
+   * Reads the committed Records of one Dataset of a crawl's Run in number
+   * order, from the first, or after the number `after`, which resumes a
+   * reader from the last Record it handled. Each Record goes in a
+   * `$/record` notification with its number, its value, its request's ID
+   * and URL and when it was committed, one per credit granted with
+   * `$/credit`. While the Run is live it follows the Run, sending each
+   * Record once it commits; once the Run has ended, or has no live writer,
+   * and every Record is sent, it answers how many it sent and the last
+   * one's number. With `through`, such as the number `dataset.page`
+   * answers as the last committed, it reads no Record numbered past it and
+   * answers once it sent every Record through it, a live Run's included.
+   * Records are read from the Run's committed state on a connection of
+   * their own, so a reader that grants no credit never slows the crawl.
+   * With `wall` set to `true` it reads only the Records whose page was
+   * read past a Wall, which their Provenance marks, and with `false` only
+   * the others (ADR 0052). A Dataset the crawl does not declare fails with
+   * `dataset_unknown`.
+   *
+   * Reads `dataset`'s Records (ADR 0103), each as the engine streams it,
+   * and the iteration ends once the engine answers. Its stream is sent
+   * when it is called (ADR 0081), and `break`,
    * `return()`, `close()`, `using` or releasing it unread cancel it at
    * once; after a remote Daemon's dropped link, it is sent again after
    * the last Record read (spec 606). On a closed Run it throws `closed`,
    * sending nothing.
+   *
+   * @experimental
    */
   records<I extends object>(
     dataset: Dataset<I>,
@@ -136,6 +155,15 @@ export class CrawlRun extends Run {
    * first: its context's calls fail with `closed` and the handler's page
    * answers no more. A Run still running is then stopped as `close()`
    * stops any Run.
+   *
+   * Stops a Run at its next safe point, `stopped` and `incomplete`: no
+   * attempt in flight commits, and its work items return to pending.
+   * Answers its Run report; an ended Run's report is answered as it is. A
+   * Run whose engine died is stopped by this engine, which takes its writer
+   * role at the next run epoch; a Run another engine writes is stopped by
+   * that engine, the owner the Run index names.
+   *
+   * @experimental
    */
   override close(): Promise<void> {
     warnEntry(collieOperations, "run.abort");

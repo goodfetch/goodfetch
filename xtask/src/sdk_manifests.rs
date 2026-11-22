@@ -19,8 +19,10 @@
 //! A Python receiver, whose package is an import name such as
 //! `goodfetch_collie`, is not yet matched to another SDK's (issue 3115).
 //! `xtask sdk-exports` matches a manifest to the members its SDK exports
-//! ([`exports`]), TypeScript's, Rust's and Python's; their doc text and
-//! markers are issue 2920's next parts.
+//! ([`exports`]), TypeScript's, Rust's and Python's, checks that each
+//! listed member carries its entry's doc text and markers, and that each
+//! entry reaches a public member of every SDK or an `[[unreached]]` line
+//! says why it does not.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -87,6 +89,16 @@ enum Language {
     Python,
 }
 
+impl Language {
+    fn name(self) -> &'static str {
+        match self {
+            Self::TypeScript => "TypeScript",
+            Self::Rust => "Rust",
+            Self::Python => "Python",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Catalog {
     operations: Vec<Operation>,
@@ -97,12 +109,50 @@ struct Operation {
     name: String,
     #[serde(default)]
     reach: Option<String>,
+    /// Its doc text, which each member serving it carries.
+    #[serde(default)]
+    description: String,
+    /// `experimental` or `stable`.
+    #[serde(default)]
+    stability: Option<String>,
+    /// Its deprecation, `null` when it is not deprecated.
+    #[serde(default)]
+    deprecated: Option<serde_json::Value>,
+}
+
+impl Operation {
+    fn person_only(&self) -> bool {
+        self.reach.as_deref() == Some(PERSON_ONLY)
+    }
+}
+
+/// The catalog, read from `root`.
+fn catalog(root: &Path) -> Result<Catalog> {
+    let path = root.join(CATALOG);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 #[derive(Deserialize)]
 struct Manifest {
     #[serde(rename = "member", default)]
     members: Vec<Member>,
+    /// The entries no member of the SDK's language serves yet.
+    #[serde(default)]
+    unreached: Vec<Unreached>,
+}
+
+/// An `[[unreached]]` line: entries no public member of the language's SDK
+/// serves, and why.
+#[derive(Deserialize)]
+struct Unreached {
+    entries: Vec<String>,
+    #[expect(
+        dead_code,
+        reason = "required, so a line without its reason fails to parse; no check reads it"
+    )]
+    reason: String,
 }
 
 #[derive(Deserialize)]
@@ -149,14 +199,12 @@ struct Listed {
     members: Vec<Member>,
 }
 
-/// The lines of the manifest at `manifest`, relative to `root`.
-fn read(root: &Path, manifest: &str) -> Result<Vec<Member>> {
+/// The manifest at `manifest`, relative to `root`.
+fn read(root: &Path, manifest: &str) -> Result<Manifest> {
     let path = root.join(manifest);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed: Manifest =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(parsed.members)
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 fn subject(path: &str, member: &Member) -> String {
@@ -209,11 +257,7 @@ fn generated_name(language: Language, words: &str) -> Option<String> {
 }
 
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
-    let path = root.join(CATALOG);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let catalog: Catalog =
-        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let catalog = catalog(root)?;
     let reach: BTreeMap<&str, Option<&str>> = catalog
         .operations
         .iter()
@@ -225,7 +269,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         listed.push(Listed {
             path: manifest,
             language,
-            members: read(root, manifest)?,
+            members: read(root, manifest)?.members,
         });
     }
     let mut findings = Vec::new();

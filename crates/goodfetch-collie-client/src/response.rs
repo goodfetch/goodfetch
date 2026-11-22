@@ -94,8 +94,22 @@ impl Response {
         self.response.from_service_worker
     }
 
-    /// Its body's bytes, as the server sent them once their content coding
-    /// is undone.
+    /// Reads the body of the response a page's request got, once the
+    /// request finished, as a page body's handle: kept already for a
+    /// response `page.wait_for_request_finished` answered, and otherwise
+    /// read from the browser, on the session of the frame that loaded it. A
+    /// body the browser no longer holds, or a redirect's, which has none,
+    /// raises `body_unavailable`, whose fix names
+    /// `page.wait_for_request_finished`; one that broke off raises
+    /// `response_truncated`, never returned as whole. Past its `timeout`,
+    /// `timeout.wait` when the call gives none, a request that has not
+    /// ended fails it with `deadline_exceeded`; a page that ends under it
+    /// raises what ended it, as a call on the page does.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// It answers its body's bytes, as the server sent them once their
+    /// content coding is undone, read through that handle.
     ///
     /// # Errors
     ///

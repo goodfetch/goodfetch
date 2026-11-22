@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, Permit};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
@@ -168,7 +168,7 @@ pub(super) async fn navigate(
         // `auto` the request moves to the browser, under a forced tier the
         // call fails with `blocked`.
         if let Some((_, error)) = tiers
-            .classified(&run, reached, Arc::clone(&opened.document))
+            .classified(runs::identity(&run), reached, Arc::clone(&opened.document))
             .await
             .filter(|(block, _)| block.checks_the_browser())
         {
@@ -179,7 +179,7 @@ pub(super) async fn navigate(
             });
         }
     }
-    let mut response = answered(tiers, page_id, &run, fetched).await?;
+    let mut response = answered(tiers, page_id, runs::files(&run), fetched).await?;
     response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
     tiers.navigated(page_id, opened, at);
     Ok(Navigated {

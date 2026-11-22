@@ -30,7 +30,7 @@ use crate::tasks::TaskOwner;
 /// Who a Connection acts for: the OS user on a single-user install (ADR
 /// 0102), the only caller until accounts arrive (area 12), and the
 /// partition of the user's stores it reads and writes.
-pub(crate) const CALLER: &str = "os_user";
+pub const CALLER: &str = "os_user";
 
 /// The OS user's name, as the engine's environment map gives it: `USER`
 /// or `LOGNAME` on Unix, `USERNAME` on Windows; [`CALLER`] when none is
@@ -179,12 +179,12 @@ impl EngineContext {
 
     /// The user's Audit log, to which the engine records its security
     /// events.
-    pub(crate) fn audit(&self) -> &AuditLog {
+    pub fn audit(&self) -> &AuditLog {
         &self.audit
     }
 
     /// The user's known-certificates store (ADR 0042).
-    pub(crate) fn known_certificates(&self) -> &KnownCertificates {
+    pub fn known_certificates(&self) -> &KnownCertificates {
         &self.known_certificates
     }
 

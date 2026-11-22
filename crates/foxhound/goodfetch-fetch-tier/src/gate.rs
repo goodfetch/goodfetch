@@ -93,8 +93,9 @@ use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::{Politeness, PolitenessError};
 use goodfetch_engine::robots_txt::{self, Fetch};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
@@ -120,7 +121,7 @@ use crate::use_signals::UseSignals;
 /// Fetches a site file at a location for a Run, a robots.txt or an AI-use
 /// signal file, as a pool Session's own HTTP transport does
 /// (`HttpTier::robots_txt_fetch`).
-pub type RobotsTxtFetch = Arc<dyn Fn(Run, Url) -> Fetch<'static> + Send + Sync>;
+pub type RobotsTxtFetch = Arc<dyn Fn(RunIdentity, Url) -> Fetch<'static> + Send + Sync>;
 
 /// How long a request beside the Run's own whose domain is full waits
 /// before it asks for room again: the Politeness file wakes only the
@@ -359,7 +360,7 @@ impl HandOver {
     /// [`HandOver::site_files`]; unreachable without it.
     pub async fn site_file(&self, location: Url) -> robots_txt::Answer {
         match &self.site_files {
-            Some(fetch) => fetch(self.of_run.run.clone(), location).await,
+            Some(fetch) => fetch(runs::identity(&self.of_run.run).clone(), location).await,
             None => robots_txt::Answer::Unreachable(
                 "the crawl has no transport to fetch robots.txt with".to_owned(),
             ),
@@ -727,7 +728,12 @@ impl Gate {
         let spacing = hand_over.domain_delay.max(crawl_delay);
         if let Some(read) = read
             && let AfterRobotsTxt::At(start) = read
-                .start_after(hand_over.politeness.as_ref(), run, key, spacing)
+                .start_after(
+                    hand_over.politeness.as_ref(),
+                    runs::identity(run),
+                    key,
+                    spacing,
+                )
                 .await
         {
             return Some(start);

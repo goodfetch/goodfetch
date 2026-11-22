@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::run::{RunId, StopReason};
 use tokio::sync::watch;
+use tracing::Instrument as _;
 
 use crate::clock::Clock;
 use crate::metrics::Metrics;
@@ -127,6 +128,15 @@ impl RunIdentity {
     /// Runs' registry's (ADR 0145's note of 2026-11-10).
     pub fn owner(&self) -> &TaskStarter {
         &self.0.owner
+    }
+
+    /// Starts `future` as one of the Run's tasks, on its owner's starting
+    /// side, in its span.
+    pub fn spawn<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.0.owner.spawn(future.instrument(self.0.span.clone()));
     }
 
     /// Whether the Run was asked to stop at its next safe point.

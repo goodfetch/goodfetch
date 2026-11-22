@@ -34,7 +34,7 @@ use goodfetch_engine::executables;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails};
@@ -223,7 +223,7 @@ impl LightBrowser {
     /// 9999.
     pub(crate) async fn prepared(
         &self,
-        run: &Run,
+        run: &RunIdentity,
         home: &Home,
         pinned_by: &PinnedBy,
     ) -> Result<Arc<Prepared>, CallError> {
@@ -353,7 +353,7 @@ pub(crate) fn arguments(url: &str, proxy: &str) -> Vec<String> {
 ///
 /// Dropping the future kills the process and closes the bridge.
 pub(crate) async fn render(
-    run: &Run,
+    run: &RunIdentity,
     executable: &std::path::Path,
     url: &str,
     (check, limits): (crate::transports::AddressCheck, &Limits),

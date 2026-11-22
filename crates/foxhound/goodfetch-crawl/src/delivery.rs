@@ -243,7 +243,10 @@ pub(crate) async fn drive(
     // Session's local addresses under `egress.local_addresses` (ADR 0044).
     let interface = local_interface(settings.resolved());
     let built = match run_source(settings.resolved(), interface.as_ref()) {
-        Ok(local) => tiers.built(&run, settings.resolved(), local).await,
+        Ok(local) => {
+            let engine = servers[0].context.engine();
+            tiers.built(&run, engine, settings.resolved(), local).await
+        }
         Err(error) => Err(error),
     };
     let http = match built {

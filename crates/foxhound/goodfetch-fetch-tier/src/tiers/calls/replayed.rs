@@ -21,6 +21,7 @@
 use std::time::Duration;
 
 use goodfetch_engine::response_limits::{JsonFailure, Limits, parse_json};
+use goodfetch_engine::runs;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
@@ -161,7 +162,7 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
             tracing::debug!(run_id = %run.id(), url = %call, status = fetched.status, "a replayed call was not answered with JSON");
             break;
         };
-        let Ok(response) = answered(tiers, page_id, &run, fetched).await else {
+        let Ok(response) = answered(tiers, page_id, runs::files(&run), fetched).await else {
             break;
         };
         let exchange = PageExchange {

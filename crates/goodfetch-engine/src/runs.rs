@@ -1889,9 +1889,7 @@ impl Run {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.identity
-            .owner()
-            .spawn(future.instrument(self.identity.span().clone()));
+        self.identity.spawn(future);
     }
 
     /// Its `tracing` span, whose field is its Run ID: the parent of what its

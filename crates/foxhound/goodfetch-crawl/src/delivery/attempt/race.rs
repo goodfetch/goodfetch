@@ -16,7 +16,7 @@ use std::time::Duration;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
     TierChoice, record_race, room_taken, tier_provenance,
@@ -128,7 +128,7 @@ impl On<'_> {
             }
         }
         record_race(
-            run,
+            runs::run_trace(run),
             &Race {
                 request_id: &leased.crawl_request.id,
                 label: &leased.crawl_request.label,

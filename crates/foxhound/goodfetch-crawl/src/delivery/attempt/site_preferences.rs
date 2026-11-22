@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     AfterRobotsTxt, NotAllowed, Reading, Refusal, RefusedBy, Request, RobotsTxtCopies, UseSignals,
@@ -125,7 +125,12 @@ impl On<'_> {
             .max(allowed.crawl_delay.unwrap_or_default());
         if let Some(read) = &reading
             && let AfterRobotsTxt::At(start) = read
-                .start_after(of_run.politeness.as_ref(), run, key, spacing)
+                .start_after(
+                    of_run.politeness.as_ref(),
+                    runs::identity(run),
+                    key,
+                    spacing,
+                )
                 .await
             && let Ok(wait) = start.duration_since(run.clock().wall())
         {

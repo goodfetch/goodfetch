@@ -55,7 +55,8 @@ use bytes::Bytes;
 use data_encoding::BASE64;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_files::RunFiles;
+use goodfetch_engine::runs;
 use goodfetch_engine::{CallError, ReadParams, named};
 use goodfetch_extractor::fields::Fields;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
@@ -525,12 +526,12 @@ async fn request(
     page: Arc<ServedPage>,
     params: PageRequestParams,
 ) -> Result<PageResponse, CallError> {
-    let run = page.document.run.clone();
+    let files = runs::files(&page.document.run).clone();
     let fetched = sent(&page, &params).await?;
     // Its answer changes the page, which would copy it while this call
     // held it.
     drop(page);
-    answered(tiers, page_id, &run, fetched).await
+    answered(tiers, page_id, &files, fetched).await
 }
 
 /// What a request `params` of the served page `page` was answered, its
@@ -721,16 +722,16 @@ fn location(fetched: &Fetched) -> Option<Url> {
 }
 
 /// The response `fetched` a `page.request` of the served page `page_id`
-/// got, as the call answers it, its body kept in `run`'s folder for
+/// got, as the call answers it, its body kept in `files`, its Run's, for
 /// `response.body`.
 async fn answered(
     tiers: &FetchTiers,
     page_id: &PageId,
-    run: &Run,
+    files: &RunFiles,
     fetched: Fetched,
 ) -> Result<PageResponse, CallError> {
     let request_id = tiers.next_request(page_id);
-    let stored = run
+    let stored = files
         .store_body(fetched.body)
         .await
         .map_err(|error| failed(fetched.url.as_str(), &error))?;

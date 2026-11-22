@@ -93,7 +93,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HeldPlace, HopChecks, HttpTier, Judged,
@@ -388,7 +388,7 @@ pub(super) async fn run_hand_over(
     // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
     // records no start, send or latency in it (ADR 0138).
     let paces = goodfetch_frontier::paces(settings);
-    let robots_txt = RobotsTxtCopies::of(run);
+    let robots_txt = RobotsTxtCopies::of(runs::identity(run), runs::own_robots_txt(run));
     let shared = if paces
         || site_preferences.reads_robots_txt(Request::CrawlRequest)
         || site_preferences.reads_robots_txt(Request::Navigation)
@@ -999,7 +999,7 @@ impl On<'_> {
         match self.sends_from {
             SendsFrom::Browser => tiers.in_browser(
                 http,
-                self.run,
+                runs::identity(self.run),
                 self.in_browser,
                 self.hand_over,
                 self.context,
@@ -1872,7 +1872,7 @@ async fn record_tier(
     certificate_exception: Option<CertificateExceptionMark>,
 ) {
     let encoding = goodfetch_fetch_tier::record_tier(
-        run,
+        runs::run_trace(run),
         &leased.crawl_request.id,
         &leased.crawl_request.label,
         &tier,

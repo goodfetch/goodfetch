@@ -104,7 +104,7 @@ pub use composition::{
     Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
-pub use engine_context::EngineContext;
+pub use engine_context::{CALLER, EngineContext};
 pub use info::{contribution, contribution_sharing};
 pub use product::{Channel, Identity, Requested};
 pub use stored_time::StoredTime;

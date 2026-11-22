@@ -42,7 +42,7 @@ use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::robots_txt::{
     self, Answer, Copies, Fetch, Fetched, Judgment, OwnCopies, Rule,
 };
-use goodfetch_engine::runs::{self, Run};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::robots_txt::{ProductToken, applicable_groups};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -181,10 +181,11 @@ pub struct RobotsTxtCopies {
 }
 
 impl RobotsTxtCopies {
-    /// The copies `run` reads, its own until its crawl shares one.
-    pub fn of(run: &Run) -> Self {
+    /// The copies the Run of `run` reads, `own` until its crawl shares
+    /// one.
+    pub fn of(run: &RunIdentity, own: &OwnCopies) -> Self {
         Self {
-            own: runs::own_robots_txt(run).clone(),
+            own: own.clone(),
             shared: OnceLock::new(),
             clock: run.clock(),
         }
@@ -260,7 +261,7 @@ impl Reading {
     pub async fn start_after(
         &self,
         politeness: Option<&Politeness>,
-        run: &Run,
+        run: &RunIdentity,
         key: &str,
         spacing: Duration,
     ) -> AfterRobotsTxt {

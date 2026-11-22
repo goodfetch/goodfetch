@@ -25,7 +25,7 @@ use std::time::Duration;
 use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::endpoint::same_token;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_page::relay_accepting;
 use goodfetch_page::relay_deadlines::{HEAD_DEADLINE, within, within_or_none};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -67,7 +67,7 @@ impl Bridge {
     /// # Errors
     ///
     /// When no loopback port can be bound or no token drawn.
-    pub(crate) async fn open(run: &Run, check: AddressCheck) -> io::Result<Self> {
+    pub(crate) async fn open(run: &RunIdentity, check: AddressCheck) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
         let token = goodfetch_engine::endpoint::new_token().map_err(io::Error::other)?;
@@ -103,7 +103,7 @@ fn authorization(token: &str) -> String {
 
 /// The bridge's accept loop and what each connection needs.
 struct Accepting {
-    run: Run,
+    run: RunIdentity,
     check: AddressCheck,
     /// The `Proxy-Authorization` value each request must carry.
     expected: String,
@@ -116,7 +116,7 @@ impl Accepting {
     /// ([`relay_accepting`]).
     async fn accept(self, listener: TcpListener) {
         let clock = self.run.clock();
-        let ending = self.run.cancellation().clone();
+        let ending = self.run.owner().child_token();
         relay_accepting(
             || listener.accept(),
             &clock,

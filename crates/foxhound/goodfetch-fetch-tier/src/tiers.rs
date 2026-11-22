@@ -47,14 +47,17 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::RunTrace;
+use goodfetch_engine::runs::{self, ReportWarnings, Run, RunKeys};
 use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
 
 use goodfetch_engine::{
-    Answered, CallContext, CallError, GuardAnswer, ReadParams, RunOfCall, named,
+    Answered, CALLER, CallContext, CallError, EngineContext, GuardAnswer, ReadParams, RunOfCall,
+    named,
 };
 use goodfetch_extractor::BuiltIn;
 use goodfetch_extractor::fields::Found;
@@ -118,7 +121,7 @@ use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
 use crate::proxied::SessionProxies;
-use crate::redundant::{Redundant, Requester};
+use crate::redundant::{OfRun, Redundant, Requester};
 use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
 use crate::untouched::{self, Passed, UntouchedReaders};
 use crate::use_signals::UseSignals;
@@ -449,7 +452,7 @@ impl Decoding {
     /// that text is the one read here and `readers` read it (issue 2188),
     /// else a pass over the whole text.
     fn of(
-        run: &Run,
+        run: &RunIdentity,
         fetched: &crate::driver::Fetched,
         (forced, readers, passed): (Option<&'static Encoding>, &UntouchedReaders, Option<Passed>),
     ) -> Self {
@@ -509,7 +512,7 @@ impl Decoding {
         clippy::disallowed_methods,
         reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
     )]
-    fn parsed(self, run: &Run) -> Decoded {
+    fn parsed(self, run: &RunIdentity) -> Decoded {
         let Self {
             not_document,
             encoding,
@@ -605,7 +608,7 @@ impl Decoded {
                                 base_url: &base_url,
                                 serialization: goodfetch_extractor::Serialization::Served,
                             },
-                            chosen_extractor(run, extractor).extractor(),
+                            chosen_extractor(runs::identity(run), extractor).extractor(),
                             work,
                         )
                     };
@@ -681,8 +684,9 @@ impl Opened {
         readers: &UntouchedReaders,
     ) -> Self {
         let passed = fetched.pass.take();
-        Decoding::of(run, &fetched, (None, readers, passed))
-            .parsed(run)
+        let identity = runs::identity(run);
+        Decoding::of(identity, &fetched, (None, readers, passed))
+            .parsed(identity)
             .opened(run, &fetched, (extractor, readers, false), None)
     }
 }
@@ -716,7 +720,11 @@ impl Reading for OpenedReading {
 
     fn decode(&self, mut fetched: crate::driver::Fetched) -> Self::Decoded {
         let passed = fetched.pass.take();
-        let decoding = Decoding::of(&self.run, &fetched, (self.forced, &self.readers, passed));
+        let decoding = Decoding::of(
+            runs::identity(&self.run),
+            &fetched,
+            (self.forced, &self.readers, passed),
+        );
         (fetched, decoding)
     }
 
@@ -731,7 +739,7 @@ impl Reading for OpenedReading {
     ) -> HopRead<Opened> {
         // `ahead` reads only in a hand-off the document takes anyway.
         let ahead = self.pooled(&decoding).then_some(&self.ahead);
-        let decoded = decoding.parsed(&self.run);
+        let decoded = decoding.parsed(runs::identity(&self.run));
         let work = self.run.metrics().counted_work();
         if let Some(refresh) = decoded
             .refresh(&fetched, &self.readers, work)
@@ -1069,8 +1077,9 @@ impl FetchTiers {
     /// share connections: the one its crawl requests on the `http` tier
     /// take, and its navigation gate fetches robots.txt with, sending from
     /// `local` when the Run sets `egress.local_addresses` (ADR 0044), and
-    /// through a proxy of its own when the Run sets one (#1640). Each pool
-    /// Session's own local addresses and proxy take
+    /// through a proxy of its own when the Run sets one (#1640), its
+    /// certificate exceptions pinning in `engine`'s known-certificates
+    /// store. Each pool Session's own local addresses and proxy take
     /// [`HttpTier::of_session`].
     ///
     /// # Errors
@@ -1085,28 +1094,30 @@ impl FetchTiers {
     pub async fn built(
         &self,
         run: &Run,
+        engine: &EngineContext,
         settings: &Resolved,
         local: Option<LocalSource>,
     ) -> Result<HttpTier, String> {
+        let identity = runs::identity(run);
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
-        let trust = Trust::of(settings, run.owner()).await;
+        let trust = Trust::of(settings, identity.owner()).await;
         let client_certificates = ClientCertificates::listed(
             settings.value(&TLS_CLIENT_CERTIFICATES),
-            run.secrets().clone(),
+            runs::keys(run).secrets().clone(),
             settings
                 .effective(&TLS_CLIENT_CERTIFICATES)
                 .map(|effective| effective.layer),
-            Some(run.id().clone()),
+            Some(identity.id().clone()),
         )
         .map_err(|error| error.to_string())?;
         let config = TransportConfig {
             trust,
-            exceptions: exceptions_of(run, settings),
+            exceptions: exceptions_of((identity, runs::keys(run)), engine, settings),
             client_certificates: Some(client_certificates),
             proxy: None,
             resolve: HostMapping::of(settings),
             egress: egress.clone(),
-            clock: run.clock(),
+            clock: identity.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
             delays: Delays::of(settings),
@@ -1117,7 +1128,7 @@ impl FetchTiers {
             Some(pages) => match pages.document_request(run).await {
                 Ok(request) => request,
                 Err(unread) => {
-                    warn_version_unread(run, &unread).await;
+                    warn_version_unread((identity, runs::warnings(run)), &unread).await;
                     None
                 }
             },
@@ -1169,7 +1180,7 @@ impl FetchTiers {
     pub fn in_browser(
         &self,
         http: &HttpTier,
-        run: &Run,
+        run: &RunIdentity,
         pooled: &PooledSession,
         hand_over: &Arc<HandOver>,
         context: &CallContext,
@@ -1260,7 +1271,12 @@ impl FetchTiers {
                         .fetch(
                             tier.transport.as_ref(),
                             &tier.bounds,
-                            run,
+                            OfRun {
+                                identity: runs::identity(run),
+                                trace: runs::run_trace(run),
+                                charging: runs::charging(run),
+                                governor: runs::governor(run),
+                            },
                             (&hop, Some(own)),
                             requester,
                         )
@@ -1324,7 +1340,7 @@ impl FetchTiers {
         };
         ReadAhead {
             formats,
-            blocks: classifies_blocks(run).then(|| Arc::clone(pages)),
+            blocks: classifies_blocks(runs::identity(run)).then(|| Arc::clone(pages)),
         }
     }
 
@@ -1376,11 +1392,11 @@ impl FetchTiers {
             let readers = Arc::clone(&hand_over.untouched);
             let mut fetched = fetched;
             let passed = fetched.pass.take();
-            let decoding = Decoding::of(run, &fetched, (forced, &readers, passed));
+            let decoding = Decoding::of(runs::identity(run), &fetched, (forced, &readers, passed));
             if decoding.on_pool(&ahead) {
                 run.owner()
                     .analysis(run.metrics().counted_work(), move || {
-                        decoding.parsed(&reading).opened(
+                        decoding.parsed(runs::identity(&reading)).opened(
                             &reading,
                             &fetched,
                             (extractor, &readers, true),
@@ -1389,9 +1405,12 @@ impl FetchTiers {
                     })
                     .await
             } else {
-                decoding
-                    .parsed(run)
-                    .opened(run, &fetched, (extractor, &readers, true), None)
+                decoding.parsed(runs::identity(run)).opened(
+                    run,
+                    &fetched,
+                    (extractor, &readers, true),
+                    None,
+                )
             }
         };
         // A document only a guess could read is never served: under a
@@ -1486,11 +1505,11 @@ impl FetchTiers {
         let prepared = self
             .served
             .light
-            .prepared(run, home, pinned_by)
+            .prepared(runs::identity(run), home, pinned_by)
             .await
             .map_err(Stop::failed)?;
         let rendered = crate::light_browser::render(
-            run,
+            runs::identity(run),
             &prepared.executable,
             &request.url,
             (tier.address_check(), &tier.bounds.limits),
@@ -1622,7 +1641,7 @@ impl FetchTiers {
         }
         let run = served.run.clone();
         let work = run.metrics().counted_work().clone();
-        let extractor = chosen_extractor(&run, served.extractor);
+        let extractor = chosen_extractor(runs::identity(&run), served.extractor);
         let signed = run
             .owner()
             .analysis(run.metrics().counted_work(), move || {
@@ -1938,7 +1957,7 @@ impl FetchTiers {
                 .clone()
                 .map(|block| (block.clone(), blocked(block, &response, received)));
         }
-        self.classified(&run, response, Arc::clone(&page.document))
+        self.classified(runs::identity(&run), response, Arc::clone(&page.document))
             .await
     }
 
@@ -1951,7 +1970,7 @@ impl FetchTiers {
     /// before the engine's pages were handed over.
     async fn classified(
         &self,
-        run: &Run,
+        run: &RunIdentity,
         response: PageResponse,
         document: Arc<ServedDocument>,
     ) -> Option<(Block, CallError)> {
@@ -2388,14 +2407,14 @@ impl HandlerPages for FetchTiers {
 /// Hands the Run's report the warning that the installed browser's version
 /// was not read, so its Sessions' own transport presents no browser
 /// identity (ADR 0021).
-async fn warn_version_unread(run: &Run, unread: &Unread) {
+async fn warn_version_unread((run, warnings): (&RunIdentity, &ReportWarnings), unread: &Unread) {
     let warning = RunWarning {
         code: BROWSER_VERSION_UNREAD.to_owned(),
         message: unread.to_string(),
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn(warning).await {
+    if let Err(error) = warnings.warn(warning).await {
         tracing::warn!(%error, run_id = %run.id(), "the warning that the installed browser's version was not read was not kept");
     }
 }
@@ -2619,7 +2638,7 @@ impl HttpTier {
     /// # Cancel safety
     ///
     /// Dropping the future closes the fetch's connection.
-    pub async fn signal_file(&self, run: &Run, url: &Url) -> Option<Vec<u8>> {
+    pub async fn signal_file(&self, run: &RunIdentity, url: &Url) -> Option<Vec<u8>> {
         match self.robots_txt(run, url).await {
             Answer::Response { status, body } if (200..300).contains(&status) => Some(body),
             _ => None,
@@ -2636,7 +2655,7 @@ impl HttpTier {
     /// # Cancel safety
     ///
     /// Dropping the future closes the fetch's connection.
-    pub async fn robots_txt(&self, run: &Run, location: &Url) -> Answer {
+    pub async fn robots_txt(&self, run: &RunIdentity, location: &Url) -> Answer {
         let mut url = location.clone();
         let mut redirects = 0;
         loop {
@@ -2728,7 +2747,7 @@ pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
     }
 }
 
-/// Records in `run`'s Provenance the tier `tier` for an attempt of the
+/// Records in the Provenance of `trace`, its Run's, the tier `tier` for an attempt of the
 /// crawl request `request_id` of `label`, as [`tier_provenance`] gives it,
 /// and the `encoding` its document was read in, with where it came from
 /// (ADR 0119), when it read one; a document the browser read only by its
@@ -2739,7 +2758,7 @@ pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
 ///
 /// Dropping the future never stops the line being written once it began.
 pub async fn record_tier(
-    run: &Run,
+    trace: &RunTrace,
     request_id: &str,
     label: &str,
     tier: &TierProvenance,
@@ -2780,8 +2799,21 @@ pub async fn record_tier(
     if let Some(calls_sent_on) = tier.calls_sent_on {
         entry["calls_sent_on"] = serde_json::json!(calls_sent_on);
     }
-    goodfetch_page::provenance(run, entry).await;
+    provenance(trace, entry).await;
     encoding
+}
+
+/// Records `entry`, one Provenance entry of a Run, such as of a request
+/// a fetch tier sent for it, as a line of `trace`, its Run trace's
+/// Provenance log; a line that cannot be written is logged and lost.
+///
+/// # Cancel safety
+///
+/// Dropping the future never stops a line being written once it began.
+pub(crate) async fn provenance(trace: &RunTrace, entry: serde_json::Value) {
+    if let Err(error) = trace.provenance(entry).await {
+        tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
+    }
 }
 
 /// Provenance's action for a race of a crawl request's tiers.
@@ -2831,7 +2863,7 @@ pub struct Race<'a> {
     pub navigation: RaceEnd,
 }
 
-/// Records in `run`'s Provenance how a tier race ran (ADR 0040): its
+/// Records in the Provenance of `trace`, its Run's, how a tier race ran (ADR 0040): its
 /// delay, how each run ended, the first request under the name of the tier
 /// that sent it, `browser_fetch` or `http`, and which won, that tier,
 /// `browser` or none.
@@ -2839,7 +2871,7 @@ pub struct Race<'a> {
 /// # Cancel safety
 ///
 /// Dropping the future never stops the line being written once it began.
-pub async fn record_race(run: &Run, race: &Race<'_>) {
+pub async fn record_race(trace: &RunTrace, race: &Race<'_>) {
     let first = race.first_sent_on.as_str();
     let winner = if race.first == RaceEnd::Won {
         Some(first)
@@ -2857,7 +2889,7 @@ pub async fn record_race(run: &Run, race: &Race<'_>) {
         "winner": winner,
     });
     entry[first] = serde_json::Value::from(race.first.as_str());
-    goodfetch_page::provenance(run, entry).await;
+    provenance(trace, entry).await;
 }
 
 /// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as
@@ -2941,20 +2973,25 @@ fn mark(used: &ExceptionUsed) -> CertificateExceptionMark {
 }
 
 /// The invalid-certificate exceptions of `settings`' `tls.accept_invalid_certs`
-/// for `run`, pinning in the person's known-certificates store; none,
-/// logged, when an entry names no host.
-fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
+/// for the Run of `run`, whose Secrets `keys` hold, pinning in the person's
+/// known-certificates store of `engine`; none, logged, when an entry names
+/// no host.
+fn exceptions_of(
+    (run, keys): (&RunIdentity, &RunKeys),
+    engine: &EngineContext,
+    settings: &Resolved,
+) -> CertificateExceptions {
     let book = PinBook {
-        store: run.known_certificates(),
-        person: run.person().to_owned(),
+        store: engine.known_certificates().clone(),
+        person: CALLER.to_owned(),
         run_id: Some(run.id().clone()),
-        audit: Arc::new(run.audit_log()),
+        audit: Arc::new(engine.audit().clone()),
         clock: run.clock(),
     };
     CertificateExceptions::listed(
         settings.value(&TLS_ACCEPT_INVALID_CERTS),
         book,
-        run.secrets().exception_hosts(),
+        keys.secrets().exception_hosts(),
     )
     .unwrap_or_else(|error| {
         tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
@@ -2967,7 +3004,7 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
 /// and the time the site's `Retry-After` asks for (ADR 0079).
 /// Whether the Run `run` reads its documents for a Block cause, its
 /// `fetch.block_classification` (ADR 0138).
-fn classifies_blocks(run: &Run) -> bool {
+fn classifies_blocks(run: &RunIdentity) -> bool {
     get_or_default(
         run.settings().map(RunSettings::resolved),
         &FETCH_BLOCK_CLASSIFICATION,
@@ -3011,6 +3048,6 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
 /// The main-content step a page of `run` is signed with, the one its
 /// formats read its main content with: the page crate's one resolver, given
 /// its Label's `content.extractor`, `label` (ADR 0138; spec #2164).
-fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> goodfetch_extractor::Chosen {
+fn chosen_extractor(run: &RunIdentity, label: Option<BuiltIn>) -> goodfetch_extractor::Chosen {
     goodfetch_page::extractor::served(run.settings().map(RunSettings::resolved), label)
 }

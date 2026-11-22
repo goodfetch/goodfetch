@@ -134,6 +134,12 @@ impl<P> CrawlContext<P> {
         Self { attempt, payload }
     }
 
+    /// The connection the attempt came on, which a blocking handler's
+    /// calls wait on.
+    pub(crate) fn connection(&self) -> &ClientConnection {
+        &self.attempt.connection
+    }
+
     /// The request's Payload.
     pub fn payload(&self) -> &P {
         &self.payload

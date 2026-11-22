@@ -95,6 +95,33 @@ impl ClientConnection {
         let connection = self.0.clone();
         self.0.wait(async move { connection.close().await })
     }
+
+    /// Runs `future` on the Connection's runtime and blocks the calling
+    /// thread, and only it, until it ends, as every `send()` does: the way
+    /// down a Product's blocking API takes for a future of its own, such as
+    /// Foxhound's blocking `serve` (ADR 0081). It never enters a runtime,
+    /// so it works inside one, where it blocks that worker.
+    ///
+    /// # Errors
+    ///
+    /// What `future` returns, `closed` once the Connection's runtime has
+    /// shut down, and `connection_forked` in a process other than the one
+    /// that opened it.
+    pub fn wait<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, Error>> + Send + 'static,
+    ) -> Result<T, Error> {
+        self.0.wait(future)
+    }
+}
+
+/// The blocking face of `run`, whose calls block: the twin a Product's
+/// blocking API hands out of a Run it holds, such as Foxhound's blocking
+/// crawl Run's.
+impl From<crate::Run> for Run {
+    fn from(inner: crate::Run) -> Self {
+        Self { inner }
+    }
 }
 
 /// The blocking twin of [`crate::Connection`]: a helper a library serving

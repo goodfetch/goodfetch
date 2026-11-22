@@ -121,6 +121,12 @@ tokio = { workspace = true, features = ["rt", "io-util", "macros", "time"] }
 # The tier race on a scripted browser (tests/it/tier_race/scripted.rs): the
 # `BrowserPages` seam its fetch tiers are handed.
 goodfetch-page.workspace = true
+# The tracer crawl served from an axum handler, its Router driven as a
+# tower Service (tests/it/sdk/crawl.rs).
+axum.workspace = true
+tower-service.workspace = true
+# The crawl's compile-fail cases (tests/it/compile_fail.rs, tests/ui/).
+trybuild.workspace = true
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

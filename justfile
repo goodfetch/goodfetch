@@ -27,6 +27,17 @@ set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-euo", "pipefail", "
 # against a hang on Ctrl-Z.
 export NEXTEST_DOUBLE_SPAWN := "0"
 
+# Where the build's Rust compiler wrapper is sccache, on Linux and macOS,
+# recipes build through ci/compiler-cache/sccache, which runs that sccache,
+# saved here, and hands it DuckDB's C++ compiles relative to their OUT_DIR, so
+# every profile and target folder shares one compile of each source (issue
+# 3231; TESTING.md, Compiler cache). A nested `just` keeps the sccache its
+# parent saved. Elsewhere the wrapper stays the environment's, none when it
+# sets none.
+_rustc_wrapper := env("RUSTC_WRAPPER", "")
+export GOODFETCH_SCCACHE := if os_family() != "unix" { "" } else if _rustc_wrapper =~ '/ci/compiler-cache/sccache$' { env("GOODFETCH_SCCACHE", "sccache") } else if _rustc_wrapper =~ '(^|/)sccache$' { _rustc_wrapper } else { "" }
+export RUSTC_WRAPPER := if GOODFETCH_SCCACHE != "" { justfile_directory() / "ci/compiler-cache/sccache" } else { _rustc_wrapper }
+
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 # Where `just compare` builds Spider (see that recipe).
@@ -161,7 +172,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the

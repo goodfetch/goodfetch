@@ -12,7 +12,8 @@
 //! Covers: story:11-138
 
 use goodfetch_collie::{Collie, EngineChoice, blocking};
-use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, real_time_runtime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, case_logs, real_time_runtime};
 use opentelemetry::baggage::BaggageExt as _;
 use opentelemetry::trace::{
     SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState, TracerProvider as _,
@@ -89,6 +90,8 @@ fn daemon(env: &TestEnv) -> goodfetch_collie::ConnectOptions {
 /// Covers: story:11-138
 #[test]
 fn a_call_in_a_span_carries_its_trace_context_and_one_outside_none() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "trace-context", RustMode::Daemon).unwrap();
     tracing::subscriber::with_default(opentelemetry_subscriber(), || {
         let env = TestEnv::new();
         let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");
@@ -120,6 +123,8 @@ fn a_call_in_a_span_carries_its_trace_context_and_one_outside_none() {
 /// Covers: story:11-138
 #[test]
 fn a_blocking_call_carries_its_threads_trace_context() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "trace-context", RustMode::Daemon).unwrap();
     tracing::subscriber::with_default(opentelemetry_subscriber(), || {
         let env = TestEnv::new();
         let (process, _line) = scripted(&env, SCRIPT, &hello(SCRIPTED_DAEMON_TOKEN), "socket");

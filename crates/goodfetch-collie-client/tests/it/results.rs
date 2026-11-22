@@ -7,8 +7,9 @@
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::{Lifecycle, RunId};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, case_logs};
 use serde_json::json;
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
@@ -20,6 +21,12 @@ use crate::scripted_daemon::{daemon_hello, scripted_daemon};
 /// Covers: story:11-68
 #[test]
 fn a_result_keeps_the_fields_the_sdk_does_not_know() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "result-keeps-unknown-fields",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (process, endpoint) = scripted_daemon(&env, "run/result-keeps-unknown-fields.json");
     let newer = RunId::parse("newer").unwrap();

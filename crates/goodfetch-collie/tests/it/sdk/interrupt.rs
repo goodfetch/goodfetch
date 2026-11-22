@@ -22,8 +22,9 @@ use std::time::{Duration, Instant};
 use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, RunId, StartedAs};
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::Tags;
-use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, real_time_runtime};
+use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, case_logs, real_time_runtime};
 use tokio::signal::unix::{SignalKind, signal};
 
 use super::options;
@@ -64,6 +65,12 @@ struct Interrupted {
 /// Covers: story:11-22
 #[test]
 fn ctrl_c_reaches_the_host_alone_whose_handler_closes_the_run_linked() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "interrupt-reaches-only-the-host",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let nightly = RunId::parse(NIGHTLY).unwrap();
 

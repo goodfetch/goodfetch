@@ -26,7 +26,7 @@ use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
 use crate::page::{FormatsRequest, PageId, PageResponse};
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunLimit, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -309,6 +309,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The Run's own Limits, as `run.start` takes them (ADRs 0041 and
+    /// 0080): at most one per Usage kind and currency. A start that names
+    /// the Run again lowers them and never raises them (ADR 0102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<RunLimit>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).

@@ -21,8 +21,9 @@ use std::time::Duration;
 
 use goodfetch_collie::settings::{Settings, checkpoint, timeout};
 use goodfetch_collie::{Collie, ErrorCode, ExplainedSetting, SettingsExplanation, blocking};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::options;
@@ -83,6 +84,12 @@ fn expected() -> (Vec<Value>, Vec<Value>) {
 /// Covers: story:11-70, story:11-72
 #[test]
 fn a_runs_own_settings_inherit_clear_and_set_over_its_connections() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "settings-three-states",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let explained = real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env).settings(connection_settings()))
@@ -104,6 +111,12 @@ fn a_runs_own_settings_inherit_clear_and_set_over_its_connections() {
 /// Covers: story:11-70, story:11-72
 #[test]
 fn a_program_without_async_explains_its_connections_and_its_runs_settings() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "settings-three-states",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let collie = blocking::Collie::connect(options(&env).settings(connection_settings())).unwrap();
 
@@ -145,6 +158,12 @@ fn explaining_every_key_answers_each_and_a_closed_connection_explains_nothing() 
 /// Covers: story:11-70, error:setting_locked
 #[test]
 fn a_connection_setting_a_locked_key_fails_to_connect_with_setting_locked() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "settings-three-states",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let layout = HomeLayout::of(env.home());
     #[expect(
@@ -205,6 +224,12 @@ fn sourced(explanation: &SettingsExplanation) -> Vec<Value> {
 /// Covers: story:11-74, setting:run_state.durability, setting:run_state.batch.sync
 #[test]
 fn explain_settings_names_each_keys_layer_origin_preset_and_lock() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "settings-explained-with-their-source",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let layout = HomeLayout::of(env.home());
     #[expect(
@@ -270,6 +295,12 @@ fn explain_settings_names_each_keys_layer_origin_preset_and_lock() {
 /// Covers: story:11-71, story:11-76, error:setting_locked
 #[test]
 fn a_configuration_only_key_is_explained_from_its_file_and_a_lock_names_its_layer() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "settings-refusals-say-how-to-fix",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     env.user_configuration("storage.low_free = 1000\n");
     let layout = HomeLayout::of(env.home());

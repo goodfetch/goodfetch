@@ -737,6 +737,15 @@ words = ["retry", "after", "of"]
 form = "read"
 
 [[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "detailsOf"
+entry = "none"
+reason = "An error's details as the type the catalog names for its code (ADR 0079), or `undefined` when they lack a field it requires, which the generated class of each such code reads as its `typedDetails`, Foxhound's among them."
+words = ["details", "of"]
+form = "read"
+
+[[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
 member = "Listener"

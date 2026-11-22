@@ -7,7 +7,8 @@
 //! `run_ended`. Tags travel in the start, through `blocking` too.
 
 use goodfetch_collie::{Collie, Error, RunId, StartedAs, Tags, blocking};
-use goodfetch_test_support::{TestEnv, logged, real_time_runtime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_test_support::{TestEnv, case_logs, logged, real_time_runtime};
 
 use super::options;
 
@@ -22,6 +23,12 @@ fn code<T: std::fmt::Debug>(result: Result<T, Error>) -> String {
 /// Covers: story:11-126, story:11-127
 #[test]
 fn a_start_begins_refuses_a_live_run_resumes_it_and_returns_it_ended_once_finished() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "start-reaches-its-run",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let held = RunId::parse("held").unwrap();
     let (outcome, log) = logged(|| {

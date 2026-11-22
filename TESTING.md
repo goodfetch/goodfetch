@@ -113,6 +113,7 @@ Limits that fail the merge gate. Every row has a number and a command.
 | Dimension | Rule | Checked by | Runs at |
 |---|---|---|---|
 | Rust lints and types | 0 warnings | `cargo clippy --workspace --all-targets --all-features -- -D warnings` (`just lint`) | merge gate |
+| Rust lints and types, the first-party crates the workspace excludes | 0 warnings | `ci/clippy-excluded.sh` (`just lint`) | merge gate |
 | TypeScript types | 0 errors | `pnpm exec tsc -p tsconfig.json` and `pnpm -r --if-present run typecheck` (`just lint`) | merge gate |
 | Python types | 0 errors | `uv run pyright` and `uv run mypy .`, both strict (`just lint`) | merge gate |
 | TypeScript and Python lints | 0 errors | `pnpm exec oxlint` and `uv run ruff check .` (`just lint`) | merge gate |

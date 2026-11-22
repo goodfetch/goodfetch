@@ -22,22 +22,18 @@
 #     `apt install libgtk-3-dev libdbus-1-dev`), and no display.
 #     AppIndicator's library is loaded at run time, so it needs none.
 # Without the Rust target or those files, that type-check is listed as
-# skipped with the reason on a local host, and fails in CI.
+# skipped with the reason on a local host, and fails in CI
+# (kennel/scripts/prerequisites.sh).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 profile=${1:?usage: kennel/scripts/check.sh <cargo profile>}
-cross=aarch64-apple-darwin
+# shellcheck source=kennel/scripts/prerequisites.sh
+source "$root/kennel/scripts/prerequisites.sh"
 
 skip() {
-  if [[ -n "${CI:-}" ]]; then
-    echo "error: $1, and CI runs every part" >&2
-    exit 1
-  fi
-  mkdir -p "$root/target"
-  echo "kennel/scripts/check.sh: skipped, $1" >>"$root/target/skipped.txt"
-  echo "skipped: kennel/scripts/check.sh ($1)" >&2
+  kennel_skip "$root" kennel/scripts/check.sh "$1"
 }
 
 cargo run --quiet --locked --bin xtask -- modules --workspace kennel
@@ -55,21 +51,19 @@ if [[ "$(uname -s)" == Darwin ]]; then
 else
   cargo clippy --locked -p goodfetch-kennel --all-targets --all-features -- -D warnings
   cargo test --locked -p goodfetch-kennel
-  if rustup target list --installed | grep -qx "$cross"; then
-    cargo clippy --locked -p goodfetch-kennel-app --target "$cross" \
+  missing=$(kennel_cross_missing)
+  if [[ -z $missing ]]; then
+    cargo clippy --locked -p goodfetch-kennel-app --target "$kennel_cross" \
       --all-targets --all-features -- -D warnings
   else
-    skip "the graphical crate's type-check for macOS, since the Rust target $cross is not installed (rustup target add $cross)"
+    skip "the graphical crate's type-check for macOS, since $missing"
   fi
   if [[ "$(uname -s)" == Linux ]]; then
-    missing=()
-    for library in gtk+-3.0 dbus-1; do
-      pkg-config --exists "$library" || missing+=("$library")
-    done
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    missing=$(kennel_linux_libraries_missing)
+    if [[ -z $missing ]]; then
       cargo clippy --locked -p goodfetch-kennel-app --all-targets --all-features -- -D warnings
     else
-      skip "the graphical crate's type-check for Linux, since pkg-config finds no ${missing[*]}: GTK 3 (gtk+-3.0) is what its Tray builds on, libdbus (dbus-1) what its desktop notices send through (Debian and Ubuntu: apt install libgtk-3-dev libdbus-1-dev)"
+      skip "the graphical crate's type-check for Linux, since $missing"
     fi
   fi
 fi

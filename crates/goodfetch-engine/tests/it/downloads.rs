@@ -15,6 +15,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
+use goodfetch_engine::egress::EndpointPolicy;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::Trust;
@@ -378,6 +379,64 @@ fn a_chrome_for_testing_build_downloads_below_the_mirror() {
             ["/mirror/a/linux64/chrome-linux64.zip"]
         );
         assert_eq!(hosts, BTreeSet::from([HOST.to_owned()]));
+    });
+}
+
+/// A mirror is an Operator-configured endpoint (ADRs 0017 and 0047): under
+/// `egress.no_private_endpoints`, one that resolves to a private address
+/// is refused before any connection, and the download fails as the
+/// network's would, its message naming the refusal.
+///
+/// Covers: setting:browser.mirror, setting:egress.no_private_endpoints
+#[test]
+fn a_mirror_on_a_private_address_is_refused_under_no_private_endpoints() {
+    let env = TestEnv::new();
+    let build = build(&env, "a");
+    goodfetch_test_support::runtime().block_on(async {
+        let mut stand_in = StandIn::serve(BTreeMap::from([(
+            "/mirror/a/linux64/chrome-linux64.zip",
+            build.archive.clone(),
+        )]))
+        .await;
+        let cache = cache(&env);
+        let pinned = pin(
+            "a",
+            format!("{CHROME_FOR_TESTING_STORAGE}/a/linux64/chrome-linux64.zip"),
+            &build,
+        );
+        let fetching = Fetching {
+            mirror: Some(stand_in.url("/mirror")),
+            endpoints: EndpointPolicy::new(true),
+            ..stand_in.fetching()
+        };
+
+        let error = cache
+            .prepare(&pinned, &pinned_by(), &fetching, now(&env), &mut |_| {})
+            .await
+            .err()
+            .expect("the private mirror is refused");
+
+        let CacheError::DownloadFailed { message, details } = error else {
+            panic!("expected artifact_download_failed, got {error:?}");
+        };
+        assert_eq!(
+            (
+                message.as_str(),
+                details.host.as_str(),
+                details.failure,
+                stand_in.requests().len()
+            ),
+            (
+                format!(
+                    "downloading the browser build chrome-for-testing a, pinned by Collie 1.4.0 from {HOST} failed: the egress policy refused a request to {} (private_address); `egress.no_private_endpoints` would allow it",
+                    stand_in.url("/mirror/a/linux64/chrome-linux64.zip")
+                )
+                .as_str(),
+                HOST,
+                DownloadFailure::Network,
+                0
+            )
+        );
     });
 }
 

@@ -16,6 +16,15 @@
 //! `--proving-ground`, its user configuration maps the Proving ground's
 //! hosts and lists them in `egress.private_ranges`, as a Rust test's Run
 //! settings do.
+//! `--browser-download <served|not-found|read-only-cache>`, with
+//! `--proving-ground`, prepares the home for an engine's first use of an
+//! empty Browser cache instead (#3100): `GOODFETCH_BROWSERS_PATH` names
+//! one in the test's folder, and the user configuration reaches the
+//! Proving ground's hosts and downloads a missing build from its
+//! `browser-builds.test`, which serves the pinned build from the tests'
+//! copy `ci/chrome-for-testing-fetch.sh` downloads (`served`) or answers
+//! `404` (`not-found`); with `read-only-cache`, the engine cannot write the
+//! cache.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it,
@@ -29,10 +38,12 @@ use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
 
 use clap::Parser;
+#[cfg(unix)]
+use goodfetch_test_support::ReadOnlyBrowserCache;
 use goodfetch_test_support::{
     DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround,
-    ProvingGroundDescription, SecretKind, TestEnv, Tool, Variables, browser_cache_in_home,
-    gitleaks_rule, schemas, tools,
+    SecretKind, TestEnv, Tool, Variables, browser_builds, browser_cache_in_home,
+    empty_browser_cache, gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -78,6 +89,18 @@ struct Arguments {
     /// `--proving-ground`, lets the home's engines reach its hosts.
     #[arg(long)]
     browser: bool,
+    /// Points the home's engines at an empty Browser cache and, from the
+    /// Proving ground's `browser-builds.test`, downloads a missing build
+    /// that host serves (`served`) or answers `404` for (`not-found`), or
+    /// makes the cache one they cannot write (`read-only-cache`).
+    #[arg(
+        long,
+        value_enum,
+        value_name = "HOST",
+        requires = "proving_ground",
+        conflicts_with = "browser"
+    )]
+    browser_download: Option<BrowserDownload>,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -90,6 +113,18 @@ struct Arguments {
     /// in declaration order, and starts nothing.
     #[arg(long, exclusive = true)]
     print_secret_kinds: bool,
+}
+
+/// How an engine's first use of an empty Browser cache goes (#3100).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum BrowserDownload {
+    /// `browser-builds.test` serves the pinned build: the first page
+    /// downloads it.
+    Served,
+    /// `browser-builds.test` answers `404`.
+    NotFound,
+    /// The engine cannot write the cache.
+    ReadOnlyCache,
 }
 
 #[cfg(target_os = "linux")]
@@ -202,6 +237,16 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     if let Some(zone) = &arguments.time_zone {
         env = env.with_time_zone(zone)?;
     }
+    // The variable naming the empty cache is in the environment the
+    // description lists.
+    let empty_cache = match arguments.browser_download {
+        Some(_) => {
+            let (with_cache, cache) = empty_browser_cache(env)?;
+            env = with_cache;
+            Some(cache)
+        }
+        None => None,
+    };
     let tools = tools()?;
     let mut description = Description::new(&env, tools.clone());
     let proving_ground = match arguments.proving_ground {
@@ -209,8 +254,17 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
             let program = tools.path(Tool::ProvingGround)?;
             // Its process joins the TestEnv's record, which stops it if it is
             // still alive at teardown (ADR 0062).
-            let started =
-                ProvingGround::start_program(&env, program, seed, PROVING_GROUND_DEADLINE)?;
+            let started = if arguments.browser_download == Some(BrowserDownload::Served) {
+                ProvingGround::start_program_serving_builds(
+                    &env,
+                    program,
+                    seed,
+                    PROVING_GROUND_DEADLINE,
+                    &browser_builds(&env)?,
+                )?
+            } else {
+                ProvingGround::start_program(&env, program, seed, PROVING_GROUND_DEADLINE)?
+            };
             description = description.with_proving_ground(started.description().clone());
             Some(started)
         }
@@ -219,9 +273,17 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     if arguments.browser {
         browser_cache_in_home(&env)?;
         if let Some(started) = &proving_ground {
-            env.user_configuration(&reaching(started.description()));
+            env.user_configuration(&started.description().reaching());
         }
     }
+    if let Some(started) = proving_ground.as_ref().filter(|_| empty_cache.is_some()) {
+        let reached = started.description();
+        env.user_configuration(&format!("{}{}", reached.reaching(), reached.mirroring()));
+    }
+    let read_only = match (&empty_cache, arguments.browser_download) {
+        (Some(cache), Some(BrowserDownload::ReadOnlyCache)) => Some(read_only(cache)?),
+        _ => None,
+    };
     let daemon = match arguments.daemon {
         Some(product) => {
             // Its process joins the TestEnv's record too.
@@ -252,30 +314,22 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         daemon.stop(&env)?;
     }
     drop(proving_ground);
+    // The cache is writable again before its folder is removed.
+    drop(read_only);
     drop(env);
     Ok(())
 }
 
-/// The settings, lines of a user configuration, with which an engine
-/// reaches `proving_ground`'s hosts: each mapped to its address, and listed
-/// in `egress.private_ranges`, since that address is loopback and listing
-/// the names keeps `localhost` and literal loopback addresses refused.
-fn reaching(proving_ground: &ProvingGroundDescription) -> String {
-    let hosts: Vec<String> = proving_ground
-        .resolve
-        .keys()
-        .map(|host| format!("{host:?}"))
-        .collect();
-    let mapping: Vec<String> = proving_ground
-        .resolve
-        .iter()
-        .map(|(host, address)| format!("{host:?} = [{address:?}]"))
-        .collect();
-    format!(
-        "egress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
-        hosts.join(", "),
-        mapping.join(", ")
-    )
+/// The empty cache at `cache` made one the engine cannot write.
+#[cfg(unix)]
+fn read_only(cache: &std::path::Path) -> Result<ReadOnlyBrowserCache, Failure> {
+    Ok(ReadOnlyBrowserCache::new(cache)?)
+}
+
+/// A read-only cache only Unix modes make here.
+#[cfg(not(unix))]
+fn read_only(_cache: &std::path::Path) -> Result<std::convert::Infallible, Failure> {
+    Err("`--browser-download=read-only-cache` needs Unix file modes".into())
 }
 
 fn write_line(line: &str) -> Result<(), Failure> {

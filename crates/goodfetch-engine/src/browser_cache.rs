@@ -48,7 +48,7 @@ pub use platform::{
 };
 
 use crate::call_error::CallError;
-use crate::pinned_download::{self, Digest, Failure, Fetching, PinnedUrl};
+use crate::pinned_download::{self, Digest, Failure, Fetching};
 use crate::tasks::BlockingThreads;
 use store::{Locking, Read};
 
@@ -557,7 +557,7 @@ impl BrowserCache {
         now: jiff::Timestamp,
         progress: &mut (dyn FnMut(DownloadProgress) + Send),
     ) -> Result<Option<HeldArtifact>, CacheError> {
-        let Some(url) = PinnedUrl::parse(&fetching.located(&artifact.url)) else {
+        let Some(url) = fetching.located(&artifact.url) else {
             return Err(CacheError::Cache {
                 path: self.root.clone(),
                 source: io::Error::new(
@@ -601,9 +601,12 @@ impl BrowserCache {
         let failure = match received {
             Ok(()) => None,
             Err(Failure::Offline(layer)) => return Err(self.offline(artifact, pinned_by, layer)),
-            Err(Failure::DigestMismatch) => Some(DownloadFailure::DigestMismatch),
-            Err(Failure::Network) => Some(DownloadFailure::Network),
-            Err(Failure::Status(status)) => Some(DownloadFailure::HttpStatus { status }),
+            Err(Failure::DigestMismatch) => Some((DownloadFailure::DigestMismatch, None)),
+            Err(Failure::Network) => Some((DownloadFailure::Network, None)),
+            // A mirror the endpoint policy refuses never connected, as
+            // a Clean-up rules source it refuses (ADR 0047).
+            Err(Failure::Refused(refused)) => Some((DownloadFailure::Network, Some(refused))),
+            Err(Failure::Status(status)) => Some((DownloadFailure::HttpStatus { status }, None)),
             Err(Failure::File(source)) => {
                 return Err(CacheError::Cache {
                     path: archive,
@@ -611,8 +614,10 @@ impl BrowserCache {
                 });
             }
         };
-        if let Some(failure) = failure {
-            return Err(download_failed(artifact, pinned_by, &host, failure));
+        if let Some((failure, refused)) = failure {
+            return Err(download_failed(
+                artifact, pinned_by, &host, failure, refused,
+            ));
         }
         let files = store::files(partial.path());
         if unpacked(&self.blocking, archive, files, file_name).await? != artifact.digest {
@@ -621,6 +626,7 @@ impl BrowserCache {
                 pinned_by,
                 &host,
                 DownloadFailure::DigestMismatch,
+                None,
             ));
         }
         let entry = BrowserCacheEntry {
@@ -748,16 +754,21 @@ async fn unpacked(
         .map_err(CacheError::cache(&written))
 }
 
+/// `artifact_download_failed` for `failure` from `host`; `refused` is why
+/// the endpoint policy refused a mirror before it connected, which the
+/// message says in place of the network's failure.
 fn download_failed(
     artifact: &PinnedArtifact,
     pinned_by: &PinnedBy,
     host: &str,
     failure: DownloadFailure,
+    refused: Option<String>,
 ) -> CacheError {
-    let what = match failure {
-        DownloadFailure::Network => "the network failed".to_owned(),
-        DownloadFailure::HttpStatus { status } => format!("{host} answered {status}"),
-        DownloadFailure::DigestMismatch => {
+    let what = match (&failure, refused) {
+        (_, Some(refused)) => refused,
+        (DownloadFailure::Network, None) => "the network failed".to_owned(),
+        (DownloadFailure::HttpStatus { status }, None) => format!("{host} answered {status}"),
+        (DownloadFailure::DigestMismatch, None) => {
             "what it sent does not have the pinned digest".to_owned()
         }
     };

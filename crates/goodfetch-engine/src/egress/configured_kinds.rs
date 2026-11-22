@@ -1,8 +1,8 @@
 //! How the egress policy classes each kind of destination the operator
 //! configures (ADRs 0017, 0043, 0047 and 0056): the two [`EgressClass`]es,
 //! each [`ConfiguredKind`] and its row of [`CONFIGURED_KINDS`]. Every caller
-//! of the engine's own HTTP client but its pinned downloads and a run's own
-//! requests connects to one of these kinds.
+//! of the engine's own HTTP client but a pinned download from its pinned URL
+//! and a run's own requests connects to one of these kinds.
 
 use goodfetch_protocol::settings::SettingsLayer;
 
@@ -42,6 +42,9 @@ pub enum ConfiguredKind {
     /// A source of the Clean-up rules, which `clean_up.update`'s `daily`
     /// and `upstream` make a configured destination (ADR 0047).
     CleanUpRulesSource,
+    /// A `browser.mirror` the pinned Chrome for Testing builds are
+    /// downloaded below in place of Chrome for Testing's storage (ADR 0047).
+    BrowserMirror,
 }
 
 /// The layers whose value makes a destination Operator-configured: the
@@ -83,9 +86,10 @@ impl ConfiguredKindClass {
 /// from a Recipe or a run, and is then an address a page can reach unless
 /// the Operator policy allows it; so is one in the project configuration a
 /// Client acting for a model sends (ADR 0056, read where `cdp_url` is
-/// judged). Every caller of the engine's own HTTP client but its pinned
-/// downloads and a run's own requests connects to one of these kinds.
-pub const CONFIGURED_KINDS: [ConfiguredKindClass; 8] = [
+/// judged). Every caller of the engine's own HTTP client but a pinned
+/// download from its pinned URL and a run's own requests connects to one
+/// of these kinds.
+pub const CONFIGURED_KINDS: [ConfiguredKindClass; 9] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::ModelProvider,
         name: "Model provider",
@@ -124,6 +128,11 @@ pub const CONFIGURED_KINDS: [ConfiguredKindClass; 8] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::CleanUpRulesSource,
         name: "Clean-up rules source",
+        operator_layers: CONFIGURATION,
+    },
+    ConfiguredKindClass {
+        kind: ConfiguredKind::BrowserMirror,
+        name: "browser mirror",
         operator_layers: CONFIGURATION,
     },
 ];

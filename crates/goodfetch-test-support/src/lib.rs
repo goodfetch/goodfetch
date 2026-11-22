@@ -111,13 +111,15 @@ mod unicode;
 mod user_namespaces;
 mod variables;
 
+#[cfg(unix)]
+pub use browsers::ReadOnlyBrowserCache;
 pub use browsers::{
-    BROWSERS_PATH_VARIABLE, BrowserCacheError, DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE,
-    browser_cache, browser_cache_in_home, browser_cache_with_headless_shell,
-    browser_cache_with_lightpanda, chrome_for_testing, chrome_for_testing_debugged,
-    chrome_for_testing_dumping_dom, chrome_for_testing_files, chrome_headless,
-    chrome_headless_shell, lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
-    skipped_without_gui_session,
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
+    DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE, browser_builds, browser_cache,
+    browser_cache_in_home, browser_cache_with_headless_shell, browser_cache_with_lightpanda,
+    chrome_for_testing, chrome_for_testing_debugged, chrome_for_testing_dumping_dom,
+    chrome_for_testing_files, chrome_headless, chrome_headless_shell, empty_browser_cache,
+    lay_out_browser_entry, lightpanda_copy, reported_debugging_port, skipped_without_gui_session,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
@@ -193,9 +195,9 @@ pub use protocol_fuzz::{
     ProtocolTransport, SchemaUnreadable, TransportFailure,
 };
 pub use proving_ground::{
-    ClientCertificate, LOOPBACK_PORT_0, PROVING_GROUND_DEADLINE, ProvingGround,
-    ProvingGroundDescription, ProvingGroundError, ProvingGroundFixtures, UNSHAPED, path_of,
-    serve_arguments,
+    BROWSER_BUILDS_HOST, ClientCertificate, LOOPBACK_PORT_0, PROVING_GROUND_DEADLINE,
+    ProvingGround, ProvingGroundDescription, ProvingGroundError, ProvingGroundFixtures, UNSHAPED,
+    path_of, serve_arguments,
 };
 pub use proving_ground_format::{
     ArticleAnswer, ArticleAnswers, ArticleLink, FixtureAddresses, OWN_TARGETS, Observations,

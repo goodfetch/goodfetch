@@ -59,6 +59,9 @@ export interface Program {
   readonly args: readonly string[];
 }
 
+/** How an engine's first use of an empty Browser cache goes: `goodfetch-test-env`'s `--browser-download`. */
+export type BrowserDownload = "served" | "not-found" | "read-only-cache";
+
 /** How to start one test's setup. */
 export interface TestEnvStart {
   /** The record the setup's process joins. */
@@ -84,6 +87,15 @@ export interface TestEnvStart {
    * starts, reachable through its user configuration.
    */
   readonly browser?: boolean | undefined;
+  /**
+   * How an engine's first use of an empty Browser cache goes, which needs
+   * a Proving ground and replaces `browser` (#3100): the home's engines
+   * point at an empty cache and download a missing build from the Proving
+   * ground's `browser-builds.test`, which serves the pinned build
+   * (`served`) or answers `404` (`not-found`); with `read-only-cache`, they
+   * cannot write the cache.
+   */
+  readonly browserDownload?: BrowserDownload | undefined;
   /**
    * How long, in milliseconds, `goodfetch-test-env` has to tear down once
    * its stdin closes; ten seconds when absent. A test of a teardown past the
@@ -137,9 +149,19 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       : ["--proving-ground", String(start.provingGroundSeed)];
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
   const browser = start.browser === true ? ["--browser"] : [];
+  const browserDownload =
+    start.browserDownload === undefined ? [] : [`--browser-download=${start.browserDownload}`];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon, ...browser],
+    [
+      ...program.args,
+      "--test-name",
+      start.testName,
+      ...provingGround,
+      ...daemon,
+      ...browser,
+      ...browserDownload,
+    ],
     {
       env,
     },

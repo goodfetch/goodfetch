@@ -509,7 +509,7 @@ impl Verifier {
         let build = |extra: &[&CertificateDer<'static>]| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            for certificate in extra.iter().copied() {
+            for &certificate in extra {
                 // A certificate that is no CA certificate trusts nothing;
                 // it is the setting's to refuse, not the request's.
                 let _ = roots.add(certificate.clone());

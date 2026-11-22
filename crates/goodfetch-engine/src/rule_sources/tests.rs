@@ -14,10 +14,11 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_protocol::settings::SettingsLayer;
 
-use super::{SourceFailure, Sourcing, get};
+use super::{SourceFailure, get};
 use crate::clock::Clock;
 use crate::dns::HostMapping;
 use crate::egress::{EndpointPolicy, Refused};
+use crate::pinned_download::Fetching;
 use crate::settings::{Layers, Values, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -26,20 +27,18 @@ use crate::tasks::{BlockingPolicy, TaskOwner};
 const SOURCE: &str = "https://rules.test:9/filters.txt";
 
 /// What a fetch may do with `endpoints`, `rules.test` mapped to loopback.
-fn sourcing(endpoints: EndpointPolicy) -> Sourcing {
-    let mut sourcing = Sourcing {
+fn fetching(endpoints: EndpointPolicy) -> Fetching {
+    Fetching {
         endpoints,
-        ..Sourcing::new(Clock::system())
-    };
-    sourcing.fetching.resolve =
-        HostMapping::default().with("rules.test", vec!["127.0.0.1".parse().unwrap()]);
-    sourcing
+        resolve: HostMapping::default().with("rules.test", vec!["127.0.0.1".parse().unwrap()]),
+        ..Fetching::new(Clock::system())
+    }
 }
 
 /// What a GET of the source came to.
 fn fetched(endpoints: EndpointPolicy) -> SourceFailure {
     goodfetch_test_support::runtime()
-        .block_on(get(SOURCE, &[], &sourcing(endpoints), 1024))
+        .block_on(get(SOURCE, &[], &fetching(endpoints), 1024))
         .unwrap_err()
 }
 
@@ -96,13 +95,13 @@ fn a_source_trusts_only_the_authorities_listed_for_its_own_domain() {
     };
     let settings = resolve(&layers, Product::Collie, Product::Collie).unwrap();
 
-    let sourcing = goodfetch_test_support::runtime().block_on(Sourcing::of(
+    let fetching = goodfetch_test_support::runtime().block_on(Fetching::of(
         &settings,
         Clock::system(),
         &TaskOwner::root(BlockingPolicy::Inline),
     ));
 
-    let trust = &sourcing.fetching.trust;
+    let trust = &fetching.trust;
     assert_eq!(
         (
             trust.scope_of("rules.test"),

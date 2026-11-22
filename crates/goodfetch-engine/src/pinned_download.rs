@@ -10,7 +10,6 @@
 //! translation point of this boundary's failures into [`Failure`] (ADR
 //! 0127).
 
-use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 use std::io::Write as _;
 use std::path::Path;
@@ -26,8 +25,9 @@ use sha2::{Digest as _, Sha256};
 
 use crate::clock::Clock;
 use crate::dns::HostMapping;
+use crate::egress::{ConfiguredKind, EndpointPolicy};
 use crate::happy_eyeballs::Delays;
-use crate::http_client::{self, Server};
+use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure, Server};
 use crate::settings::Resolved;
 use crate::tasks::{BlockingThreads, TaskOwner};
 use crate::tls::Trust;
@@ -190,12 +190,14 @@ pub fn chromium_background_traffic_off() -> Vec<String> {
     arguments
 }
 
-/// What a pinned download may do: whether `egress.offline` refuses it,
-/// where a Chrome for Testing build is fetched from, what it may reach and
-/// trust, and how it races the host's addresses. No endpoint policy
-/// applies to it: a pinned download is no Operator-configured endpoint
-/// (ADRs 0017 and 0043), and a mirror only configuration sets is fetched
-/// as one, its bytes checked against the same digest.
+/// What a pinned download or another fetch of the engine's own may do:
+/// whether `egress.offline` refuses it, where a Chrome for Testing build is
+/// fetched from, what it may reach and trust, and how it races the host's
+/// addresses. A pinned URL is no Operator-configured endpoint (ADRs 0017
+/// and 0043) and passes no endpoint policy; a mirror, which only
+/// configuration sets, is one, so `egress.no_private_endpoints` judges it as
+/// it judges the Clean-up rules' sources, and its bytes are checked against
+/// the same digest.
 #[derive(Clone, Debug)]
 pub struct Fetching {
     /// The layer that set `egress.offline` to `true`, or `None` when
@@ -205,6 +207,9 @@ pub struct Fetching {
     /// Testing's storage, without a trailing `/`: the URL a Chrome for
     /// Testing build's path is fetched below.
     pub mirror: Option<String>,
+    /// `egress.no_private_endpoints`, for the Operator-configured endpoints
+    /// it fetches from: a mirror, a Clean-up rules source.
+    pub endpoints: EndpointPolicy,
     /// The `resolve` setting (ADR 0059).
     pub resolve: HostMapping,
     /// What a host's certificate may chain to beside Mozilla's roots: the
@@ -217,12 +222,14 @@ pub struct Fetching {
 }
 
 impl Fetching {
-    /// Downloads allowed from their pinned URLs, with no mapping,
-    /// Mozilla's roots alone and RFC 8305's delays, on `clock`.
+    /// Downloads allowed from their pinned URLs, with no mapping, no
+    /// private-endpoint refusal, Mozilla's roots alone and RFC 8305's
+    /// delays, on `clock`.
     pub fn new(clock: Clock) -> Self {
         Self {
             offline: None,
             mirror: None,
+            endpoints: EndpointPolicy::default(),
             resolve: HostMapping::default(),
             trust: Trust::default_roots(),
             clock,
@@ -232,8 +239,9 @@ impl Fetching {
 
     /// What a download may do under resolved `settings`, a Run's or the
     /// machine's, on `clock`: `egress.offline`, `browser.mirror`,
-    /// `network.resolve`, the resolver's delays, and the files of
-    /// `tls.trusted_cas` read on `owner`'s blocking work.
+    /// `egress.no_private_endpoints`, `network.resolve`, the resolver's
+    /// delays, and the files of `tls.trusted_cas` read on `owner`'s
+    /// blocking work.
     ///
     /// # Cancel safety
     ///
@@ -252,6 +260,7 @@ impl Fetching {
                 .filter(|offline| offline.value == serde_json::Value::Bool(true))
                 .map(|offline| offline.layer),
             mirror,
+            endpoints: EndpointPolicy::of(settings),
             resolve: HostMapping::of(settings),
             trust: Trust::of(settings, owner).await,
             delays: Delays::of(settings),
@@ -261,14 +270,27 @@ impl Fetching {
 
     /// Where `pinned`, a Pinned artifact's URL, is fetched from: below the
     /// mirror when it is a Chrome for Testing build's and a mirror is set,
-    /// otherwise `pinned` itself.
-    pub fn located<'url>(&self, pinned: &'url str) -> Cow<'url, str> {
+    /// otherwise `pinned` itself; `None` when that is no pinned URL.
+    pub(crate) fn located(&self, pinned: &str) -> Option<PinnedUrl> {
         let below = pinned
             .strip_prefix(CHROME_FOR_TESTING_STORAGE)
             .filter(|path| path.starts_with('/'));
         match (&self.mirror, below) {
-            (Some(mirror), Some(path)) => Cow::Owned(format!("{mirror}{path}")),
-            _ => Cow::Borrowed(pinned),
+            (Some(mirror), Some(path)) => PinnedUrl::parse(&format!("{mirror}{path}"), true),
+            _ => PinnedUrl::parse(pinned, false),
+        }
+    }
+
+    /// The Operator-configured endpoint of `kind` this fetching reaches:
+    /// its endpoint policy, mapping, trust and race.
+    pub(crate) fn endpoint(&self, kind: ConfiguredKind) -> ConfiguredEndpoint<'_> {
+        ConfiguredEndpoint {
+            kind,
+            policy: self.endpoints,
+            resolve: &self.resolve,
+            trust: &self.trust,
+            clock: self.clock,
+            delays: self.delays,
         }
     }
 }
@@ -278,11 +300,15 @@ pub(crate) struct PinnedUrl {
     uri: Uri,
     host: String,
     port: u16,
+    /// Whether it is below `browser.mirror`, an Operator-configured
+    /// endpoint, rather than the pinned URL itself.
+    mirrored: bool,
 }
 
 impl PinnedUrl {
-    /// Reads `url`; `None` when it is no pinned URL.
-    pub(crate) fn parse(url: &str) -> Option<Self> {
+    /// Reads `url`, below a mirror when `mirrored`; `None` when it is no
+    /// pinned URL.
+    fn parse(url: &str, mirrored: bool) -> Option<Self> {
         if url.contains('#') {
             return None;
         }
@@ -302,6 +328,7 @@ impl PinnedUrl {
             host: host.to_owned(),
             port: authority.port_u16().unwrap_or(443),
             uri,
+            mirrored,
         })
     }
 
@@ -324,6 +351,9 @@ pub(crate) enum Failure {
     Offline(SettingsLayer),
     /// No answer, or a connection that broke.
     Network,
+    /// `egress.no_private_endpoints` refused the mirror before it
+    /// connected, as this says for people.
+    Refused(String),
     /// An answer other than `200 OK`.
     Status(u16),
     /// What it received is not the pinned bytes.
@@ -351,34 +381,11 @@ pub(crate) async fn download(
     if let Some(layer) = fetching.offline {
         return Err(Failure::Offline(layer));
     }
-    let authority = url.uri.authority().map_or_else(
-        || url.host.clone(),
-        |authority| authority.as_str().to_owned(),
-    );
-    let path = url
-        .uri
-        .path_and_query()
-        .map_or("/", |path| path.as_str())
-        .to_owned();
-    let request = Request::get(path)
-        .header(hyper::header::HOST, authority)
-        .header(hyper::header::USER_AGENT, USER_AGENT)
-        .body(Empty::<Bytes>::new())
-        .map_err(|_| Failure::Network)?;
-    let network = http_client::Network {
-        resolve: &fetching.resolve,
-        trust: &fetching.trust,
-        clock: fetching.clock,
-        delays: fetching.delays,
+    let mut response = if url.mirrored {
+        send_mirrored(url, fetching).await?
+    } else {
+        send_pinned(url, fetching).await?
     };
-    let server = Server {
-        host: &url.host,
-        port: url.port,
-        plain: false,
-    };
-    let mut response = http_client::send(&server, request, &network)
-        .await
-        .map_err(|_| Failure::Network)?;
     if response.status != StatusCode::OK {
         return Err(Failure::Status(response.status.as_u16()));
     }
@@ -429,4 +436,61 @@ pub(crate) async fn download(
         return Err(Failure::DigestMismatch);
     }
     Ok(())
+}
+
+/// Sends the GET of `url`, a pinned URL itself, which no endpoint policy
+/// judges (ADR 0043), and answers its head.
+async fn send_pinned(
+    url: &PinnedUrl,
+    fetching: &Fetching,
+) -> Result<http_client::Response, Failure> {
+    let authority = url.uri.authority().map_or_else(
+        || url.host.clone(),
+        |authority| authority.as_str().to_owned(),
+    );
+    let path = url
+        .uri
+        .path_and_query()
+        .map_or("/", |path| path.as_str())
+        .to_owned();
+    let request = Request::get(path)
+        .header(hyper::header::HOST, authority)
+        .header(hyper::header::USER_AGENT, USER_AGENT)
+        .body(Empty::<Bytes>::new())
+        .map_err(|_| Failure::Network)?;
+    let network = http_client::Network {
+        resolve: &fetching.resolve,
+        trust: &fetching.trust,
+        clock: fetching.clock,
+        delays: fetching.delays,
+    };
+    let server = Server {
+        host: &url.host,
+        port: url.port,
+        plain: false,
+    };
+    http_client::send(&server, request, &network)
+        .await
+        .map_err(|_| Failure::Network)
+}
+
+/// Sends the GET of `url`, below `browser.mirror`, an Operator-configured
+/// endpoint whose addresses `egress.no_private_endpoints` judges before
+/// any connection (ADRs 0017 and 0047), and answers its head.
+async fn send_mirrored(
+    url: &PinnedUrl,
+    fetching: &Fetching,
+) -> Result<http_client::Response, Failure> {
+    let request = Request::get(url.uri.clone())
+        .header(hyper::header::USER_AGENT, USER_AGENT)
+        .body(Empty::<Bytes>::new())
+        .map_err(|_| Failure::Network)?;
+    fetching
+        .endpoint(ConfiguredKind::BrowserMirror)
+        .send(request)
+        .await
+        .map_err(|failure| match failure {
+            EndpointFailure::Refused(refused) => Failure::Refused(refused.to_string()),
+            EndpointFailure::Failed(_) => Failure::Network,
+        })
 }

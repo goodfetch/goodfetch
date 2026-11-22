@@ -38,8 +38,8 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
-use crate::browser_builds::BrowserBuilds;
 use crate::blackhole::Blackhole;
+use crate::browser_builds::BrowserBuilds;
 use crate::certificates;
 use crate::client_hello::ClientHello;
 use crate::clock;

@@ -310,8 +310,13 @@ modes = ["attached"]
 # all three, each from another channel: the archive installer for
 # TypeScript, the OCI image for Python, crates.io for Rust's client crate.
 # Rust's `linked` mode plays the case's Collie part, Foxhound's operation
-# and setting, on the real linked engine, from crates.io; its provisioning
-# part joins with the real engine's provisioning errors (issue 3100).
+# and setting, on the real linked engine, from crates.io. The real engine
+# plays its provisioning part too (issue 3100), on an empty Browser cache
+# whose `browser.mirror` is the Proving ground's `browser-builds.test`,
+# never the internet: linked in Rust and attached in TypeScript and Python,
+# its first page downloads the pinned build and opens, and a cache it cannot
+# write, `egress.offline` or a host that answers `404` raises the three
+# classes while `connect()` succeeds.
 [[capability.case]]
 id = "product-and-provisioning-errors"
 covers = ["story:11-10", "story:11-13", "story:11-189", "story:11-294"]

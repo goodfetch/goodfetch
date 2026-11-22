@@ -237,13 +237,7 @@ async fn executable(
             let now = run.clock().timestamp();
             let fetching = fetching(run).await;
             let prepared = cache
-                .prepare(
-                    pinned,
-                    &pins.pinned_by,
-                    &fetching,
-                    now,
-                    &mut |_progress| {},
-                )
+                .prepare(pinned, &pins.pinned_by, &fetching, now, &mut |_progress| {})
                 .await
                 .map_err(|error| error.to_call_error())?;
             let files = prepared.artifact.files();

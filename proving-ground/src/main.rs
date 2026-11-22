@@ -143,7 +143,10 @@ async fn shape_and_serve(
             let network = Network::proxy(profile, seed, address).await?;
             let reached_on = network.proxy_address().map(|proxy| proxy.port());
             let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-            (network, Server::bind(behind, reached_on, seed, builds).await?)
+            (
+                network,
+                Server::bind(behind, reached_on, seed, builds).await?,
+            )
         }
         (Some(profile), Shaper::Netem) => {
             let server = Server::bind(address, None, seed, builds).await?;

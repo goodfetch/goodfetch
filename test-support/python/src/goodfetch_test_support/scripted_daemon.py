@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
+from goodfetch_test_support.environment import scripted_engine_record
 from goodfetch_test_support.play_script import CORPUS
 from goodfetch_test_support.tools import Tool
 
@@ -66,6 +67,8 @@ def start_scripted_daemon(
     mode: ScriptedDaemonMode,
     home: Path | None = None,
     subprotocol: str | None = None,
+    *,
+    recorded: bool = False,
 ) -> ScriptedDaemon:
     """Starts `goodfetch-scripted-engine` playing the corpus's `script` in `mode`.
 
@@ -74,7 +77,10 @@ def start_scripted_daemon(
     `websocket` mode answers `subprotocol`, which it requires: the SDK's
     generated `WEBSOCKET_SUBPROTOCOL`, or another major's to play a Daemon
     of another protocol major. Test support takes no SDK package, so the
-    test passes the SDK's own name.
+    test passes the SDK's own name. `recorded` writes its record where
+    `until_scripted_engine_read` reads it under `home`, for a test that
+    sends a call only once the Daemon read another; no Attached engine
+    may then start under that home, since it writes the same record.
 
     Raises:
         ToolsError: The manifest lists no Scripted engine.
@@ -84,6 +90,10 @@ def start_scripted_daemon(
     engine = test_env.tools.path(Tool.SCRIPTED_ENGINE)
     home = test_env.home if home is None else home
     offered = [] if subprotocol is None else ["--subprotocol", subprotocol]
+    if recorded:
+        record = scripted_engine_record(home)
+        record.parent.mkdir(parents=True, exist_ok=True)
+        offered += ["--record", str(record)]
     process = test_env.start(
         [engine, "--script", CORPUS / script, "--mode", mode, *offered],
         env={**test_env.env, "GOODFETCH_HOME": str(home)},

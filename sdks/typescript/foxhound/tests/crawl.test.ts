@@ -8,9 +8,12 @@ import {
   Crawl,
   Foxhound,
   PayloadInvalidError,
+  PayloadSchemaChangedError,
   seed,
+  type CrawlRun,
   type CrawlSettings,
   type DatasetRecord,
+  type PayloadSchema,
 } from "@goodfetch/foxhound";
 import { judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
@@ -158,6 +161,65 @@ describe("a program's crawls on an Attached engine", () => {
         { label: "book", paths: [], limit: "crawl.payload.max_size" },
       ]);
       expect(report.lifecycle).toBe("finished");
+    },
+  );
+
+  test(
+    "resumes a Run whose Label's Payload schema changed only once its pending Payloads fit the new schema, refusing it with payload_schema_changed otherwise",
+    {
+      tags: ["attached", "story:11-1018", "error:payload_schema_changed", "operation:crawl.start"],
+    },
+    async ({ env, provingGround }) => {
+      const start = await taskStartUrl(provingGround, "catalog/1");
+      const isbn = { type: "object", properties: { isbn: { type: "string" } }, required: ["isbn"] };
+      const titled = { ...isbn, properties: { ...isbn.properties, title: { type: "string" } } };
+      const required = { ...titled, required: ["isbn", "title"] };
+      /** Starts the Run `changed` of a crawl of books whose Payloads `payload` types, on `foxhound`. */
+      const startBooks = async (
+        foxhound: Foxhound,
+        payload: PayloadSchema,
+        handler: () => Promise<void>,
+      ): Promise<CrawlRun> => {
+        const crawl = new Crawl();
+        const book = crawl.label("book", { payload });
+        crawl.handle(book, handler);
+        return foxhound.startCrawl(crawl, {
+          seeds: [seed(start, book, { isbn: "0" }), seed(`${start}?again`, book, { isbn: "1" })],
+          settings,
+          runId: "changed",
+        });
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const first = await Foxhound.connect({ env });
+      // Its handler never answers, so the connection closes with both books pending.
+      await startBooks(first, isbn, async () => new Promise<void>(() => undefined));
+      await first.close();
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const second = await Foxhound.connect({ env });
+      const refused = await startBooks(second, required, async () => undefined).catch(
+        (error: unknown) => error,
+      );
+      let handled = 0;
+      const run = await startBooks(second, titled, async () => {
+        handled += 1;
+      });
+      const report = await run.finish();
+      await second.close();
+
+      if (!(refused instanceof PayloadSchemaChangedError)) {
+        throw new Error(`expected a PayloadSchemaChangedError, got ${String(refused)}`, {
+          cause: refused,
+        });
+      }
+      expect(refused.details).toMatchObject({
+        label: "book",
+        failing: 2,
+        pending: 2,
+        issues: [{ path: "" }],
+      });
+      expect(report.lifecycle).toBe("finished");
+      expect(handled).toBe(2);
     },
   );
 

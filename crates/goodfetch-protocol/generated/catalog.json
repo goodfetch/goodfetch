@@ -756,6 +756,9 @@
     {
       "arrived_in": "0.1",
       "description": "The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended.",
+      "details": {
+        "$ref": "#/$defs/NotVerifiedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -4248,7 +4251,7 @@
       "deprecated": null,
       "description": "Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.",
       "events": [],
-      "kind": "round_trip",
+      "kind": "followed",
       "name": "run.progress",
       "params": {
         "$ref": "#/$defs/RunProgressParams"

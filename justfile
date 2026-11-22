@@ -27,6 +27,18 @@ set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-euo", "pipefail", "
 # against a hang on Ctrl-Z.
 export NEXTEST_DOUBLE_SPAWN := "0"
 
+# Where the build's Rust compiler wrapper is sccache, on Linux and macOS,
+# recipes build through ci/compiler-cache/sccache, which runs that sccache,
+# saved here, and hands it DuckDB's C++ compiles relative to their OUT_DIR, so
+# every profile and target folder shares one compile of each source (issue
+# 3231; TESTING.md, Compiler cache). A nested `just` keeps the sccache its
+# parent saved. Elsewhere the wrapper stays the environment's, none when it
+# sets none: a wrapper set only in Cargo's configuration (`build.rustc-wrapper`)
+# is then overridden, so set it in RUSTC_WRAPPER.
+_rustc_wrapper := env("RUSTC_WRAPPER", "")
+export GOODFETCH_SCCACHE := if os_family() != "unix" { "" } else if _rustc_wrapper =~ '/ci/compiler-cache/sccache$' { env("GOODFETCH_SCCACHE", "sccache") } else if _rustc_wrapper =~ '(^|/)sccache$' { _rustc_wrapper } else { "" }
+export RUSTC_WRAPPER := if GOODFETCH_SCCACHE != "" { justfile_directory() / "ci/compiler-cache/sccache" } else { _rustc_wrapper }
+
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
 # Where `just compare` builds Spider (see that recipe).
@@ -161,7 +173,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -432,11 +444,26 @@ mutants base="":
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
+# ADR 0072's in-diff mutation testing of the TypeScript SDK's hand-written
+# runtime (ci/mutants-typescript.sh): StrykerJS mutates only the runtime
+# lines the committed changes since `base` (the merge base with
+# `origin/main` by default) touch, never a test or what `xtask codegen`
+# writes. The report and its survivors' list, summary.md, go to
+# target/mutants-typescript/; a surviving mutant never fails it.
+# Mutation-tests the TypeScript changes since `base`: `just mutants-typescript [base]`.
+mutants-typescript base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    JUST="{{ just_executable() }}" ci/mutants-typescript.sh "$base"
+
 # ADR 0072's full mutation run of the SDKs' hand-written runtimes, weekly once
 # the nightly tier is on (TESTING.md, Feature coverage): StrykerJS over the
-# TypeScript SDK (sdks/typescript/stryker.config.mjs) and mutmut over each
-# Python SDK package that has a `[tool.mutmut]` in its pyproject.toml, never
-# over what `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
+# TypeScript SDK (ci/mutants-typescript.sh, sdks/typescript/stryker.config.mjs)
+# and mutmut over each Python SDK package that has a `[tool.mutmut]` in its
+# pyproject.toml, never over what `xtask codegen` writes (ADR 0099).
+# StrykerJS's report and its survivors' list, summary.md, go to
 # target/mutants-sdks/typescript/, mutmut's log to
 # target/mutants-sdks/python/<package>.log and its results to the package's
 # `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
@@ -452,27 +479,14 @@ mutants-sdks sdk="all":
       typescript | python | all) ;;
       *) echo "usage: just mutants-sdks [typescript | python | all]" >&2; exit 2 ;;
     esac
-    # The tests find the commit's executables as under `just test`.
-    export GOODFETCH_TEST_SUITE=pre-merge
-    {{ just_executable() }} _test-tools
-    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
-    # Each runner's arguments that skip the quarantined tests (ADR 0064).
-    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
-    if [[ "{{ sdk }}" != python ]]; then
-      # StrykerJS sets Vitest's name pattern itself, so its setup file
-      # (sdks/typescript/vitest.stryker.setup.ts) skips the tests the
-      # quarantine's pattern does not match.
-      pattern=$(jq -r '.vitest[]? | ltrimstr("--testNamePattern=")' <<< "$exclusions")
-      if [[ -n "$pattern" ]]; then export GOODFETCH_STRYKER_NAME_PATTERN="$pattern"; fi
-      # Each StrykerJS test runner writes `stryker-setup-<n>.js` into the
-      # working directory and deletes it when it stops, unless StrykerJS
-      # kills it first (StrykerJS 10.1.1).
-      status=0
-      pnpm exec stryker run sdks/typescript/stryker.config.mjs || status=$?
-      rm -f stryker-setup-*.js
-      [[ $status -eq 0 ]] || exit "$status"
-    fi
+    if [[ "{{ sdk }}" != python ]]; then JUST="{{ just_executable() }}" ci/mutants-typescript.sh; fi
     if [[ "{{ sdk }}" != typescript ]]; then
+      # The tests find the commit's executables as under `just test`.
+      export GOODFETCH_TEST_SUITE=pre-merge
+      {{ just_executable() }} _test-tools
+      export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+      # The arguments that skip the quarantined tests (ADR 0064).
+      exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
       logs="$PWD/target/mutants-sdks/python"
       mkdir -p "$logs"
       for manifest in sdks/python/*/pyproject.toml; do

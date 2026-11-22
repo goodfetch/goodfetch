@@ -132,6 +132,7 @@ mod client_conformance;
 mod code_free;
 mod code_free_resume;
 mod command_line;
+mod compile_fail;
 mod completeness;
 mod content_types;
 mod crawl;

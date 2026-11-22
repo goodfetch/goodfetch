@@ -10,7 +10,8 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { CallCancelledDetails } from "./types.ts";
+import type { CallCancelledDetails, NotVerifiedDetails } from "./types.ts";
+import { collieWire } from "./wire.ts";
 
 export {
   detailsOf,
@@ -688,8 +689,15 @@ export class NotInProductError extends UnavailableError<"not_in_product"> {
  * The program asked AI work for its output only if verified, and its Verdict is not `verified`, so no output is returned. The details hold the Verdict, the reasons it is not `verified` and the model's claim, which is never proof; the result itself still holds how the work ended.
  */
 export class NotVerifiedError extends PageError<"not_verified"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NotVerifiedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NotVerifiedError", code: "not_verified", group: "page", retryable: false });
+    this.typedDetails = detailsOf<NotVerifiedDetails>(fields.details, ["verdict", "reasons"], { path: { type: "NotVerifiedDetails" }, types: collieWire.types });
   }
 }
 

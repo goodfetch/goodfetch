@@ -21,9 +21,11 @@ pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
 /// The details types the TypeScript and Python SDKs read typed, each on its
 /// codes' classes (ADR 0079): the catalog names each under its codes'
 /// `details`. The other codes' details still read as a map there until a
-/// ticket adds their types here (issue 3164).
-pub const TYPED_IN_SDKS: &[TypedDetails] =
-    &[TypedDetails::of::<crate::connection::CallCancelledDetails>()];
+/// ticket that touches them adds their types here.
+pub const TYPED_IN_SDKS: &[TypedDetails] = &[
+    TypedDetails::of::<crate::connection::CallCancelledDetails>(),
+    TypedDetails::of::<crate::page::ai_work::NotVerifiedDetails>(),
+];
 
 /// A details type the SDKs read typed: the codes whose details it holds and
 /// its schema.

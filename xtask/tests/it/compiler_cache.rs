@@ -8,9 +8,14 @@
 //! do, fails on a gap; any other host is told the fix and passes. Where no
 //! build uses sccache, the check is skipped. And `ci/compiler-launcher.sh`, the `CMake` compiler launcher
 //! `.cargo/config.toml` sets, compiles through the Rust compiler wrapper when
-//! it is sccache, as the `cc` crate does, and directly otherwise. sccache is a
-//! stand-in that prints the statistics a test gives it. The compiler cache is
-//! repository tooling, so the module declares no Feature.
+//! it is sccache, as the `cc` crate does, and directly otherwise. And
+//! `ci/compiler-cache/sccache`, the Rust compiler wrapper the justfile sets
+//! over sccache, hands sccache each compile of DuckDB's bundled sources from
+//! its `OUT_DIR` with paths relative to it, so every profile and target
+//! folder keys it alike, and every other call unchanged (issue 3231). sccache
+//! is a stand-in that prints the statistics a test gives it, or records the
+//! folder and arguments it was run with. The compiler cache is repository
+//! tooling, so the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -346,4 +351,326 @@ fn the_launcher_runs_the_compiler_itself_otherwise(#[case] wrapper: Option<&str>
 
     assert_eq!(wrapped, "");
     assert_eq!(compiled, "-c a b.cc -o a.o\n");
+}
+
+/// What the stand-in sccache recorded for a call: the folder it ran in and
+/// its arguments.
+#[derive(Debug, PartialEq)]
+struct Call {
+    folder: PathBuf,
+    arguments: Vec<String>,
+}
+
+/// A stand-in sccache that records the folder and arguments of its last
+/// call.
+fn recording_sccache(workspace: &Workspace) -> PathBuf {
+    let folder = workspace.path().join("stand-in");
+    std::fs::create_dir_all(&folder).unwrap();
+    let sccache = folder.join("sccache");
+    executable(
+        &sccache,
+        &format!(
+            "#!/bin/sh\n{{ pwd -P; printf '%s\\n' \"$@\"; }} >\"{}\"\n",
+            folder.join("call").display()
+        ),
+    );
+    sccache
+}
+
+/// Runs `ci/compiler-cache/sccache` from `folder` with `arguments`, the
+/// stand-in on `PATH` and these variables, and returns what the stand-in
+/// recorded.
+fn wrap(
+    workspace: &Workspace,
+    folder: &Path,
+    arguments: &[String],
+    variables: &[(&str, &Path)],
+) -> Call {
+    let sccache = recording_sccache(workspace);
+    let stand_ins = sccache.parent().unwrap();
+    let status = workspace
+        .command(repository_script("compiler-cache/sccache"))
+        .current_dir(folder)
+        .args(arguments)
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_ins.display()))
+        .envs(variables.iter().copied())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let recorded = std::fs::read_to_string(stand_ins.join("call")).unwrap();
+    let mut lines = recorded.lines();
+    Call {
+        folder: PathBuf::from(lines.next().unwrap()),
+        arguments: lines.map(str::to_owned).collect(),
+    }
+}
+
+/// A folder of the workspace, created, every link resolved.
+fn folder(workspace: &Workspace, relative: &str) -> PathBuf {
+    let folder = workspace.path().join(relative);
+    std::fs::create_dir_all(&folder).unwrap();
+    folder.canonicalize().unwrap()
+}
+
+/// The package's folder, which the build script runs from.
+const PACKAGE: &str = "registry/libduckdb-sys-1.20000.0";
+
+/// Two build scripts' `OUT_DIR`s: a profile's in a checkout, and another
+/// profile's in trybuild's target folder.
+const OUT_DIRS: [&str; 2] = [
+    "checkout/target/debug/build/libduckdb-sys-265611ae4e72fe17/out",
+    "elsewhere/target/tests/trybuild/ci/build/libduckdb-sys-0f1e2d3c4b5a6978/out",
+];
+
+/// A compile of one of DuckDB's sources as the `cc` crate makes it, in `out`.
+fn duckdb_compile(out: &Path) -> Vec<String> {
+    let out = out.display();
+    [
+        "c++".to_owned(),
+        "-O3".to_owned(),
+        "--target=x86_64-unknown-linux-gnu".to_owned(),
+        "-I".to_owned(),
+        format!("{out}/duckdb/src/include"),
+        "-I".to_owned(),
+        "duckdb".to_owned(),
+        format!("-I{out}/duckdb/third_party/re2"),
+        "-Iduckdb/third_party".to_owned(),
+        "-std=c++17".to_owned(),
+        "-DNDEBUG".to_owned(),
+        "-o".to_owned(),
+        format!("{out}/a5ad43c7d05478b1-ub_src_storage_table.o"),
+        "-c".to_owned(),
+        format!("{out}/duckdb/src/storage/ub_src_storage_table.cpp"),
+    ]
+    .into()
+}
+
+/// Runs a compile of DuckDB's sources in `out` from the package's folder,
+/// as `libduckdb-sys`'s build script does, with `arguments` in place of the
+/// `cc` crate's.
+fn wrap_duckdb(workspace: &Workspace, out: &Path, arguments: &[String]) -> Call {
+    let sccache = recording_sccache(workspace);
+    wrap(
+        workspace,
+        &folder(workspace, PACKAGE),
+        arguments,
+        &[
+            ("CARGO_PKG_NAME", Path::new("libduckdb-sys")),
+            ("OUT_DIR", out),
+            ("GOODFETCH_SCCACHE", &sccache),
+        ],
+    )
+}
+
+#[test]
+fn a_duckdb_compile_reaches_sccache_alike_from_any_target_folder() {
+    let workspace = Workspace::from_fixture("empty");
+    let package = folder(&workspace, PACKAGE);
+    let [first, second] = OUT_DIRS.map(|out| folder(&workspace, out));
+
+    let calls = [&first, &second].map(|out| wrap_duckdb(&workspace, out, &duckdb_compile(out)));
+
+    let relative = [
+        "c++",
+        "-O3",
+        "--target=x86_64-unknown-linux-gnu",
+        "-I",
+        "duckdb/src/include",
+        "-I",
+        &format!("{}/duckdb", package.display()),
+        "-Iduckdb/third_party/re2",
+        &format!("-I{}/duckdb/third_party", package.display()),
+        "-std=c++17",
+        "-DNDEBUG",
+        "-o",
+        "a5ad43c7d05478b1-ub_src_storage_table.o",
+        "-c",
+        "duckdb/src/storage/ub_src_storage_table.cpp",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    assert_eq!(
+        calls,
+        [
+            Call {
+                folder: first,
+                arguments: relative.clone(),
+            },
+            Call {
+                folder: second,
+                arguments: relative,
+            },
+        ]
+    );
+}
+
+/// A change of the compiler, the target, the optimization, a define or a
+/// flag reaches sccache's key, and nothing else does: the two compiles differ
+/// in that argument alone, though they ran in two target folders.
+#[rstest]
+#[case::compiler("c++", "clang++")]
+#[case::target(
+    "--target=x86_64-unknown-linux-gnu",
+    "--target=x86_64-unknown-linux-musl"
+)]
+#[case::optimization("-O3", "-O1")]
+#[case::define("-DNDEBUG", "-DDEBUG")]
+#[case::flag("-std=c++17", "-std=c++20")]
+fn a_changed_compile_reaches_sccache_changed(#[case] before: &str, #[case] after: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let [first, second] = OUT_DIRS.map(|out| folder(&workspace, out));
+    let changed: Vec<String> = duckdb_compile(&second)
+        .into_iter()
+        .map(|argument| {
+            if argument == before {
+                after.to_owned()
+            } else {
+                argument
+            }
+        })
+        .collect();
+
+    let unchanged = wrap_duckdb(&workspace, &first, &duckdb_compile(&first)).arguments;
+    let changed = wrap_duckdb(&workspace, &second, &changed).arguments;
+
+    let differing: Vec<(&String, &String)> = unchanged
+        .iter()
+        .zip(&changed)
+        .filter(|(one, other)| one != other)
+        .collect();
+    assert_eq!(differing, [(&before.to_owned(), &after.to_owned())]);
+}
+
+/// Rust compiles, other packages' C and C++ compiles and calls to sccache
+/// itself reach sccache as Cargo or the build script made them, from the
+/// folder they ran in.
+#[rstest]
+#[case::the_duckdb_crate_s_rust("libduckdb-sys", "rustc")]
+#[case::clippy_on_it("libduckdb-sys", "clippy-driver")]
+#[case::another_package_s_cxx("zstd-sys", "c++")]
+#[case::no_package("", "--show-stats")]
+fn every_other_call_reaches_sccache_unchanged(#[case] package: &str, #[case] program: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let out = folder(&workspace, OUT_DIRS[0]);
+    let from = folder(&workspace, PACKAGE);
+    let sccache = recording_sccache(&workspace);
+    let mut arguments = duckdb_compile(&out);
+    arguments[0] = format!("/toolchain/bin/{program}");
+    if program.starts_with('-') {
+        arguments[0] = program.to_owned();
+    }
+
+    let call = wrap(
+        &workspace,
+        &from,
+        &arguments,
+        &[
+            ("CARGO_PKG_NAME", Path::new(package)),
+            ("OUT_DIR", &out),
+            ("GOODFETCH_SCCACHE", &sccache),
+        ],
+    );
+
+    assert_eq!(
+        call,
+        Call {
+            folder: from,
+            arguments
+        }
+    );
+}
+
+/// A saved sccache that is missing, or that names this wrapper, fails the
+/// call, as a missing wrapper would, rather than compiling outside the cache
+/// or running itself.
+#[rstest]
+#[case::missing(false)]
+#[case::this_wrapper(true)]
+fn a_wrapper_without_its_sccache_fails(#[case] itself: bool) {
+    let workspace = Workspace::from_fixture("empty");
+    let out = folder(&workspace, OUT_DIRS[0]);
+    let sccache = recording_sccache(&workspace);
+    let saved = if itself {
+        repository_script("compiler-cache/sccache")
+    } else {
+        workspace.path().join("missing/sccache")
+    };
+
+    let status = workspace
+        .command(repository_script("compiler-cache/sccache"))
+        .current_dir(folder(&workspace, PACKAGE))
+        .args(duckdb_compile(&out))
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", sccache.parent().unwrap().display()),
+        )
+        .env("CARGO_PKG_NAME", "libduckdb-sys")
+        .env("OUT_DIR", &out)
+        .env("GOODFETCH_SCCACHE", &saved)
+        .status()
+        .unwrap();
+
+    assert_eq!(
+        (status.code(), sccache.with_file_name("call").exists()),
+        (Some(2), false)
+    );
+}
+
+/// The justfile's value of `variable`, with these variables in the
+/// environment.
+fn evaluate(workspace: &Workspace, variable: &str, variables: &[(&str, &str)]) -> String {
+    let shims = folder(workspace, "shims");
+    let output = workspace
+        .just(&shims)
+        .arg("--evaluate")
+        .arg(variable)
+        .envs(variables.iter().copied())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// Where the environment's Rust compiler wrapper is sccache, the justfile's
+/// recipes build through ci/compiler-cache/sccache and save that sccache for
+/// it; a nested `just` keeps the one its parent saved.
+#[rstest]
+#[case::sccache_on_path(&[("RUSTC_WRAPPER", "sccache")], "sccache")]
+#[case::sccache_by_path(&[("RUSTC_WRAPPER", "/opt/bin/sccache")], "/opt/bin/sccache")]
+#[case::nested(
+    &[("RUSTC_WRAPPER", "/checkout/ci/compiler-cache/sccache"), ("GOODFETCH_SCCACHE", "/opt/bin/sccache")],
+    "/opt/bin/sccache"
+)]
+fn recipes_build_through_the_wrapper_where_sccache_wraps_rustc(
+    #[case] variables: &[(&str, &str)],
+    #[case] saved: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+
+    let rustc_wrapper = evaluate(&workspace, "RUSTC_WRAPPER", variables);
+    let sccache = evaluate(&workspace, "GOODFETCH_SCCACHE", variables);
+
+    assert_eq!(
+        (Path::new(&rustc_wrapper).canonicalize().unwrap(), sccache),
+        (
+            repository_script("compiler-cache/sccache")
+                .canonicalize()
+                .unwrap(),
+            saved.to_owned()
+        )
+    );
+}
+
+/// Any other Rust compiler wrapper, or none, stays the environment's, and no
+/// sccache is saved.
+#[rstest]
+#[case::another_wrapper(&[("RUSTC_WRAPPER", "ccache")], "ccache")]
+#[case::no_wrapper(&[], "")]
+fn recipes_keep_any_other_wrapper(#[case] variables: &[(&str, &str)], #[case] wrapper: &str) {
+    let workspace = Workspace::from_fixture("empty");
+
+    let rustc_wrapper = evaluate(&workspace, "RUSTC_WRAPPER", variables);
+    let sccache = evaluate(&workspace, "GOODFETCH_SCCACHE", variables);
+
+    assert_eq!((rustc_wrapper.as_str(), sccache.as_str()), (wrapper, ""));
 }

@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.open_values import (
     CancelledBy,
+    Claim,
     ClosedValue,
     Verdict,
 )
@@ -2002,6 +2003,23 @@ class RecordingReport(BaseModel):
     """How many recorded responses it used."""
     written_by: str | None = None
     """The engine that wrote them."""
+
+
+class Reported(BaseModel):
+    """
+    The model's claim and its message, absent from a result when no model
+    claimed anything: the work stopped before a claim, or was replayed whole
+    (ADR 0100).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    claim: Claim
+    """What it claimed."""
+    message: str | None = None
+    """What it said with the claim, when it said something."""
 
 
 class RequestFailure(BaseModel):
@@ -5109,6 +5127,27 @@ class NewSessionPageParams(BaseModel):
     with `setting_not_applicable`, as only its Session or its Run sets
     it; the Session's Access mode, Identity profile and proxy only its
     opening sets.
+    """
+
+
+class NotVerifiedDetails(BaseModel):
+    """What `not_verified` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    reasons: list[AxisReason]
+    """
+    Why it is not `verified`: failed, missing or switched-off checks, an
+    early end, uncertain Effects.
+    """
+    reported: Reported | None = None
+    """The model's claim, when it made one."""
+    verdict: Verdict
+    """
+    The work's Verdict, which is not `verified`; one this reader does not
+    know is kept as received.
     """
 
 

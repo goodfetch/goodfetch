@@ -1426,6 +1426,22 @@
       ],
       "type": "object"
     },
+    "Claim": {
+      "description": "What a model said of the work it was given (ADR 0100): a signal, never\nproof.",
+      "oneOf": [
+        {
+          "const": "done",
+          "description": "It said it was done.",
+          "type": "string"
+        },
+        {
+          "const": "gave_up",
+          "description": "It said it gave up, which stops the work with the reason `gave_up`\n(ADR 0117).",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "CleanUpRulesManifest": {
       "description": "One version of the Clean-up rules, as its `manifest.json` says.",
       "properties": {
@@ -9938,6 +9954,41 @@
       ],
       "type": "object"
     },
+    "NotVerifiedDetails": {
+      "description": "What `not_verified` details.",
+      "properties": {
+        "reasons": {
+          "arrived_in": "0.1",
+          "description": "Why it is not `verified`: failed, missing or switched-off checks, an\nearly end, uncertain Effects.",
+          "items": {
+            "$ref": "#/$defs/AxisReason"
+          },
+          "type": "array"
+        },
+        "reported": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reported"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The model's claim, when it made one."
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict",
+          "arrived_in": "0.1",
+          "description": "The work's Verdict, which is not `verified`; one this reader does not\nknow is kept as received."
+        }
+      },
+      "required": [
+        "verdict",
+        "reasons"
+      ],
+      "type": "object"
+    },
     "NothingCommitted": {
       "description": "Why a succeeded request committed no Record (ADR 0103).",
       "oneOf": [
@@ -12348,6 +12399,28 @@
         "name",
         "version",
         "bytes"
+      ],
+      "type": "object"
+    },
+    "Reported": {
+      "description": "The model's claim and its message, absent from a result when no model\nclaimed anything: the work stopped before a claim, or was replayed whole\n(ADR 0100).",
+      "properties": {
+        "claim": {
+          "$ref": "#/$defs/Claim",
+          "arrived_in": "0.1",
+          "description": "What it claimed."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it said with the claim, when it said something.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "claim"
       ],
       "type": "object"
     },

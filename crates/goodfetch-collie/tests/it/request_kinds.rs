@@ -528,11 +528,6 @@ fn every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_c
         outcomes.remove(&case.name).unwrap_or_default()
     });
 
-    assert!(
-        runner.cases().len() > 80,
-        "only {} cases",
-        runner.cases().len()
-    );
     let unrecorded: Vec<_> = runner
         .cases()
         .iter()

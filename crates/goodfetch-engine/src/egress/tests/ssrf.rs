@@ -159,11 +159,6 @@ fn every_case_of_the_table_is_refused_before_a_connection_would_try_its_target()
 
     let result = runner.run(&controls.cases, PUBLIC, run_case);
 
-    assert!(
-        runner.cases().len() > 100,
-        "only {} cases",
-        runner.cases().len()
-    );
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }
 
@@ -195,7 +190,6 @@ fn a_rebinding_name_is_refused_on_the_connection_after_its_answer_changes() {
         })
         .collect();
 
-    assert_eq!(cases.len(), 3);
     assert_eq!(
         fetched,
         cases

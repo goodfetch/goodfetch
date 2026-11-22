@@ -18,15 +18,12 @@ use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::ops::Ops;
 use goodfetch_protocol::connection::HelloParams;
 use goodfetch_protocol::daemon::DaemonEndpoint;
-use goodfetch_test_support::{Canaries, Canary, CapturedLog, Output, SecretKind};
+use goodfetch_test_support::{Canaries, CapturedLog, Output, SecretKind};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
 use crate::connection::{dependencies, engine, hello};
-
-/// The Daemon's token, which `hello` carries in its first frame.
-const TOKEN: &str = "endpoint-token-canary-3209c0ffee51";
 
 /// The Daemon's major's pick, which never hands over.
 struct Pick;
@@ -54,6 +51,10 @@ fn neither_end_of_an_exposed_daemons_websocket_logs_hellos_token_at_trace() {
         )
         .init();
     tracing_log::LogTracer::init().unwrap();
+    let env = goodfetch_test_support::TestEnv::new();
+    // The Daemon's token, which `hello` carries in its first frame.
+    let mut canaries = Canaries::new(env.seed());
+    let token = canaries.plant(SecretKind::EndpointToken).value().to_owned();
     let home = tempfile::tempdir().unwrap();
 
     goodfetch_test_support::real_time_runtime().block_on(async {
@@ -66,7 +67,7 @@ fn neither_end_of_an_exposed_daemons_websocket_logs_hellos_token_at_trace() {
         };
         let asked = CancellationToken::new();
         let options = DaemonOptions {
-            token: TOKEN.to_owned(),
+            token: token.clone(),
             endpoint,
             pid: 4242,
             idle_timeout: Duration::from_secs(600),
@@ -91,7 +92,7 @@ fn neither_end_of_an_exposed_daemons_websocket_logs_hellos_token_at_trace() {
                 &Network::Os,
                 &exposed,
                 HelloParams {
-                    token: Some(TOKEN.to_owned()),
+                    token: Some(token.clone()),
                     ..hello()
                 },
             )
@@ -111,8 +112,6 @@ fn neither_end_of_an_exposed_daemons_websocket_logs_hellos_token_at_trace() {
     let text = String::from_utf8_lossy(&written);
     let bridged =
         ["Server handshake done.", "Client handshake done."].map(|line| text.contains(line));
-    let mut canaries = Canaries::new(0);
-    canaries.add(Canary::known("token", SecretKind::EndpointToken, TOKEN));
     let leaks = canaries
         .leaks(&[Output::Bytes {
             name: "log",

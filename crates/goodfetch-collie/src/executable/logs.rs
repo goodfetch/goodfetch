@@ -10,7 +10,7 @@
 //! `otlp.traces_endpoint` names a collector, and never otherwise, their
 //! trace and span IDs drawn from an `Entropy` of their own. Every
 //! timestamp reads the `Clock`. No level records a WebSocket frame's
-//! payload, which the `tungstenite` crates log at `trace` (ADR 0067).
+//! payload, which `tungstenite` logs at `trace` (ADR 0067).
 //!
 //! `log.output` defaults to `file` for a Daemon a start launched, which has
 //! no terminal, to `stdout` under `daemon run`, whose JSON lines on stdout

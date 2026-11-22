@@ -11,11 +11,11 @@
 //!
 //! A program that bridges the `log` crate's records to its logs
 //! (`tracing_log::LogTracer`, `env_logger`) caps the `tungstenite` and
-//! `tokio_tungstenite` targets at `debug`, whatever its level: at `trace`
-//! they log each WebSocket frame's payload, an Exposed Daemon's `hello`
-//! with its token as much as a linked engine's CDP traffic with a Borrowed
-//! browser, and
-//! secrets never reach logs (ADR 0067). A `tracing` subscriber does it
+//! `tokio_tungstenite` targets at `debug`, whatever its level, since
+//! secrets never reach logs (ADR 0067): at `trace`, `tungstenite` logs each
+//! WebSocket frame's payload, an Exposed Daemon's `hello` with its token as
+//! much as a linked engine's CDP traffic with a Borrowed browser, and
+//! `tokio_tungstenite` is the stream around it. A `tracing` subscriber does it
 //! with a global `Targets` or `EnvFilter` that holds the directives
 //! `tungstenite=debug,tokio_tungstenite=debug`, as the engine's executable
 //! does before its layers.

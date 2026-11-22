@@ -561,6 +561,10 @@ impl Gate for InOrder {
         self.waiting.front().map(|_| "shop.test".to_owned())
     }
 
+    fn waiting_under(&self, _: &str) -> usize {
+        self.waiting.len()
+    }
+
     fn hold(&mut self, _: &str, until: Instant, held: Held) {
         self.holds.lock().unwrap().push((until, held));
         self.held_until = Some(until);
@@ -653,16 +657,16 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
     );
 }
 
-/// A Run whose own requests in flight fill its key's concurrency asks the
-/// Politeness file once for its next request, which makes it the key's
-/// waiter in turn (ADR 0053), and holds the key without asking again until
-/// one of them ends, whatever wakes it meanwhile: with
-/// `politeness.delegation: false`, one request at a time costs its take,
-/// one busy take and its give back (ADR 0140's E6, #1899).
+/// A Run whose grant fills its key's concurrency while another of its
+/// requests waits under the key keeps its turn with that grant, which
+/// makes it the key's waiter in turn (ADR 0053), and holds the key without
+/// asking the Politeness file until one of its requests ends, whatever
+/// wakes it meanwhile: with `politeness.delegation: false`, one request at
+/// a time costs its take and its give back (ADR 0140's E6, #1899).
 ///
 /// Covers: story:3-63, setting:politeness.domain.concurrency
 #[test]
-fn a_run_whose_own_requests_fill_its_keys_concurrency_asks_the_file_once_meanwhile() {
+fn a_run_whose_grant_fills_its_keys_concurrency_keeps_its_turn_and_asks_nothing_meanwhile() {
     let work = CountedWork::default();
     let (admitted, holds) = on_the_runtime(async |owner| {
         let holds = Arc::new(Mutex::new(Vec::new()));
@@ -729,8 +733,8 @@ fn a_run_whose_own_requests_fill_its_keys_concurrency_asks_the_file_once_meanwhi
     );
     assert_eq!(
         work.read(Row::PolitenessTransactions),
-        4,
-        "a take, one busy take, its give back and the next take"
+        3,
+        "a take that keeps its turn, its give back and the next take"
     );
 }
 

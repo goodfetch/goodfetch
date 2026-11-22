@@ -122,8 +122,7 @@
 //! `E6.undelegated_transactions` alone, over their attempts, the unit
 //! `undelegated_attempts`. `E6.delegation_transactions`
 //! divides by the Delegations taken, the unit `delegations`,
-//! `E6.delegations` by the cell's one Run, and `E6.other_transactions` by
-//! its attempts.
+//! and `E6.delegations` and `E6.other_transactions` by the cell's one Run.
 //!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site

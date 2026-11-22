@@ -32,9 +32,9 @@ use tokio::sync::oneshot;
 
 use super::{
     Context, DELEGATE, DELEGATION, DELEGATIONS_PER_TRANSACTION, Ending, Erased, GONE_WAITERS,
-    Holder, KeyState, NEXT_GENERATION, Permit, PolitenessError, REHOLD, STOP_WAITING, SharedRule,
-    TAKE, Taken, Turn, UNDELEGATE, WAITERS_OF, changed, in_flight, memory, milliseconds, next_turn,
-    reclaim, sqlite_error,
+    Holder, InTurn, KeyState, NEXT_GENERATION, Permit, PolitenessError, REHOLD, STOP_WAITING,
+    SharedRule, TAKE, Taken, Turn, UNDELEGATE, WAITERS_OF, changed, in_flight, memory,
+    milliseconds, next_turn, reclaim, sqlite_error,
 };
 use crate::sqlite_store;
 use crate::sync::{Arc, Mutex};
@@ -90,7 +90,7 @@ struct Asked {
     holder: Holder,
     rule: SharedRule,
     now: SystemTime,
-    in_turn: bool,
+    in_turn: InTurn,
     answer: Answer,
 }
 
@@ -155,7 +155,7 @@ impl FileBackend {
         holder: Holder,
         rule: SharedRule,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
         answer: Answer,
     ) {
         let delegates = rule.0.delegates();
@@ -185,7 +185,7 @@ impl FileBackend {
         holder: &Holder,
         rule: &SharedRule,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> Result<(Taken, Option<Turn>), PolitenessError> {
         transaction(
             &self.connection,
@@ -208,7 +208,7 @@ impl FileBackend {
         holder: &Holder,
         rule: &SharedRule,
         now: SystemTime,
-        in_turn: bool,
+        in_turn: InTurn,
     ) -> (Taken, Option<Turn>) {
         if let Some(delegation) = self.delegations.get_mut(key)
             && !delegation

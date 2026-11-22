@@ -204,6 +204,11 @@ pub struct Opening {
     /// the project configuration, so that a key no model sets is refused
     /// (ADR 0092).
     pub acting_for_model: bool,
+    /// Whether the Client reached an Exposed Daemon, where the project
+    /// configuration it sent keeps its rank with only the run layer's
+    /// authority, so it widens nothing reserved to configuration (ADR
+    /// 0083).
+    pub exposed: bool,
 }
 
 impl Settings {
@@ -463,6 +468,9 @@ impl Settings {
             // model gives it as much as the run layer (ADR 0092).
             project = project.from_model();
             run = run.from_model();
+        }
+        if opening.exposed {
+            project = project.with_run_authority();
         }
         let layers = Layers {
             host,

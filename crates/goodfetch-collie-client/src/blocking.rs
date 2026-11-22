@@ -70,12 +70,35 @@ impl ClientConnection {
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
-    /// `finish()` ends it. The start of a Run this Connection drives
-    /// (`run.start`), which `send()` sends.
+    /// `finish()` ends it.
+    ///
+    /// Starts a Run its program drives, and answers once it is started. A
+    /// Run ID names the Run for good, and a start under one acts on what
+    /// the Run index holds (ADR 0102): no such Run begins it, `new`; an
+    /// interrupted Run, stopped, failed, or running with no live writer,
+    /// resumes from its committed state at the next run epoch, `resumed`,
+    /// as `run.resume` does; a finished Run is answered as it ended with no
+    /// handler called, `ended`. A Run live with a writer, in this engine or
+    /// another, fails with `run_in_use`; a Run started with other inputs or
+    /// by another caller with `run_conflict` listing each difference; a Run
+    /// the Run index lists whose state is missing or unreadable with
+    /// `run_state_unavailable`, never starting afresh.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Run this Connection drives (`run.start`), which
+    /// `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
     }
 
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the Connection runs with, as
     /// [`crate::ClientConnection::explain_settings`] says, which `send()`
     /// asks.
@@ -162,6 +185,20 @@ impl From<crate::Page> for Page {
 /// }
 /// ```
 pub trait Connection {
+    /// Starts a Run its program drives, and answers once it is started. A
+    /// Run ID names the Run for good, and a start under one acts on what
+    /// the Run index holds (ADR 0102): no such Run begins it, `new`; an
+    /// interrupted Run, stopped, failed, or running with no live writer,
+    /// resumes from its committed state at the next run epoch, `resumed`,
+    /// as `run.resume` does; a finished Run is answered as it ended with no
+    /// handler called, `ended`. A Run live with a writer, in this engine or
+    /// another, fails with `run_in_use`; a Run started with other inputs or
+    /// by another caller with `run_conflict` listing each difference; a Run
+    /// the Run index lists whose state is missing or unreadable with
+    /// `run_state_unavailable`, never starting afresh.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
     /// The start of a Run, as [`crate::Connection::start`]'s, which
     /// `send()` sends.
     fn start(&self) -> Start;
@@ -170,6 +207,13 @@ pub trait Connection {
     /// which `send()` sends.
     fn call(&self, operation: &str) -> RawCall;
 
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the connection runs with, as
     /// [`crate::Connection::explain_settings`] says, which `send()` asks.
     fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams>;
@@ -567,7 +611,22 @@ impl Response {
         self.inner.from_service_worker()
     }
 
-    /// Its body's bytes, as [`crate::Response::body`] reads them.
+    /// Reads the body of the response a page's request got, once the
+    /// request finished, as a page body's handle: kept already for a
+    /// response `page.wait_for_request_finished` answered, and otherwise
+    /// read from the browser, on the session of the frame that loaded it. A
+    /// body the browser no longer holds, or a redirect's, which has none,
+    /// raises `body_unavailable`, whose fix names
+    /// `page.wait_for_request_finished`; one that broke off raises
+    /// `response_truncated`, never returned as whole. Past its `timeout`,
+    /// `timeout.wait` when the call gives none, a request that has not
+    /// ended fails it with `deadline_exceeded`; a page that ends under it
+    /// raises what ended it, as a call on the page does.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Its body's bytes, as [`crate::Response::body`] reads them, blocking
+    /// the calling thread until they are read.
     ///
     /// # Errors
     ///
@@ -636,12 +695,33 @@ impl Exchange {
 }
 
 impl Run {
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the Run runs with, as [`crate::Run::explain_settings`] says,
     /// which `send()` asks.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
         Query::new(self.inner.explain_settings(), self.inner.host.connection())
     }
 
+    /// Reads a Run's progress: what it does and why it waits. Without
+    /// `after`, it answers at once; given `after`, the position of the value
+    /// the reader last read, it waits for a change and answers the latest
+    /// value, so values in between are coalesced. The value whose `last` is
+    /// true ends the sequence: the Run ended, and its `lifecycle` and
+    /// `stop_reason` say how, or no engine works it (`writer: none`) until a
+    /// start with its Run ID resumes it. A Run another engine works is read
+    /// through that engine, the owner the Run index names, and one no engine
+    /// works from its committed state; a read never takes the Run's writer
+    /// lock. A Run ID the Run index does not list fails with
+    /// `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
     /// The Run's progress, as [`crate::Run::progress`] says, as an iterator
     /// that blocks the calling thread until the next value. Dropping it
     /// cancels its read in flight.
@@ -651,6 +731,15 @@ impl Run {
 
     /// Closes the Run for every clone, as [`crate::Run::close`] does, and
     /// returns once it is closed.
+    ///
+    /// Stops a Run at its next safe point, `stopped` and `incomplete`: no
+    /// attempt in flight commits, and its work items return to pending.
+    /// Answers its Run report; an ended Run's report is answered as it is.
+    /// A Run whose engine died is stopped by this engine, which takes its
+    /// writer role at the next run epoch; a Run another engine writes is
+    /// stopped by that engine, the owner the Run index names.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///

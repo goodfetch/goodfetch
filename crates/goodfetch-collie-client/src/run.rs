@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::SettingScope;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
@@ -18,7 +19,7 @@ use serde::Serialize;
 use crate::call::Query;
 use crate::connection::ClientConnection;
 use crate::error::Error;
-use crate::generated::handles::Run;
+use crate::generated::handles::{Page, Run};
 use crate::host::{HeldRun, Host};
 use crate::limits::Limits;
 use crate::logging::{self, engine_log_level};
@@ -178,6 +179,17 @@ impl Run {
     pub async fn close(&self) -> Result<(), Error> {
         crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
+    }
+
+    /// The handle of the Run's page `page_id`, which the engine opened
+    /// rather than the program, such as the page a Product serves a crawl
+    /// attempt's document on (ADR 0093). It sends nothing, and dropping it
+    /// leaves the page open: what opened the page closes it.
+    #[must_use]
+    pub fn page_of(&self, page_id: PageId) -> Page {
+        Page {
+            host: self.host.reached(page_id),
+        }
     }
 
     /// What the Run runs with (ADR 0083), as `config explain` shows it

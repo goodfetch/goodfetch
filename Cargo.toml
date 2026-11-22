@@ -719,6 +719,16 @@ debug = "line-tables-only"
 split-debuginfo = "packed"
 strip = "debuginfo"
 
+# The bundled DuckDB without debug information, as in `dev`: its build
+# script defines `DEBUG`, which turns on DuckDB's assertions and debug-only
+# checks, whenever Cargo gives it debug information, line tables included,
+# and `NDEBUG` only without (issue 3233). `ci` and `bench` inherit it, so
+# every profile compiles DuckDB with the optimization and defines of
+# DuckDB's own release builds. Every other package keeps the profile's line
+# tables.
+[profile.release.package.libduckdb-sys]
+debug = false
+
 # Pull-request and merge-queue builds: the release profile with thin LTO.
 [profile.ci]
 inherits = "release"

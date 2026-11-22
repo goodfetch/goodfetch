@@ -10,6 +10,11 @@
 //! cancels its call with `$/cancel`, without blocking and without a
 //! warning (ADRs 0078, 0081).
 //!
+//! A Product's stream whose items are no event batches, such as
+//! Foxhound's `run.records`, takes each from one notification of the
+//! stream's own name, `$/record`, under the same credits, each item one
+//! credit (ADR 0103): [`crate::ClientConnection::stream`] opens one.
+//!
 //! A stream of events the engine publishes on its event stream, such as a
 //! Session's pages, gets them from the Connection's own Subscription
 //! instead, which [`crate::published`] shares between such streams: its
@@ -32,7 +37,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_util::StreamExt as _;
-use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope};
+use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope, Position};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
@@ -465,6 +470,16 @@ impl Flow {
                             "a batch of events that is no batch"
                         ),
                     }
+                }
+                // A sequence's item, one in each notification of its own
+                // name, as `run.records`'s `$/record`.
+                Poll::Ready(Some(Heard::Notified { method, params })) if method == self.event => {
+                    batches.waiting.push_back(EventEnvelope {
+                        position: Position::default(),
+                        event: method,
+                        data: params,
+                        dropped: 0,
+                    });
                 }
                 Poll::Ready(Some(Heard::Notified { .. })) => {}
                 // Its reply came, or the Connection ended: nothing more is

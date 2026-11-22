@@ -237,6 +237,15 @@ export class ResponseUnavailableError extends PageError<"response_unavailable"> 
 }
 
 /**
+ * The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error.
+ */
+export class RetryRequestedError extends PageError<"retry_requested"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "RetryRequestedError", code: "retry_requested", group: "page", retryable: true });
+  }
+}
+
+/**
  * The sample crawl refused its pages.
  */
 export class SampleCrawlRefusedError extends RefusedError<"sample_crawl_refused"> {
@@ -281,6 +290,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   response_not_document: ResponseNotDocumentError,
   response_not_ok: ResponseNotOKError,
   response_unavailable: ResponseUnavailableError,
+  retry_requested: RetryRequestedError,
   sample_crawl_refused: SampleCrawlRefusedError,
   staging_full: StagingFullError,
 };
@@ -312,10 +322,11 @@ export type FoxhoundErrorCode =
   | "response_not_document"
   | "response_not_ok"
   | "response_unavailable"
+  | "retry_requested"
   | "sample_crawl_refused"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -345,6 +356,7 @@ export type FoxhoundError =
   | ResponseNotDocumentError
   | ResponseNotOKError
   | ResponseUnavailableError
+  | RetryRequestedError
   | SampleCrawlRefusedError
   | StagingFullError;
 

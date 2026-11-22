@@ -21,10 +21,13 @@ from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client._rpc import (
+    CallDeadline,
     Channel,
+    ChannelBounds,
     InvalidLine,
     ReadFailed,
     WriteFailed,
+    phase_exceeded,
 )
 from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client.attached_engine import EngineExit
@@ -35,7 +38,6 @@ from goodfetch_collie_client.generated.connection import (
 from goodfetch_collie_client.generated.errors import (
     CallCancelledError,
     ClosedError,
-    DeadlineExceededError,
     EngineExitedError,
     EngineOutputInvalidError,
     ProtocolVersionUnsupportedError,
@@ -217,17 +219,18 @@ class ClientConnection:
         close_timeout: float,
         reached: Reached = ATTACHED_ELSEWHERE,
         listener_queue: int = MAX_LISTENER_QUEUE,
+        bounds: ChannelBounds | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
         `reached` says how the engine was reached, which `engine` reports;
         `listener_queue`, already checked, bounds the queue of each listener
-        of its own Subscription.
+        of its own Subscription, and `bounds`, already checked, its calls.
         """
         self._engine = engine
         self._reached = reached
         self._opener = OpeningProcess()
-        self._channel = Channel(transport, self, error_classes)
+        self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
         self._published = SharedSubscription(self, listener_queue)
@@ -257,6 +260,7 @@ class ClientConnection:
         connect_started_at: float | None = None,
         listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
+        bounds: ChannelBounds | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -268,7 +272,8 @@ class ClientConnection:
         Connection's scope (`setting_not_applicable`), fails the opening
         with the engine's error. `listener_queue`, already checked by
         `listener_queue_of`, bounds the queue of each listener of its own
-        Subscription.
+        Subscription; `bounds`, already checked by `bounds_of`, bound its
+        calls from `hello` on, the defaults' when left out.
         `connect_timeout`, already checked by `timeout_of`, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
         when left out, none for `None`, counted from `connect_started_at`,
@@ -281,7 +286,13 @@ class ClientConnection:
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
         """
         connection = cls(
-            transport, engine, error_classes, close_timeout, reached, listener_queue
+            transport,
+            engine,
+            error_classes,
+            close_timeout,
+            reached,
+            listener_queue,
+            bounds,
         )
         try:
             await connection._hello(
@@ -309,9 +320,13 @@ class ClientConnection:
             raise TypeError(message)
         return self._info
 
-    async def call(self, operation: str, params: BaseModel) -> object:
+    async def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
         """Sends one call and returns its result as the engine sent it.
 
+        `timeout_setting` is the setting the call's own `timeout` sets, such
+        as `timeout.navigation`, which a call queued past that timeout names.
         The engine's answers are not validated beyond `hello`'s protocol
         version (STYLE.md), nor are the params, which the engine checks.
         """
@@ -319,16 +334,22 @@ class ClientConnection:
         wire = params.model_dump(
             mode="json", by_alias=True, exclude_unset=True, warnings=False
         )
-        return await self._channel.call(operation, wire)
+        deadline = (
+            None if timeout_setting is None else _deadline_of(timeout_setting, wire)
+        )
+        return await self._channel.call(operation, wire, deadline=deadline)
 
     async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
         """Sends the raw call `operation` (ADR 0099), unless the Connection is closed.
 
-        Its params and its result are the wire's JSON, unconverted.
+        Its params and its result are the wire's JSON, unconverted; their
+        `timeout`, when they carry one, bounds its wait in the queue too.
         """
         self._opener.ensure_current(operation)
         self.ensure_open(operation)
-        result = await self._channel.call(operation, params)
+        result = await self._channel.call(
+            operation, params, deadline=_deadline_of("timeout", params)
+        )
         # Engine answers are not validated beyond `hello`'s protocol version
         # (STYLE.md): a result is the JSON the channel decoded.
         return cast("JsonValue", result)
@@ -537,6 +558,10 @@ class ClientConnection:
             url=self._reached.url,
             fallback=self._reached.fallback,
         )
+        cap = fields.get("max_calls_in_flight")
+        # The Scripted engine names no cap: then calls are never queued.
+        if isinstance(cap, int) and not isinstance(cap, bool) and cap >= 1:
+            self._channel.cap_calls_in_flight(cap)
 
     async def _hello_answer(
         self,
@@ -749,30 +774,16 @@ def connect_limit(
     )
 
 
-def phase_exceeded(
-    message: str,
-    *,
-    fix: str,
-    limit: SettingLimit,
-    started_at: float,
-    waited_for: Literal["hello", "close"],
-) -> DeadlineExceededError:
-    """The `deadline_exceeded` of a phase `limit` bounds (ADR 0080).
+def _deadline_of(key: str, wire: Mapping[str, object]) -> CallDeadline | None:
+    """The call's own timeout, `key`, as its params `wire` carry it, if they do.
 
-    Its wait for `waited_for` started at `started_at`, on anyio's clock.
+    A timeout the engine refuses, as 0, bounds nothing here: the call is
+    sent, in its turn, for the engine's `setting_invalid` (ADR 0080).
     """
-    return DeadlineExceededError(
-        message,
-        code="deadline_exceeded",
-        group="deadline_exceeded",
-        retryable=True,
-        fix=fix,
-        limit=limit,
-        details={
-            "elapsed": round((anyio.current_time() - started_at) * 1000),
-            "waited_for": waited_for,
-        },
-    )
+    value = wire.get("timeout")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return CallDeadline(key, value)
+    return None
 
 
 def closed_error(operation: str) -> ClosedError:

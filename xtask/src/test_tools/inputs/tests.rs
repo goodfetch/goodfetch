@@ -65,6 +65,10 @@ impl Built {
     }
 }
 
+/// The SHA-256 of `four`, the content `Built` writes in each file: a source
+/// is recorded with its digest too.
+const FOUR: &str = "04efaf080f5a3e74e1c29d1ca6a48569382cbbcd324e8d59d2b83ef21c039f00";
+
 #[test]
 fn a_source_is_recorded_with_its_size_and_its_packages_manifest() {
     let built = Built::new(
@@ -88,13 +92,13 @@ fn a_source_is_recorded_with_its_size_and_its_packages_manifest() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|input| json!([input[0], input[1]]))
+        .map(|input| json!([input[0], input[1], input[3]]))
         .collect();
     assert_eq!(
         inputs,
         [
-            json!(["crates/engine/Cargo.toml", 4]),
-            json!(["crates/engine/src/my lib.rs", 4])
+            json!(["crates/engine/Cargo.toml", 4, FOUR]),
+            json!(["crates/engine/src/my lib.rs", 4, FOUR])
         ]
     );
 }
@@ -174,7 +178,7 @@ fn a_watched_folder_is_recorded_with_every_file_under_it() {
 /// A folder's size is the OS's own count, which Linux and Windows make
 /// differently, so a record made on Linux and read under Wine would find
 /// every watched folder changed (issue 2767): a folder is recorded with
-/// none.
+/// none, and with no digest, as it has no content of its own.
 #[test]
 fn a_watched_folder_is_recorded_with_no_size() {
     let built = Built::new(
@@ -190,14 +194,14 @@ fn a_watched_folder_is_recorded_with_no_size() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|input| json!([input[0], input[1]]))
+        .map(|input| json!([input[0], input[1], input[3]]))
         .collect();
     assert_eq!(
         sizes,
         [
-            json!(["rules", 0]),
-            json!(["rules/list.txt", 4]),
-            json!(["src/main.rs", 4])
+            json!(["rules", 0, null]),
+            json!(["rules/list.txt", 4, FOUR]),
+            json!(["src/main.rs", 4, FOUR])
         ]
     );
 }

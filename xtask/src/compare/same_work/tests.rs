@@ -4,8 +4,8 @@ use crate::compare::extracted::{Differing, Extracted};
 use crate::compare::matrix::{self, Scenario};
 use crate::compare::trials;
 use crate::compare::trials::{
-    AutoRun, Comparison, CountedCell, CountedRun, Measured, Redone, SIZE_CONCURRENCIES, SIZE_TOOLS,
-    SIZES, SizesCell, Tool, Trial, Work, fixture,
+    AutoRun, Comparison, CountedCell, CountedRun, Measured, Redone, SIZE_CONCURRENCIES, SIZES,
+    SizesCell, Tool, Trial, Work, fixture, size_not_run, size_tools,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -651,23 +651,21 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
     assert_eq!(stopped, vec![]);
 }
 
-/// Three trials of each scenario 1 main cell of Foxhound and Spider at
-/// each size and concurrency, Spider's at 1 in flight aside, which the
-/// sizes cell does not run; each fetching its site's pages once, the first
-/// at 100 pages and 64 in flight short of a page.
+/// Three trials of each scenario 1 main cell the sizes cell runs at each
+/// size and concurrency, every tool's at 16 in flight and Foxhound's and
+/// Spider's at 1 and 64, Spider's at 1 aside, which it does not run; each
+/// fetching its site's pages once, the first at 100 pages and 64 in flight
+/// short of a page.
 fn sizes() -> SizesCell {
     let trials_run = matrix::measured()
-        .filter(|(cell, config)| {
-            cell.scenario == Scenario::Raw
-                && cell.counted_criteria()
-                && SIZE_TOOLS.contains(&config.tool())
-        })
+        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.counted_criteria())
         .flat_map(|(cell, config)| {
             SIZES.into_iter().flat_map(move |pages| {
                 SIZE_CONCURRENCIES
                     .into_iter()
                     .filter(move |&concurrency| {
-                        !(config.tool() == Tool::Spider && concurrency == 1)
+                        size_tools(concurrency).contains(&config.tool())
+                            && size_not_run(config.tool(), pages, concurrency).is_none()
                     })
                     .flat_map(move |concurrency| {
                         (1..=3).map(move |number| {
@@ -714,8 +712,8 @@ fn sizes() -> SizesCell {
 
 /// The sizes cell's trials are held to their own size's site, each size
 /// and concurrency apart: the trial short of a page at 100 pages and 64 in
-/// flight is named there, and no point is short of its trials, Spider at 1
-/// in flight, which runs none, included.
+/// flight is named there, and no point is short of its trials, every tool
+/// at 16 in flight and Spider at 1, which runs none, included.
 #[test]
 fn a_sizes_trial_is_held_to_its_own_sizes_site() {
     let mut trials = comparison(|_, _| work(0));

@@ -115,16 +115,6 @@ export class Run extends Handle {
   }
 
   /**
-   * Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.
-   *
-   * @experimental
-   */
-  async progress(options: { readonly after?: types.RunProgressParams["after"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunProgress> {
-    warnExperimental("run.progress");
-    return this.#host.call("run.progress", defined({ runId: this.#host.id, after: options.after }), { signal: options.signal });
-  }
-
-  /**
    * Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.
    *
    * @experimental

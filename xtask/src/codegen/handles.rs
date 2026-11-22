@@ -700,7 +700,7 @@ fn form(operation: &Operation, name: &str, schema: &Value) -> Result<Option<Form
             Some(Form::Query)
         }
         Kind::Waiter => Some(Form::Waiter),
-        Kind::Read | Kind::Opener | Kind::Sequence | Kind::Event => None,
+        Kind::Read | Kind::Opener | Kind::Sequence | Kind::Followed | Kind::Event => None,
     })
 }
 

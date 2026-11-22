@@ -22,8 +22,10 @@ target/
 # mutmut's copy of a Python SDK package, mutated in place of its sources
 # (`just mutants-sdks python`)
 /sdks/python/*/mutants/
-# StrykerJS's Vitest setup files, left by a run that stops (`just mutants-sdks`)
+# StrykerJS's Vitest setup files, left by a run that stops, and its backups
+# of the files it mutates (`just mutants-sdks`, `just mutants-typescript`)
 /stryker-setup-*.js
+/.stryker-tmp/
 __pycache__/
 .venv/
 .pytest_cache/

@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "49"
+version = "50"
 
 [[capability]]
 name = "lifecycle"
@@ -50,7 +50,9 @@ modes = ["attached", "linked"]
 # and connect add no handler, hook or global and write nothing to stdout or
 # stderr, and after them the SDK writes only its catalog markers' run-time
 # warnings (ADR 0030), each once, through the host's warning channel, and
-# nothing to stdout (issue 2989).
+# nothing to stdout (issue 2989). Its program follows its Run's progress
+# before finishing it, so no status line is printed either (ADR 0102;
+# issue 1282).
 [[capability.case]]
 id = "nothing-at-import-or-connect"
 covers = ["story:11-15"]
@@ -372,12 +374,11 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # a call in flight only when the catalog classes it a read or an idempotent
 # write; an Effect in flight raises `connection_lost`, an
 # `UnavailableError`, and is never sent again. Played by the Scripted engine
-# as a Daemon over a WebSocket, which drops the first link; Python's
-# WebSocket transport joins with issue 3204's Python half.
+# as a Daemon over a WebSocket, which drops the first link.
 [[capability.case]]
 id = "dropped-link-resends-reads"
 covers = ["story:11-6", "story:11-32"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["daemon"]
 
 # A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh
@@ -397,6 +398,23 @@ id = "start-reaches-its-run"
 covers = ["story:11-126", "story:11-127"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
+# 1282): `finish()` answers the whole Run report and `stop()` the Run
+# stopped as an abort by its program, with its Checkpoint; a Run that ended
+# `failed` makes both raise the error that failed it, and a call's timeout
+# ends only its wait. `progress()` answers the Run's progress at once, and
+# the next read, sent once the program asks for the next value with the
+# last value's position as `after`, answers the value carrying the message
+# `setProgressMessage` set. It plays on the Scripted engine, in Rust as
+# the Daemon (`daemon`), whose script checks every message the SDK sends.
+# That following the progress prints no status line is
+# `nothing-at-import-or-connect`'s, whose guest program follows it.
+[[capability.case]]
+id = "finish-stop-and-progress"
+covers = ["story:11-128", "story:11-129"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
 # engine in `hello`, and a Run's own sit over them in three states, a key

@@ -4,15 +4,18 @@ An Agent's task or a Plan replayed toward a goal: how it ended, its Verdict
 and what its model claimed, read apart, with the answer inside how it ended.
 A program matches `ended` on `Finished` and `Stopped`; `require_verified()`
 turns a result its checks did not prove into `not_verified`, only when the
-program asks. TypeScript's `ai-work.ts` is its twin.
+program asks. The model's claim, `Reported`, is the catalog's generated
+model. TypeScript's `ai-work.ts` is its twin.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, Literal, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeAlias, TypeVar
 
 from goodfetch_collie_client.generated.errors import NotVerifiedError
+from goodfetch_collie_client.generated.models import Reported
+from goodfetch_collie_client.generated.open_values import Claim
 from goodfetch_collie_client.goodfetch_error import runtime_message
 
 if TYPE_CHECKING:
@@ -25,12 +28,6 @@ if TYPE_CHECKING:
 __all__ = ["AIWorkResult", "Claim", "Ended", "Finished", "Reported", "Stopped"]
 
 _Output = TypeVar("_Output", covariant=True)
-
-_KnownClaim: TypeAlias = Literal["done", "gave_up"]
-
-Claim: TypeAlias = _KnownClaim | str
-"""What a model said of the work: `done` or `gave_up`; an unknown claim is kept
-(ADR 0079)."""
 
 _NOT_PROVEN = (
     "Read the result's `ended` and `verdict` to use an output its checks did not "
@@ -63,14 +60,6 @@ class Stopped(Generic[_Output]):
 
 Ended: TypeAlias = Finished[_Output] | Stopped[_Output]
 """How AI work ended (ADR 0117), matched on `Finished` and `Stopped`."""
-
-
-@dataclass(frozen=True)
-class Reported:
-    """The model's claim and its message: a signal, never proof (ADR 0100)."""
-
-    claim: Claim
-    message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -109,10 +98,9 @@ class AIWorkResult(Generic[_Output]):
             ],
         }
         if self.reported is not None:
-            reported: dict[str, str] = {"claim": self.reported.claim}
-            if self.reported.message is not None:
-                reported["message"] = self.reported.message
-            details["reported"] = reported
+            details["reported"] = self.reported.model_dump(
+                mode="json", exclude_none=True
+            )
         what_failed = (
             f"the AI work's Verdict is `{self.verdict}`, so its output is not verified"
         )

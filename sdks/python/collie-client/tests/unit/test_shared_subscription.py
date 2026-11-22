@@ -65,7 +65,7 @@ class _Engine:
         self,
         method: str,
         params: Mapping[str, object],
-        notified: Callable[[str, object], None],
+        notified: Callable[[str, object], None] | None,
         *,
         sent: Callable[[int], None] | None = None,
     ) -> object:
@@ -75,7 +75,8 @@ class _Engine:
         if method == "events.subscribe":
             self._subscription = call_id
         self.sent.append((method, call_id))
-        self._notified[call_id] = notified
+        if notified is not None:
+            self._notified[call_id] = notified
         answered = self._answered[call_id] = anyio.Event()
         if sent is not None:
             sent(call_id)

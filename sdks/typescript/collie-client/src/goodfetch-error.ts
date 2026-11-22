@@ -3,7 +3,8 @@
 // only the seven groups and the codes' classes come from the catalog.
 import type { ErrorGroup } from "./generated/errors.ts";
 import type { ModelUsage, SettingLimit } from "./generated/types.ts";
-import { pointInTime } from "./wire.ts";
+import { isRecord } from "./framing.ts";
+import { fromWire, pointInTime, type WirePath, type WireTypes } from "./wire.ts";
 
 /**
  * What marks a Goodfetch error, shared by every copy of the package a bundle
@@ -139,19 +140,22 @@ export function retryAfterOf(details: Readonly<Record<string, unknown>> | undefi
 /**
  * A code's `details` as the type `Details` its class reads them as (ADR
  * 0079), or `undefined` when they lack one of the fields `required` names,
- * as those of an error a program builds without details do. Like every
- * engine response, the values are taken as sent, beyond the protocol
- * version check.
+ * as those of an error a program builds without details do. A type that
+ * holds fields to rename or points in time is read through `wire`, its path
+ * in the Product's wire table, as a response is. Like every engine
+ * response, the values are taken as sent, beyond the protocol version check.
  */
 export function detailsOf<Details extends object>(
   details: Readonly<Record<string, unknown>> | undefined,
   required: readonly (keyof Details & string)[],
+  wire?: { readonly path: WirePath; readonly types: WireTypes },
 ): Readonly<Details> | undefined {
-  if (details === undefined || !required.every((field) => field in details)) {
+  const read = wire === undefined ? details : fromWire(details, wire.path, wire.types);
+  if (!isRecord(read) || !required.every((field) => field in read)) {
     return undefined;
   }
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the catalog names `Details` as the code's details, which hold each field it requires.
-  return details as Readonly<Details>;
+  return read as Readonly<Details>;
 }
 
 /** The class of one Error code: its message, then what it carries. */

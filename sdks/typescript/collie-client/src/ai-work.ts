@@ -5,7 +5,7 @@
 // `not_verified`, only when the program asks.
 import { runtimeMessage } from "./goodfetch-error.ts";
 import { NotVerifiedError } from "./generated/errors.ts";
-import type { AxisReason, StopReason, Verdict } from "./generated/types.ts";
+import type { AxisReason, Reported, StopReason, Verdict } from "./generated/types.ts";
 import { collieWire } from "./generated/wire.ts";
 import { toWire } from "./wire.ts";
 
@@ -22,15 +22,6 @@ export type PartialOf<T> = T extends readonly (infer Item)[] ? Item[] : Partial<
 export type Ended<T> =
   | { readonly kind: "finished"; readonly output: T }
   | { readonly kind: "stopped"; readonly reason: StopReason; readonly partial: PartialOf<T> };
-
-/** What a model said of the work: done or gave up; a claim this reader does not know is kept. */
-export type Claim = "done" | "gave_up" | (string & {});
-
-/** The model's claim and its message: a signal, never proof (ADR 0100). */
-export interface Reported {
-  readonly claim: Claim;
-  readonly message?: string | undefined;
-}
 
 /** The fields of an AI work result. */
 export interface AIWorkFields<T> {

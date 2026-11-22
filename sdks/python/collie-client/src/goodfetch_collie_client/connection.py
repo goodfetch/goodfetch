@@ -20,6 +20,7 @@ import anyio
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
+from goodfetch_collie_client._relink import RESENT, ChannelRelinking
 from goodfetch_collie_client._rpc import (
     CallDeadline,
     Channel,
@@ -72,17 +73,18 @@ from goodfetch_collie_client.host_logging import (
     log_level,
 )
 from goodfetch_collie_client.limits import Limits, limit_list
-from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
@@ -117,6 +119,9 @@ _CLOSED = "this Connection is closed"
 
 LOG = "$/log"
 """The notification that carries one of the engine's log events."""
+
+_EVENTS_SUBSCRIBE = "events.subscribe"
+"""The stream of the Connection's own Subscription, which a reconnect resumes."""
 
 
 EngineKind = Literal["attached", "daemon", "remote"]
@@ -237,12 +242,22 @@ class ClientConnection:
         self._info: EngineInfo | None = None
         self._ended = False
         self._closing = Once()
+        self._runs_closed = False
+        """Whether the close got past its Runs, after which no link is reached again.
+
+        A Run closing while the link is down waits for it to be reached
+        again, as TypeScript's `#closeInOrder` does (spec 606).
+        """
         self._close_timeout = close_timeout
         self._log_level = log_level()
         """The level of the engine's logs the engine was last told.
 
         By `hello` or `connection.set_log_level`.
         """
+        self._hello_params: HelloParams | None = None
+        """What `hello` sent, which reaching the engine again sends again."""
+        self._engine_instance: str | None = None
+        """The engine instance the last `hello` answered from."""
 
     @classmethod
     async def open(
@@ -261,6 +276,7 @@ class ClientConnection:
         listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Mapping[str, object] | None = None,
         bounds: ChannelBounds | None = None,
+        reconnect: Reconnect | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -285,6 +301,8 @@ class ClientConnection:
         `connect_timeout`, with `DeadlineExceededError`. A Daemon that
         closes the Connection before it answers `hello`, as one does for a
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
+        With `reconnect`, once opened, a dropped link is reached again
+        (spec 606), as `_reconnect_with` says.
         """
         connection = cls(
             transport,
@@ -311,7 +329,71 @@ class ClientConnection:
             with anyio.CancelScope(shield=True):
                 await connection._end()
             raise
+        # Only an engine that answered `hello` is reached again: one that closes
+        # the link before it answers refuses the Client, as for a wrong token.
+        if reconnect is not None:
+            connection._reconnect_with(reconnect, limits, connect_timeout)
         return connection
+
+    def _reconnect_with(
+        self,
+        reconnect: Reconnect,
+        limits: Sequence[RunLimit],
+        connect_timeout: int | NotGiven | None,
+    ) -> None:
+        """Reaches the engine again through `reconnect` whenever the link drops.
+
+        Within `timeout.connect` of the drop, it greets the engine with the
+        same `hello`, the level of its logs the current one, and sets the
+        Connection's `limits` again (spec 606).
+        """
+        classes = reconnect.operation_classes
+        connect = connect_limit(connect_timeout)
+        url = self._reached.url
+
+        async def greet(call: Callable[[str, object], Awaitable[object]]) -> None:
+            if self._hello_params is None:
+                message = "invariant: an open Connection has finished its hello"
+                raise TypeError(message)
+            params = self._hello_params.model_copy(
+                update={"log_level": self._log_level}
+            )
+            try:
+                self._greeted(await call("hello", _wire(params)))
+                for limit in limits:
+                    await call("usage.set", _wire(_usage_set_params(limit)))
+            except GoodfetchError:
+                self._ended = True
+                raise
+            logging.getLogger(CLIENT_LOGGER).info(
+                "The Connection reached the engine at %s again after its link dropped.",
+                url or "its address",
+                extra={"url": url},
+            )
+
+        def gave_up(cause: BaseException | None) -> GoodfetchError:
+            self._ended = True
+            error = ClosedError(
+                runtime_message(
+                    "the Connection's link to the engine dropped, and reaching the"
+                    " engine again failed within timeout.connect",
+                    fix=_CONNECT_AGAIN,
+                ),
+                fix=_CONNECT_AGAIN,
+            )
+            error.__cause__ = cause
+            return error
+
+        self._channel.relink_with(
+            ChannelRelinking(
+                resends=lambda method: classes.get(method) in RESENT,
+                within=None if connect is None else connect[0] / 1000,
+                closing=lambda: self._runs_closed,
+                reopen=reconnect.reopen,
+                greet=greet,
+                gave_up=gave_up,
+            )
+        )
 
     @property
     def engine(self) -> EngineInfo:
@@ -332,9 +414,7 @@ class ClientConnection:
         version (STYLE.md), nor are the params, which the engine checks.
         """
         self._opener.ensure_current(operation)
-        wire = params.model_dump(
-            mode="json", by_alias=True, exclude_unset=True, warnings=False
-        )
+        wire = _wire(params)
         deadline = (
             None if timeout_setting is None else _deadline_of(timeout_setting, wire)
         )
@@ -359,7 +439,7 @@ class ClientConnection:
         self,
         method: str,
         params: Mapping[str, object],
-        notified: Callable[[str, object], None],
+        notified: Callable[[str, object], None] | None,
         *,
         sent: Callable[[int], None] | None = None,
     ) -> object:
@@ -367,11 +447,21 @@ class ClientConnection:
 
         `notified` hears each notification naming the call's id, such as
         `$/chunk`, on the reading task, so it must not block; `sent` is told
-        that id once the call is written, for the credits `notify` grants.
+        that id once the call is written, for the credits `notify` grants. A
+        call that hears none, `notified` `None`, is sent again as it was once
+        a dropped link is reached again, when its operation may be;
+        `events.subscribe` is sent again after the last event it read, as
+        the engine instance that published it, with the credits it had left,
+        so its readers lose no event (spec 606).
         """
         self._opener.ensure_current(method)
         self.ensure_open(method)
-        return await self._channel.stream(method, params, notified, sent=sent)
+        if method != _EVENTS_SUBSCRIBE or not self._channel.relinks:
+            return await self._channel.stream(method, params, notified, sent=sent)
+        resumed = ResumedEvents(notified, lambda: self._engine_instance)
+        return await self._channel.stream(
+            method, params, resumed.notified, sent=sent, resume=resumed
+        )
 
     async def notify(self, method: str, params: Mapping[str, object]) -> None:
         """Sends the engine the notification `method`, such as `$/credit`."""
@@ -534,6 +624,7 @@ class ClientConnection:
             params.token = daemon.token
         if settings is not None:
             params.settings = settings_on_wire(settings)
+        self._hello_params = params
         try:
             answer = await self._hello_answer(
                 params, connect_timeout, connect_started_at
@@ -542,6 +633,14 @@ class ClientConnection:
             if daemon is None:
                 raise
             raise daemon.closed_at_hello() from error
+        self._greeted(answer)
+
+    def _greeted(self, answer: object) -> None:
+        """Takes `hello`'s answer: the protocol it speaks, the engine and its cap.
+
+        Raises:
+            ProtocolVersionUnsupportedError: The engine speaks another major.
+        """
         fields = object_members(answer) or {}
         spoken = fields.get("protocol_version")
         if not isinstance(spoken, str) or not speaks(spoken):
@@ -559,6 +658,8 @@ class ClientConnection:
             url=self._reached.url,
             fallback=self._reached.fallback,
         )
+        instance = fields.get("engine_instance")
+        self._engine_instance = instance if isinstance(instance, str) else None
         cap = fields.get("max_calls_in_flight")
         # The Scripted engine names no cap: then calls are never queued.
         if isinstance(cap, int) and not isinstance(cap, bool) and cap >= 1:
@@ -636,9 +737,7 @@ class ClientConnection:
 
     async def _set_limit(self, limit: RunLimit) -> None:
         """Sets `limit` on the Connection: no `scope_id`, no period (ADR 0080)."""
-        await self._operations.usage_set(
-            UsageSetParams(scope="connection", **limit.model_dump(exclude_unset=True))
-        )
+        await self._operations.usage_set(_usage_set_params(limit))
 
     async def _close(self) -> None:
         """Closes in order within the close timeout; past it, kills the engine."""
@@ -647,6 +746,7 @@ class ClientConnection:
         with anyio.move_on_after(self._close_timeout) as scope:
             failure = await self._close_in_order()
         if scope.cancelled_caught:
+            self._runs_closed = True
             self._cancel_calls()
             if self._engine is not None:
                 self._engine.kill()
@@ -684,6 +784,7 @@ class ClientConnection:
             except Exception as error:
                 # Every Run is closed before the first failure is raised.
                 failure = failure or error
+        self._runs_closed = True
         await self._channel.notify_cancelled(self._cancel_calls())
         await self._channel.close()
         # An Attached engine stops at the end of its input.
@@ -750,6 +851,18 @@ def _log_start(started: RunStarted) -> None:
                 run_id,
                 extra=fields,
             )
+
+
+def _wire(params: BaseModel) -> dict[str, object]:
+    """`params` as the wire spells them, a field left unset left out."""
+    return params.model_dump(
+        mode="json", by_alias=True, exclude_unset=True, warnings=False
+    )
+
+
+def _usage_set_params(limit: RunLimit) -> UsageSetParams:
+    """The `usage.set` that sets `limit` on the Connection (ADR 0080)."""
+    return UsageSetParams(scope="connection", **limit.model_dump(exclude_unset=True))
 
 
 def connect_limit(

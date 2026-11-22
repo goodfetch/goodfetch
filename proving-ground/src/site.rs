@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::access;
 use crate::adversarial;
 use crate::agent;
+use crate::browser_builds::{self, BrowserBuilds};
 use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
@@ -67,6 +68,8 @@ pub(crate) struct Site {
     refusals: Refusals,
     /// What the Crawl families saw crawls do.
     crawl: Families,
+    /// The files `browser-builds.test` serves.
+    builds: BrowserBuilds,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -98,7 +101,13 @@ pub(crate) struct Pems {
 }
 
 impl Site {
-    pub(crate) fn new(seed: u64, port: u16, pems: Pems, observations: Arc<Observations>) -> Self {
+    pub(crate) fn new(
+        seed: u64,
+        port: u16,
+        pems: Pems,
+        observations: Arc<Observations>,
+        builds: BrowserBuilds,
+    ) -> Self {
         Self {
             seed,
             port,
@@ -111,6 +120,7 @@ impl Site {
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
             crawl: Families::new(),
+            builds,
         }
     }
 
@@ -132,6 +142,7 @@ impl Site {
             .into_iter()
             .chain([
                 agent::HOST,
+                browser_builds::HOST,
                 model::HOST,
                 encodings::HOST,
                 extraction::HOST,
@@ -291,6 +302,9 @@ impl Site {
             // The raw server answers these over TLS and plain HTTP/1.1,
             // never over plain HTTP/2.
             return Reply::error(StatusCode::MISDIRECTED_REQUEST, "tls_required");
+        }
+        if let Some(reply) = self.builds.respond(&name, request) {
+            return reply;
         }
         if let Some((reply, recorded)) = browser_pages::respond(self.seed, &name, request) {
             if let Some(recorded) = recorded {

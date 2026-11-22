@@ -109,9 +109,9 @@ pub(super) fn install(
         artifacts: crate::pinned_artifacts(),
     };
     let now = now(clock);
-    let fetching = Fetching::of(settings, clock);
     let max_unused_age = max_unused_age(settings);
     let installed = runtime().block_on(async {
+        let fetching = Fetching::of(settings, clock, &owner).await;
         let outcomes = cache
             .install(
                 &to_install(&pins, names),

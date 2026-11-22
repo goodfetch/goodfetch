@@ -13,6 +13,11 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 - `with_browser`, which a test whose engine opens a page overrides to
   return `True`: the home's Browser cache laid out, and the Proving
   ground's hosts reachable;
+- `browser_download`, which a test of an engine's first use overrides with
+  a `BrowserDownload`: an empty Browser cache, whose missing build the
+  engine downloads from the Proving ground's `browser-builds.test` or
+  cannot (#3100); a test that asks for `READ_ONLY_CACHE` is skipped on
+  Windows, whose folders have no read-only mode;
 - `anyio_backend`, over asyncio and trio, named: a session where trio does
   not import fails rather than drop it (ADR 0069);
 - `client_case`, the `ClientCaseRecord` of the Client conformance case a
@@ -43,7 +48,7 @@ from goodfetch_test_support.case_log import (
     read_client_cases,
 )
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
-from goodfetch_test_support.environment import Product, TestEnv
+from goodfetch_test_support.environment import BrowserDownload, Product, TestEnv
 from goodfetch_test_support.mutation_children import MutationChildren
 from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
 from goodfetch_test_support.ways import ASYNC_BACKENDS
@@ -154,22 +159,41 @@ def with_browser() -> bool:
 
 
 @pytest.fixture
+def browser_download() -> BrowserDownload | None:
+    """How the engine's first use of an empty Browser cache goes.
+
+    No such use unless the test overrides it.
+    """
+    return None
+
+
+@pytest.fixture
 def test_env(
     request: pytest.FixtureRequest,
     proving_ground_seed: int | None,
     with_daemon: bool,
     with_browser: bool,
+    browser_download: BrowserDownload | None,
     product: Product,
 ) -> Iterator[TestEnv]:
     """The test's setup from `goodfetch-test-env`, torn down after the test.
 
     It starts a Proving ground when `proving_ground_seed` names a seed, and
     the Daemon of `product`'s executable in the test's home when
-    `with_daemon` is `True`, and lays out a Browser when `with_browser` is.
+    `with_daemon` is `True`, and lays out a Browser when `with_browser` is,
+    or an empty Browser cache, with its download host, when
+    `browser_download` names how its first use goes.
     The teardown stops the Daemon and fails the
     test when a process it started is still alive; a failed test's folder
     stays for its evidence, as a Rust test's does.
     """
+    # At run time, as a `skipif` would leave the test out of the case list's
+    # listing on every platform.
+    if browser_download is BrowserDownload.READ_ONLY_CACHE and sys.platform == "win32":
+        pytest.skip(
+            "`goodfetch-test-env` makes a cache read-only with its folder's mode,"
+            " which a Windows folder lacks"
+        )
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
     children = item.config.stash.get(_CHILDREN, None)
@@ -179,6 +203,7 @@ def test_env(
         proving_ground_seed=proving_ground_seed,
         daemon=product if with_daemon else None,
         browser=with_browser,
+        browser_download=browser_download,
         child_variables=None if children is None else children.variables(),
     )
     yield env

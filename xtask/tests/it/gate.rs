@@ -147,6 +147,8 @@ fn record_outcome(workspace: &Workspace, records: &Path, head: &str, step: &str)
     workspace.xtask(&[
         "gate",
         "record",
+        "--by",
+        "merge",
         "--records",
         &records.to_string_lossy(),
         "--head",
@@ -164,6 +166,8 @@ fn record(workspace: &Workspace, records: &Path, head: &str, step: &str, status:
     let outcome = workspace.xtask(&[
         "gate",
         "record",
+        "--by",
+        "merge",
         "--records",
         &records.to_string_lossy(),
         "--head",
@@ -467,10 +471,14 @@ const SHUFFLED: [&str; 4] = [
 #[case::ci_backstop_switch("ci/gate-backstop.state", &[], false)]
 #[case::ci_read_by_a_step_every_run_reruns("ci/gitleaks.toml", &[], false)]
 #[case::ci_proof("ci/proofs/msrv/Cargo.toml", &[], false)]
-#[case::ci_perf("ci/perf.sh", &["perf"], false)]
+#[case::ci_perf("ci/perf.sh", &["counts", "perf"], false)]
 #[case::ci_linux("ci/linux.sh", &["linux"], false)]
 #[case::ci_visual("ci/visual/run.sh", &["visual"], false)]
-#[case::ci_container("ci/container.sh", &["linux", "perf", "visual", "windows"], false)]
+#[case::ci_container(
+    "ci/container.sh",
+    &["counts", "linux", "perf", "visual", "windows"],
+    false
+)]
 #[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
 #[case::ci_miri("ci/miri.toml", &["miri"], false)]
 #[case::ci_loom("ci/loom.toml", &["loom"], false)]
@@ -535,7 +543,7 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
     );
     // Its evidence reaches xtask's tests alone, which no crate depends on.
     for step in [
-        "perf", "msrv", "miri", "loom", "windows", "tlc", "visual", "kennel",
+        "perf", "counts", "msrv", "miri", "loom", "windows", "tlc", "visual", "kennel",
     ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
@@ -941,6 +949,140 @@ fn a_run_with_the_python_environment_on_another_python_reuses_nothing() {
     assert_eq!(second.why["perf"], host_changed_since(&first));
 }
 
+/// The folder `ci/gate-records.sh` prints in `folder`, a checkout of a
+/// repository, without `GOODFETCH_GATE_RECORDS` set.
+#[cfg(unix)]
+fn shared_records(folder: &Path) -> PathBuf {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-records.sh");
+    let output = std::process::Command::new(script)
+        .current_dir(folder)
+        .env_remove("GOODFETCH_GATE_RECORDS")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    PathBuf::from(String::from_utf8(output.stdout).unwrap().trim_end())
+}
+
+/// Every worktree of a repository records into one folder of its common
+/// directory, so a unit any local layer recorded green on a tree, in
+/// whichever worktree, runs on that tree no more: the counted rows
+/// `just preflight` recorded in one worktree are reused by a plan in another
+/// on the same tree, and its log names the record and the layer (ADR 0135's
+/// amendment of 2026-11-22).
+#[test]
+#[cfg(unix)]
+fn a_result_recorded_in_one_worktree_is_reused_in_another_on_the_same_tree() {
+    let workspace = repository();
+    let other = tempfile::tempdir().unwrap();
+    let second_worktree = other.path().join("slot");
+    workspace.git(&[
+        "worktree",
+        "add",
+        "--quiet",
+        "--detach",
+        &second_worktree.to_string_lossy(),
+        "HEAD",
+    ]);
+    let records = shared_records(workspace.path());
+    assert_eq!(shared_records(&second_worktree), records);
+    assert!(
+        records.ends_with(".git/goodfetch-gate-runs"),
+        "{}",
+        records.display()
+    );
+    dep_info(&workspace, &records, &[]);
+    let first = plan(&workspace, &records);
+    let outcome = workspace.xtask(&[
+        "gate",
+        "record",
+        "--by",
+        "preflight",
+        "--records",
+        &records.to_string_lossy(),
+        "--head",
+        &first.head,
+        "--now",
+        NOW,
+        "--step",
+        "counts",
+        "--status",
+        "pass",
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+
+    let output = workspace
+        .command(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(&second_worktree)
+        .env("CARGO_NET_OFFLINE", "true")
+        .args([
+            "gate",
+            "plan",
+            "--records",
+            &records.to_string_lossy(),
+            "--now",
+            NOW,
+            "--target-dir",
+            &target(&records).to_string_lossy(),
+            "--environment",
+            "CI=",
+        ])
+        .output()
+        .unwrap();
+    let log = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "{log}");
+    let second = parse(&Outcome {
+        code: 0,
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: log.clone(),
+    });
+
+    assert_eq!(second.previous, first.head);
+    assert_eq!(action(&second, "counts").0, "reuse", "{log}");
+    assert_eq!(action(&second, "perf").0, "run", "{log}");
+    let record = records.join(format!("{}.tsv", first.head));
+    assert!(
+        log.contains(&format!("recorded in {}", record.display())),
+        "{log}"
+    );
+    assert!(
+        log.contains(&format!(
+            "counts: reused, green on {} by preflight",
+            &first.head[..10]
+        )),
+        "{log}"
+    );
+}
+
+/// A nearer record of another host fingerprint has nothing a plan may
+/// reuse, so the plan passes over it, says so, and plans from the nearest
+/// record of its own host.
+#[test]
+fn a_nearer_record_of_another_host_is_passed_over_for_this_hosts() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = plan(&workspace, &records);
+    record(&workspace, &records, &first.head, "perf", "pass");
+    workspace.write("docs/elsewhere.md", b"# Elsewhere\n");
+    commit_all(&workspace, "A change gated on another host");
+    let elsewhere = plan_in(&workspace, &records, "CI=1");
+    record(&workspace, &records, &elsewhere.head, "perf", "pass");
+    workspace.write("docs/here.md", b"# Here\n");
+    commit_all(&workspace, "A change gated here");
+
+    let outcome = planned(&workspace, &records, "CI=", &[]);
+    let third = parse(&outcome);
+
+    assert_eq!(third.previous, first.head);
+    assert_eq!(action(&third, "perf").0, "reuse", "{}", outcome.stderr);
+    assert!(
+        outcome.stderr.contains(&format!(
+            "the record {} (by merge) is of another host fingerprint, so its results cannot be reused: it is passed over.",
+            records.join(format!("{}.tsv", elsewhere.head)).display()
+        )),
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// Git also ignores what two files outside the tree name: the repository's
 /// own `info/exclude` and the user's. Lint's check of `.gitignore`
 /// (ci/ignored-sources.sh) and the tools that skip ignored files read them,
@@ -1136,6 +1278,8 @@ fn record_with(workspace: &Workspace, records: &Path, head: &str, step: &str, ar
     let mut command = vec![
         "gate",
         "record",
+        "--by",
+        "merge",
         "--records",
         &records,
         "--head",
@@ -1684,7 +1828,8 @@ fn a_green_run_keeps_where_its_earned_passes_came_from() {
     assert_eq!(fields[1], "pass", "{line}");
     assert_eq!(fields[2], second.head, "{line}");
     assert_eq!(fields[4], STARTED, "{line}");
-    assert_eq!(fields[5], first, "{line}");
+    assert_eq!(fields[5], "merge", "{line}");
+    assert_eq!(fields[6], first, "{line}");
     assert_eq!(earned(&records, &second.head), Vec::<String>::new());
 }
 
@@ -1763,6 +1908,8 @@ fn a_stress_result_is_not_recorded_when_its_earned_file_no_longer_says(
     let outcome = workspace.xtask(&[
         "gate",
         "record",
+        "--by",
+        "merge",
         "--records",
         &records.to_string_lossy(),
         "--head",
@@ -1859,7 +2006,7 @@ fn a_full_run_lists_the_earned_passes_of_every_merge_since_the_last_green_run() 
     std::fs::write(
         records.join(format!("{never}.tsv")),
         format!(
-            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{never}\tt\t{NOW}\t{first}\n"
+            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{never}\tt\t{NOW}\tmerge\t{first}\n"
         ),
     )
     .unwrap();
@@ -1916,7 +2063,7 @@ fn a_result_carried_from_a_head_main_never_held_is_listed() {
     std::fs::write(
         records.join(format!("{head}.tsv")),
         format!(
-            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{first_push}\tt\t{NOW}\t{before}\n"
+            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{first_push}\tt\t{NOW}\tmerge\t{before}\n"
         ),
     )
     .unwrap();

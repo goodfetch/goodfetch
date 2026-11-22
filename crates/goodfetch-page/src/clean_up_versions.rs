@@ -48,9 +48,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use goodfetch_engine::clock::{self, Clock};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::pinned_download::Digest;
+use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::rule_sources::Sourcing;
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
@@ -313,7 +312,7 @@ pub(crate) struct Sources {
     /// What a fetch may do: `egress.offline`, `network.resolve`,
     /// `egress.no_private_endpoints`, and the certificate authorities
     /// `tls.trusted_cas` lists for each source's own domain.
-    pub(crate) sourcing: Sourcing,
+    pub(crate) fetching: Fetching,
     /// Where the versions are kept.
     pub(crate) kept: Kept,
     /// The sources' state file.
@@ -345,12 +344,12 @@ impl Sources {
                 }
             }
         }
-        let sourcing = match settings {
-            Some(settings) => Sourcing::of(settings, context.clock, &owner).await,
-            None => Sourcing::new(context.clock),
+        let fetching = match settings {
+            Some(settings) => Fetching::of(settings, context.clock, &owner).await,
+            None => Fetching::new(context.clock),
         };
         Self {
-            sourcing,
+            fetching,
             kept: Kept::in_home(context.home, owner),
             state: context
                 .home

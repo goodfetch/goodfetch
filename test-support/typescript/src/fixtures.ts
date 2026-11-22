@@ -23,15 +23,27 @@
 // Options a test overrides with `test.override`: `product` (Collie's unless
 // the test needs Foxhound), `provingGroundSeed`, `withDaemon`,
 // `withBrowser` (the home's Browser cache laid out, and the Proving ground's
-// hosts reachable, for a program whose engine opens a page), `toolManifest`
-// and `testEnvProgram`.
+// hosts reachable, for a program whose engine opens a page),
+// `browserDownload` (an empty Browser cache, whose missing build the
+// engine downloads from the Proving ground or cannot; a test that asks for
+// `read-only-cache` is skipped on Windows), `toolManifest` and
+// `testEnvProgram`.
 import { test as base, type TestAPI } from "vitest";
 import { clientCaseRecord, type ClientCaseRecord } from "./case-log.ts";
 import { daemonOf, type DaemonDescription } from "./daemon.ts";
 import { ProcessRecord } from "./process-record.ts";
 import { productEnv, type Product } from "./product-env.ts";
 import { provingGroundOf, type ProvingGroundDescription } from "./proving-ground.ts";
-import { startTestEnv, type Program, type TestEnvDescription } from "./test-env.ts";
+import {
+  startTestEnv,
+  type BrowserDownload,
+  type Program,
+  type TestEnvDescription,
+} from "./test-env.ts";
+
+/** Why a test that asks for a read-only Browser cache is skipped on Windows. */
+const READ_ONLY_CACHE_ON_WINDOWS =
+  "`goodfetch-test-env` makes a cache read-only with its folder's mode, which a Windows folder lacks";
 
 /** What a test takes from test support's `test`. */
 export interface TestSupportFixtures {
@@ -47,6 +59,8 @@ export interface TestSupportFixtures {
   withDaemon: boolean;
   /** Whether the test's home is prepared for an engine that launches a browser and reaches the Proving ground. */
   withBrowser: boolean;
+  /** How the engine's first use of an empty Browser cache goes, with the Proving ground; the cache is laid out without it. */
+  browserDownload: BrowserDownload | undefined;
   /** The test's process record. */
   processes: ProcessRecord;
   /** The test's setup, as `goodfetch-test-env` describes it. */
@@ -69,6 +83,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   provingGroundSeed: undefined,
   withDaemon: false,
   withBrowser: false,
+  browserDownload: undefined,
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern.
   processes: async ({}, use) => {
     const processes = new ProcessRecord();
@@ -78,16 +93,23 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   testEnv: async (
     {
       task,
+      skip,
       processes,
       toolManifest,
       testEnvProgram,
       provingGroundSeed,
       withDaemon,
       withBrowser,
+      browserDownload,
       product,
     },
     use,
   ) => {
+    // At run time, as a skipIf would leave the test out of the case list's
+    // listing on every platform.
+    if (browserDownload === "read-only-cache" && process.platform === "win32") {
+      skip(READ_ONLY_CACHE_ON_WINDOWS);
+    }
     const started = await startTestEnv({
       processes,
       testName: task.fullName,
@@ -96,6 +118,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
       provingGroundSeed,
       daemon: withDaemon ? product : undefined,
       browser: withBrowser,
+      browserDownload,
     });
     await use(started.description);
     await started.close({ failed: task.result?.state === "fail" });

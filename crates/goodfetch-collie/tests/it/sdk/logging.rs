@@ -6,9 +6,14 @@
 //! process's global subscriber, which the linked engine's threads log to,
 //! so each runs in a process of its own, as `just test` runs every test.
 
-use goodfetch_collie::{Collie, RunId};
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+
+use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, RunId};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
-use goodfetch_test_support::{CapturedLog, TestEnv, capturing, case_logs, real_time_runtime};
+use goodfetch_test_support::{
+    CapturedLog, TestEnv, capturing, case_logs, real_time_runtime, run_host_test,
+};
 use tracing::Level;
 use tracing::subscriber::with_default;
 
@@ -174,4 +179,54 @@ fn the_sdk_installs_no_subscriber() {
     });
 
     assert!(!tracing::dispatcher::has_been_set());
+}
+
+/// A program with no subscriber that links the engine writes nothing to
+/// stdout or stderr: [`unlogged_linked_host`], a program of its own,
+/// connects, starts a Run, finishes it and closes, while the engine logs
+/// at every level to a subscriber that is not there. TypeScript's and
+/// Python's twins run a fixture program the same way.
+/// Covers: story:11-25
+#[test]
+fn a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr() {
+    let env = TestEnv::new();
+
+    let host = run_host_test(&env, "sdk::logging::unlogged_linked_host", &[]).unwrap();
+
+    assert_eq!(
+        (
+            host.status.success(),
+            host.stdout.as_str(),
+            host.stderr.as_str()
+        ),
+        (true, "", ""),
+    );
+}
+
+/// The program with no subscriber that links the engine, run with its
+/// parent's environment, which names the test's Goodfetch home.
+#[test]
+#[ignore = "run as a child by sdk::logging::a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the host is a program of its own, whose parent passes it the test's environment"
+)]
+fn unlogged_linked_host() {
+    let environment: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+    let first = RunId::parse("first").unwrap();
+    real_time_runtime().block_on(async {
+        let options = ConnectOptions::default()
+            .engine(EngineChoice::Linked)
+            .environment(environment);
+        let collie = Collie::connect(options).await.unwrap();
+        collie
+            .start()
+            .run_id(&first)
+            .await
+            .unwrap()
+            .finish()
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+    });
 }

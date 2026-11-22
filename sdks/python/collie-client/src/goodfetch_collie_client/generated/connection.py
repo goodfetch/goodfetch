@@ -37,6 +37,15 @@ DEPLOYMENT_VARIABLES: Final = (
 )
 """The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083)."""
 
+PROJECT_FILE: Final = "goodfetch.toml"
+"""The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083)."""
+
+PROJECT_FORMAT: Final = "user-configuration"
+"""The format a project configuration's file is written in, which an unreadable version names (ADR 0030)."""
+
+PROJECT_FORMAT_VERSION: Final = "0.1"
+"""The version `major.minor` of that format this package reads (ADR 0030)."""
+
 COLLIE_ENGINE_PATH_VARIABLE: Final = "GOODFETCH_COLLIE_ENGINE_PATH"
 """The variable naming Collie's executable (ADR 0090)."""
 

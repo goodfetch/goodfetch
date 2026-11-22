@@ -547,6 +547,15 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "project"
+entry = "none"
+reason = "The project file the connection read at its opening, which a Product's own start operation, such as Foxhound's `crawl.start`, carries as `run.start` does (ADR 0083)."
+words = ["project"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
 member = "fromWire"
 entry = "none"

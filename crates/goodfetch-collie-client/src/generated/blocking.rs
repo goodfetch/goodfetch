@@ -150,22 +150,6 @@ impl Run {
         crate::blocking::Call::new(self.inner.pause(), self.inner.host.connection())
     }
 
-    /// Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.
-    ///
-    /// Experimental: outside semver until it is promoted (ADR 0030).
-    ///
-    /// # Errors
-    ///
-    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
-    pub fn progress(
-        &self,
-    ) -> crate::blocking::Call<
-        crate::Answer<::goodfetch_protocol::run::RunProgress>,
-        ::goodfetch_protocol::run::RunProgressParams,
-    > {
-        crate::blocking::Call::new(self.inner.progress(), self.inner.host.connection())
-    }
-
     /// Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -1064,14 +1048,5 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::run::RunAbortParams> {
     /// `run_not_owned` instead of taking its writer role.
     pub fn forwarded(self, forwarded: bool) -> Self {
         self.edit(move |params| params.forwarded = forwarded)
-    }
-}
-
-impl<T> crate::blocking::Call<T, ::goodfetch_protocol::run::RunProgressParams> {
-    /// The position of the value the reader last read: the answer is the
-    /// latest value after it, once one comes. Absent, the Run's progress
-    /// at once.
-    pub fn after(self, after: u64) -> Self {
-        self.edit(move |params| params.after = Some(after))
     }
 }

@@ -309,6 +309,14 @@ form = "round_trip"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Run"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
 member = "close"
 entry = "run.abort"
 words = ["close"]
@@ -356,6 +364,14 @@ receiver = "AsyncRun"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
 form = "round_trip"
 
 [[member]]

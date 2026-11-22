@@ -67,6 +67,7 @@ export type {
   Product,
   Reported,
   RunOrigin,
+  RunProgress,
   RunReport,
   SessionClosed,
   SettingsExplanation,

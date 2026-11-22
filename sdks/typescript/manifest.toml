@@ -397,6 +397,14 @@ form = "round_trip"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "Run"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
 member = "close"
 entry = "run.abort"
 words = ["close"]

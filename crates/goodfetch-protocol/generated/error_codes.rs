@@ -48,7 +48,7 @@ impl ErrorCode {
 
     /// `browser_needs_gui_session`, in the `unavailable` group, not retryable.
     ///
-    /// The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a LaunchDaemon, an SSH login or a CI runner, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.
+    /// The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.
     pub const BROWSER_NEEDS_GUI_SESSION: Self = ErrorCode::from_static("browser_needs_gui_session");
 
     /// `browser_not_installed`, in the `unavailable` group, not retryable.

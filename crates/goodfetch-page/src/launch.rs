@@ -183,7 +183,7 @@ fn no_shell(layer: SettingsLayer) -> CallError {
             key: BROWSER_HEADLESS_SHELL.name.to_owned(),
             layer,
             kind: CHROME_HEADLESS_SHELL.to_owned(),
-            fix: "false".to_owned(),
+            fix: format!("`{}: false`", BROWSER_HEADLESS_SHELL.name),
         },
     )
 }
@@ -356,7 +356,7 @@ pub(crate) async fn launch(
             .map_or(SettingsLayer::Default, |effective| effective.layer)
     });
     if let Some(refusal) =
-        gui_session::refusal(shell.is_some(), headless, gui_session::graphic_access())
+        gui_session::refusal(shell.is_some(), headless, gui_session::graphic_access)
     {
         return Err(refusal);
     }

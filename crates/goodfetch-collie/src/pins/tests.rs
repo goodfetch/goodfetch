@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL};
 
 use super::pinned_artifacts;

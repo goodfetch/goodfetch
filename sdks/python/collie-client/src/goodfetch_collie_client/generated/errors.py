@@ -120,7 +120,7 @@ class BrowserLaunchFailedError(UnavailableError):
 
 
 class BrowserNeedsGuiSessionError(UnavailableError):
-    """The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a LaunchDaemon, an SSH login or a CI runner, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session."""
+    """The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""

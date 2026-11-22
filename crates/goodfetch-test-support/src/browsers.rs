@@ -671,14 +671,14 @@ fn symlink(original: &Path, link: &Path) -> io::Result<()> {
 ///
 /// When the folder cannot be written.
 pub fn lay_out_browser_entry(root: &Path, build: &str, used_at: &str) -> PathBuf {
-    let folder = root.join("browser").join("chrome-for-testing").join(build);
+    let folder = root.join("browser").join(CHROME_FOR_TESTING).join(build);
     let written = (|| -> io::Result<()> {
         fs::create_dir_all(folder.join("files"))?;
         fs::write(folder.join("files").join("chrome"), "#!chrome\n")?;
         fs::write(folder.join("lock"), "")?;
         let entry = serde_json::json!({
             "format_version": "0.1",
-            "artifact": { "kind": "browser", "name": "chrome-for-testing", "build": build },
+            "artifact": { "kind": "browser", "name": CHROME_FOR_TESTING, "build": build },
             "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
             "installed_at": used_at,
             "used_at": used_at,

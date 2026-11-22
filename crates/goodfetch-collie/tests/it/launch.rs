@@ -10,6 +10,10 @@
     clippy::disallowed_methods,
     reason = "the test polls the Proving ground on its own thread, never an async worker"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

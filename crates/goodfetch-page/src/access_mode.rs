@@ -413,39 +413,45 @@ impl Refusal {
                 ),
             },
             Self::StealthOnWebKit { layer } => {
-                return CallError::new(
-                    &CAPABILITY_UNAVAILABLE,
+                return standard_only(
+                    layer,
+                    "webkit",
                     format!(
                         "`{access_mode}` is `stealth`, chosen in {}, and a Safari source runs on Goodfetch's WebKit, which has no stealth mode",
                         layer.as_str()
                     ),
-                    &CapabilityUnavailableDetails {
-                        key: access_mode.to_owned(),
-                        layer,
-                        kind: "webkit".to_owned(),
-                        fix: format!("`{access_mode}: standard`"),
-                    },
                 );
             }
             Self::Unbuilt { mode, layer } => {
-                return CallError::new(
-                    &CAPABILITY_UNAVAILABLE,
+                return standard_only(
+                    layer,
+                    mode.as_str(),
                     format!(
                         "the Session would open `{}`, chosen in {}, and this engine does not build that Access mode's effects yet: leave `{access_mode}` at `standard` and `{fingerprint_method}` at `none`",
                         mode.as_str(),
                         layer.as_str()
                     ),
-                    &CapabilityUnavailableDetails {
-                        key: access_mode.to_owned(),
-                        layer,
-                        kind: mode.as_str().to_owned(),
-                        fix: format!("`{access_mode}: standard`"),
-                    },
                 );
             }
         };
         settings_error(&error, context)
     }
+}
+
+/// `capability_unavailable` for an Access mode, chosen in `layer`, that
+/// this engine cannot run where it runs as `kind`, whose fix is `standard`.
+fn standard_only(layer: SettingsLayer, kind: &str, message: String) -> CallError {
+    let access_mode = BROWSER_ACCESS_MODE.name;
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        message,
+        &CapabilityUnavailableDetails {
+            key: access_mode.to_owned(),
+            layer,
+            kind: kind.to_owned(),
+            fix: format!("`{access_mode}: standard`"),
+        },
+    )
 }
 
 /// The Access mode and Identity profile a Session opens with, from its

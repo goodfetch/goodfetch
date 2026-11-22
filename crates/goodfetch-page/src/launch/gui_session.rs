@@ -1,7 +1,7 @@
 //! Whether the full Chrome for Testing build can start headless where the
 //! engine runs (ADR 0115's amendment of 2026-11-21; #3224): on macOS, from
 //! a process whose security session has no graphic access, such as a
-//! LaunchDaemon, an SSH login or a CI runner in the Background session, the
+//! `LaunchAgent` in the Background session or an SSH login, the
 //! full build's headless mode crashes at start-up, and the launch fails at
 //! once with `browser_needs_gui_session` instead, nothing launched. The
 //! session's attributes come from Security's `SessionGetInfo`, one call and
@@ -18,14 +18,15 @@ use goodfetch_protocol::page::{
 };
 
 /// `browser_needs_gui_session` for a launch of the full build (`shell`
-/// false) headless (`headless` true) from a process with no graphic access;
-/// `None` for any other launch, and where the access is unknown.
+/// false) headless (`headless` true) from a process with no graphic access,
+/// which `graphic_access` reads for such a launch alone; `None` for any
+/// other launch, and where the access is unknown.
 pub(super) fn refusal(
     shell: bool,
     headless: bool,
-    graphic_access: Option<bool>,
+    graphic_access: impl FnOnce() -> Option<bool>,
 ) -> Option<CallError> {
-    if shell || !headless || graphic_access != Some(false) {
+    if shell || !headless || graphic_access() != Some(false) {
         return None;
     }
     let fix = format!("set `{}: true`", BROWSER_HEADLESS_SHELL.name);

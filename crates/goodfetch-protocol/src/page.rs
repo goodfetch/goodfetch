@@ -704,7 +704,7 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 /// of 2026-11-21; #3224).
 pub const BROWSER_NEEDS_GUI_SESSION: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "browser_needs_gui_session",
-    description: "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a LaunchDaemon, an SSH login or a CI runner, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
+    description: "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,

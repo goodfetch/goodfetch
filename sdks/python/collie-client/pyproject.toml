@@ -20,10 +20,16 @@ classifiers = ["Private :: Do Not Upload"]
 # Feature coverage), started here by `just mutants-sdks python`: the
 # hand-written runtime, never what `xtask codegen` writes (ADR 0099). pytest
 # runs in mutmut's copy, `mutants/`, so the case list is named from there.
+# `--mutation-children` makes each Python program a test starts run the
+# mutated copy too, and counts what it reaches for the test (test support's
+# `mutation_children`).
 [tool.mutmut]
 source_paths = ["src"]
 do_not_mutate = ["src/goodfetch_collie_client/generated/*"]
-pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args = [
+  "--case-list=../../../../conformance/clients/cases.toml",
+  "--mutation-children",
+]
 pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
 
 [build-system]

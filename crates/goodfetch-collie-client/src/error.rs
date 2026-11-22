@@ -484,13 +484,43 @@ impl Error {
     /// `deadline_exceeded`, its `waited_for` `calls_in_flight` (ADR 0038's
     /// note of 2026-11-21).
     pub(crate) fn queue_timed_out(key: &str, after: Duration) -> Self {
+        Self::waited_unsent(
+            key,
+            after,
+            "for a place among the engine's calls in flight",
+            "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+            WaitedFor::CALLS_IN_FLIGHT,
+        )
+    }
+
+    /// The call's own timeout, `after`, the setting `key` given as an
+    /// argument, ran out while the Client reached the engine again after
+    /// the link dropped, so it was not sent on the new link:
+    /// `deadline_exceeded`, its `waited_for` `hello` (spec 606).
+    pub(crate) fn relink_timed_out(key: &str, after: Duration) -> Self {
+        Self::waited_unsent(
+            key,
+            after,
+            "while the Client reached the engine again after the link dropped",
+            "Give the call a longer `timeout`, or make it again once the engine is reached.",
+            WaitedFor::HELLO,
+        )
+    }
+
+    /// A call whose own timeout, `after`, the setting `key` given as an
+    /// argument, ran out while it waited `while`, unsent, for `waited_for`.
+    fn waited_unsent(
+        key: &str,
+        after: Duration,
+        while_: &str,
+        fix: &str,
+        waited_for: WaitedFor,
+    ) -> Self {
         let value = wire_millis(after);
         Self::of_runtime(
             &DEADLINE_EXCEEDED,
-            &format!(
-                "the call waited {value} ms, its `{key}`, for a place among the engine's calls in flight, so it was not sent"
-            ),
-            "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+            &format!("the call waited {value} ms, its `{key}`, {while_}, so it was not sent"),
+            fix,
         )
         .with_details(&DeadlineExceededDetails {
             limit: SettingLimit {
@@ -500,7 +530,7 @@ impl Error {
                 origin: Some(RunOrigin::Argument),
             },
             elapsed: value,
-            waited_for: WaitedFor::CALLS_IN_FLIGHT,
+            waited_for,
             ended_by: None,
             observed: None,
         })
@@ -524,6 +554,39 @@ impl Error {
         Self::of(
             &CONNECTION_LOST,
             format!("could not reach the engine: {source}"),
+        )
+        .caused_by(source)
+    }
+
+    /// The link to a remote Daemon dropped before the call was answered,
+    /// and the catalog does not let the Client send it again, as an
+    /// Effect: `connection_lost` (ADR 0079; spec 606).
+    pub(crate) fn lost_call() -> Self {
+        Self::of_runtime(
+            &CONNECTION_LOST,
+            "the Connection to the engine dropped before the call was answered, so whether it took effect is unknown, and it was not sent again",
+            "Check the Run's Effect journal for whether it happened before making the call again: the Client reaches the engine again by itself.",
+        )
+    }
+
+    /// The link to a remote Daemon dropped while the stream was open, and
+    /// the Client cannot resume it: `connection_lost` (spec 606).
+    pub(crate) fn lost_stream() -> Self {
+        Self::of_runtime(
+            &CONNECTION_LOST,
+            "the Connection to the engine dropped while the stream was open, and it cannot be resumed, so it was not sent again",
+            "Open the stream again: the Client reaches the engine again by itself.",
+        )
+    }
+
+    /// The link to a remote Daemon dropped, and reaching it again failed
+    /// within `timeout.connect`, for `source`, the last attempt's cause:
+    /// `closed`, since the Connection is (spec 606).
+    pub(crate) fn gave_up(source: io::Error) -> Self {
+        Self::of_runtime(
+            &CLOSED,
+            "the Connection's link to the engine dropped, and reaching the engine again failed within timeout.connect",
+            "Connect again: a closed Connection never reopens.",
         )
         .caused_by(source)
     }

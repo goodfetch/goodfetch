@@ -42,6 +42,7 @@ from goodfetch_collie import (
     StartedAs,
 )
 from goodfetch_test_support import (
+    WORKSPACE,
     Canary,
     ClientCaseRecord,
     NamedOutput,
@@ -60,10 +61,10 @@ RUN_ID = re.compile(r"^[0-9a-z]{26}$")
 PROGRAMS = Path(__file__).parents[1] / "programs"
 """The folder of the programs both the unit and the integration tests run."""
 
-CLIENT_SOURCE = Path(__file__).parents[3] / "collie-client"
+CLIENT_SOURCE = WORKSPACE / "sdks/python/collie-client"
 """The Collie client package's source, whose wheel the tests build."""
 
-CATALOG = Path(__file__).parents[5] / "crates/goodfetch-protocol/generated/collie.json"
+CATALOG = WORKSPACE / "crates/goodfetch-protocol/generated/collie.json"
 """Collie's catalog, whose markers are the documented ones (ADR 0030)."""
 
 

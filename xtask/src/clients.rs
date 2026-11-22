@@ -71,12 +71,16 @@ const CASE_LIST: &str = "conformance/clients/cases.toml";
 const EXECUTABLE_CRATES: [&str; 2] = products::PACKAGES;
 /// The module in a test's path that the case's module follows.
 const CASES_MODULE: &str = "client_conformance";
-/// The crates whose tests implement the `sdk-rust` surface's cases: Collie's
-/// crate, published as its Rust SDK, and the client crate it builds on. A
-/// test of either carries the mode its case runs in: `linked` where the
-/// engine is linked into the test, or where the case is decided before any
-/// call, `daemon` where it reaches a Daemon.
-const RUST_SDK_CRATES: [&str; 2] = ["goodfetch-collie", "goodfetch-collie-client"];
+/// The crates whose tests implement the `sdk-rust` surface's cases: each
+/// Product's crate, published as its Rust SDK (ADR 0087), and the client
+/// crate they build on. A test of any carries the mode its case runs in:
+/// `linked` where the engine is linked into the test, or where the case is
+/// decided before any call, `daemon` where it reaches a Daemon.
+const RUST_SDK_CRATES: [&str; 3] = [
+    "goodfetch-collie",
+    "goodfetch-collie-client",
+    "goodfetch-foxhound",
+];
 /// The type whose `start` call carries a case on the `sdk-rust` surface.
 const CASE_RUN: &str = "ClientCaseRun";
 /// The type naming the Rust SDK's modes in that call.

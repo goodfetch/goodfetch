@@ -50,6 +50,19 @@ impl ClientConnection {
         }
     }
 
+    /// Sends the call of `method` with `params`, a sequence that streams
+    /// one item in each `item` notification, as
+    /// [`crate::ClientConnection::stream`] does, and returns its items as
+    /// an iterator that blocks the calling thread until the next one.
+    pub fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        item: &'static str,
+    ) -> EventIter<T> {
+        EventIter::new(self.0.stream(method, params, item), &self.0)
+    }
+
     /// The raw call of `operation`, as
     /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
     pub fn raw_call(&self, operation: &str) -> RawCall {
@@ -120,6 +133,15 @@ impl ClientConnection {
 /// crawl Run's.
 impl From<crate::Run> for Run {
     fn from(inner: crate::Run) -> Self {
+        Self { inner }
+    }
+}
+
+/// The blocking face of `page`, whose calls block: the twin a Product's
+/// blocking API hands out of a page it holds, such as a blocking crawl
+/// handler's page.
+impl From<crate::Page> for Page {
+    fn from(inner: crate::Page) -> Self {
         Self { inner }
     }
 }

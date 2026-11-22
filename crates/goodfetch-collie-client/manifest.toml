@@ -224,6 +224,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "stream"
+entry = "none"
+reason = "Sends a call the engine answers once it has streamed its notifications, one item in each, granting them credits, such as Foxhound's `run.records` (ADR 0103)."
+words = ["stream"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "ensure_opener"
 entry = "none"
 reason = "Fails unless the calling process opened the Connection, as each use of it does: a Product crate's connection checks it before it waits on tasks of its own."
@@ -1086,6 +1095,16 @@ form = "round_trip"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "page_of"
+entry = "none"
+reason = "The `Page` of a page the engine opened in the Run, such as the one a Crawl request's attempt is served, with no round trip; dropping it leaves the page open."
+only = "TypeScript's Foxhound builds the attempt's `Page` from its connection itself."
+words = ["page", "of"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "SaveFile"
 entry = "none"
@@ -1384,6 +1403,15 @@ member = "call"
 entry = "none"
 reason = "The call of `method` with `params`, whose reply reads as `T`."
 words = ["call"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "stream"
+entry = "none"
+reason = "Sends a call the engine answers once it has streamed its notifications, as `crate::ClientConnection::stream` does, its items read as an iterator that blocks."
+words = ["stream"]
 form = "runtime"
 
 [[member]]

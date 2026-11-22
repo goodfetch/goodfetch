@@ -12,6 +12,8 @@ This guide is for a person who wants a Goodfetch Foxhound crawl to fetch as many
 
 The steps run in this order for each page of a code-free crawl on the `http` tier. Each cost is what the counts benchmark B1 (`just counts --family B1`) counted on its 16-page site with the feature on, against its cell with the feature off; a figure is per page unless it says otherwise.
 
+The instruction price of five of these features on a release build is read in the table "Instructions each Foxhound default adds" of the `just compare` report (#2438): robots.txt read and obeyed, Frontier learning, the Provenance log, Block classification and Records. Each line is the median of three Callgrind runs of scenario 1's Foxhound cell, below, with that one feature on, minus the cell's own median. A line under 0.5 % of the cell's count is within the counter's tolerance.
+
 | Step | Class | Switched off by | Cost on, and off |
 |---|---|---|---|
 | Fetch the request, follow its redirects and refresh stubs, decode the document | needed | — | one request per page, and one per hop (`fetch.redirect.max`, `fetch.refresh.max_delay` bound them) |

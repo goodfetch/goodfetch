@@ -24,6 +24,7 @@ use goodfetch_protocol::page::route::{
 use goodfetch_protocol::response_limits::{
     NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO, RESPONSE_LIMIT_EXCEEDED,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::consent::walls;
@@ -96,14 +97,43 @@ impl Case {
     }
 }
 
-/// The header values no header may carry, each with the name of its case:
-/// the table's CR LF, LF, CR and NUL (`test-support/fixtures/hostile/`).
-const HOSTILE_VALUES: [(&str, &str); 4] = [
-    ("crlf", "a\r\nX-Injected: yes"),
-    ("lf", "a\nX-Injected: yes"),
-    ("cr", "a\rX-Injected: yes"),
-    ("nul", "a\u{0}b"),
-];
+/// The shared table of header values no header may carry (ADR 0067), read
+/// whole so a case it gains runs in the suite too.
+const HEADER_VALUES: &str =
+    include_str!("../../../../../test-support/fixtures/hostile/header_values.toml");
+
+/// What the suite reads of the header-value table.
+#[derive(Deserialize)]
+struct HeaderValues {
+    cases: Vec<HeaderValueCase>,
+}
+
+/// One case of the header-value table.
+#[derive(Deserialize)]
+struct HeaderValueCase {
+    name: String,
+    input: HeaderValueInput,
+}
+
+/// Where a case's value is set, and the value.
+#[derive(Deserialize)]
+struct HeaderValueInput {
+    source: String,
+    value: String,
+}
+
+/// The header values the table gives the source `source` (`page_request`
+/// or `route`), each with the name of its case.
+fn hostile_values(source: &str) -> Vec<(String, String)> {
+    let table: HeaderValues =
+        toml::from_str(HEADER_VALUES).expect("invariant: the embedded header-value table is valid");
+    table
+        .cases
+        .into_iter()
+        .filter(|case| case.input.source == source)
+        .map(|case| (case.name, case.input.value))
+        .collect()
+}
 
 /// The header every case sets, and the plain value its positive control
 /// sends.
@@ -144,7 +174,7 @@ fn request_headers(
     let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
         return finish_run(connection, run_id);
     };
-    for (case, value) in HOSTILE_VALUES {
+    for (case, value) in hostile_values("page_request") {
         let url = format!("{target}?header={case}");
         let refused = call(
             connection,
@@ -154,18 +184,18 @@ fn request_headers(
         )?;
         checks.check(
             format!(
-                "`page.request` with a {case} in a header value raises `{}`",
+                "`page.request` with the header value of {case} raises `{}`",
                 HEADER_VALUE_INVALID.name
             ),
             code_of(&refused) == &json!(HEADER_VALUE_INVALID.name),
         );
         checks.check(
-            format!("naming the header, never its value, for the {case}"),
+            format!("naming the header, never its value, for {case}"),
             refused["error"]["data"]["name"] == json!(HEADER)
                 && !refused.to_string().contains("X-Injected"),
         );
         checks.check(
-            format!("the request with a {case} never reaches the site"),
+            format!("the request of {case} never reaches the site"),
             received(site, "fetch-edge.test", &format!("/target?header={case}")).is_empty(),
         );
     }
@@ -202,8 +232,10 @@ fn route_headers(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
-    let mut routes = Routes::new(|_| {
-        let mut acts: Vec<Act> = HOSTILE_VALUES
+    let values = hostile_values("route");
+    let hostile = values.len();
+    let mut routes = Routes::new(move |_| {
+        let mut acts: Vec<Act> = values
             .iter()
             .map(|(_, value)| {
                 Act::Call(ROUTE_CONTINUE.name, json!({ "headers": { HEADER: value } }))
@@ -237,7 +269,7 @@ fn route_headers(
             "each `route.continue`, `route.fallback` and `route.fulfill` with a CR, an LF or a NUL in a header value raises `{}`",
             HEADER_VALUE_INVALID.name
         ),
-        made.len() == HOSTILE_VALUES.len() + 3
+        made.len() == hostile + 3
             && made[..refused]
                 .iter()
                 .all(|(_, answer)| code_of(answer) == &json!(HEADER_VALUE_INVALID.name)),
@@ -524,3 +556,6 @@ fn coded_bombs_on(
     );
     finish_run(connection, run_id)
 }
+
+#[cfg(test)]
+mod tests;

@@ -226,20 +226,23 @@ impl SsrfLayers {
     }
 
     /// The runner `test` of `file` applies to `layer`, with its cases of
-    /// `table`.
+    /// `table`: every case of each family its entry gives it, so a case the
+    /// table gains runs there too, with no count of them to keep.
     ///
     /// # Errors
     ///
-    /// [`UnknownRunner`] when the layer's entry names no such runner.
+    /// [`RunnerError::Unknown`] when the layer's entry names no such
+    /// runner, and [`RunnerError::NoCase`] when `table` has no case of a
+    /// family the entry gives it, which the runner would pass running none.
     pub fn runner(
         &self,
         table: &SsrfTable,
         layer: &str,
         file: &str,
         test: &str,
-    ) -> Result<Runner, UnknownRunner> {
+    ) -> Result<Runner, RunnerError> {
         let file = file.replace('\\', "/");
-        let unknown = || UnknownRunner {
+        let unknown = || RunnerError::Unknown {
             layer: layer.to_owned(),
             test: format!("{file}::{test}"),
         };
@@ -253,6 +256,19 @@ impl SsrfLayers {
                     .find(|runner| runner.file_and_function() == Some((file.as_str(), test)))
             })
             .ok_or_else(unknown)?;
+        let empty_families: Vec<Family> = entry
+            .families
+            .iter()
+            .copied()
+            .filter(|family| table.cases_of(*family).next().is_none())
+            .collect();
+        if !empty_families.is_empty() {
+            return Err(RunnerError::NoCase {
+                layer: layer.to_owned(),
+                test: entry.test.clone(),
+                families: empty_families,
+            });
+        }
         let cases = entry
             .families
             .iter()
@@ -276,14 +292,29 @@ fn holds(runner: &LayerRunner, source: Option<String>) -> bool {
     source.contains(&format!("fn {function}(")) && source.contains(&format!("\"{function}\""))
 }
 
-/// A runner the committed layers do not name.
+/// Why a runner's cases cannot be taken.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("the SSRF layers name no runner {test} of the layer {layer}")]
-pub struct UnknownRunner {
-    /// The layer asked for.
-    pub layer: String,
-    /// The runner's test asked for.
-    pub test: String,
+pub enum RunnerError {
+    /// The committed layers do not name the runner.
+    #[error("the SSRF layers name no runner {test} of the layer {layer}")]
+    Unknown {
+        /// The layer asked for.
+        layer: String,
+        /// The runner's test asked for.
+        test: String,
+    },
+    /// The table has no case of families the runner's entry gives it.
+    #[error(
+        "the SSRF table has no case of {families:?}, which the runner {test} of the layer {layer} runs"
+    )]
+    NoCase {
+        /// The layer.
+        layer: String,
+        /// The runner's test.
+        test: String,
+        /// The families with no case, in the entry's order.
+        families: Vec<Family>,
+    },
 }
 
 /// One runner of a layer, with the cases its entry gives it.
@@ -302,10 +333,12 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// [`UnknownRunner`] when the committed layers name no such runner, or
-    /// a committed file is malformed, which the Quick suite catches.
-    pub fn committed(layer: &str, file: &str, test: &str) -> Result<Self, UnknownRunner> {
-        let unknown = || UnknownRunner {
+    /// [`RunnerError::Unknown`] when the committed layers name no such
+    /// runner, or a committed file is malformed, which the Quick suite
+    /// catches; [`RunnerError::NoCase`] when the committed table has no
+    /// case of a family the runner's entry gives it.
+    pub fn committed(layer: &str, file: &str, test: &str) -> Result<Self, RunnerError> {
+        let unknown = || RunnerError::Unknown {
             layer: layer.to_owned(),
             test: format!("{file}::{test}"),
         };

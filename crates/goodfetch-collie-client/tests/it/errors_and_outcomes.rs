@@ -15,6 +15,7 @@
 use goodfetch_collie_client::logging::engine_log_level;
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::{
     DaemonEndpoint, DeadlineExceededDetails, EnginePanickedDetails, HelloParams,
@@ -23,7 +24,7 @@ use goodfetch_protocol::page::TargetNotUniqueDetails;
 use goodfetch_protocol::secrets::{
     SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails,
 };
-use goodfetch_test_support::{Canaries, Canary, Output, SecretKind, TestEnv, logged};
+use goodfetch_test_support::{Canaries, Canary, Output, SecretKind, TestEnv, case_logs, logged};
 use serde_json::{Value, json};
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
@@ -310,6 +311,12 @@ fn assert_no_secret_rendered(env: &TestEnv, errors: &[Error], logged: &[u8]) {
 /// Covers: story:11-28, story:11-30, story:11-36, story:11-187
 #[test]
 fn an_outcome_is_returned_and_each_failure_carries_its_code_rendering_no_secret() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "errors-and-outcomes",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
 

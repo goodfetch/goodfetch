@@ -2,7 +2,8 @@
 //! 0116; spec #611's CLI), through Foxhound's executable: `crawl start
 //! <url>…` builds the code-free crawl from its flags and prints its Run ID,
 //! under `--follow` exits by how the Run ended, checkpoints it at a first
-//! interrupt, and prints a failure once the Run ID is out on stderr alone;
+//! interrupt, holds it to its `--limit`, and prints a failure once the Run
+//! ID is out on stderr alone;
 //! `run export --out` writes the Export's file whole or not at all, and
 //! stops at a standard output that takes no more; and `config explain
 //! politeness` shows every Politeness value with its layer before a crawl
@@ -201,6 +202,61 @@ fn a_followed_crawl_exits_by_how_its_run_ended(
         (run_id, status.code()),
         (json!("followed"), exit),
         "{ended}"
+    );
+}
+
+/// `crawl start --limit` holds the crawl to its Limit: the followed crawl
+/// stops once the Limit is used up and exits `20`, and a start that names
+/// the Run again while the Limit is still used up fails `limit_reached`,
+/// exit `16`, naming the Run's own Limit.
+///
+/// Covers: story:11-1132, command:crawl.start, exit:run_stopped, exit:limit_reached
+#[test]
+fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = settings_file(&env, &proving_ground);
+    let start = |more: &[&str]| {
+        cli(&env, FOXHOUND)
+            .args([
+                "crawl",
+                "start",
+                &proving_ground.start_url(CATALOG).unwrap(),
+            ])
+            .args([
+                "--run-id",
+                "capped",
+                "--links",
+                "scope",
+                "--limit",
+                "requests=1",
+            ])
+            .args(["--settings", settings.to_str().unwrap(), "--json"])
+            .args(more)
+            .run()
+            .unwrap()
+    };
+
+    let followed = start(&["--follow"]);
+    let restarted = start(&[]);
+    let refused: Value = serde_json::from_str(&restarted.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            followed.exit,
+            restarted.exit,
+            refused["error"]["code"].clone(),
+            refused["error"]["scope"].clone(),
+        ),
+        (
+            Some(20),
+            Some(16),
+            json!("limit_reached"),
+            json!({ "kind": "run", "id": "capped" }),
+        ),
+        "{followed}\n{restarted}"
     );
 }
 

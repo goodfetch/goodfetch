@@ -881,8 +881,8 @@ pub enum StoppedBy {
 }
 
 /// Who stopped a call that `call_cancelled` ended (ADR 0113): the
-/// vocabulary of an Agent's `abort` (ADR 0100), plus `browser`. A value a
-/// newer engine adds is kept as received (ADR 0079).
+/// vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
+/// (ADR 0079).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(extend("open" = true), transform = crate::open_value::known_members)]
@@ -926,7 +926,7 @@ impl From<StoppedBy> for CancelledBy {
 }
 
 /// What was closed or stopped under a call that `call_cancelled` ended
-/// (ADR 0113). A value a newer engine adds is kept as received (ADR 0079).
+/// (ADR 0113), open (ADR 0079).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(extend("open" = true), transform = crate::open_value::known_members)]

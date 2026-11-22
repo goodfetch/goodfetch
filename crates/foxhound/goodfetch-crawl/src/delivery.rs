@@ -627,9 +627,10 @@ async fn answered(
     true
 }
 
-/// The ending of a crawl whose state or admission failed with `error`:
-/// `failed`, its ending calls raising `run_state_unavailable` (ADR 0102).
-fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
+/// The ending of a crawl whose state or admission failed with `error`, or
+/// whose start could not give it its Limits: `failed`, its ending calls
+/// raising `run_state_unavailable` (ADR 0102).
+pub(crate) fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
     let details = RunDetails {
         run_id: run.id().clone(),
         path: Some(run.folder().display().to_string()),

@@ -49,6 +49,7 @@ use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
 use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::error_details::typed_details_of;
 use goodfetch_protocol::events::{CreditParams, EventBatch};
 use goodfetch_protocol::formats::FORMATS;
 use goodfetch_protocol::foxhound::block::BlockCause;
@@ -81,7 +82,7 @@ pub(super) struct Emitted {
 /// Emits the bundle and catalog of every entry `goodfetch-protocol` defines.
 pub(super) fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::new(setting_scopes::of);
+    let mut sections = Sections::new(setting_scopes::of, typed_details_of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }

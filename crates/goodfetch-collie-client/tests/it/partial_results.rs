@@ -14,13 +14,14 @@ use std::collections::BTreeMap;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode, FieldValues};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::page::read::{
     FieldLocator, FieldTransform, PageField, UnreadField, UnreadReason, ValueField,
 };
 use goodfetch_protocol::page::{RedirectLimit, TooManyRedirectsDetails};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, case_logs};
 use serde::Deserialize;
 use serde_json::Number;
 
@@ -95,6 +96,8 @@ async fn played(endpoint: DaemonEndpoint, hello: HelloParams) -> Played {
 /// Covers: story:11-35
 #[test]
 fn a_failure_carries_what_it_gathered_and_a_read_answers_each_field() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "partial-results", RustMode::Daemon).unwrap();
     let env = TestEnv::new();
     let runtime = goodfetch_test_support::real_time_runtime();
     let hello = daemon_hello();

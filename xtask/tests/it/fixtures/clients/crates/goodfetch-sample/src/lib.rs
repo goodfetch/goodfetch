@@ -1,12 +1,14 @@
-//! A crate that is not a Product's executable crate: its tests implement no
-//! case on the `cli` surface.
+//! A crate that is neither a Product's executable crate nor a Rust SDK
+//! crate: its tests implement no case on the `cli` or `sdk-rust` surface.
 
 #[cfg(test)]
 mod tests {
     mod client_conformance {
         mod gone {
             #[test]
-            fn attached() {}
+            fn attached() {
+                let _case = ClientCaseRun::start(None, "gone", RustMode::Linked).unwrap();
+            }
         }
     }
 }

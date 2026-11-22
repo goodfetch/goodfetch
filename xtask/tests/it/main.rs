@@ -21,6 +21,8 @@ mod batch_check;
 mod browser_releases;
 mod budgets;
 mod clients;
+#[cfg(unix)]
+mod clippy_excluded;
 mod codegen;
 mod commit_messages;
 mod compare;

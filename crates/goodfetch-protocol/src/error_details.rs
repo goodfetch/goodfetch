@@ -6,6 +6,9 @@
 //! check that each catalog code has its `ErrorCode` constant, which needs
 //! every Product's modules.
 
+use schemars::JsonSchema;
+
+use crate::catalog::{SchemaOf, schema_of};
 use crate::error_code::{ErrorCode, ErrorDetails};
 use crate::foxhound::error_code as foxhound;
 
@@ -14,6 +17,41 @@ use crate::foxhound::error_code as foxhound;
 /// SDK's class of the code reads as its own `retryAfter` field.
 pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
     &[ErrorCode::BLOCKED, foxhound::RESPONSE_UNAVAILABLE];
+
+/// The details types the TypeScript and Python SDKs read typed, each on its
+/// codes' classes (ADR 0079): the catalog names each under its codes'
+/// `details`. The other codes' details still read as a map there until a
+/// ticket adds their types here (issue 3164).
+pub const TYPED_IN_SDKS: &[TypedDetails] =
+    &[TypedDetails::of::<crate::connection::CallCancelledDetails>()];
+
+/// A details type the SDKs read typed: the codes whose details it holds and
+/// its schema.
+pub struct TypedDetails {
+    /// The codes whose details these are.
+    pub codes: &'static [ErrorCode],
+    /// Its schema, registered with the bundle's generator.
+    pub schema: SchemaOf,
+}
+
+impl TypedDetails {
+    /// The details type `D`.
+    pub const fn of<D: ErrorDetails + JsonSchema>() -> Self {
+        Self {
+            codes: D::CODES,
+            schema: schema_of::<D>,
+        }
+    }
+}
+
+/// The schema of the details type the SDKs read typed for the code `name`,
+/// if any: the catalog's [`DetailsOf`](crate::catalog::sections::DetailsOf).
+pub fn typed_details_of(name: &str) -> Option<SchemaOf> {
+    TYPED_IN_SDKS
+        .iter()
+        .find(|typed| typed.codes.iter().any(|code| code.as_str() == name))
+        .map(|typed| typed.schema)
+}
 
 /// Implements [`ErrorDetails`] for each type, naming its code.
 macro_rules! details {

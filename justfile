@@ -153,6 +153,8 @@ lint:
     step lint-drift '{{ just_executable() }} lint-drift'
     step xtask 'cargo build --quiet --bin xtask'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    # The first-party crates the workspace excludes, the forks under vendor/ aside.
+    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'

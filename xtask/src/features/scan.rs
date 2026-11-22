@@ -17,6 +17,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::journey::FeatureId;
+use quote::ToTokens as _;
 
 use super::rstest_names;
 use crate::metadata;
@@ -183,6 +184,10 @@ pub(crate) struct Test {
     /// `cfg` predicate but `test`, as `cfg(unix)`, a `cfg_attr`, and
     /// `ignore` for an `#[ignore]`d test.
     pub(crate) gates: Vec<String>,
+    /// Its function's body, which `xtask clients check` reads for the
+    /// `ClientCaseRun::start` call that carries a case on the `sdk-rust`
+    /// surface.
+    pub(crate) body: proc_macro2::TokenStream,
 }
 
 /// Every Rust test of the workspace at `root`, read from each Cargo target's
@@ -413,6 +418,7 @@ impl Target<'_> {
                 .collect()
         };
         let path = relative(self.root, module.path);
+        let body = function.block.to_token_stream();
         tests.extend(named.into_iter().map(|(name, own)| Test {
             binary: self.binary.to_owned(),
             name,
@@ -420,6 +426,7 @@ impl Target<'_> {
             path: path.clone(),
             features: shared.iter().cloned().chain(own).collect(),
             gates: gates.clone(),
+            body: body.clone(),
         }));
         Ok(())
     }

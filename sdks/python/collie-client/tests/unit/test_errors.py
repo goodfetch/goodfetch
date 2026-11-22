@@ -17,6 +17,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_CLASSES,
     ERROR_GROUP_CLASSES,
     BlockedError,
+    CallCancelledError,
     InternalError,
     PageError,
     ProgramError,
@@ -254,6 +255,53 @@ def test_blocked_with_no_retry_after_has_none() -> None:
 
     assert isinstance(error, BlockedError)
     assert error.retry_after is None
+
+
+@pytest.mark.covers("story:11-48", "error:call_cancelled")
+@pytest.mark.parametrize(
+    ("sent", "read"),
+    [
+        pytest.param(
+            {"by": "person", "closed": "run", "person": "ada"},
+            ("person", "run", "ada"),
+            id="a person's Client stopping the Run",
+        ),
+        pytest.param({"by": "client"}, ("client", None, None), id="nothing closed"),
+        pytest.param(
+            {
+                "by": "a_stopper_from_a_newer_engine",
+                "closed": "a_value_from_a_newer_engine",
+            },
+            ("a_stopper_from_a_newer_engine", "a_value_from_a_newer_engine", None),
+            id="values a newer engine names",
+        ),
+    ],
+)
+def test_call_cancelled_reads_its_details_typed(
+    sent: dict[str, object], read: tuple[str, str | None, str | None]
+) -> None:
+    """Who stopped the call, what closed under it and for whom (ADRs 0079 and 0113).
+
+    A value a newer engine names reaches the program unchanged.
+    """
+    error = error_of_reply(
+        {
+            "code": -32006,
+            "message": "the call was stopped under it",
+            "data": {"code": "call_cancelled", "retryable": False, **sent},
+        },
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, CallCancelledError)
+    details = error.typed_details
+    assert details is not None
+    assert (details.by, details.closed, details.person) == read
+
+
+def test_call_cancelled_naming_no_one_who_stopped_it_has_no_typed_details() -> None:
+    """An error a program built without details reads none, rather than failing."""
+    assert CallCancelledError("stopped by its program").typed_details is None
 
 
 def test_an_error_with_no_call_log_has_an_empty_one() -> None:

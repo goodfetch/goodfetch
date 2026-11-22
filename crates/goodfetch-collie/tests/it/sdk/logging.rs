@@ -7,11 +7,12 @@
 //! so each runs in a process of its own, as `just test` runs every test.
 
 use goodfetch_collie::{Collie, RunId};
-use goodfetch_test_support::{CapturedLog, TestEnv, capturing, real_time_runtime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_test_support::{CapturedLog, TestEnv, capturing, case_logs, real_time_runtime};
 use tracing::Level;
 use tracing::subscriber::with_default;
 
-use super::{linked_case, options};
+use super::options;
 
 /// Installs, as the process's global subscriber, one that records the
 /// engine's own events, the SDK's and those under `goodfetch::engine` at
@@ -43,7 +44,12 @@ fn lines_with(log: &CapturedLog, text: &str) -> Vec<String> {
 /// Covers: story:11-25
 #[test]
 fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
-    let mut case = linked_case("engine-logs-reach-the-logger");
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "engine-logs-reach-the-logger",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let log = global_log();
     let first = RunId::parse("first").unwrap();
@@ -82,7 +88,12 @@ fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
 /// Covers: story:11-26
 #[test]
 fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
-    let mut case = linked_case("log-level-follows-the-logger");
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "log-level-follows-the-logger",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let log = global_log();
     let runtime = real_time_runtime();

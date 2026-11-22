@@ -8,7 +8,8 @@
 //! cover the stream's credits and its cancel on the wire.
 
 use goodfetch_collie::{Collie, blocking, events};
-use goodfetch_test_support::{TestEnv, browser_cache_in_home, real_time_runtime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_test_support::{TestEnv, browser_cache_in_home, case_logs, real_time_runtime};
 use serde_json::json;
 
 use super::options;
@@ -20,6 +21,12 @@ use super::options;
 /// Covers: story:11-61, story:11-62, story:11-63
 #[test]
 fn page_events_hands_the_console_in_order_and_a_dropped_stream_leaves_the_page_open() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "listeners-in-order-and-a-thrower-raises-listener-failed",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     browser_cache_in_home(&env).unwrap();
     let (texts, after) = real_time_runtime().block_on(async {
@@ -51,6 +58,12 @@ fn page_events_hands_the_console_in_order_and_a_dropped_stream_leaves_the_page_o
 /// Covers: story:11-61, story:11-62, story:11-63
 #[test]
 fn page_events_iterates_the_console_in_order_through_blocking() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "listeners-in-order-and-a-thrower-raises-listener-failed",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     browser_cache_in_home(&env).unwrap();
     let collie = blocking::Collie::connect(options(&env)).unwrap();

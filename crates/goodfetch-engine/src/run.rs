@@ -35,9 +35,9 @@ use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
     RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
-    RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunParams,
-    RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams,
-    RunUsage, StartedAs, StopReason,
+    RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunLimit,
+    RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted,
+    RunStopParams, RunUsage, StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
@@ -178,6 +178,50 @@ pub fn run_id(run_id: Option<&str>) -> Result<Option<RunId>, CallError> {
             })
         })
         .transpose()
+}
+
+/// The Limits a start gives its Run (ADRs 0041, 0080 and 0102), which every
+/// Product's start, `run.start` and Foxhound's `crawl.start`, applies alike:
+/// checked before the Run starts, then given to it once it started.
+#[derive(Debug)]
+pub struct StartLimits(Vec<RunLimit>);
+
+impl StartLimits {
+    /// `given`, each checked as `usage.set` checks a Client's Limit, at
+    /// most one per Usage kind and currency, and, when the start names the
+    /// Run `run_id`, raising none of its Limits as they stand.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` or `not_in_product` as `usage.set` refuses a
+    /// Limit, `invalid_params` for two Limits on one Usage kind and
+    /// currency, `limit_raise_refused` for a raise, and an internal error
+    /// when the Usage ledger cannot be read.
+    pub async fn checked(
+        given: Vec<RunLimit>,
+        run_id: Option<&RunId>,
+        context: &CallContext,
+    ) -> Result<Self, CallError> {
+        let limits = crate::usage::run_limits(given, context)?;
+        if let Some(run_id) = run_id {
+            crate::usage::check_run_limits(run_id, &limits, context).await?;
+        }
+        Ok(Self(limits))
+    }
+
+    /// Gives them to the Run the start `started`: as the values it began
+    /// with when the start began it, else lowering its Limits as ADR 0102
+    /// says.
+    ///
+    /// # Errors
+    ///
+    /// `limit_raise_refused` when one raises a Limit that was lowered since
+    /// the check, and an internal error when the Usage ledger cannot be
+    /// written.
+    pub async fn give(self, started: &RunStarted, context: &CallContext) -> Result<(), CallError> {
+        let began = started.started_as == StartedAs::New;
+        crate::usage::give_run_limits(&started.run_id, self.0, began, context).await
+    }
 }
 
 /// The Error code a start's failure answers with.
@@ -912,10 +956,7 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    let limits = crate::usage::run_limits(params.limits, &context)?;
-    if let Some(run_id) = &run_id {
-        crate::usage::check_run_limits(run_id, &limits, &context).await?;
-    }
+    let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
         .engine()
         .settings()
@@ -959,8 +1000,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
         Started::Ended(ended) => ended,
     };
-    let began = started.started_as == StartedAs::New;
-    crate::usage::give_run_limits(&started.run_id, limits, began, &context).await?;
+    limits.give(&started, &context).await?;
     Ok(started)
 }
 

@@ -136,6 +136,38 @@ export type RunId = string;
  */
 export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
 /**
+ * Who stopped a call that `call_cancelled` ended (ADR 0113): the
+ * vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
+ * (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `person`: A person, through a Client that acts for them (ADR 0031).
+ * - `client`: Another Client, such as through `$/cancel`.
+ * - `program`: The program, closing a parent value from another task or thread.
+ * - `browser`: The browser, outside every Client: a page's window closed there, or the browser quit.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CancelledBy".
+ */
+export type CancelledBy = "person" | "client" | "program" | "browser" | (string & {});
+/**
+ * What was closed or stopped under a call that `call_cancelled` ended
+ * (ADR 0113), open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `page`: Its page.
+ * - `session`: Its page's Session.
+ * - `browser`: Its page's browser.
+ * - `run`: Its Run, stopped.
+ * - `connection`: Its Connection.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ClosedValue".
+ */
+export type ClosedValue = "page" | "session" | "browser" | "run" | "connection" | (string & {});
+/**
  * A request's id, which its reply carries back.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1482,6 +1514,27 @@ export interface BodyHandle {
    * Its size in bytes.
    */
   size: number;
+}
+/**
+ * What `call_cancelled` details (ADR 0113).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CallCancelledDetails".
+ */
+export interface CallCancelledDetails {
+  /**
+   * Who stopped the call.
+   */
+  by: CancelledBy;
+  /**
+   * What was closed or stopped under it, when something was rather than
+   * the call itself cancelled.
+   */
+  closed?: ClosedValue | null;
+  /**
+   * Whom the stopping Client acts for (ADR 0031), when known.
+   */
+  person?: string | null;
 }
 /**
  * What `$/cancel` names: the call to stop.

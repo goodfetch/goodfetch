@@ -526,6 +526,66 @@
         }
       ]
     },
+    "CallCancelledDetails": {
+      "description": "What `call_cancelled` details (ADR 0113).",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/CancelledBy",
+          "arrived_in": "0.1",
+          "description": "Who stopped the call."
+        },
+        "closed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClosedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What was closed or stopped under it, when something was rather than\nthe call itself cancelled."
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "Whom the stopping Client acts for (ADR 0031), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "type": "object"
+    },
+    "CancelledBy": {
+      "description": "Who stopped a call that `call_cancelled` ended (ADR 0113): the\nvocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open\n(ADR 0079).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through a Client that acts for them (ADR 0031).",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "Another Client, such as through `$/cancel`.",
+          "type": "string"
+        },
+        {
+          "const": "program",
+          "description": "The program, closing a parent value from another task or thread.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
@@ -746,6 +806,37 @@
         "locator"
       ],
       "type": "object"
+    },
+    "ClosedValue": {
+      "description": "What was closed or stopped under a call that `call_cancelled` ended\n(ADR 0113), open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "page",
+          "description": "Its page.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "Its page's Session.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "Its page's browser.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "Its Run, stopped.",
+          "type": "string"
+        },
+        {
+          "const": "connection",
+          "description": "Its Connection.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "Completeness": {
       "description": "Whether a Run's results cover everything in its scope (ADRs 0005 and\n0029).",
@@ -10400,6 +10491,9 @@
     {
       "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
+      "details": {
+        "$ref": "#/$defs/CallCancelledDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,

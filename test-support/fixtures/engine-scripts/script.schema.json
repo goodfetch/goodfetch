@@ -241,6 +241,20 @@
         },
         {
           "additionalProperties": false,
+          "description": "The engine drops the connection at once, with no close, as a lost\nnetwork link does, and plays the steps after it to the next Client\nthat connects. Only the `websocket` mode takes another Client: any\nother player refuses the step with `drop_unsupported`.",
+          "properties": {
+            "drop": {
+              "additionalProperties": false,
+              "type": "object"
+            }
+          },
+          "required": [
+            "drop"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Bytes the engine writes that are not JSON-RPC, which the check skips.",
           "properties": {
             "raw": {

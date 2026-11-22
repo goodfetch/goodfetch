@@ -19,6 +19,11 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "sample.crawl": "sample.crawl",
 };
 
+/** The class of each of Foxhound's operations (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079). */
+export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTypes, "read" | "idempotent_write" | "effect">> = {
+  "sample.crawl": "effect",
+};
+
 /** Foxhound's operations that send a message, each an async method. */
 export class FoxhoundOperations {
   readonly #caller: Caller<FoxhoundOperationTypes>;

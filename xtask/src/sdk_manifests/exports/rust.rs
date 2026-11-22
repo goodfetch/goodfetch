@@ -21,6 +21,9 @@
 //! An item or member under `#[doc(hidden)]` is no one's. One in a module
 //! named `generated`, or read from a file under a `generated` folder, is the
 //! generator's. A member a macro expands to is not read.
+//!
+//! Each member carries its `///` lines as its doc text, and the marker
+//! `deprecated` when it carries `#[deprecated]`.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -40,6 +43,8 @@ const CRATE: &str = "(crate)";
 const GENERATED: &str = "generated";
 /// How many `use`s and globs a name may go through to what it names.
 const HOPS: usize = 16;
+/// The attribute, and the marker, of a deprecated item.
+const DEPRECATED: &str = "deprecated";
 
 /// What a name names in a module.
 #[derive(Clone, PartialEq, Eq)]
@@ -70,8 +75,17 @@ enum Kind {
 struct Item {
     public: bool,
     kind: Kind,
+    doc: Doc,
     /// A trait's functions, `pub` by the trait's.
-    functions: Vec<String>,
+    functions: Vec<(String, Doc)>,
+}
+
+/// What an item's or member's attributes document.
+struct Doc {
+    /// Its `///` lines, joined.
+    text: String,
+    /// `deprecated` when it carries `#[deprecated]`.
+    markers: Vec<String>,
 }
 
 struct Module {
@@ -93,7 +107,7 @@ struct Impl {
     module: usize,
     /// Its self type's path, as written.
     self_path: Vec<String>,
-    members: Vec<String>,
+    members: Vec<(String, Doc)>,
 }
 
 /// An item a dependent crate reaches.
@@ -192,6 +206,34 @@ fn needs_test(predicate: &syn::Meta) -> bool {
             }
         }
         syn::Meta::NameValue(_) => false,
+    }
+}
+
+/// The doc text and markers `attributes` hold.
+fn doc(attributes: &[syn::Attribute]) -> Doc {
+    let mut lines = Vec::new();
+    let mut markers = Vec::new();
+    for attribute in attributes {
+        if attribute.path().is_ident(DEPRECATED) {
+            markers.push(DEPRECATED.to_owned());
+        }
+        let syn::Meta::NameValue(pair) = &attribute.meta else {
+            continue;
+        };
+        if let (
+            true,
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(line),
+                ..
+            }),
+        ) = (pair.path.is_ident("doc"), &pair.value)
+        {
+            lines.push(line.value());
+        }
+    }
+    Doc {
+        text: lines.join("\n"),
+        markers,
     }
 }
 
@@ -441,16 +483,19 @@ impl Crate {
             .map(|inherent| self.resolve(inherent.module, &inherent.self_path, HOPS))
             .collect();
         let generated = |module: usize| self.modules[module].generated;
-        let export = |receiver: String, member: String, id: String, generated: bool| Exported {
-            entry: krate.to_owned(),
-            receiver,
-            member,
-            id,
-            home: krate.to_owned(),
-            package: Some(krate.to_owned()),
-            generated,
-            library: false,
-        };
+        let export =
+            |receiver: String, member: String, id: String, generated: bool, doc: &Doc| Exported {
+                entry: krate.to_owned(),
+                receiver,
+                member,
+                id,
+                home: krate.to_owned(),
+                package: Some(krate.to_owned()),
+                generated,
+                library: false,
+                doc: doc.text.clone(),
+                markers: doc.markers.clone(),
+            };
         let mut exported = Vec::new();
         for Reached {
             item: (module, name),
@@ -472,6 +517,7 @@ impl Crate {
                 as_name.clone(),
                 item_id.clone(),
                 generated(module),
+                &item.doc,
             ));
             let mut owner = at;
             owner.push(as_name);
@@ -479,12 +525,13 @@ impl Crate {
             match item.kind {
                 Kind::Value => {}
                 Kind::Trait => {
-                    for function in &item.functions {
+                    for (function, doc) in &item.functions {
                         exported.push(export(
                             owner.clone(),
                             function.clone(),
                             format!("{item_id}.{function}"),
                             generated(module),
+                            doc,
                         ));
                     }
                 }
@@ -494,12 +541,13 @@ impl Crate {
                         if target.as_ref() != Some(&this) {
                             continue;
                         }
-                        for member in &inherent.members {
+                        for (member, doc) in &inherent.members {
                             exported.push(export(
                                 owner.clone(),
                                 member.clone(),
                                 format!("{item_id}.{member}"),
                                 generated(inherent.module),
+                                doc,
                             ));
                         }
                     }
@@ -527,12 +575,12 @@ fn inherent_impl(module: usize, inherent: &syn::ItemImpl) -> Option<Impl> {
             syn::ImplItem::Fn(function)
                 if is_public(&function.vis) && !left_out(&function.attrs) =>
             {
-                Some(function.sig.ident.to_string())
+                Some((function.sig.ident.to_string(), doc(&function.attrs)))
             }
             syn::ImplItem::Const(constant)
                 if is_public(&constant.vis) && !left_out(&constant.attrs) =>
             {
-                Some(constant.ident.to_string())
+                Some((constant.ident.to_string(), doc(&constant.attrs)))
             }
             _ => None,
         })
@@ -638,7 +686,7 @@ fn declared(item: &syn::Item) -> Option<(String, Item)> {
             .iter()
             .filter_map(|member| match member {
                 syn::TraitItem::Fn(function) if !left_out(&function.attrs) => {
-                    Some(function.sig.ident.to_string())
+                    Some((function.sig.ident.to_string(), doc(&function.attrs)))
                 }
                 _ => None,
             })
@@ -650,6 +698,7 @@ fn declared(item: &syn::Item) -> Option<(String, Item)> {
         Item {
             public: is_public(visibility) && !hidden(item_attributes(item)),
             kind,
+            doc: doc(item_attributes(item)),
             functions,
         },
     ))

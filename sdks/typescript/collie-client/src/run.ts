@@ -542,13 +542,19 @@ export class Run extends RunMembers implements AsyncDisposable {
   }
 
   /**
-   * What the Run runs with (ADR 0083): each setting under `keys`, each a
+   * Shows each setting's effective value, the layer that set it and the
+   * layer that locked it, from the built-in defaults, the Operator policy,
+   * user configuration, the project configuration given and the run layer:
+   * the Connection's own settings with the run values given over them, or a
+   * live Run's as it opened when `run_id` names one; and lists the keys only
+   * the other Product honours as that Product's.
+   *
+   * What the Run runs with (ADR 0083), its own `settings` over its
+   * Connection's, named by its Run ID: each setting under `keys`, each a
    * key or a prefix of keys such as `timeout`, every one when left out,
-   * with the effective value the Run opened with, the layer and origin
-   * that set it and the layer that locked it, as `goodfetch config
-   * explain` shows them: its own `settings` over its Connection's. A Run
-   * that is no longer live fails with `run_not_found`, and a closed Run's
-   * value with `closed`.
+   * with the origin that set it too, as `goodfetch config explain` shows
+   * them. A Run that is no longer live fails with `run_not_found`, and a
+   * closed Run's value with `closed`.
    */
   async explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     ensureOpen(this.#scope, "config.explain");
@@ -560,15 +566,26 @@ export class Run extends RunMembers implements AsyncDisposable {
   }
 
   /**
-   * The Run's progress (`run.progress`, ADR 0102), read with `for await`:
-   * what it does and why it waits. Its first read is sent when it is
-   * called and answers at once; each next value is the latest once a
-   * newer one comes, read when the program asks for it, so values it did
-   * not read in time coalesce. It ends with the value whose `last` is
-   * true: the Run ended, its `lifecycle` and `stopReason` saying how, or
-   * no engine works it (`writer: none`). `break`, `return()`, `close()`,
-   * `using`, the signal or releasing it unread cancel its read at once.
-   * On a closed Run it throws `closed`, sending nothing.
+   * Reads a Run's progress: what it does and why it waits. Without `after`,
+   * it answers at once; given `after`, the position of the value the reader
+   * last read, it waits for a change and answers the latest value, so values
+   * in between are coalesced. The value whose `last` is true ends the
+   * sequence: the Run ended, and its `lifecycle` and `stop_reason` say how,
+   * or no engine works it (`writer: none`) until a start with its Run ID
+   * resumes it. A Run another engine works is read through that engine, the
+   * owner the Run index names, and one no engine works from its committed
+   * state; a read never takes the Run's writer lock. A Run ID the Run index
+   * does not list fails with `run_not_found`.
+   *
+   * Read with `for await` (ADR 0102): its first read, without `after`, is
+   * sent when it is called, and each next one, after the last value read,
+   * once the program asks for it, so values it did not read in time
+   * coalesce; `stopReason` is the value's `stop_reason`. `break`,
+   * `return()`, `close()`, `using`, the signal or releasing it unread
+   * cancel its read at once. On a closed Run it throws `closed`, sending
+   * nothing.
+   *
+   * @experimental
    */
   progress(options: { readonly signal?: AbortSignal | undefined } = {}): Sequence<RunProgress> {
     warnEntry(collieOperations, "run.progress");
@@ -607,6 +624,15 @@ export class Run extends RunMembers implements AsyncDisposable {
    * resumed by starting its Run ID again. A listener of one of its values
    * that threw and that nothing raised yet is raised then, as
    * `listener_failed`, once the Run is closed.
+   *
+   * Stops a Run at its next safe point, `stopped` and `incomplete`: no
+   * attempt in flight commits, and its work items return to pending.
+   * Answers its Run report; an ended Run's report is answered as it is. A
+   * Run whose engine died is stopped by this engine, which takes its writer
+   * role at the next run epoch; a Run another engine writes is stopped by
+   * that engine, the owner the Run index names.
+   *
+   * @experimental
    */
   async close(): Promise<void> {
     warnEntry(collieOperations, "run.abort");

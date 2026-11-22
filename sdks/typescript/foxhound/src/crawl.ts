@@ -149,15 +149,31 @@ export interface CrawlContext {
   /** The work item's page: a Collie `Page`, on every fetch tier (ADR 0093). */
   readonly page: Page;
   /**
-   * Adds a request to the crawl, under `label`, and answers what the
-   * Frontier did with it: added, with its ID, or not added, with its
-   * reason. A relative URL resolves against the page's base URL. The
-   * Payload comes after the Label only when the Label has one (ADR 0082).
-   * A Label the crawl does not declare, such as another crawl's, fails with
-   * `label_unknown`; a Payload that is not JSON or that its Label's schema
-   * refuses fails with `payload_invalid`, naming each issue's path, and
-   * nothing is sent. The engine checks it again, and refuses one whose
-   * JSON is longer than `crawl.payload.max_size` with `payload_invalid`.
+   * Adds one request to a crawl from inside a handler's attempt, a handler
+   * context's `enqueue`, and answers what the Frontier did with it: added,
+   * with its crawl request's ID and its URL as parsed, or not added, with
+   * its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`,
+   * `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL
+   * cap's name). A relative URL resolves against the document's base URL:
+   * its `<base href>`, resolved against the URL the document was reached at
+   * after its redirects, or that URL itself. A request is `duplicate` when
+   * one of its identity was already admitted: its method, its URL's key
+   * (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and
+   * `;jsessionid=` dropped, the parameters sorted) and its body's hash, or
+   * the `key` the program declares in their place; it is still fetched at
+   * its own URL. The request sits one level deeper than the one whose
+   * attempt added it. An attempt whose lease no longer holds fails with
+   * `attempt_ended`.
+   *
+   * The request goes under `label`, and its Payload comes after the Label
+   * only when the Label has one (ADR 0082). A Label the crawl does not
+   * declare, such as another crawl's, fails with `label_unknown`; a
+   * Payload that is not JSON or that its Label's schema refuses fails with
+   * `payload_invalid`, naming each issue's path, and nothing is sent. The
+   * engine checks it again, and refuses one whose JSON is longer than
+   * `crawl.payload.max_size` with `payload_invalid`.
+   *
+   * @experimental
    */
   enqueue<Q extends object | undefined>(
     url: string,
@@ -165,13 +181,32 @@ export interface CrawlContext {
     ...rest: PayloadThen<NoInfer<Q>, RequestOptions>
   ): Promise<Enqueued>;
   /**
-   * Adds every link `locator` matches on the attempt's page, under
-   * `label`, each with the Payload that follows it when the Label has one,
-   * and answers what became of each matched element in document order:
-   * added, with its ID, not added, with its reason, or with no link. Each
-   * `href` resolves against the document's base URL (ADR 0093). A Label
-   * the crawl does not declare fails with `label_unknown`, and a Payload
-   * as `enqueue`'s refuses it with `payload_invalid`, and nothing is sent.
+   * Adds every link a locator matches on the page a handler's attempt was
+   * given, a handler context's `enqueueLinks`, each a `GET` of its `href`
+   * resolved against the document's base URL (its `<base href>`, resolved
+   * against the URL the document was reached at after its redirects, or
+   * that URL itself), its query percent-encoded in the document's encoding
+   * as a browser encodes it, and answers each matched element in document
+   * order: added, with its crawl request's ID and URL; not added, with its
+   * reason, as `crawl_request.enqueue` answers; `no_link` for an element
+   * without an `href`; or `skipped_by_payload` for one whose entry in
+   * `payloads` is `null`. Every link takes `payload`, or its own entry of
+   * `payloads`, the program's Payload function's answers for the elements
+   * `crawl_request.links` read; a Payload that does not fit its Label fails
+   * the call with `payload_invalid` and adds none. `limit` adds at most
+   * that many links: once they are added, each later element whose link
+   * the Frontier would judge is not added, with `link_limit`. `include` and
+   * `exclude` only narrow the crawl's scope; a pattern the engine cannot
+   * match fails with `pattern_unsupported`. A page no fetch tier serves
+   * fails with `closed`, and an attempt whose lease no longer holds with
+   * `attempt_ended`.
+   *
+   * The links go under `label`, each with the Payload that follows it when
+   * the Label has one (ADR 0093). A Label the crawl does not declare fails
+   * with `label_unknown`, and a Payload as `enqueue`'s refuses it with
+   * `payload_invalid`, and nothing is sent.
+   *
+   * @experimental
    */
   enqueueLinks<Q extends object | undefined>(
     locator: Locator,
@@ -179,14 +214,28 @@ export interface CrawlContext {
     ...rest: PayloadThen<NoInfer<Q>, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
   /**
-   * Pushes one Record, or a list of Records in one message, into
-   * `dataset`, each typed from the Dataset alone and committed with the
-   * attempt (ADRs 0103 and 0147). Each Record is checked: those that hold
-   * are staged, and when any does not, the push fails with
-   * `record_invalid`, naming each such Record by its position in the list
-   * and each issue by its path. A handler that catches it keeps what it
-   * staged, this push's other Records included. An empty list pushes
-   * nothing and sends no message.
+   * Pushes one Record or several, in one message, into a Dataset the crawl
+   * declares from inside a handler's attempt, a handler context's `push`,
+   * and answers once they are staged: they commit once with the attempt's
+   * other outputs when the handler returns, and are discarded with them
+   * when the attempt ends any other way. Each Record is checked first. A
+   * push of no Record fails with `invalid_params`. A Dataset the crawl does
+   * not declare fails with `dataset_unknown`, and none of the Records is
+   * staged. A Record that is no JSON object, fails its Dataset's JSON
+   * Schema or lacks one of its key's fields is not staged: its rejection is
+   * staged instead, entering the Dataset's rejection table
+   * (`run.rejected_records`) if the attempt commits, while the Records that
+   * hold are staged and the attempt keeps what it staged before; the call
+   * then fails with `record_invalid`, naming each such Record by its
+   * position in the list and each of its issues by its path. An attempt
+   * that already ended fails with `attempt_ended`.
+   *
+   * Each Record is typed from `dataset` alone (ADRs 0103 and 0147). A
+   * handler that catches `record_invalid` keeps what it staged, this
+   * push's other Records included. An empty list is never sent: it pushes
+   * nothing and sends no message, so it does not fail.
+   *
+   * @experimental
    */
   push<I extends object>(
     dataset: Dataset<I>,

@@ -9,6 +9,11 @@ export class Collie {
     return new Collie();
   }
 
+  /**
+   * Starts a Run, and answers once it is started.
+   *
+   * @experimental
+   */
   start(options?: StartOptions): string {
     return options?.runId ?? "";
   }

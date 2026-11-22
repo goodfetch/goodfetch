@@ -1,0 +1,36 @@
+{
+  "operations": [
+    {
+      "name": "run.start",
+      "product": "collie",
+      "description": "Starts a Run, and answers once it is started.",
+      "stability": "experimental",
+      "deprecated": null,
+      "reach": "all_surfaces"
+    },
+    {
+      "name": "run.abort",
+      "product": "collie",
+      "description": "Aborts the Run.",
+      "stability": "stable",
+      "deprecated": null,
+      "reach": "all_surfaces"
+    },
+    {
+      "name": "crawl.start",
+      "product": "foxhound",
+      "description": "Starts a crawl from its seeds.",
+      "stability": "experimental",
+      "deprecated": null,
+      "reach": "all_surfaces"
+    },
+    {
+      "name": "usage.raise",
+      "product": "collie",
+      "description": "Raises a Limit.",
+      "stability": "stable",
+      "deprecated": null,
+      "reach": "person_only"
+    }
+  ]
+}

@@ -17,7 +17,9 @@
 // generated when every declaration of it is under a `generated/` folder.
 // Each member carries `id`, the same for one declaration however many
 // entries export it, `home`, the folder of the package whose entry exports
-// it, and `package`, the folder of the package declaring it.
+// it, `package`, the folder of the package declaring it, `doc`, its TSDoc
+// text without its tags, and `markers`, its tags' names, such as
+// `experimental` and `deprecated`.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { API, SymbolFlags } from "typescript/unstable/sync";
@@ -65,7 +67,7 @@ try {
           exported.flags & SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
         const paths = symbol.declarations.map((declaration) => declaration.path);
         const id = idOf(symbol.declarations);
-        const add = (receiver, member, memberPaths, memberId, library = false) =>
+        const add = (receiver, member, memberPaths, memberId, documented, library = false) =>
           members.push({
             entry,
             receiver,
@@ -75,8 +77,10 @@ try {
             package: library ? undefined : packageOf(memberPaths[0]),
             generated: !library && generated(memberPaths),
             library,
+            doc: documented?.getDocumentationComment(checker) ?? "",
+            markers: (documented?.getJsDocTags(checker) ?? []).map((tag) => tag.name),
           });
-        add(MODULE, exported.name, paths, id);
+        add(MODULE, exported.name, paths, id, symbol);
         const isClass = (symbol.flags & SymbolFlags.Class) !== 0;
         if (!isClass && !(symbol.flags & SymbolFlags.Interface)) continue;
         const own = [];
@@ -88,34 +92,45 @@ try {
           const node = (declarations[0] ?? property.declarations[0])?.resolve();
           if (node === undefined || !isPublic(node)) continue;
           if (declarations.length === 0) library.push(nameOf(node));
-          else own.push({ name: nameOf(node), node, declarations });
+          else own.push({ name: nameOf(node), node, declarations, symbol: property });
         }
         if (isClass) {
           for (const member of symbol.getExports().values()) {
             const node = member.declarations[0]?.resolve();
             if (member.flags & SymbolFlags.Prototype || node === undefined || !isPublic(node))
               continue;
-            own.push({ name: nameOf(node), node, declarations: member.declarations });
+            own.push({
+              name: nameOf(node),
+              node,
+              declarations: member.declarations,
+              symbol: member,
+            });
           }
           const constructor = symbol.getMembers().get(CONSTRUCTOR);
           const node = constructor?.declarations[0]?.resolve();
           if (node === undefined || isPublic(node)) {
-            own.push({ name: "constructor", declarations: constructor?.declarations });
+            own.push({
+              name: "constructor",
+              declarations: constructor?.declarations,
+              symbol: constructor,
+            });
           }
         } else if (!own.some(({ node }) => node.kind === METHOD_SIGNATURE)) {
           continue;
         }
-        for (const name of library) add(exported.name, name, [], `${id}.${name}`, true);
+        for (const name of library) add(exported.name, name, [], `${id}.${name}`, undefined, true);
         // An inherited member keeps the id of its declaration, so it is
         // listed once, on the receiver declaring it.
-        for (const { name, declarations } of own) {
-          if (declarations === undefined) add(exported.name, name, paths, `${id}.${name}`);
+        for (const { name, declarations, symbol: documented } of own) {
+          if (declarations === undefined)
+            add(exported.name, name, paths, `${id}.${name}`, documented);
           else
             add(
               exported.name,
               name,
               declarations.map((d) => d.path),
               idOf(declarations),
+              documented,
             );
         }
       }

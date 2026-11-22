@@ -190,19 +190,41 @@ impl Collie {
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
-    /// `finish()` ends it. The start of a Run the program drives
-    /// (`run.start`), which awaiting sends: a resume is logged at info and
-    /// a start that found its Run ended at warning, through `tracing`.
+    /// `finish()` ends it.
+    ///
+    /// Starts a Run its program drives, and answers once it is started. A
+    /// Run ID names the Run for good, and a start under one acts on what
+    /// the Run index holds (ADR 0102): no such Run begins it, `new`; an
+    /// interrupted Run, stopped, failed, or running with no live writer,
+    /// resumes from its committed state at the next run epoch, `resumed`,
+    /// as `run.resume` does; a finished Run is answered as it ended with no
+    /// handler called, `ended`. A Run live with a writer, in this engine or
+    /// another, fails with `run_in_use`; a Run started with other inputs or
+    /// by another caller with `run_conflict` listing each difference; a Run
+    /// the Run index lists whose state is missing or unreadable with
+    /// `run_state_unavailable`, never starting afresh.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Run the program drives (`run.start`), which awaiting
+    /// sends: a resume is logged at info and a start that found its Run
+    /// ended at warning, through `tracing`.
     pub fn start(&self) -> Start {
         self.linked.connection().start()
     }
 
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the connection runs with (ADR 0083), as `config explain`
     /// shows it (`config.explain`), which awaiting asks: each setting, or
-    /// those `.keys(…)` names, with its effective value, the layer and
-    /// origin that set it and the layer that locked it, the connection's
-    /// own settings ([`ConnectOptions::settings`]) over configuration and
-    /// the Operator policy, which each Run it starts inherits. A Run's own
+    /// those `.keys(…)` names, with the origin that set it, the
+    /// connection's own settings ([`ConnectOptions::settings`]), which each
+    /// Run it starts inherits. A Run's own
     /// explanation is
     /// [`Run::explain_settings`](crate::Run::explain_settings). Once the connection is
     /// closed it fails with `closed`.

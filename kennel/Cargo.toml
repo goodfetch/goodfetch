@@ -9,8 +9,8 @@
 #   every host, the display-less Linux gate's included;
 # - `goodfetch-kennel-app`: the executable, `goodfetch-kennel`, with the
 #   Tray on `tray-icon`, `muda` and `winit` (on Linux, on GTK's main loop),
-#   which the Linux gate only type-checks, for macOS and for Linux
-#   (`just kennel-check`).
+#   which the Linux gate only lints, for macOS and for Linux (`just lint`'s
+#   `ci/clippy-excluded.sh`), and does not test.
 #
 # Clippy reads the root `clippy.toml`, the nearest in a parent folder of
 # each crate's manifest, so the Products' disallowed methods and types hold

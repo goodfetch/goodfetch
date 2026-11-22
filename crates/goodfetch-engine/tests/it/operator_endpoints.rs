@@ -8,6 +8,7 @@
 //! request log are the oracle; its address is loopback, the private
 //! address the endpoint is refused.
 
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -309,21 +310,15 @@ fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects(
 
     // A proxy's row is an Operator-configured endpoint too, sent here as
     // the collector's URL: the `session_proxy` layer runs it as a proxy's.
-    for kind in ["otlp", "proxy"] {
-        assert!(
-            kinds.iter().any(
-                |route| matches!(route, Route::OperatorEndpoint { kind: served } if served == kind)
-            ),
-            "the table has no {kind} endpoint case: {kinds:?}"
-        );
-    }
-    assert!(
-        kinds.iter().all(|route| matches!(
-            route,
-            Route::OperatorEndpoint { kind } if kind == "otlp" || kind == "proxy"
-        )),
-        "{kinds:?}"
-    );
+    // The table must serve both kinds, and this layer runs no other.
+    let served: BTreeSet<&str> = kinds
+        .iter()
+        .map(|route| match route {
+            Route::OperatorEndpoint { kind } => kind.as_str(),
+            other => panic!("an Operator endpoint case routed as {other:?}"),
+        })
+        .collect();
+    assert_eq!(served, BTreeSet::from(["otlp", "proxy"]));
     // An endpoint is the Operator's text, sent as an HTTP URI: the
     // spellings only the WHATWG parser reads are no URI, so nothing is
     // sent, and a zone ID's is a URL the policy cannot judge, refused as

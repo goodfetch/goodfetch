@@ -256,17 +256,17 @@ impl SsrfLayers {
                     .find(|runner| runner.file_and_function() == Some((file.as_str(), test)))
             })
             .ok_or_else(unknown)?;
-        let without: Vec<Family> = entry
+        let empty_families: Vec<Family> = entry
             .families
             .iter()
             .copied()
             .filter(|family| table.cases_of(*family).next().is_none())
             .collect();
-        if !without.is_empty() {
+        if !empty_families.is_empty() {
             return Err(RunnerError::NoCase {
                 layer: layer.to_owned(),
                 test: entry.test.clone(),
-                families: without,
+                families: empty_families,
             });
         }
         let cases = entry

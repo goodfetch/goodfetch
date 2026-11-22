@@ -221,6 +221,15 @@ pub fn current_test() -> String {
         .to_owned()
 }
 
+/// The folder of the case logs, which `just test` names in
+/// `GOODFETCH_TEST_CASE_LOGS`: a Rust test passes it to
+/// `ClientCaseRun::start`, which keeps no entry when it is absent (ADR 0069).
+pub fn case_logs() -> Option<std::path::PathBuf> {
+    Variables::from_process()
+        .get(CASE_LOGS_VARIABLE)
+        .map(std::path::PathBuf::from)
+}
+
 /// One of the three suites (ADR 0061).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Suite {

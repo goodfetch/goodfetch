@@ -7,7 +7,8 @@
 //! cases, and a failed close, in `goodfetch-collie-client`'s tests.
 
 use goodfetch_collie::{Collie, ErrorCode, RunId, StartedAs};
-use goodfetch_test_support::{TestEnv, browser_cache_in_home, real_time_runtime};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_test_support::{TestEnv, browser_cache_in_home, case_logs, real_time_runtime};
 
 use super::options;
 
@@ -21,6 +22,12 @@ const SHOP: &str = "https://shop.test/";
 /// Covers: story:11-16
 #[test]
 fn children_close_with_their_parent_and_refuse_every_later_call() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "children-close-with-their-parent",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     browser_cache_in_home(&env).unwrap();
     real_time_runtime().block_on(async {
@@ -64,6 +71,12 @@ fn children_close_with_their_parent_and_refuse_every_later_call() {
 /// Covers: story:11-17
 #[test]
 fn a_closed_run_and_connection_close_again_and_refuse_every_later_call() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "closed-after-close",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
@@ -95,6 +108,12 @@ fn a_closed_run_and_connection_close_again_and_refuse_every_later_call() {
 /// Covers: story:11-18
 #[test]
 fn a_closed_running_run_resumes_and_a_finished_one_closes() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "close-stops-a-running-run",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let nightly = RunId::parse("nightly").unwrap();
     real_time_runtime().block_on(async {
@@ -119,6 +138,12 @@ fn a_closed_running_run_resumes_and_a_finished_one_closes() {
 /// Covers: story:11-19
 #[test]
 fn a_connection_close_stops_its_run_and_its_linked_engine() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connection-close-stops-its-engine",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let nightly = RunId::parse("nightly").unwrap();
     real_time_runtime().block_on(async {

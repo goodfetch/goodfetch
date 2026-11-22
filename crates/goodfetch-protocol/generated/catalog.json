@@ -143,6 +143,9 @@
     {
       "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
+      "details": {
+        "$ref": "#/$defs/CallCancelledDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,

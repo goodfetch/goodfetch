@@ -9,7 +9,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Final, Literal, Unpack
 
+from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_of
+from .models import CallCancelledDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -146,9 +148,13 @@ class BrowserSandboxUnavailableError(UnavailableError):
 class CallCancelledError(UnavailableError):
     """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
 
+    typed_details: CallCancelledDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False, **fields)
+        self.typed_details = details_of(CallCancelledDetails, self.details)
 
 
 class CapabilityUnavailableError(UnavailableError):

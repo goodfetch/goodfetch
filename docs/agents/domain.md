@@ -6,7 +6,6 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`GLOSSARY.md`** at the repo root.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
-- **`rnd/`** is R&D material kept for inspiration only: the draft vocabulary in `rnd/GLOSSARY.md`, the ADRs proposed in `rnd/adr/`, the research, the lab and its report in `rnd/README.md`.
 
 The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions as they get resolved.
 
@@ -20,4 +19,4 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR 0060 (a Tokio runtime is built only in `main`), but worth reopening because…_
+> _Contradicts ADR 0087 (outside `crates/foxhound/`, only `xtask` depends on a crate inside it), but worth reopening because…_

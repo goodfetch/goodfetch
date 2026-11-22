@@ -15,12 +15,13 @@ use goodfetch_collie::{
     Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, ErrorCode, RemoteDaemon, blocking,
 };
 use goodfetch_collie_client::logging::engine_log_level;
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{DaemonEndpoint, Form, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonUnreachableDetails;
 use goodfetch_protocol::settings::{SettingInvalidDetails, SettingUnknownDetails};
 use goodfetch_test_support::{
-    CapturedLog, Process, RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, capturing,
+    CapturedLog, Process, RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, capturing, case_logs,
     engine_script, real_time_runtime, reported_address, tools,
 };
 use rstest::rstest;
@@ -182,6 +183,12 @@ pub(super) fn reached(kind: EngineKind, home: Option<PathBuf>, url: Option<Strin
 /// Covers: story:11-2, story:11-4, story:11-8
 #[test]
 fn auto_links_its_own_engine_when_no_daemon_runs_in_the_home() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-finds-the-engine",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (subscriber, log) = goodfetch_log();
 
@@ -234,6 +241,12 @@ fn a_blocking_connection_reports_the_engine_it_reached() {
 #[case::auto(EngineChoice::Auto)]
 #[case::daemon(EngineChoice::Daemon)]
 fn the_daemon_running_in_the_home_is_reached(#[case] choice: EngineChoice) {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-finds-the-engine",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (process, line) = scripted(
         &env,

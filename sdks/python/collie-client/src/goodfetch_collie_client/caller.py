@@ -31,6 +31,8 @@ from goodfetch_collie_client.point_in_time import point_in_time
 from goodfetch_collie_client.unknown_member import UnknownMember
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from pydantic.fields import FieldInfo
 
 __all__ = ["AsyncCaller", "Caller", "result_of"]
@@ -67,6 +69,17 @@ def result_of(model: type[_Model], result: object) -> _Model:
     other value no declared type matches stays as the engine sent it.
     """
     return model.model_construct(**_fields(model, cast("dict[str, object]", result)))
+
+
+def details_of(model: type[_Model], details: Mapping[str, object]) -> _Model | None:
+    """A code's details as the model its class reads them as (ADR 0079).
+
+    Built as `result_of` builds a result, unvalidated; `None` when they lack
+    one of the model's required fields, as those of an error a program builds
+    without details do.
+    """
+    value = dict(details)
+    return result_of(model, value) if _carries(model, value) else None
 
 
 _Build = Callable[[object], object]

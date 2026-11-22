@@ -9,7 +9,9 @@
 //! servers per Session for its life, and its bytes by proxy kind in Usage,
 //! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129), the Run
 //! that Limit stopped waiting in "Needs you" until a person raises it at
-//! the interactive prompt (ADRs 0031 and 0041); and the `bright_data`,
+//! the interactive prompt (ADRs 0031 and 0041), and a Run its own Limit
+//! from `run start --limit` stopped refused at the next start, exit `16`;
+//! and the `bright_data`,
 //! `oxylabs` and `apify` adapters (ticket #891), against a forward proxy
 //! that reads each provider's sticky username: one sticky exit per Session
 //! for its life, and `proxy_exit_may_change` for a Session that outlives
@@ -1326,6 +1328,74 @@ fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
             true
         ),
         "{navigated} {finished}"
+    );
+}
+
+/// `run start --limit` holds the Run to its own Limit: once that Limit,
+/// with nothing left, refused a priced proxy's bytes under the Run's
+/// program and stopped the Run, a start that names the Run again fails
+/// `limit_reached`, exit `16`, naming the Run's own Limit (ADR 0102). A
+/// Run starts under a Limit with nothing left, as its Limits hold it only
+/// once it has begun; only a Limit with nothing left refuses a start.
+///
+/// Covers: story:11-206, command:run.start, error:limit_reached, exit:limit_reached
+#[cfg(unix)]
+#[test]
+fn a_run_start_naming_a_run_its_limit_stopped_exits_16() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let password = &proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .password;
+    let start = || {
+        cli(&env, COLLIE)
+            .args(["run", "start", "--run-id", "capped", "--attached", "--json"])
+            .args(["--limit", "proxy_bytes=0USD"])
+            .env(PASSWORD_VARIABLE, password)
+            .run()
+            .unwrap()
+    };
+    let given = start();
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, Some("1000 USD"));
+    let mut program = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "capped",
+        &configuration,
+        &json!({ "proxy": { "provider": "list" } }),
+        &[],
+    );
+    let page = opened(&program.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    program.ask(3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
+    );
+    let finished = program.ask(4, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = program.finish();
+
+    let restarted = start();
+    let refused: Value = serde_json::from_str(&restarted.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            given.exit,
+            &finished["result"]["stop_reason"]["scope"],
+            restarted.exit,
+            &refused["error"]["code"],
+            &refused["error"]["scope"],
+        ),
+        (
+            Some(0),
+            &json!({ "kind": "run", "id": "capped" }),
+            Some(16),
+            &json!("limit_reached"),
+            &json!({ "kind": "run", "id": "capped" }),
+        ),
+        "{given}\n{finished}\n{restarted}"
     );
 }
 

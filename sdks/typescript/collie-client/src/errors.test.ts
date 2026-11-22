@@ -8,6 +8,7 @@ import { errorOfReply, replyOfError } from "./errors.ts";
 import { isGoodfetchError } from "./goodfetch-error.ts";
 import {
   BlockedError,
+  CallCancelledError,
   collieErrorClasses,
   errorGroupClasses,
   InternalError,
@@ -15,6 +16,7 @@ import {
   PageError,
   ProgramError,
   SettingInvalidError,
+  type CallCancelledDetails,
   type ErrorGroup,
 } from "./generated/index.ts";
 
@@ -215,6 +217,44 @@ describe("errorOfReply", () => {
       retryAfter: error instanceof BlockedError ? error.retryAfter : "not blocked",
       sent: error.details["retry_after"],
     }).toEqual({ retryAfter, sent });
+  });
+
+  // ADRs 0079 and 0113: a call another task stopped reads who stopped it,
+  // what closed under it and whom the stopping Client acts for, typed; a
+  // value a newer engine names reaches the program unchanged.
+  test.for([
+    {
+      sent: { by: "person", closed: "run", person: "ada" },
+      read: { by: "person", closed: "run", person: "ada" },
+    },
+    { sent: { by: "client" }, read: { by: "client" } },
+    {
+      sent: { by: "a_stopper_from_a_newer_engine", closed: "a_value_from_a_newer_engine" },
+      read: { by: "a_stopper_from_a_newer_engine", closed: "a_value_from_a_newer_engine" },
+    },
+  ])(
+    "reads call_cancelled's details $sent typed",
+    { tags: ["story:11-48", "error:call_cancelled"] },
+    ({ sent, read }) => {
+      const error = errorOfReply(
+        {
+          code: -32006,
+          message: "the call was stopped under it",
+          data: { code: "call_cancelled", retryable: false, ...sent },
+        },
+        collieErrorClasses,
+      );
+
+      const details: Readonly<CallCancelledDetails> | undefined =
+        error instanceof CallCancelledError ? error.typedDetails : undefined;
+      expect(details).toEqual(read);
+    },
+  );
+
+  test("reads no typed details from a call_cancelled that names no one who stopped it", () => {
+    const error = new CallCancelledError("stopped by its program");
+
+    expect(error.typedDetails).toBeUndefined();
   });
 
   test("gives an error with no call log an empty one", () => {

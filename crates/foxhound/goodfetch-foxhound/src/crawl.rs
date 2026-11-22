@@ -18,10 +18,7 @@ use std::sync::{Arc, PoisonError};
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
-use goodfetch_collie_client::schemars::JsonSchema;
-use goodfetch_collie_client::{
-    BoxError, ClientConnection, Error, HandlerCall, Run, Schema, SchemaError,
-};
+use goodfetch_collie_client::{BoxError, ClientConnection, Error, HandlerCall, Run};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams,
     CrawlRequestHandled, CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip,
@@ -34,8 +31,7 @@ use goodfetch_protocol::foxhound::dataset::{
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::frontier::{
-    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpMethod, PAYLOAD_INVALID,
-    PayloadInvalidDetails, PayloadIssue,
+    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpMethod,
 };
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams, Tags};
@@ -47,8 +43,11 @@ use crate::Foxhound;
 use crate::crawl_requests::CrawlRequests;
 use crate::sync::{AtomicU64, Mutex};
 
+mod label;
 #[cfg(test)]
 mod tests;
+
+pub use label::{Label, LabelDeclaration};
 
 /// The source of each crawl's own number, which its Labels and Datasets
 /// carry, so a crawl tells its own from another's.
@@ -493,33 +492,6 @@ fn payload_invalid(error: serde_json::Error) -> Error {
     Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
 }
 
-/// The `payload_invalid` of a Payload for `label` its schema refused
-/// before anything was sent: it is not JSON, or does not read back as
-/// sent; the details name the issue's JSON Pointer, as the engine's own.
-fn payload_refused(label: &str, error: &SchemaError) -> Error {
-    let path = match error {
-        SchemaError::NotJson { path, .. } | SchemaError::ChangesOnReadBack { path, .. } => {
-            path.clone()
-        }
-        _ => String::new(),
-    };
-    Error::of_sdk(
-        &PAYLOAD_INVALID,
-        &format!("the Payload for the Label `{label}` was not sent: {error}"),
-        "Give a Payload that is JSON and that its type's `Deserialize` reads back as it was given.",
-        &PayloadInvalidDetails {
-            label: label.to_owned(),
-            issues: vec![PayloadIssue {
-                path,
-                message: error.to_string(),
-            }],
-            limit: None,
-            size: None,
-            max_size: None,
-        },
-    )
-}
-
 /// Gives back, once the serve of a Run ends or is dropped, the Crawl
 /// requests the connection keeps aside for that Run: the engine delivers
 /// them again to the Run's next serve.
@@ -586,115 +558,6 @@ enum Ending {
     Skipped(String),
     /// `ctx.retry(message)`: the attempt ends with `retry_requested`.
     RetryRequested(String),
-}
-
-/// What [`Crawl::label`] declares (ADRs 0082, 0093 and 0099): a Label's
-/// name and the schema of its Payloads, of type `P`. A bare name declares
-/// the Label with the schema `schemars` derives for `P`, on the side `P`
-/// deserializes from; [`LabelDeclaration::payload`] gives a schema of its
-/// own, such as a JSON Schema written by hand for [`Value`] Payloads.
-///
-/// ```
-/// use goodfetch_foxhound::{Crawl, LabelDeclaration, Schema};
-/// use serde_json::{Value, json};
-///
-/// # fn declare() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut crawl = Crawl::new();
-/// let isbn = Schema::json(json!({
-///     "type": "object",
-///     "properties": { "isbn": { "type": "string" } },
-///     "required": ["isbn"],
-/// }))?;
-/// let book = crawl.label(LabelDeclaration::<Value>::new("book").payload(isbn))?;
-/// # let _ = book;
-/// # Ok(())
-/// # }
-/// ```
-pub struct LabelDeclaration<P> {
-    name: String,
-    payload: Schema<P>,
-}
-
-impl<P: JsonSchema + Serialize + DeserializeOwned> LabelDeclaration<P> {
-    /// The Label `name`, whose Payloads the schema `schemars` derives for
-    /// `P` types.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            payload: Schema::derived(),
-        }
-    }
-}
-
-impl<P> LabelDeclaration<P> {
-    /// Types the Label's Payloads by `schema` in place of the one
-    /// `schemars` derives.
-    #[must_use]
-    pub fn payload(self, schema: Schema<P>) -> Self {
-        Self {
-            payload: schema,
-            ..self
-        }
-    }
-}
-
-impl<P: JsonSchema + Serialize + DeserializeOwned> From<&str> for LabelDeclaration<P> {
-    fn from(name: &str) -> Self {
-        Self::new(name)
-    }
-}
-
-impl<P> fmt::Debug for LabelDeclaration<P> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("LabelDeclaration")
-            .field("name", &self.name)
-            .field("payload", &self.payload)
-            .finish()
-    }
-}
-
-/// A Label a crawl declares (ADR 0093), whose requests carry a Payload of
-/// type `P`: what a seed, an enqueue and a handler name. Cloning it is
-/// cheap.
-pub struct Label<P> {
-    name: Arc<str>,
-    crawl: CrawlId,
-    /// The schema its Payloads are sent by.
-    payload: Arc<Schema<P>>,
-}
-
-impl<P> Label<P> {
-    /// The Label's name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl<P: Serialize + DeserializeOwned> Label<P> {
-    /// `payload` as the JSON its schema sends, or the `payload_invalid`
-    /// that refuses it before anything is sent.
-    fn encode(&self, payload: &P) -> Result<Value, Error> {
-        self.payload
-            .encode(payload)
-            .map_err(|error| payload_refused(&self.name, &error))
-    }
-}
-
-impl<P> Clone for Label<P> {
-    fn clone(&self) -> Self {
-        Self {
-            name: Arc::clone(&self.name),
-            crawl: self.crawl,
-            payload: Arc::clone(&self.payload),
-        }
-    }
-}
-
-impl<P> fmt::Debug for Label<P> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("Label").field(&self.name).finish()
-    }
 }
 
 /// A Dataset a crawl declares (ADR 0103), whose Records are of type `I`:

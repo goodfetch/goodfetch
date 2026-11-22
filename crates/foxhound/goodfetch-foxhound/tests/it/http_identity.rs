@@ -10,7 +10,7 @@
 //! the pinned build without launching it: a new pin whose browser sends
 //! another document request fails it.
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, skipped_without_gui_session};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -66,6 +66,11 @@ fn reads_nothing() -> impl FnMut(&mut Inside<'_>, &Value) -> Value {
 #[case::a_plain_http_site("access.test")]
 #[case::a_site_in_a_secure_context("access.localhost")]
 fn a_standard_sessions_http_tier_sends_its_browsers_document_request(#[case] host: &str) {
+    if skipped_without_gui_session(
+        "the `http` tier sends the full build's identity, where the headless shell shows `HeadlessChrome`",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);

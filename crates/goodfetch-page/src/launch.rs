@@ -8,6 +8,7 @@
 //! does not, its data folder removed and its build released.
 
 mod arguments;
+mod gui_session;
 #[cfg(windows)]
 mod named_pipes;
 #[cfg(unix)]
@@ -22,8 +23,8 @@ use goodfetch_cdp::{CommandLog, Connection};
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
-    BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CacheLocation, HeldArtifact, Pins,
-    Platform, PlatformNotice, browser_source, installed_browser,
+    BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_HEADLESS_SHELL,
+    CacheLocation, HeldArtifact, Pins, Platform, PlatformNotice, browser_source, installed_browser,
 };
 use goodfetch_engine::children::Children;
 use goodfetch_engine::deadline::Deadline;
@@ -41,10 +42,13 @@ use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
 use goodfetch_protocol::page::{
-    BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
+    BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL, BROWSER_LAUNCH_FAILED, BrowserExit,
+    BrowserLaunchFailedDetails,
 };
 use goodfetch_protocol::security::{SECURITY_BROWSER_SANDBOX, SECURITY_RAW_CDP_EGRESS_PROXY};
-use goodfetch_protocol::settings::TIMEOUT_CLOSE;
+use goodfetch_protocol::settings::{
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SettingsLayer, TIMEOUT_CLOSE,
+};
 use tokio::io::DuplexStream;
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch};
@@ -138,8 +142,10 @@ pub(crate) struct Launched {
     pub(crate) exit: watch::Receiver<Option<BrowserExit>>,
     /// Its executable.
     pub(crate) executable: PathBuf,
-    /// Whether it runs headless, so its pages need the identity it shows
-    /// with a window.
+    /// Whether it runs the full build headless, so its pages need the
+    /// identity it shows with a window. The headless shell has no window
+    /// and no secure page of its own to read its client hints on, and
+    /// shows its own identity (#3224).
     pub(crate) headless: bool,
     /// Its process's ID, by which its memory is read.
     pub(crate) process: Option<u32>,
@@ -148,14 +154,38 @@ pub(crate) struct Launched {
     pub(crate) released: CancellationToken,
 }
 
-/// The executable of Chrome for Testing's build for `platform`, in the
-/// folder its archive unpacks to.
-fn executable_in(files: &Path, platform: BuildPlatform) -> Option<PathBuf> {
-    platform.chrome_for_testing_executable().map(|executable| {
+/// The executable of Chrome for Testing's build for `platform`, its
+/// headless shell when `shell`, in the folder its archive unpacks to.
+fn executable_in(files: &Path, platform: BuildPlatform, shell: bool) -> Option<PathBuf> {
+    let executable = if shell {
+        platform.chrome_headless_shell_executable()
+    } else {
+        platform.chrome_for_testing_executable()
+    };
+    executable.map(|executable| {
         executable
             .split('/')
             .fold(files.to_path_buf(), |path, part| path.join(part))
     })
+}
+
+/// `capability_unavailable` for `browser.headless_shell`, set in `layer`,
+/// where the engine runs an installed Chromium, which has no headless
+/// shell.
+fn no_shell(layer: SettingsLayer) -> CallError {
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        format!(
+            "Chrome for Testing builds no headless shell for this platform, where the engine runs the distribution's Chromium: set `{}: false`.",
+            BROWSER_HEADLESS_SHELL.name
+        ),
+        &CapabilityUnavailableDetails {
+            key: BROWSER_HEADLESS_SHELL.name.to_owned(),
+            layer,
+            kind: CHROME_HEADLESS_SHELL.to_owned(),
+            fix: format!("`{}: false`", BROWSER_HEADLESS_SHELL.name),
+        },
+    )
 }
 
 /// What a download of a missing build may do under the Run's settings.
@@ -167,11 +197,13 @@ fn fetching(run: &Run) -> Fetching {
 }
 
 /// The browser's executable, the build it holds while it runs, and its
-/// kind, as `goodfetch.browser.running`'s `browser` label names it.
+/// kind, as `goodfetch.browser.running`'s `browser` label names it: the
+/// pinned release's headless shell under `browser.headless_shell`, which
+/// `shell` gives with the layer that set it.
 async fn executable(
     run: &Run,
-    home: &Home,
-    pins: &Pins,
+    (home, pins): (&Home, &Pins),
+    shell: Option<SettingsLayer>,
 ) -> Result<(PathBuf, Option<HeldArtifact>, &'static str), CallError> {
     let choice = BrowserChoice::Default;
     match browser_source(Platform::current(), &choice, &BTreeMap::new()) {
@@ -181,6 +213,11 @@ async fn executable(
             notice,
         } => {
             notice_of(notice);
+            let (name, kind) = if shell.is_some() {
+                (CHROME_HEADLESS_SHELL, "chrome_headless_shell")
+            } else {
+                (name, "chrome_for_testing")
+            };
             let cache = BrowserCache::new(
                 &CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
                 run.owner().blocking_threads(),
@@ -209,11 +246,14 @@ async fn executable(
                 .await
                 .map_err(|error| error.to_call_error())?;
             let files = prepared.artifact.files();
-            let executable = executable_in(&files, platform)
+            let executable = executable_in(&files, platform, shell.is_some())
                 .ok_or_else(|| launch_failed(&files, None, "no executable for this platform"))?;
-            Ok((executable, Some(prepared.artifact), "chrome_for_testing"))
+            Ok((executable, Some(prepared.artifact), kind))
         }
         BrowserSource::Installed { candidates, notice } => {
+            if let Some(layer) = shell {
+                return Err(no_shell(layer));
+            }
             notice_of(notice);
             let path = installed_browser(
                 &run.owner().blocking_threads(),
@@ -284,6 +324,9 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 ///
 /// # Errors
 ///
+/// `browser_needs_gui_session` for the full build headless on macOS with
+/// no GUI session (#3224); `capability_unavailable` for
+/// `browser.headless_shell` where the engine runs an installed Chromium;
 /// `browser_sandbox_unavailable` where Chromium's sandbox, on, cannot start
 /// (ADR 0049); the Browser cache's codes for a missing build
 /// (`browser_not_installed`, `artifact_unavailable_offline`,
@@ -306,6 +349,17 @@ pub(crate) async fn launch(
         return launch_scripted(run, scripted, stopping).await;
     }
     let settings = run.settings().map(RunSettings::resolved);
+    let headless = get_or_default(settings, &BROWSER_HEADLESS);
+    let shell = get_or_default::<bool>(settings, &BROWSER_HEADLESS_SHELL).then(|| {
+        settings
+            .and_then(|settings| settings.effective(&BROWSER_HEADLESS_SHELL))
+            .map_or(SettingsLayer::Default, |effective| effective.layer)
+    });
+    if let Some(refusal) =
+        gui_session::refusal(shell.is_some(), headless, gui_session::graphic_access)
+    {
+        return Err(refusal);
+    }
     // Chromium's sandbox stays on unless switched off; where the startup
     // probe refused it, no browser starts (ADR 0049).
     let sandbox = get_or_default(settings, &SECURITY_BROWSER_SANDBOX);
@@ -318,17 +372,16 @@ pub(crate) async fn launch(
     if let Some(refusal) = probed.as_ref().and_then(Probed::refusal) {
         return Err(refusal);
     }
-    let (executable, held, kind) = executable(run, home, pins).await?;
+    let (executable, held, kind) = executable(run, (home, pins), shell).await?;
     let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
     write_preferences(run, &data_folder)
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
-    let headless = get_or_default(settings, &BROWSER_HEADLESS);
     let (arguments, environment) = command_line(
         run,
         settings,
         &data_folder,
-        headless,
+        (headless, shell.is_some()),
         sandbox,
         relay_authority,
     )
@@ -385,7 +438,7 @@ pub(crate) async fn launch(
         connection,
         exit,
         executable,
-        headless,
+        headless: headless && shell.is_none(),
         process,
         released,
     })
@@ -498,7 +551,7 @@ async fn command_line(
     run: &Run,
     settings: Option<&Resolved>,
     data_folder: &Path,
-    headless: bool,
+    (headless, headless_shell): (bool, bool),
     sandbox: bool,
     relay_authority: Option<&str>,
 ) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
@@ -514,6 +567,7 @@ async fn command_line(
     let built = arguments::arguments(&arguments::Launch {
         data_folder,
         headless,
+        headless_shell,
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
         proxy_script: proxy_script.as_deref(),

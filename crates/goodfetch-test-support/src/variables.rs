@@ -60,6 +60,13 @@ pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 /// --callgrind-at-once` sets it, or the host's environment does (#2520).
 pub const CALLGRIND_AT_ONCE_VARIABLE: &str = "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE";
 
+/// Set where the tests run with no GUI session, as the Release suite's
+/// macOS cells do on a runner started in the Background session (#3224):
+/// Chrome for Testing's full build cannot start headless there, so each
+/// test's user configuration sets `browser.headless_shell`, its Browser
+/// cache holds the shell, and a test that needs the full build skips.
+pub const NO_GUI_SESSION_VARIABLE: &str = "GOODFETCH_TEST_NO_GUI_SESSION";
+
 /// Where Playwright keeps its browsers when it is not its default folder
 /// (the CI image sets it), from which the tests' Browser cache takes the
 /// Chrome for Testing build Playwright pins.
@@ -125,6 +132,7 @@ impl Variables {
             DNS_NAMESPACE_VARIABLE,
             CALLGRIND_AT_ONCE_VARIABLE,
             PLAYWRIGHT_BROWSERS_VARIABLE,
+            NO_GUI_SESSION_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)
@@ -164,6 +172,12 @@ impl Variables {
                 value: other.to_owned(),
             }),
         }
+    }
+
+    /// Whether the tests run with no GUI session:
+    /// `GOODFETCH_TEST_NO_GUI_SESSION` is set, to any value.
+    pub fn no_gui_session(&self) -> bool {
+        self.get(NO_GUI_SESSION_VARIABLE).is_some()
     }
 
     /// The cap on the Callgrind children a counts benchmark runs at once:

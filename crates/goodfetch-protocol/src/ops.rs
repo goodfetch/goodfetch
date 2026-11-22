@@ -100,10 +100,10 @@ pub const COMPLETENESS_LABEL: MetricLabel = MetricLabel {
 };
 
 /// The `browser` label of `goodfetch.browser.running`: the pinned Chrome for
-/// Testing, or the distribution's Chromium.
+/// Testing, its headless shell (#3224), or the distribution's Chromium.
 pub const BROWSER_LABEL: MetricLabel = MetricLabel {
     name: "browser",
-    values: || vec!["chrome_for_testing", "chromium"],
+    values: || vec!["chrome_for_testing", "chrome_headless_shell", "chromium"],
 };
 
 /// The `reason` label of `goodfetch.browser.recycled`: why a pool recycled
@@ -167,7 +167,7 @@ pub const RUN_ENDED: Metric = Metric {
 /// `goodfetch.browser.running`: the browsers the Runs launched.
 pub const BROWSER_RUNNING: Metric = Metric {
     name: "goodfetch.browser.running",
-    description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+    description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, its headless shell under `browser.headless_shell`, or the distribution's Chromium where no build is made.",
     instrument: Instrument::UpDownCounter,
     unit: "{browser}",
     labels: &[BROWSER_LABEL],

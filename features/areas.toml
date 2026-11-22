@@ -1027,6 +1027,12 @@ number = 5
 kind = "error"
 prefix = "browser_launch_failed"
 
+# The full build's headless launch with no GUI session on macOS (#3224).
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_needs_gui_session"
+
 # The guard's locator actions and their refusal (#700).
 [[area]]
 number = 5

@@ -311,9 +311,14 @@ enum ConfigCommand {
 
 #[derive(Subcommand)]
 enum BrowserCommand {
-    /// Downloads every build this version pins into the Browser cache
-    /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images.
+    /// Downloads the builds this version pins into the Browser cache
+    /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images:
+    /// those named, else every one a Run launches by default, all but
+    /// `chrome-headless-shell` (`browser.headless_shell`).
     Install {
+        /// The builds to download, by the name they are pinned under.
+        #[arg(value_parser = clap::builder::PossibleValuesParser::new(browsers::INSTALLABLE))]
+        names: Vec<String>,
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
@@ -685,9 +690,9 @@ fn run(
         Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product, own),
         Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
         Command::Browser {
-            command: BrowserCommand::Install { json },
+            command: BrowserCommand::Install { names, json },
             ..
-        } => browsers::install(&machine, json, human),
+        } => browsers::install(&machine, (&names, json), human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..

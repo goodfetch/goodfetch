@@ -113,9 +113,11 @@ mod variables;
 
 pub use browsers::{
     BROWSERS_PATH_VARIABLE, BrowserCacheError, DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE,
-    browser_cache, browser_cache_in_home, browser_cache_with_lightpanda, chrome_for_testing,
-    chrome_for_testing_debugged, chrome_for_testing_dumping_dom, chrome_for_testing_files,
-    lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
+    browser_cache, browser_cache_in_home, browser_cache_with_headless_shell,
+    browser_cache_with_lightpanda, chrome_for_testing, chrome_for_testing_debugged,
+    chrome_for_testing_dumping_dom, chrome_for_testing_files, chrome_headless,
+    chrome_headless_shell, lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
+    skipped_without_gui_session,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
@@ -252,7 +254,7 @@ pub use user_namespaces::{
 };
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
-    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE,
-    RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError,
-    TOOLS_VARIABLE, Variables, case_logs, current_test,
+    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,
+    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
+    SuiteError, TOOLS_VARIABLE, Variables, case_logs, current_test,
 };

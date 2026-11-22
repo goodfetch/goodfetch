@@ -43,8 +43,8 @@ pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
 pub use copy::{ExecutableCopy, entry_present, hold as hold_copy, place_executable_copy};
 pub use platform::{
-    Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, Os, Platform, PlatformNotice,
-    browser_source,
+    Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, Os, Platform,
+    PlatformNotice, browser_source,
 };
 
 use crate::call_error::CallError;
@@ -169,10 +169,17 @@ impl CacheError {
     }
 }
 
-/// The command that installs `pinned_by`'s builds: its executable's
-/// `browser install` (ADR 0098).
-fn install_command(product: Product) -> String {
-    format!("{} browser install", product.executable_name())
+/// The command that installs `artifact`, pinned by `product`: its
+/// executable's `browser install` (ADR 0098), which names the headless
+/// shell, since only the builds a Run launches by default install bare
+/// (#3224).
+fn install_command(product: Product, artifact: &ArtifactId) -> String {
+    let executable = product.executable_name();
+    if artifact.name == CHROME_HEADLESS_SHELL {
+        format!("{executable} browser install {CHROME_HEADLESS_SHELL}")
+    } else {
+        format!("{executable} browser install")
+    }
 }
 
 fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
@@ -675,7 +682,7 @@ impl BrowserCache {
                 },
                 fix: format!(
                     "Run `{}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
-                    install_command(pinned_by.product),
+                    install_command(pinned_by.product, &artifact.id),
                 ),
             }),
         }
@@ -706,7 +713,7 @@ impl BrowserCache {
                 },
                 fix: format!(
                     "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",
-                    install_command(pinned_by.product),
+                    install_command(pinned_by.product, &artifact.id),
                     EGRESS_OFFLINE.name,
                 ),
             }),
@@ -767,7 +774,7 @@ fn download_failed(
             failure,
             fix: format!(
                 "Retry, or run `{}` beforehand, or point {BROWSERS_PATH_VARIABLE} at a prepared Browser cache",
-                install_command(pinned_by.product),
+                install_command(pinned_by.product, &artifact.id),
             ),
         }),
     }

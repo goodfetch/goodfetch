@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, skipped_without_gui_session};
 use serde_json::{Value, json};
 
 use crate::egress_relay::{Program, started};
@@ -170,6 +170,11 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> Vec
 /// Covers: story:4-39, setting:tls.trusted_cas, operation:page.goto
 #[test]
 fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() {
+    if skipped_without_gui_session(
+        "it compares the full build's direct ClientHello with the headless shell's, which lacks two of its extensions",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     load_directly(

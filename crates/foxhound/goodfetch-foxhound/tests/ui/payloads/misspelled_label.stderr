@@ -1,0 +1,11 @@
+error[E0425]: cannot find value `shelff` in this scope
+ --> tests/ui/payloads/misspelled_label.rs:8:41
+  |
+8 |     Ok(Seed::new("https://shop.test/", &shelff, 3))
+  |                                         ^^^^^^
+  |
+help: a local variable with a similar name exists
+  |
+8 -     Ok(Seed::new("https://shop.test/", &shelff, 3))
+8 +     Ok(Seed::new("https://shop.test/", &shelf, 3))
+  |

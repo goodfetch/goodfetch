@@ -8,13 +8,14 @@ console messages in order, and one that throws is removed, its
 sent and leaves the page open. TypeScript's `events.test.ts` is its twin.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+import functools
+from collections.abc import Awaitable, Mapping
 
-import anyio
 import pytest
 from goodfetch_collie import AsyncCollie, Collie, GoodfetchError, ListenerFailedError
 from goodfetch_collie_client.generated.models import ConsoleMessage
 from goodfetch_test_support import ClientCaseRecord, Way, three_ways
+from goodfetch_test_support import until as shared_until
 
 WAIT_SECONDS = 30.0
 """How long the test waits for a listener to hear the page's console."""
@@ -36,18 +37,8 @@ async def failure(call: Awaitable[object]) -> GoodfetchError:
     return raised.value
 
 
-async def until(holds: Callable[[], bool], what: str) -> None:
-    """Waits until `holds()` is true, for `WAIT_SECONDS` at most.
-
-    A listener runs on its own task, or on a worker thread in the sync way,
-    and sets no event the test could wait on, so the wait polls it.
-    """
-    for _ in range(round(WAIT_SECONDS / POLL_SECONDS)):
-        if holds():
-            return
-        await anyio.sleep(POLL_SECONDS)
-    message = f"{what} did not happen within {WAIT_SECONDS} seconds"
-    raise AssertionError(message)
+until = functools.partial(shared_until, within=WAIT_SECONDS, every=POLL_SECONDS)
+"""Waits until a listener's effect holds, for `WAIT_SECONDS` at most."""
 
 
 class Throwing:

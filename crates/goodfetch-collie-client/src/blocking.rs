@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
-use goodfetch_protocol::run::{RunId, RunReport, Tags};
+use goodfetch_protocol::run::{RunId, RunProgress, RunReport, Tags};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -640,6 +640,13 @@ impl Run {
     /// which `send()` asks.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
         Query::new(self.inner.explain_settings(), self.inner.host.connection())
+    }
+
+    /// The Run's progress, as [`crate::Run::progress`] says, as an iterator
+    /// that blocks the calling thread until the next value. Dropping it
+    /// cancels its read in flight.
+    pub fn progress(&self) -> EventIter<Answer<RunProgress>> {
+        EventIter::new(self.inner.progress(), self.inner.host.connection())
     }
 
     /// Closes the Run for every clone, as [`crate::Run::close`] does, and

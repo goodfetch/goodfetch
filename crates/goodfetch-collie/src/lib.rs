@@ -58,16 +58,20 @@ pub use collie::Collie;
 pub use composition::{composition, composition_with};
 pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
-    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
-    SchemaError, Session, Start, UsageKind, events, schemars, settings,
+    AiWorkResult, Answer, BoxError, Call, Connection, Ended, Error, ErrorCode, ErrorDetails,
+    EventStream, Exchange, FieldValues, Limits, Locator, Money, MoneyError, Page, PartialOutput,
+    Query, RawCall, Response, Run, Schema, SchemaError, Session, Start, UsageKind, events,
+    schemars, settings,
 };
+pub use goodfetch_protocol::page::ai_work::{Claim, NotVerifiedDetails, Reported};
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{
     FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
     UnreadField, UnreadReason, ValueField,
 };
-pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+pub use goodfetch_protocol::run::{
+    AxisReason, RunId, RunReport, StartedAs, StopReason, Tags, Verdict,
+};
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
 };

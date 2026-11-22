@@ -436,7 +436,7 @@ pub enum Offer {
 }
 
 /// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
-/// query and opener is a command, a round trip that answers pages
+/// query, opener and followed read is a command, a round trip that answers pages
 /// ([`Offer::Pages`]) one that follows them under `--follow`, and every
 /// sequence one with `--follow`, a sequence the catalog gives a bound, which
 /// reads what a Run committed, printing it once it ends without one
@@ -453,9 +453,11 @@ pub fn offer(operation: &Operation) -> Option<Offer> {
     }
     match operation.kind {
         OperationKind::RoundTrip if answers_pages(operation) => Some(Offer::Pages),
-        OperationKind::RoundTrip | OperationKind::Query | OperationKind::Opener => {
-            Some(Offer::Command)
-        }
+        // A followed read is one read a command, its `after` an option.
+        OperationKind::RoundTrip
+        | OperationKind::Query
+        | OperationKind::Opener
+        | OperationKind::Followed => Some(Offer::Command),
         OperationKind::Sequence if operation.input.is_some() => Some(Offer::Input),
         // A sequence the catalog gives a bound reads what a Run committed,
         // so it ends once it sent the Records of a Run that ended.

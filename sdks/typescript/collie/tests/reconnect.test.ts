@@ -55,8 +55,16 @@ describe("a Connection to a remote Daemon whose link drops", () => {
 
   test(
     "sends a read in flight again once it reached the Daemon again, and raises connection_lost for an Effect, never sent again",
-    { tags: ["story:11-6", "story:11-32", "error:connection_lost"] },
-    async ({ testEnv, processes }) => {
+    {
+      tags: [
+        "client_case/dropped-link-resends-reads",
+        "daemon",
+        "story:11-6",
+        "story:11-32",
+        "error:connection_lost",
+      ],
+    },
+    async ({ testEnv, processes, clientCase }) => {
       const daemon = await startScriptedDaemon(
         testEnv,
         processes,
@@ -78,21 +86,25 @@ describe("a Connection to a remote Daemon whose link drops", () => {
       await run.finish();
       await collie.close();
 
-      expect({
-        lost: lost instanceof ConnectionLostError,
-        error: lost,
-        listed,
-        exit: await daemon.exit,
-      }).toEqual({
-        lost: true,
-        error: expect.objectContaining({
-          code: "connection_lost",
-          group: "unavailable",
-          operation: "run.new_page",
-        }),
-        listed: { runs: [] },
-        exit: expect.objectContaining({ code: 0 }),
-      });
+      const exit = await daemon.exit;
+
+      await clientCase.check(
+        "the read in flight is sent again and answered, and the Effect raises connection_lost",
+        () =>
+          expect({ lost: lost instanceof ConnectionLostError, error: lost, listed }).toEqual({
+            lost: true,
+            error: expect.objectContaining({
+              code: "connection_lost",
+              group: "unavailable",
+              operation: "run.new_page",
+            }),
+            listed: { runs: [] },
+          }),
+      );
+      await clientCase.check(
+        "the Daemon played its script through, so the Effect was never sent again",
+        () => expect(exit).toMatchObject({ code: 0 }),
+      );
     },
   );
 });

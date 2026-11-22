@@ -44,7 +44,7 @@ pub(crate) fn measure(
         PageCache::Dropped if !page_cache::DROPS => output::line(page_cache::NOT_DROPPED),
         PageCache::Dropped => {}
         PageCache::Cached => output::line(
-            "Each executable is read into the page cache before each run: its figures are a cached start's.",
+            "Each executable is read into the page cache before each run: its figures are a cached start's, save any pages memory pressure evicts first.",
         ),
     }
     // Every executable a scenario runs on is measured, or none is.

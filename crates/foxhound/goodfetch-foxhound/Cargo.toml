@@ -66,6 +66,9 @@ connection-library = { path = "tests/libraries/connection-library" }
 goodfetch-test-client.workspace = true
 goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
+# The case log a Rust test of a Client conformance case writes
+# (tests/it/sdk/catalog.rs; ADR 0069).
+goodfetch-conformance.workspace = true
 # The clean-up's removal, which B4's counts example runs once more per page
 # as the plant of its instructions (examples/counts-extraction.rs).
 goodfetch-clean-up-rules.workspace = true

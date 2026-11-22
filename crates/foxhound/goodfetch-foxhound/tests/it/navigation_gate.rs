@@ -1694,17 +1694,21 @@ fn code(answer: &Value) -> Value {
 
 /// A handler's page past its work item's lease sends nothing more (ADRs
 /// 0003 and 0087; spec #594's P31): once the lease ended, a click, a
-/// navigation and a `page.request`, each the first call on a page of the
-/// handler's, are refused with `attempt_ended` and the site gets no request
+/// navigation and a `page.request`, each the first call past it on a page
+/// of the handler's, are refused with `attempt_ended` and the site gets no request
 /// after the lease's end; each page then moves to `Closing`, so a later call
 /// on it raises `closed`. A page a program opened in a Run of its own
 /// carries no lease and still navigates long after.
 ///
-/// The lease is the 1 s handler timeout plus its 10 s margin, in real time:
-/// a test of the binary sets short durations through settings (TESTING.md,
-/// "Time"). Nothing renews it while the handler opens its pages, so a
-/// first seed's handler starts the Run's browser before the handler under
-/// test is leased ([`warm_up_the_browser`]).
+/// The lease is the 10 s handler timeout plus its 10 s margin, in real
+/// time: a test of the binary sets short durations through settings
+/// (TESTING.md, "Time"). The handler's timeout also ends each call on its
+/// pages at the lease's end less the margin (ADR 0080), so the handler
+/// navigates its first page as soon as that page opened, then opens the
+/// other two, on which it calls nothing until the lease ended. Nothing
+/// renews the lease while the handler opens its pages, so a first seed's
+/// handler starts the Run's browser before the handler under test is
+/// leased ([`warm_up_the_browser`]).
 ///
 /// Covers: story:5-135, error:attempt_ended, setting:timeout.handler, setting:crawl.retry.max, operation:page.goto, operation:page.request, operation:locator.click, operation:run.new_page
 #[test]
@@ -1715,8 +1719,9 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
     let settings = settings(
         &proving_ground,
         &json!({
-            // A lease of 1 s plus the 10 s margin.
-            "timeout": { "handler": 1_000 },
+            // A lease of 10 s plus the 10 s margin, the handler's first
+            // navigation inside its 10 s.
+            "timeout": { "handler": 10_000 },
             "crawl": { "retry": { "max": 0 } },
         }),
     );
@@ -1754,11 +1759,12 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
             if handle["crawl_request"]["url"] != leased_seed {
                 return json!({ "result": { "records": [] } });
             }
-            let pages: Vec<String> = (0..3).map(|_| new_page(inside, handle)).collect();
+            let first = new_page(inside, handle);
             before = Some(inside.call(
                 "page.goto",
-                &json!({ "page_id": pages[0], "url": url("/catalog/1") }),
+                &json!({ "page_id": first, "url": url("/catalog/1") }),
             ));
+            let pages = [first, new_page(inside, handle), new_page(inside, handle)];
             let engine = inside.engine();
             next_seed_delivered(engine, &mut others);
             let lease_ended = requested_in_all(&proving_ground);
@@ -1787,7 +1793,7 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
     assert_eq!(
         (
             &report["result"]["lifecycle"],
-            before.map(|before| before["result"]["response"]["status"].clone()),
+            before.as_ref().map(status_or_code),
             refused,
             later,
             after - lease_ended,
@@ -1857,7 +1863,8 @@ fn next_seed_delivered(engine: &mut Attached, others: &mut Vec<Value>) {
 
 /// What a handler past its lease gets: the codes of a click on its first
 /// page, a navigation of its second and a `page.request` of its third, each
-/// the first call on its page, then of a navigation of each page.
+/// the first call past the lease on its page, then of a navigation of each
+/// page.
 fn past_the_lease(
     engine: &mut Attached,
     pages: &[String],

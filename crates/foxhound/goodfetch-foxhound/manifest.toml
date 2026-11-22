@@ -168,7 +168,7 @@ crate = "goodfetch-foxhound"
 receiver = "Crawl"
 member = "label"
 entry = "none"
-reason = "Declares a Label, which `crawl.start` sends with the crawl's declaration (ADR 0093)."
+reason = "Declares a Label, by a bare name or a `LabelDeclaration`, which `crawl.start` sends with the crawl's declaration (ADR 0093)."
 words = ["label"]
 form = "read"
 
@@ -259,6 +259,46 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "(crate)"
+member = "LabelDeclaration"
+entry = "none"
+reason = "A Label as `crawl.label` declares it, with its Payload schema and its settings (ADRs 0093 and 0099)."
+only = "TypeScript's `crawl.label` takes its Label options, `LabelOptions`, as a plain object beside the name."
+words = ["label", "declaration"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LabelDeclaration"
+member = "new"
+entry = "none"
+reason = "The Label of a name, with neither a Payload schema nor settings of its own, built with no round trip (ADR 0099)."
+only = "TypeScript's `crawl.label` takes the name itself."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LabelDeclaration"
+member = "payload"
+entry = "none"
+reason = "The JSON Schema the engine checks each Payload of the Label against (ADR 0082)."
+only = "TypeScript's Label takes its Payload schema with issue 1470."
+words = ["payload"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LabelDeclaration"
+member = "settings"
+entry = "none"
+reason = "The settings the Label's requests take over the Run's (ADR 0093)."
+only = "TypeScript's is the `settings` field of `LabelOptions`."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound::start_crawl` opens and `Crawl::serve` serves."
@@ -284,6 +324,14 @@ reason = "The Run the crawl's Run is, with every member a Run has, such as `clos
 only = "TypeScript's `CrawlRun` has a Run's members itself."
 words = ["run"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -428,6 +476,23 @@ receiver = "CrawlContext"
 member = "enqueue"
 entry = "crawl_request.enqueue"
 words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "page"
+entry = "none"
+reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093), or `response_not_document` when the response is not one."
+words = ["page"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
 form = "round_trip"
 
 [[member]]
@@ -616,6 +681,14 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "blocking"
 member = "CrawlContext"
 entry = "none"
@@ -717,6 +790,23 @@ receiver = "blocking::CrawlContext"
 member = "enqueue"
 entry = "crawl_request.enqueue"
 words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "page"
+entry = "none"
+reason = "The attempt's page as a blocking `Page`, `crawl_request.handle`'s `page_id` (ADRs 0081 and 0093), or `response_not_document` when the response is not one."
+words = ["page"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
 form = "round_trip"
 
 # Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`

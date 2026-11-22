@@ -484,8 +484,10 @@ unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
 # `goodfetch_callgrind_names` is set by `xtask counts` alone, on the build it
 # reads `E1.handled_page_wire_share` in, where the wire's functions are never
-# inlined so that Callgrind names them.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+# inlined so that Callgrind names them. `goodfetch_without_opentelemetry` is
+# set by `just feature-combinations` alone, on the build of the Rust SDK's
+# tests without its `opentelemetry` feature.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(goodfetch_without_opentelemetry)", "cfg(tokio_unstable)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

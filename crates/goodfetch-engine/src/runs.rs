@@ -5407,7 +5407,7 @@ impl Registry {
                         .map_err(|error| error.to_string());
                     // A dropped answer says the engine stopped.
                     let _ = decisions
-                        .decide(move |registry| registry.machine_read(root, read))
+                        .decide(move |registry| registry.machine_read(&root, read))
                         .await;
                 });
             }
@@ -5417,7 +5417,7 @@ impl Registry {
     /// Keeps the machine's identity `read` from the home `root`, and
     /// answers the calls that waited for it; a failed read is tried again
     /// by the next call.
-    fn machine_read(&mut self, root: PathBuf, read: Result<String, String>) {
+    fn machine_read(&mut self, root: &Path, read: Result<String, String>) {
         let waiting = match std::mem::replace(&mut self.machine, Machine::Unread) {
             Machine::Reading(waiting) => waiting,
             Machine::Unread | Machine::Read(_) => Vec::new(),
@@ -5433,7 +5433,7 @@ impl Registry {
                 for answer in waiting {
                     let _ = answer.send(Err(RunError::Unavailable {
                         run_id: RunId::parse("machine").expect("invariant: `machine` is a Run ID"),
-                        folder: root.clone(),
+                        folder: root.to_path_buf(),
                         error: error.clone(),
                     }));
                 }

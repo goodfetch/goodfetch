@@ -959,16 +959,16 @@ impl Opening {
             })
             .await
             .map_err(|error| self.disk.unavailable(error.to_string()))?;
-        let (id, connection, writer) = (run_id.clone(), self.connection, self.writer);
+        let (connection, writer) = (self.connection, Arc::clone(&self.writer));
         let folder = self.disk.folder.clone();
-        let (live, index_row) = self
-            .decisions
-            .decide(move |registry| {
+        let times = (timeout, checkpoint_interval);
+        let run = self
+            .go_live(Lifecycle::Running, times, move |registry| {
                 let (run, let_finish) =
-                    registry.new_run(&id, kind, state, connection, settings, keys);
+                    registry.new_run(&run_id, kind, state, connection, settings, keys);
                 run.shared.charging.hold(charging);
-                let live = Live {
-                    id,
+                Live {
+                    id: run_id,
                     progress: run.shared.progress.clone(),
                     run: Some(run),
                     let_finish,
@@ -993,25 +993,86 @@ impl Opening {
                     warned_low: std::collections::BTreeSet::new(),
                     sampled_after: registry.setup.governor.storage_samples_begun(),
                     raw_endings: Vec::new(),
-                };
-                let row = registry.index_row(&live, Lifecycle::Running, None);
+                }
+            })
+            .await?;
+        Ok(Started::New(run))
+    }
+
+    /// The Run that `live` makes live at `lifecycle`, with its timeout and
+    /// its Checkpoint interval: its Run index row written, then its axes
+    /// published.
+    async fn go_live(
+        &self,
+        lifecycle: Lifecycle,
+        (timeout, interval): (Option<std::time::Duration>, Option<std::time::Duration>),
+        live: impl FnOnce(&mut Registry) -> Live + Send + 'static,
+    ) -> Result<Run, Gone> {
+        let (live, row) = self
+            .decisions
+            .decide(move |registry| {
+                let live = live(registry);
+                let row = registry.index_row(&live, lifecycle, None);
                 (live, row)
             })
             .await?;
-        write_index(&self.disk.index, index_row).await;
+        write_index(&self.disk.index, row).await;
+        let run_id = live.id.clone();
         let run = self
             .decisions
-            .decide(move |registry| registry.went_live(live, timeout, checkpoint_interval))
+            .decide(move |registry| registry.went_live(live, timeout, interval))
             .await?;
         self.events
             .publish_axes(RunAxes {
                 run_id,
-                lifecycle: Lifecycle::Running,
+                lifecycle,
                 verdict: None,
                 completeness: None,
             })
             .await;
-        Ok(Started::New(run))
+        Ok(run)
+    }
+
+    /// Whether the resume of this Opening's Run may go on, read with
+    /// `checkpoint`, the data key `stored` and its `fixed` settings for
+    /// `event`: the Lifecycle it takes the Run to, none when it leaves it
+    /// as it is, with what its file holds. A run file a crash left at
+    /// `off`, under `durability`, is discarded first, never read: the Run
+    /// is then not found, and starts again (ADR 0138).
+    async fn may_resume(
+        &mut self,
+        checkpoint: Option<&Path>,
+        (fixed, stored): (FixedSettings, Option<StoredKey>),
+        durability: Durability,
+        event: RunEvent,
+    ) -> Result<(Option<Lifecycle>, checkpoint::Held), RunError> {
+        let run_id = self.disk.run_id.clone();
+        if self
+            .disk
+            .discard_unclean(&mut self.entropy, durability)
+            .await?
+        {
+            let id = run_id.clone();
+            self.decisions
+                .decide(move |registry| registry.forget(&id))
+                .await?;
+        }
+        let held = self.disk.held_with_key(checkpoint, stored).await?;
+        let machine = match &held.binding {
+            Some(RunBinding::Machine { .. }) => Some(self.decisions.machine().await?),
+            _ => None,
+        };
+        let essential = std::mem::take(&mut self.essential);
+        let critical = self.disk.critical_among(&self.governor, essential).await;
+        let (decided, held) = self
+            .decisions
+            .decide(move |registry| {
+                let decided =
+                    registry.may_resume(&run_id, &held, (machine, critical), &fixed, event);
+                (decided, held)
+            })
+            .await?;
+        Ok((decided?, held))
     }
 
     /// The resume `resume` of an interrupted Run, its `fixed` settings
@@ -1032,38 +1093,15 @@ impl Opening {
             settings,
             retry_failed,
         } = resume;
-        // A run file a crash left at `off` is discarded, never read: the Run
-        // is then not found, and starts again (ADR 0138).
-        let discarded = self
-            .disk
-            .discard_unclean(&mut self.entropy, durability_of(settings.as_ref()))
-            .await?;
-        if discarded {
-            let id = run_id.clone();
-            self.decisions
-                .decide(move |registry| registry.forget(&id))
-                .await?;
-        }
-        let held = self
-            .disk
-            .held_with_key(checkpoint.as_deref(), stored)
-            .await?;
-        let machine = match &held.binding {
-            Some(RunBinding::Machine { .. }) => Some(self.decisions.machine().await?),
-            _ => None,
-        };
-        let essential = std::mem::take(&mut self.essential);
-        let critical = self.disk.critical_among(&self.governor, essential).await;
-        let id = run_id.clone();
         let (decided, held) = self
-            .decisions
-            .decide(move |registry| {
-                let event = Resume::event(retry_failed);
-                let decided = registry.may_resume(&id, &held, (machine, critical), &fixed, event);
-                (decided, held)
-            })
+            .may_resume(
+                checkpoint.as_deref(),
+                (fixed, stored),
+                durability_of(settings.as_ref()),
+                Resume::event(retry_failed),
+            )
             .await?;
-        let Some(lifecycle) = decided? else {
+        let Some(lifecycle) = decided else {
             return Ok(Resumed::unchanged(run_id, &held));
         };
         let (lock, state) = self
@@ -1103,12 +1141,11 @@ impl Opening {
             warn_over_charged(&run).await;
         }
         progress(&run).resumed(lifecycle, progress_message.clone());
-        let (id, writer, needs) = (run_id.clone(), self.writer, recorded.needs);
-        let (live, row) = self
-            .decisions
-            .decide(move |registry| {
-                let live = Live {
-                    id,
+        let (writer, needs) = (Arc::clone(&self.writer), recorded.needs);
+        let run = self
+            .go_live(lifecycle, (timeout, checkpoint_interval), move |registry| {
+                Live {
+                    id: run_id,
                     progress: run.shared.progress.clone(),
                     run: Some(run),
                     let_finish,
@@ -1133,24 +1170,9 @@ impl Opening {
                     warned_low: std::collections::BTreeSet::new(),
                     sampled_after: registry.setup.governor.storage_samples_begun(),
                     raw_endings: Vec::new(),
-                };
-                let row = registry.index_row(&live, lifecycle, None);
-                (live, row)
+                }
             })
             .await?;
-        write_index(&self.disk.index, row).await;
-        let run = self
-            .decisions
-            .decide(move |registry| registry.went_live(live, timeout, checkpoint_interval))
-            .await?;
-        self.events
-            .publish_axes(RunAxes {
-                run_id,
-                lifecycle,
-                verdict: None,
-                completeness: None,
-            })
-            .await;
         Ok(Resumed::New {
             run: Box::new(run),
             kind,

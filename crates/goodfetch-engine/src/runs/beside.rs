@@ -99,7 +99,6 @@ impl<C> Queues<C> {
     pub(super) fn unless_waiting(&mut self, command: C, reach: Reach, order: Order) -> Option<C> {
         let behind_held = order == Order::Arrived && !self.held.is_empty();
         match reach {
-            Reach::Never => Some(command),
             Reach::Every if behind_held || !self.busy.is_empty() => {
                 self.held.push_back(command);
                 None
@@ -115,7 +114,7 @@ impl<C> Queues<C> {
                 }
                 None => Some(command),
             },
-            Reach::Every | Reach::InOrder => Some(command),
+            Reach::Never | Reach::Every | Reach::InOrder => Some(command),
         }
     }
 
@@ -123,12 +122,6 @@ impl<C> Queues<C> {
     /// work reports back.
     pub(super) fn busy(&mut self, run_id: &RunId) {
         self.busy.entry(run_id.clone()).or_default();
-    }
-
-    /// Whether the Run `run_id` is busy.
-    #[cfg(test)]
-    pub(super) fn is_busy(&self, run_id: &RunId) -> bool {
-        self.busy.contains_key(run_id)
     }
 
     /// Takes the busy mark of `run_id` as its disk work ends: the commands

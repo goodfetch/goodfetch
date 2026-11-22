@@ -36,8 +36,11 @@ pub const LONGEST_HOLD: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug)]
 pub struct HeldVfs {
     name: String,
-    holds: Arc<Mutex<Vec<(PathBuf, Arc<HeldState>)>>>,
+    holds: Holds,
 }
+
+/// The files a holding VFS holds, each with the state of its hold.
+type Holds = Arc<Mutex<Vec<(PathBuf, Arc<HeldState>)>>>;
 
 impl HeldVfs {
     /// Registers a new one in front of SQLite's default VFS.
@@ -194,7 +197,7 @@ impl HeldState {
 /// and their method table.
 struct Shared {
     base: *mut ffi::sqlite3_vfs,
-    holds: Arc<Mutex<Vec<(PathBuf, Arc<HeldState>)>>>,
+    holds: Holds,
     /// The path of each file open through it, by the address of its
     /// `sqlite3_file`.
     files: Mutex<BTreeMap<usize, PathBuf>>,

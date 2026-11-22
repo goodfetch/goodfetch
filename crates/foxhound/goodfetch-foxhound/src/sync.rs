@@ -1,7 +1,9 @@
 //! The crate's locks and atomics (ADR 0060), the one place
 //! `disallowed-types` lets them be named: the Crawl requests a connection's
 //! Runs share, held only to move a few values in or out, never across an
-//! `.await`, and the count that gives each crawl its number.
+//! `.await`; the report a Run's stream of Crawl requests waits on, which a
+//! lock only makes `Sync` and which is never locked; and the count that
+//! gives each crawl its number.
 #![expect(
     clippy::disallowed_types,
     reason = "the crate's sync module, the one place its locks and atomics are named (ADR 0060)"

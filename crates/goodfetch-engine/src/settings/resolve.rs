@@ -810,6 +810,7 @@ fn unfolded(level: &Effective, key: Key) -> Option<Unfolded> {
         given: Given {
             origin: level.origin,
             for_model: level.for_model,
+            run_authority: false,
         },
         locked_by: level.locked_by,
     })
@@ -1065,7 +1066,7 @@ fn take(
         fix,
     };
     let current = limit(name, &state.effective.value, state.effective.layer);
-    authority(key, layer, value, given.for_model, &current, &refused)?;
+    authority(key, layer, value, given, &current, &refused)?;
     if let Some(locked) = &state.locked {
         // The program never wrote a registered handler's value (ADR 0104).
         if given.origin == Some(RunOrigin::Registered) {
@@ -1140,24 +1141,29 @@ fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError>
     })
 }
 
-/// The key's own authority over `layer` (ADR 0028 and its amendments);
-/// `for_model` when a Client acting for a model gave `value`.
+/// The key's own authority over `layer` (ADR 0028 and its amendments), as
+/// `given` says who gave `value`: a Client acting for a model, or one whose
+/// value has only the run layer's authority, as a project configuration
+/// sent to an Exposed Daemon (ADR 0083).
 fn authority(
     key: Key,
     layer: SettingsLayer,
     value: &Value,
-    for_model: bool,
+    given: Given,
     current: &SettingLimit,
     refused: &dyn Fn(SettingLimit, String) -> SettingsError,
 ) -> Result<(), SettingsError> {
     let name = key.setting.name;
-    let above_configuration = matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);
+    let for_model = given.for_model;
+    let above_configuration =
+        given.run_authority || matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);
     let recipe_or_model = layer == SettingsLayer::Recipe || for_model;
+    let afar = from_afar(layer, given);
     let configuration_only = || {
         refused(
             current.clone(),
             format!(
-                "`{name}` is taken only from an Operator policy and user and project configuration"
+                "{afar}`{name}` is taken only from an Operator policy and user and project configuration"
             ),
         )
     };
@@ -1216,7 +1222,7 @@ fn authority(
             Err(refused(
                 current.clone(),
                 format!(
-                    "a Recipe or a run only narrows `{name}`; widen it in configuration or an Operator policy"
+                    "{afar}a Recipe or a run only narrows `{name}`; widen it in configuration or an Operator policy"
                 ),
             ))
         }
@@ -1245,6 +1251,17 @@ fn authority(
         | Authority::NotByModel
         | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
+    }
+}
+
+/// What a refusal says first of a value at `layer`, when `given` holds it
+/// to the run layer's authority: a project configuration sent to an
+/// Exposed Daemon (ADR 0083). Nothing otherwise.
+fn from_afar(layer: SettingsLayer, given: Given) -> &'static str {
+    if given.run_authority && layer == SettingsLayer::ProjectConfiguration {
+        "a project file sent to an Exposed Daemon has only the run layer's authority there, and "
+    } else {
+        ""
     }
 }
 

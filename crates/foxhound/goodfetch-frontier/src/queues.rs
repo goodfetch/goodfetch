@@ -428,6 +428,12 @@ impl Gate for DomainQueues {
         self.turns.next(now).map(str::to_owned)
     }
 
+    fn waiting_under(&self, key: &str) -> usize {
+        self.domains
+            .get(key)
+            .map_or(0, |domain| domain.waiting.len())
+    }
+
     fn hold(&mut self, key: &str, until: Instant, held: Held) {
         if let Some(domain) = self.domains.get_mut(key) {
             domain.held_until = Some(until);

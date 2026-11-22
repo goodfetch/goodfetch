@@ -12340,6 +12340,16 @@
       ]
     },
     {
+      "id": "story:11-1016",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-1017",
       "kind": "story",
       "area": 11,
@@ -12436,6 +12446,16 @@
       ]
     },
     {
+      "id": "story:11-1075",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-108",
       "kind": "story",
       "area": 11,
@@ -12476,6 +12496,56 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1101",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1102",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1103",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1104",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1105",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

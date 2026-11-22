@@ -1,9 +1,9 @@
 //! The engine's Crawl requests to one connection (ADRs 0093 and 0112):
 //! the connection's one stream of `crawl_request.handle`, opened before
-//! its first crawl's start, which the serve of each of its crawl Runs reads
-//! its own Run's requests from. The serve that reads the stream keeps
-//! another Run's requests aside for that Run's serve; none of them spawns
-//! a task.
+//! its first crawl's start, which the reader of each of its crawl Runs, its
+//! serve or its `run.crawl_requests()`, reads its own Run's requests from.
+//! The reader that reads the stream keeps another Run's requests aside for
+//! that Run's reader; none of them spawns a task.
 
 use std::collections::{HashMap, VecDeque};
 use std::mem;
@@ -30,7 +30,7 @@ pub(crate) struct CrawlRequests {
 #[derive(Debug, Default)]
 struct State {
     stream: Stream,
-    /// The requests read for a Run whose serve was not reading, by Run ID.
+    /// The requests read for a Run whose reader was not reading, by Run ID.
     kept: HashMap<String, VecDeque<HandlerCall>>,
 }
 
@@ -40,9 +40,9 @@ enum Stream {
     /// Not opened yet: no crawl was started on the connection.
     #[default]
     Unopened,
-    /// Waiting for a serve to read it.
+    /// Waiting for a reader to read it.
     Idle(HandlerRequests),
-    /// A serve is reading it.
+    /// A reader is reading it.
     Reading,
     /// The connection ended.
     Ended,
@@ -107,7 +107,7 @@ impl CrawlRequests {
         }
     }
 
-    /// Drops the requests kept for the Run `run_id`, whose serve ended:
+    /// Drops the requests kept for the Run `run_id`, whose reader ended:
     /// each goes back to the engine as dropped by the program.
     pub(crate) fn forget(&self, run_id: &RunId) {
         let kept = self.state().kept.remove(run_id.as_str());
@@ -119,7 +119,7 @@ impl CrawlRequests {
     }
 }
 
-/// A serve's hold on the stream, which it gives back when dropped.
+/// A reader's hold on the stream, which it gives back when dropped.
 struct Reader<'a> {
     requests: Option<HandlerRequests>,
     owner: &'a CrawlRequests,
@@ -128,7 +128,7 @@ struct Reader<'a> {
 impl Reader<'_> {
     /// Reads until a request of `run_id`, keeping the others aside for
     /// their Runs: `None` once the stream ended, or when this future gave
-    /// the stream back to another serve's kept request.
+    /// the stream back to another reader's kept request.
     async fn read_until(mut self, run_id: &RunId) -> Option<HandlerCall> {
         loop {
             let requests = self.requests.as_mut()?;

@@ -428,6 +428,7 @@ impl<'a> Crawl<'a> {
             hooks: Vec::new(),
             settings: serde_json::Map::new(),
             project: None,
+            limits: Vec::new(),
         })
     }
 }

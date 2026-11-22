@@ -86,7 +86,9 @@ use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::{ChargeError, Refusal, UnjournaledCharges};
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
 use goodfetch_engine::metrics::Level;
-use goodfetch_engine::runs::{Ending, Run};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::Ending;
+use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpFrom, HttpTier, LocalSource,
@@ -130,6 +132,7 @@ use tokio::time::Instant;
 
 use crate::attempt_outcome::{self, Outcome, Refusing};
 use crate::code_free::{self, CodeFree};
+use crate::crawl_run::CrawlRun;
 use crate::hooks::Hooks;
 use crate::invariants::Invariants;
 use crate::labels;
@@ -209,7 +212,7 @@ impl Serving {
 /// Run it as one of the Run's tasks to its end: dropped, it leaves its
 /// leases to the next writer, which counts them as lost.
 pub(crate) async fn drive(
-    run: Run,
+    run: std::sync::Arc<CrawlRun>,
     context: CallContext,
     mut arrivals: Opened,
     crawls: Crawls,
@@ -234,7 +237,7 @@ pub(crate) async fn drive(
     // never loads them for its pages (#2573). A program's handler may read
     // any format of any page.
     if code_free.as_ref().is_none_or(CodeFree::reads_formats) {
-        tiers.prepare_served_formats(&run);
+        tiers.prepare_served_formats(run.handed_on());
     }
     let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
@@ -245,7 +248,9 @@ pub(crate) async fn drive(
     let built = match run_source(settings.resolved(), interface.as_ref()) {
         Ok(local) => {
             let engine = servers[0].context.engine();
-            tiers.built(&run, engine, settings.resolved(), local).await
+            tiers
+                .built(run.handed_on(), engine, settings.resolved(), local)
+                .await
         }
         Err(error) => Err(error),
     };
@@ -254,9 +259,9 @@ pub(crate) async fn drive(
         // Every request may take the `http` tier, forced or by the engine's
         // choice: the Run cannot go on.
         Err(error) => {
-            tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
-            run.end(failed(&run, &error)).await;
-            crawls.close(run.id()).await;
+            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's HTTP tier could not be built");
+            run.end.end(failed(&run.identity, &error)).await;
+            crawls.close(run.identity.id()).await;
             return;
         }
     };
@@ -290,7 +295,7 @@ pub(crate) async fn drive(
     }
     arrivals
         .invariants
-        .prepare(&run, &work_items::SITEMAP_READ)
+        .prepare((&run.identity, &run.state), &work_items::SITEMAP_READ)
         .await;
     // What every attempt hands over alike, built once (ADR 0138), with
     // how its redirect hops ask the loop (ADR 0142).
@@ -312,7 +317,7 @@ pub(crate) async fn drive(
         fetching,
     )
     .await;
-    crawls.close(run.id()).await;
+    crawls.close(run.identity.id()).await;
 }
 
 /// Each per-page feature a crawl switches off with its warning (ADR 0138):
@@ -344,15 +349,15 @@ const SWITCHED_OFF: [(&Setting, &str, &str); 4] = [
 /// Hands the Run's report, once, the warning `code` with `message`, of a
 /// per-page feature its settings switch off (ADR 0138), in the open batch:
 /// the crawl hands it over again each time it opens (ADR 0142).
-async fn warn_switched_off(run: &Run, code: &str, message: &str) {
+async fn warn_switched_off(run: &CrawlRun, code: &str, message: &str) {
     let warning = RunWarning {
         code: code.to_owned(),
         message: message.to_owned(),
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn_once_deferred(warning).await {
-        tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
+    if let Err(error) = run.warnings.warn_once_deferred(warning).await {
+        tracing::warn!(%error, run_id = %run.identity.id(), code, "the warning of a feature switched off was not kept");
     }
 }
 
@@ -370,7 +375,7 @@ fn sampling(resolved: &Resolved) -> Sampling {
 }
 
 /// Milliseconds since the Unix epoch at `run`'s wall clock.
-fn wall_ms(run: &Run) -> u64 {
+fn wall_ms(run: &RunIdentity) -> u64 {
     run.clock()
         .wall()
         .duration_since(std::time::UNIX_EPOCH)
@@ -383,15 +388,21 @@ fn wall_ms(run: &Run) -> u64 {
 /// staging, and its commit keying the work items it adds as `admission`'s
 /// gate keys them; each handler call sent under a lease waits under the
 /// Run's `timeout.handler`, resolved once here.
-fn leases_of(run: &Run, arrivals: &Opened, admission: &Admission) -> Leases {
-    let handler_timeout =
-        Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_HANDLER);
-    Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
-        .handled_under(handler_timeout)
-        .staging_in(arrivals.staging.clone())
-        .checking_against(arrivals.datasets.clone())
-        .counting_on(run.metrics().counted_work().clone())
-        .keyed_by(admission.keys())
+fn leases_of(run: &CrawlRun, arrivals: &Opened, admission: &Admission) -> Leases {
+    let handler_timeout = Deadline::of_resolved(
+        run.identity.settings().map(RunSettings::resolved),
+        &TIMEOUT_HANDLER,
+    );
+    Leases::new(
+        run.identity.clock(),
+        run.identity.id().as_str(),
+        run.state.epoch(),
+    )
+    .handled_under(handler_timeout)
+    .staging_in(arrivals.staging.clone())
+    .checking_against(arrivals.datasets.clone())
+    .counting_on(run.identity.metrics().counted_work().clone())
+    .keyed_by(admission.keys())
 }
 
 /// What the delivery's loop reads of the Run's settings, resolved once as
@@ -436,7 +447,7 @@ enum Idled {
 /// Run, waits for a Connection while none serves, and otherwise asks the
 /// work items whether to admit more, wait, or drain the Run.
 async fn idled(
-    (run, resolved): (&Run, &Resolved),
+    (run, resolved): (&CrawlRun, &Resolved),
     (admission, state): (&mut Admission, &mut RunState),
     (servers, arrivals, in_flight): (&mut Vec<Serving>, &mut Opened, &SharedInFlight),
     (stop, starved): (Option<StopReason>, bool),
@@ -462,8 +473,8 @@ async fn idled(
             again(drained(run, resolved, state, servers, arrivals, in_flight).await)
         }
         Err(error) => {
-            tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-            end(run, admission, failed(run, &error)).await;
+            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be read");
+            end(run, admission, failed(&run.identity, &error)).await;
             Idled::Ended
         }
     }
@@ -475,7 +486,7 @@ async fn idled(
 /// holds and from `choices`, and answers what every other task asks of it
 /// (ADR 0142).
 async fn deliver(
-    run: &Run,
+    run: &std::sync::Arc<CrawlRun>,
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     (settings, choices): (&RunSettings, TierChoices),
@@ -487,8 +498,11 @@ async fn deliver(
     let (in_flight, mut stop) = (&fetching.in_flight, None::<StopReason>);
     show_counted(run, &state, in_flight, []).await;
     let run_leases = leases_of(run, arrivals, &admission);
-    let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
-    let lessons = Lessons::of(run, state.stored().frontier());
+    let (mut wakes, mut queued) = (
+        admission.wakes(),
+        run.identity.metrics().level(&WORK_ITEM_QUEUED),
+    );
+    let lessons = Lessons::of(&run.identity, state.stored().frontier());
     let mut pages = Pages::new(run, in_flight, lessons);
     let taught = state.stored().taught();
     let mut settling = Settlements::new();
@@ -508,11 +522,11 @@ async fn deliver(
             )
             .await
         {
-            tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be leased");
-            end(run, &mut admission, failed(run, &error)).await;
+            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be leased");
+            end(run, &mut admission, failed(&run.identity, &error)).await;
             return;
         }
-        let starved = run.governor().waits(WorkKind::Http);
+        let starved = run.governor.share().waits(WorkKind::Http);
         pages.dismiss();
         // A work item leased whose Session waits to be drawn keeps the
         // crawl from idling, unless it stops: then it goes back to pending
@@ -538,7 +552,7 @@ async fn deliver(
                 server.serves() && server.in_flight < read.policy.handler_concurrency
             });
         let wake = (free && !starved)
-            .then(|| admission.ready_at(run.clock().now()))
+            .then(|| admission.ready_at(run.identity.clock().now()))
             .flatten();
         let room = [stop.is_some(), free, starved];
         let shown = (resolved, read.policy);
@@ -546,14 +560,14 @@ async fn deliver(
         let settles = !settling.is_empty();
         tokio::select! {
             biased;
-            () = run.cancellation().cancelled() => {
+            () = run.identity.owner().cancelled() => {
                 pages.shutdown().await;
                 abandoned(&mut settling).await;
                 admission.close().await;
                 release(run, state.stored()).await;
                 return;
             }
-            reason = run.stopping(), if stop.is_none() => {
+            reason = run.identity.stopping(), if stop.is_none() => {
                 stop = Some(reason);
             }
             Some(server) = arrivals.joined.recv() => {
@@ -575,14 +589,14 @@ async fn deliver(
                 let settlement = settled(run, read, state, servers, ended).await;
                 settling.push(settlement);
             }
-            () = sleep_until(run.clock(), wake), if wake.is_some() => {}
-            () = run.governor().turn(WorkKind::Http), if free && starved => {}
+            () = sleep_until(run.identity.clock(), wake), if wake.is_some() => {}
+            () = run.governor.share().turn(WorkKind::Http), if free && starved => {}
             // With no attempt running, nothing else settles a Session of
             // the browser client: a browser-page place given to the Run is
             // what draws the work items that wait. While one runs, a page's
             // own admission may wait for that turn, so the loop leaves it
             // to the page and draws again as an attempt ends (#2178).
-            () = run.governor().turn(WorkKind::BrowserPage), if undrawn && pages.idle() => {}
+            () = run.governor.share().turn(WorkKind::BrowserPage), if undrawn && pages.idle() => {}
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
@@ -593,7 +607,7 @@ async fn deliver(
 /// has room and whether the governor starves it, and its count in
 /// `goodfetch.work_item.queued` as its admission's queues stand.
 fn show(
-    run: &Run,
+    run: &CrawlRun,
     (admission, count): (&mut Admission, &mut Level),
     (resolved, policy): (&Resolved, CrawlPolicy),
     servers: &mut [Serving],
@@ -603,7 +617,7 @@ fn show(
     let handlers = servers.iter().map(|server| server.in_flight).sum();
     let room = progress::room(stopping || !serving, free, starved);
     let concurrency = policy.handler_concurrency;
-    let now = run.clock().now();
+    let now = run.identity.clock().now();
     let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
     progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
@@ -614,7 +628,7 @@ fn show(
 /// attempts of the work items `ended` left the requests `in_flight`, their
 /// outcomes written (ADR 0102; #2167).
 async fn show_counted<'a>(
-    run: &Run,
+    run: &CrawlRun,
     state: &RunState,
     in_flight: &SharedInFlight,
     ended: impl IntoIterator<Item = &'a str>,
@@ -628,7 +642,7 @@ async fn show_counted<'a>(
 /// added, shows what it changed of the crawl's requests by state, with
 /// the requests `in_flight`, and answers that the crawl may have new work.
 async fn answered(
-    run: &Run,
+    run: &CrawlRun,
     (admission, state): (&mut Admission, &mut RunState),
     in_flight: &SharedInFlight,
     ask: Box<Question>,
@@ -646,7 +660,7 @@ async fn answered(
 /// The ending of a crawl whose state or admission failed with `error`, or
 /// whose start could not give it its Limits: `failed`, its ending calls
 /// raising `run_state_unavailable` (ADR 0102).
-pub(crate) fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
+pub(crate) fn failed(run: &RunIdentity, error: &dyn std::fmt::Display) -> Ending {
     let details = RunDetails {
         run_id: run.id().clone(),
         path: Some(run.folder().display().to_string()),
@@ -662,9 +676,9 @@ pub(crate) fn failed(run: &Run, error: &dyn std::fmt::Display) -> Ending {
 }
 
 /// Ends the Run as `ending` says, once its admission gave back what it held.
-async fn end(run: &Run, admission: &mut Admission, ending: Ending) {
+async fn end(run: &CrawlRun, admission: &mut Admission, ending: Ending) {
     admission.close().await;
-    run.end(ending).await;
+    run.end.end(ending).await;
 }
 
 /// The next key of the Run that a Permit given back woke, `None` for every
@@ -691,7 +705,7 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 ///
 /// As [`drive`]'s.
 pub(crate) async fn resume(
-    run: Run,
+    run: std::sync::Arc<CrawlRun>,
     context: CallContext,
     settings: RunSettings,
     (crawls, tiers): (Crawls, FetchTiers),
@@ -702,9 +716,9 @@ pub(crate) async fn resume(
     let bounds = Bounds::of_settings(settings.resolved());
     let resolved = settings.resolved().clone();
     let lost = Failure::new(HANDLER_LOST.name, HANDLER_LOST.description);
-    let resumed_at = run.point_in_time();
+    let resumed_at = run.identity.point_in_time();
     let left = run
-        .state()
+        .state
         .write(move |connection| {
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
@@ -729,28 +743,28 @@ pub(crate) async fn resume(
         .await;
     let left = left.map(|(left, declared, fragments, choices, declarations)| {
         let labels = labels::Declared::of(&declared, fragments, settings.resolved()).unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
+            tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::none(settings.resolved())
         });
         (left, (labels, choices, declarations))
     });
     let (labels, choices, (extraction, datasets, invariants)) = match left {
         Err(error) => {
-            tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
-            run.end(failed(&run, &error)).await;
+            tracing::error!(%error, run_id = %run.identity.id(), "the resumed crawl's work items could not be recovered");
+            run.end.end(failed(&run.identity, &error)).await;
             return;
         }
         Ok((0, labels)) => {
-            if let Err(error) = run.nothing_done(NothingDone::NothingPending).await {
-                tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's `nothingDone` was not kept");
+            if let Err(error) = run.warnings.nothing_done(NothingDone::NothingPending).await {
+                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's `nothingDone` was not kept");
             }
             labels
         }
         Ok((_, labels)) => labels,
     };
-    let egress = resumed_domain_policy(settings.resolved(), run.id());
+    let egress = resumed_domain_policy(settings.resolved(), run.identity.id());
     let opened = crawls.open(&run, egress, invariants, datasets).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run.identity);
     drive(
         run,
         context,
@@ -814,15 +828,15 @@ impl Untouched {
     /// `code_free` links and fields, each Label's Page check, else the
     /// Run's, and the Page signature while the Run learns; a program's
     /// keep each page's tree for its handler.
-    fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
-        let work = run.metrics().counted_work();
+    fn of(run: &CrawlRun, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
+        let work = run.identity.metrics().counted_work();
         goodfetch_fetch_tier::compile_served_call_selectors(work);
         let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
         let demand = |page_check: Option<PageCheck>| UntouchedDemand {
             links: links.clone(),
             fields: fields.clone(),
             page_check,
-            signs: attempt::learns(run),
+            signs: attempt::learns(&run.identity),
             // A program's handler reads its pages: each keeps its untouched
             // tree for the handler's calls (spec #1577's #1918).
             keeps: code_free.is_none(),
@@ -833,7 +847,7 @@ impl Untouched {
         let readers =
             |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));
         Self {
-            run: readers(attempt::run_page_check(run)),
+            run: readers(attempt::run_page_check(&run.identity)),
             labels: labels
                 .settings
                 .page_checks()
@@ -856,16 +870,17 @@ impl Fetching<'_> {
         (hand_over, self.code_free.clone(), hooks)
     }
 
-    /// What the attempt of `leased`, holding `lease` and watched by
-    /// `watch`, hands over with its Run's pages, built once as it is
-    /// leased: `of_run`, what every attempt of the Run hands over alike,
+    /// What the attempt of `leased` of the crawl's live Run `run`, holding
+    /// `lease` and watched by `watch`, hands over with its Run's pages,
+    /// built once as it is leased: `of_run`, what every attempt of the Run
+    /// hands over alike,
     /// with its own room beside the Run's requests, `second_copies`, its
     /// HTTP admission, the send its Permit's grant reserved, what its
     /// request's Label declares, and the tier of
     /// the Session that reads its site files, `site_files`.
     fn hand_over(
         &self,
-        of_run: &std::sync::Arc<RunHandOver>,
+        (run, of_run): (&std::sync::Arc<CrawlRun>, &std::sync::Arc<RunHandOver>),
         (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
         (second_copies, fetch_admission, reserved_send): (
             SecondCopies,
@@ -879,7 +894,7 @@ impl Fetching<'_> {
             of_run: std::sync::Arc::clone(of_run),
             domain_key: leased.waiting.key.clone(),
             second_copies,
-            lease: handler_lease(of_run, (leased, lease, watch), &self.in_flight),
+            lease: handler_lease(run, (leased, lease, watch), &self.in_flight),
             fetch_admission,
             reserved_send,
             page_check: self.labels.settings.page_check(label).cloned(),
@@ -1002,7 +1017,7 @@ impl Fetching<'_> {
 
     /// Closes the browser contexts of the retired Sessions of `pool` no
     /// attempt holds any more, for the call `context`.
-    async fn retire(&self, run: &Run, pool: &mut SessionPool, context: &CallContext) {
+    async fn retire(&self, run: &RunIdentity, pool: &mut SessionPool, context: &CallContext) {
         for session in pool.closable() {
             if let Some(http) = self.http {
                 http.forget_session(&session).await;
@@ -1052,7 +1067,7 @@ impl<'a> Pooled<'a> {
 /// other work item, so no more wait than its Connections have room for
 /// (#2178).
 async fn lease_to_servers(
-    run: &Run,
+    run: &std::sync::Arc<CrawlRun>,
     run_leases: &Leases,
     policy: CrawlPolicy,
     mut pooled: Pooled<'_>,
@@ -1066,10 +1081,10 @@ async fn lease_to_servers(
         }
         // A Run with no work item ready asks the governor for nothing, and
         // passes any turn it waits for to the Runs that wait.
-        let now = run.clock().now();
+        let now = run.identity.clock().now();
         let undrawn = pooled.state.undrawn();
         if undrawn == 0 && admission.ready_at(now).is_none_or(|ready| ready > now) {
-            run.governor().pass(WorkKind::Http);
+            run.governor.share().pass(WorkKind::Http);
             return Ok(());
         }
         let room = policy.handler_concurrency - server.in_flight;
@@ -1082,7 +1097,10 @@ async fn lease_to_servers(
         for rotated in pool.rotated_within_block() {
             warn_rotated(run, rotated).await;
         }
-        pooled.fetching.retire(run, pool, &server.context).await;
+        pooled
+            .fetching
+            .retire(&run.identity, pool, &server.context)
+            .await;
         for drawn in served {
             let Drawn {
                 leased,
@@ -1118,9 +1136,9 @@ async fn lease_to_servers(
                     .pop()
                     .expect("invariant: one admission per work item admitted"),
             );
-            let watch = Watch::new(run.metrics());
+            let watch = Watch::new(run.identity.metrics());
             let hand_over = fetching.hand_over(
-                pooled.handing,
+                (run, pooled.handing),
                 (&leased, &lease, &watch),
                 (copies, admission.clone(), reserved_send),
                 reader.as_ref(),
@@ -1138,12 +1156,12 @@ async fn lease_to_servers(
                     },
                     tier: fetches.map(|tier| tier.as_str().to_owned()),
                     attempt: leased.attempt,
-                    started_at: run.point_in_time(),
+                    started_at: run.identity.point_in_time(),
                 },
             );
             pages.start(Box::new(Start {
                 server: (place, server.context.clone()),
-                leased: (leased, (session, in_browser), leased_count(run)),
+                leased: (leased, (session, in_browser), leased_count(&run.identity)),
                 lease,
                 watch,
                 fetching: (tiering, fetching.handling(hand_over)),
@@ -1154,7 +1172,7 @@ async fn lease_to_servers(
         // goes back, and the Run's turn to the Runs that wait.
         if !permits.is_empty() {
             drop(permits);
-            run.governor().pass(WorkKind::Http);
+            run.governor.share().pass(WorkKind::Http);
             return Ok(());
         }
     }
@@ -1190,7 +1208,7 @@ enum Waited {
 /// changed of the crawl's requests by state is counted and shown with the
 /// requests `in_flight`.
 async fn drained(
-    run: &Run,
+    run: &CrawlRun,
     resolved: &Resolved,
     (admission, state): (&mut Admission, &mut RunState),
     servers: &mut Vec<Serving>,
@@ -1199,17 +1217,17 @@ async fn drained(
 ) -> Waited {
     let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
     let counted = state.counted();
-    if keeps_alive && !run.is_let_finish() {
+    if keeps_alive && !run.end.is_let_finish() {
         if !counted.is_empty()
             && let Err(error) = state.stored().count(counted).await
         {
-            tracing::warn!(%error, run_id = %run.id(), "the tier choices' counts were not written");
+            tracing::warn!(%error, run_id = %run.identity.id(), "the tier choices' counts were not written");
         }
         // It waits for new work, for as long as none comes: what it did is
         // sealed into the file first, so a reader sees it now rather than
         // once the open batch's interval passed (ADR 0142).
         if let Err(error) = state.seal().await {
-            tracing::warn!(%error, run_id = %run.id(), "the open batch was not sealed");
+            tracing::warn!(%error, run_id = %run.identity.id(), "the open batch was not sealed");
         }
     } else {
         let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
@@ -1219,7 +1237,7 @@ async fn drained(
             details: lost.details,
         };
         let retry_max = CrawlPolicy::of(resolved).retry_max;
-        let ended_at = run.point_in_time();
+        let ended_at = run.identity.point_in_time();
         // Its answer promises nothing outside (#2117): the Run's end, which
         // follows it, syncs, and so does a later call's refusal, as its own
         // write commits after the close.
@@ -1237,19 +1255,19 @@ async fn drained(
                     // next reads must see (ADR 0142), and memory missed it.
                     None => match state.spill().seal().await {
                         Ok(()) => return Waited::Again,
-                        Err(error) => failed(run, &error),
+                        Err(error) => failed(&run.identity, &error),
                     },
                 }
             }
             Err(error) => {
-                tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                failed(run, &error)
+                tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be read");
+                failed(&run.identity, &error)
             }
         };
         end(run, admission, ending).await;
         return Waited::Ended;
     }
-    progress::show_waits(run, &[], resolved, run.clock().now(), Room::None);
+    progress::show_waits(run, &[], resolved, run.identity.clock().now(), Room::None);
     progress::show_idle(run, true);
     waited(run, (admission, state), servers, arrivals, in_flight, true).await
 }
@@ -1263,7 +1281,7 @@ async fn drained(
 /// for changed of the crawl's requests by state, with the requests
 /// `in_flight`.
 async fn waited(
-    run: &Run,
+    run: &CrawlRun,
     (admission, state): (&mut Admission, &mut RunState),
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
@@ -1273,13 +1291,13 @@ async fn waited(
     loop {
         tokio::select! {
             biased;
-            () = run.cancellation().cancelled() => {
+            () = run.identity.owner().cancelled() => {
                 admission.close().await;
                 release(run, state.stored()).await;
                 return Waited::Ended;
             }
-            reason = run.stopping() => return Waited::Stop(reason),
-            () = run.let_finish(), if until_finish => return Waited::Again,
+            reason = run.identity.stopping() => return Waited::Stop(reason),
+            () = run.end.let_finish(), if until_finish => return Waited::Again,
             Some(server) = arrivals.joined.recv() => {
                 servers.push(Serving::joined(server));
                 return Waited::Again;
@@ -1310,18 +1328,18 @@ enum Idle {
 /// the pending work items go from memory (#2169). Its reads decide with no
 /// seal, knowing in memory each change of the open batch (ADR 0142).
 async fn when_idle(
-    run: &Run,
+    run: &CrawlRun,
     admission: &mut Admission,
     state: &mut RunState,
 ) -> Result<Idle, StateError> {
-    if admission.ready_at(run.clock().now()).is_some() {
+    if admission.ready_at(run.identity.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
     if key_new(state.stored(), admission, Unkeyed::Running).await? {
         state.spill();
     }
     fill(state, admission, None).await?;
-    if admission.ready_at(run.clock().now()).is_some() {
+    if admission.ready_at(run.identity.clock().now()).is_some() {
         return Ok(Idle::Admit);
     }
     Ok(if state.any_pending().await? {
@@ -1369,7 +1387,7 @@ type Settlement = Pin<Box<dyn Future<Output = (Vec<Settling>, Vec<Finished>)> + 
 /// waiting for it (#2168): at `batch` an outcome rides the writer's open
 /// batch, and no page waits for the writer. [`completed`] finishes it.
 async fn settled(
-    run: &Run,
+    run: &std::sync::Arc<CrawlRun>,
     read: Read,
     (state, fetching): (&mut RunState, &Fetching<'_>),
     servers: &mut [Serving],
@@ -1378,7 +1396,11 @@ async fn settled(
     let (attempts, settlings, scores) = scored(run, read, &mut *state, servers, ended);
     for attempt in &attempts {
         fetching
-            .retire(run, state.pool(), &servers[attempt.server].context)
+            .retire(
+                &run.identity,
+                state.pool(),
+                &servers[attempt.server].context,
+            )
             .await;
     }
     let mut queued = Vec::with_capacity(attempts.len());
@@ -1413,7 +1435,7 @@ async fn settled(
 /// its domain's queue each work item an outcome added, keyed as it was
 /// added, and journals what the queues changed.
 async fn completed(
-    run: &Run,
+    run: &CrawlRun,
     (admission, servers): (&mut Admission, &mut [Serving]),
     (state, fetching): (&mut RunState, &Fetching<'_>),
     (settlings, finished): (Vec<Settling>, Vec<Finished>),
@@ -1451,7 +1473,7 @@ async fn abandoned(settling: &mut Settlements) {
 /// stays among the requests in flight its Run's progress shows until its
 /// outcome is written.
 fn scored(
-    run: &Run,
+    run: &CrawlRun,
     read: Read,
     state: &mut RunState,
     servers: &mut [Serving],
@@ -1462,7 +1484,7 @@ fn scored(
     let mut scores = Vec::with_capacity(ended.len());
     for mut attempt in ended {
         let mut chosen = attempt.sampled.take().map(|(sampled, weighed)| {
-            let unit = state.classify(&sampled, weighed, wall_ms(run));
+            let unit = state.classify(&sampled, weighed, wall_ms(&run.identity));
             (sampled.label, sampled.domain_key, unit)
         });
         // A refusal of the transport drops its Label's choice on the
@@ -1488,8 +1510,8 @@ fn scored(
             &attempt.answer,
             attempt.document.as_ref(),
             read.proxied,
-            run.clock().now(),
-            run.clock().wall(),
+            run.identity.clock().now(),
+            run.identity.clock().wall(),
         );
         if attempt.moved {
             pool.moved_to_browser(&waiting.key);
@@ -1528,7 +1550,9 @@ fn scored(
         }
         let held = held_past_bound(
             &attempt.answer,
-            attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
+            attempt
+                .handed_at
+                .unwrap_or_else(|| run.identity.clock().wall()),
             read.longest_wait,
         );
         settlings.push(Settling {
@@ -1551,7 +1575,7 @@ fn scored(
 /// past the Run's longest wait, and puts its work item back in its queue
 /// when it waits again, counting a retry but not a release.
 async fn returned(
-    run: &Run,
+    run: &CrawlRun,
     admission: &mut Admission,
     settled: impl Iterator<Item = (Settling, Again)>,
 ) {
@@ -1563,16 +1587,21 @@ async fn returned(
             ..
         } = settling;
         if let Some(asked) = held {
-            let clock = run.clock();
+            let clock = run.identity.clock();
             if let Ok(wait) = asked.duration_since(clock.wall()) {
                 admission.refuse(&waiting.key, clock.now() + wait, asked);
             }
         }
         admission
-            .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
+            .ended(
+                &waiting.id,
+                &waiting.key,
+                run.identity.clock().now(),
+                domain,
+            )
             .await;
         if again == Again::Retried {
-            count_retry(run);
+            count_retry(&run.identity);
         }
         if again.waits() {
             admission.enqueue(waiting);
@@ -1585,7 +1614,7 @@ async fn returned(
 /// what `arrivals` opened the crawl with, or ends the Run as failed when
 /// they could not open.
 async fn opened(
-    run: &Run,
+    run: &CrawlRun,
     settings: &RunSettings,
     choices: TierChoices,
     arrivals: &Opened,
@@ -1595,8 +1624,8 @@ async fn opened(
             Some((admission, RunState::new(pool, choices, opening, stored)))
         }
         Err(error) => {
-            tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
-            run.end(failed(run, &error)).await;
+            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's admission could not open");
+            run.end.end(failed(&run.identity, &error)).await;
             None
         }
     }
@@ -1609,7 +1638,7 @@ async fn opened(
 /// Session pool from the run file, on an `Entropy` of its own, with what
 /// else its Run state starts from ([`Opening`]).
 async fn open(
-    run: &Run,
+    run: &CrawlRun,
     settings: &RunSettings,
     arrivals: &Opened,
 ) -> Result<(Admission, (SessionPool, Opening), Stored), String> {
@@ -1626,10 +1655,10 @@ async fn open(
         intake: arrivals.intake.clone(),
     };
     let stored = Stored::new(
-        run.state().clone(),
+        run.state.clone(),
         within,
-        (admission.keys(), run.clock()),
-        run.metrics(),
+        (admission.keys(), run.identity.clock()),
+        run.identity.metrics(),
     );
     stored
         .fill_memory()
@@ -1648,7 +1677,7 @@ async fn open(
         admission.enqueue(waiting);
     }
     let (pool, opening) = stored
-        .open(run.fork_entropy().await)
+        .open(run.entropy.fork().await)
         .await
         .map_err(|error| error.to_string())?;
     let pool = match Rotation::of(resolved) {
@@ -1704,7 +1733,7 @@ fn proxied(resolved: &Resolved) -> bool {
 
 /// Hands the Run's report the warning that `rotated` took an address within
 /// a block blocked on its domain (ADR 0044).
-async fn warn_rotated(run: &Run, rotated: Rotated) {
+async fn warn_rotated(run: &CrawlRun, rotated: Rotated) {
     let warning = RunWarning {
         code: LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK.to_owned(),
         message: format!(
@@ -1714,8 +1743,8 @@ async fn warn_rotated(run: &Run, rotated: Rotated) {
         sessions: vec![rotated.session.0],
         folder: None,
     };
-    if let Err(error) = run.warn(warning).await {
-        tracing::warn!(%error, run_id = %run.id(), "the warning of a Session rotating within a block was not kept");
+    if let Err(error) = run.warnings.warn(warning).await {
+        tracing::warn!(%error, run_id = %run.identity.id(), "the warning of a Session rotating within a block was not kept");
     }
 }
 
@@ -1803,12 +1832,12 @@ async fn fill(
 /// evaluate covers it, the Run is asked to stop at its next safe point and
 /// nothing more is admitted.
 async fn admit(
-    run: &Run,
+    run: &CrawlRun,
     admission: &mut Admission,
     room: usize,
     pooled: &mut Pooled<'_>,
 ) -> Result<Vec<Drawn>, StateError> {
-    let now = run.clock().now();
+    let now = run.identity.clock().now();
     let mut ids = Vec::new();
     let mut keys = Vec::new();
     let mut drained = Vec::new();
@@ -1825,7 +1854,11 @@ async fn admit(
             refused.push((admitted, until));
             continue;
         }
-        match run.charge_unjournaled(&mut charges, REQUESTS, 1).await {
+        match run
+            .charging
+            .charge_unjournaled(&mut charges, REQUESTS, 1)
+            .await
+        {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
             Err(error) => return Err(error.into()),
@@ -1842,7 +1875,7 @@ async fn admit(
             .iter()
             .map(|(admitted, _)| admitted.id.clone())
             .collect();
-        let ran = end_unsent(run, pooled.state.stored(), admission, refused).await?;
+        let ran = end_unsent(&run.identity, pooled.state.stored(), admission, refused).await?;
         pooled.state.changed(ran.answer);
         pooled
             .state
@@ -1878,25 +1911,28 @@ async fn admit(
 /// whose request needs the browser and finds no Session of that client
 /// with room nor a browser-page place waits in the Run state (#2178).
 async fn leased_and_drawn(
-    run: &Run,
+    run: &CrawlRun,
     charges: UnjournaledCharges,
     asked: Vec<(String, String)>,
     pooled: &mut Pooled<'_>,
 ) -> Result<Vec<Drawn>, StateError> {
     let drawing = drawing(run, pooled);
-    pooled.state.lease(run, charges, asked, &drawing).await
+    pooled
+        .state
+        .lease(&run.charging, charges, asked, &drawing)
+        .await
 }
 
 /// The HTTP admissions the Run's share gives now, at most `room`, and no
 /// more than the `undrawn` work items that wait to be drawn while any does
 /// (#2178).
-fn http_admissions(run: &Run, room: usize, undrawn: usize) -> Vec<Permit> {
+fn http_admissions(run: &CrawlRun, room: usize, undrawn: usize) -> Vec<Permit> {
     let room = if undrawn == 0 {
         room
     } else {
         room.min(undrawn)
     };
-    std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
+    std::iter::from_fn(|| run.governor.share().try_admit(WorkKind::Http))
         .take(room)
         .collect()
 }
@@ -1906,7 +1942,7 @@ fn http_admissions(run: &Run, room: usize, undrawn: usize) -> Vec<Permit> {
 /// room or for a browser-page place, those drawn again, in their turn;
 /// else those [`admit`] admits now (#2178).
 async fn served(
-    run: &Run,
+    run: &CrawlRun,
     admission: &mut Admission,
     room: usize,
     pooled: &mut Pooled<'_>,
@@ -1920,7 +1956,7 @@ async fn served(
 
 /// What the Run's settings say of a draw in `pooled`, at the Run's wall
 /// clock now.
-fn drawing<'a>(run: &'a Run, pooled: &Pooled<'a>) -> Drawing<'a> {
+fn drawing<'a>(run: &'a CrawlRun, pooled: &Pooled<'a>) -> Drawing<'a> {
     let fetching = pooled.fetching;
     Drawing {
         labels: &fetching.labels,
@@ -1933,18 +1969,18 @@ fn drawing<'a>(run: &'a Run, pooled: &Pooled<'a>) -> Drawing<'a> {
                 .handing
                 .site_preferences
                 .reads_robots_txt(goodfetch_fetch_tier::Request::CrawlRequest),
-        wall: (run.clock().wall(), wall_ms(run)),
-        places: run.governor(),
+        wall: (run.identity.clock().wall(), wall_ms(&run.identity)),
+        places: run.governor.share(),
     }
 }
 
 /// Writes what the gate changed into the run file.
-async fn journal(run: &Run, stored: &Stored, admission: &mut Admission) {
-    let clock = run.clock();
+async fn journal(run: &CrawlRun, stored: &Stored, admission: &mut Admission) {
+    let clock = run.identity.clock();
     if let Some(journal) = admission.journal(clock.wall(), clock.now())
         && let Err(error) = stored.journal(journal).await
     {
-        tracing::warn!(%error, run_id = %run.id(), "the crawl's per-domain queues were not journaled");
+        tracing::warn!(%error, run_id = %run.identity.id(), "the crawl's per-domain queues were not journaled");
     }
 }
 
@@ -1956,7 +1992,7 @@ async fn sleep_until(clock: Clock, moment: Option<Instant>) {
 }
 
 /// One more retry in `goodfetch.work_item.retried`.
-fn count_retry(run: &Run) {
+fn count_retry(run: &RunIdentity) {
     run.metrics()
         .meter()
         .u64_counter(WORK_ITEM_RETRIED.name)
@@ -1971,7 +2007,7 @@ fn count_retry(run: &Run) {
 struct QueuedOutcome {
     leased: Leased,
     lease: WorkItemLease,
-    run: Run,
+    run: std::sync::Arc<CrawlRun>,
     /// The retry rule its attempt ends under when its job fails.
     policy: CrawlPolicy,
     /// Whether it commits its answer.
@@ -2002,7 +2038,7 @@ struct Finished {
 /// (`held`), or its sitemap's entries admitted and keyed, the fetch ended
 /// with no outcome (ADR 0093).
 async fn queue_outcome(
-    (run, file): (&Run, &Stored),
+    (run, file): (&std::sync::Arc<CrawlRun>, &Stored),
     policy: CrawlPolicy,
     held: bool,
     attempt: Attempt,
@@ -2016,7 +2052,7 @@ async fn queue_outcome(
         ..
     } = attempt;
     let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
-    let masks = run.secrets().mask().masks().clone();
+    let masks = run.keys.secrets().mask().masks().clone();
     let tries = leased.tries;
     let on = (run, file, policy);
     let failure = move |failure, why: &Why, retryable| {
@@ -2045,7 +2081,12 @@ async fn queue_outcome(
             return queued(on, (leased, lease), (scored, ending), false).await;
         }
         Answer::Handled(handled) => {
-            match lease.committing(run.state(), &masks, handled.records, run.point_in_time()) {
+            match lease.committing(
+                &run.state,
+                &masks,
+                handled.records,
+                run.identity.point_in_time(),
+            ) {
                 Ok(commit) => {
                     commits = true;
                     let refused: Refusing =
@@ -2095,7 +2136,7 @@ async fn queue_outcome(
         work_item,
         lease_epoch,
         unsuccessful,
-        ended_at: run.point_in_time(),
+        ended_at: run.identity.point_in_time(),
     };
     queued(on, (leased, lease), (scored, ending), commits).await
 }
@@ -2103,7 +2144,7 @@ async fn queue_outcome(
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
 /// `ending` says beside `scored`, in the run state's writer's queue now.
 async fn queued(
-    (run, file, policy): (&Run, &Stored, CrawlPolicy),
+    (run, file, policy): (&std::sync::Arc<CrawlRun>, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
     (scored, ending): (Scored, attempt_outcome::Ending),
     commits: bool,
@@ -2117,7 +2158,7 @@ async fn queued(
     QueuedOutcome {
         leased,
         lease,
-        run: run.clone(),
+        run: std::sync::Arc::clone(run),
         policy,
         commits,
         written,
@@ -2149,10 +2190,10 @@ impl QueuedOutcome {
                     if let Err(CommitError::RunState(error)) =
                         lease.committed(Err(error.run_file()))
                     {
-                        tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                        tracing::warn!(%error, run_id = %run.identity.id(), "an attempt's outcome was not committed");
                     }
                 } else {
-                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                    tracing::warn!(%error, run_id = %run.identity.id(), "an attempt's outcome was not committed");
                 }
                 let lost = outcome_lost((&run, stored), policy, &leased, &cause).await;
                 lease.release();
@@ -2181,14 +2222,14 @@ impl QueuedOutcome {
                     .expect("invariant: a commit written is committed");
                 lease.release();
                 crate::enqueue::links::mark_suspected(
-                    &run,
+                    &run.trace,
                     &leased.crawl_request.id,
                     &committed.suspected,
                 )
                 .await;
                 goodfetch_engine::key_value_store::forget_files(
-                    goodfetch_engine::runs::identity(&run),
-                    run.state(),
+                    &run.identity,
+                    &run.state,
                     committed.files,
                 )
                 .await;
@@ -2206,11 +2247,11 @@ impl QueuedOutcome {
                 lease.release();
                 if ended {
                     if let Some(code) = recorded {
-                        run.record_outcome(&code);
+                        record_outcome(&run.identity, &code);
                     }
                     finished.again = again;
                 } else {
-                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
+                    tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }
             }
             attempt_outcome::Ended::SitemapRead(read) => {
@@ -2218,7 +2259,7 @@ impl QueuedOutcome {
                 match read {
                     Some(keyed) => finished.keyed = keyed,
                     None => {
-                        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+                        tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
                     }
                 }
             }
@@ -2234,19 +2275,19 @@ impl QueuedOutcome {
 /// requests by state. When this job fails too, its work item stays leased
 /// until the crawl's finish, which gives it back ([`drained`]).
 async fn outcome_lost(
-    (run, stored): (&Run, &Stored),
+    (run, stored): (&CrawlRun, &Stored),
     policy: CrawlPolicy,
     leased: &Leased,
     cause: &str,
 ) -> Ran<(Again, Changed)> {
     let lost = AttemptFailure::outcome_not_written(cause);
     let (why, retryable) = (lost.why().clone(), lost.retryable);
-    let masks = run.secrets().mask().masks().clone();
+    let masks = run.keys.secrets().mask().masks().clone();
     let kept = kept_failure(&masks, lost.code, &lost.message, lost.details);
     let unsuccessful = retried_or_failed(policy, leased.tries, kept, &why, retryable);
     let attempt = (leased.crawl_request.id.clone(), leased.lease_epoch);
     let ended = stored
-        .end_lost(attempt, unsuccessful, run.point_in_time())
+        .end_lost(attempt, unsuccessful, run.identity.point_in_time())
         .await;
     let Ran {
         answer: (ended, changed),
@@ -2254,7 +2295,7 @@ async fn outcome_lost(
     } = match ended {
         Ok(ran) => ran,
         Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
+            tracing::warn!(%error, run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
             // No job ran: its work item stays leased, out of every read.
             let (answer, commits) = ((Again::Not, Changed::default()), stored.commits());
             return Ran { answer, commits };
@@ -2267,7 +2308,7 @@ async fn outcome_lost(
             again,
         } => {
             if let Some(code) = recorded {
-                run.record_outcome(&code);
+                record_outcome(&run.identity, &code);
             }
             again
         }
@@ -2304,8 +2345,8 @@ fn refused(reason: SkipReason) -> Unsuccessful {
 }
 
 /// Returns the leased work items to pending, without counting them.
-async fn release(run: &Run, stored: &Stored) {
+async fn release(run: &CrawlRun, stored: &Stored) {
     if let Err(error) = stored.release().await {
-        tracing::warn!(%error, run_id = %run.id(), "the crawl's leases were not released");
+        tracing::warn!(%error, run_id = %run.identity.id(), "the crawl's leases were not released");
     }
 }

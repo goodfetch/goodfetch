@@ -16,7 +16,6 @@ use std::time::Duration;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
-use goodfetch_engine::runs::{self, Run};
 use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
     TierChoice, record_race, room_taken, tier_provenance,
@@ -32,6 +31,7 @@ use super::{
     Answer, AttemptFailure, BLOCKED, BROWSER, FETCHED, Found, On, PAGE_CHECK_FAILED, Served,
     Tiering, failed, judged, reached_through_trap, read_by_browser, record_tier, refused_type,
 };
+use crate::crawl_run::CrawlRun;
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
 
@@ -56,7 +56,7 @@ impl On<'_> {
             Ok(sent_from) => sent_from,
             Err(answer) => return (answer, (None, false)),
         };
-        let started = run.clock().now();
+        let started = run.identity.clock().now();
         let hand_over = self.hand_over;
         // The navigation's page takes the attempt's value as it opens.
         let handed_over = tiers.hand_over(Arc::clone(hand_over));
@@ -71,10 +71,10 @@ impl On<'_> {
         // ends.
         let decoy = reached_through_trap(leased);
         if decoy.is_none() {
-            run.spawn(
+            run.identity.spawn(
                 self.watch.over(
                     Navigation {
-                        run: run.clone(),
+                        run: Arc::clone(run),
                         tiers: tiers.clone(),
                         hand_over: Arc::clone(hand_over),
                         pooled: self.in_browser.clone(),
@@ -95,7 +95,7 @@ impl On<'_> {
                 .document(tiering, &fetching, &FETCHED, hand_over)
                 .await
                 .map_err(|unserved| unserved.answer)?;
-            let latency = run.clock().now().duration_since(started);
+            let latency = run.identity.clock().now().duration_since(started);
             // The first request's page is checked as a run on `http`
             // checks its own. A document only a guess could read never
             // wins: the browser reads it (ADR 0119). Nor does a Challenge:
@@ -111,7 +111,7 @@ impl On<'_> {
                     false
                 }
                 Found::Readable => matches!(
-                    judged(run, tiering, served.page_id()).await,
+                    judged(&run.identity, tiering, served.page_id()).await,
                     Some(Judged::Passed) | None
                 ),
             };
@@ -128,7 +128,7 @@ impl On<'_> {
             }
         }
         record_race(
-            runs::run_trace(run),
+            &run.trace,
             &Race {
                 request_id: &leased.crawl_request.id,
                 label: &leased.crawl_request.label,
@@ -182,7 +182,7 @@ impl On<'_> {
                     .learn(tiers, page_id, &leased.crawl_request)
                     .await;
                 record_tier(
-                    run,
+                    &run.trace,
                     leased,
                     self.lease,
                     tier_provenance(
@@ -222,7 +222,7 @@ impl On<'_> {
                 (answer, by_first)
             }
             Won::Navigation(page_id, response) => {
-                if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
+                if let Some(refused) = refused_type(tiers, &page_id, &run.identity, leased).await {
                     return (refused, false);
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
@@ -231,7 +231,7 @@ impl On<'_> {
                     None => None,
                 };
                 record_tier(
-                    run,
+                    &run.trace,
                     leased,
                     self.lease,
                     tier_provenance(&BROWSER, Chosen::Raced),
@@ -375,7 +375,7 @@ enum Navigated {
 /// A race's navigation, run as a task of its own: cancelled, it is never
 /// sent, or its page closes, its load with it.
 struct Navigation {
-    run: Run,
+    run: Arc<CrawlRun>,
     tiers: FetchTiers,
     /// The attempt's hand-over, whose value its page takes.
     hand_over: Arc<HandOver>,
@@ -402,7 +402,7 @@ impl Navigation {
         sending: oneshot::Sender<()>,
         navigated: oneshot::Sender<Navigated>,
     ) {
-        let clock = self.run.clock();
+        let clock = self.run.identity.clock();
         let mut until = self.at;
         let copy = loop {
             tokio::select! {
@@ -421,7 +421,7 @@ impl Navigation {
         if !matches!(
             cancelled.try_recv(),
             Err(oneshot::error::TryRecvError::Empty)
-        ) || self.run.charge(REQUESTS, 1).await.is_err()
+        ) || self.run.charging.charge(REQUESTS, 1).await.is_err()
         {
             self.second_copies.give_back(copy).await;
             let _ = navigated.send(Navigated::NotSent);

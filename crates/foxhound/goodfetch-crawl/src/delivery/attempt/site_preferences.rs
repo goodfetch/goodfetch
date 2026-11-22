@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::runs::{self, Run};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     AfterRobotsTxt, NotAllowed, Reading, Refusal, RefusedBy, Request, RobotsTxtCopies, UseSignals,
@@ -24,24 +24,25 @@ use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SitePreference};
 use serde_json::{Map, Value};
 
 use super::{Answer, On, failed};
+use crate::crawl_run::CrawlRun;
 
 /// The Politeness the crawl's Run shares, under `settings`, once it
 /// opened: from then on the Run's `copies` read robots.txt from the copy
 /// its user's runs share there (ADR 0086). A Politeness file that cannot
 /// open leaves the Run its own copy.
 pub(super) async fn share_robots_txt(
-    run: &Run,
+    run: &CrawlRun,
     copies: &RobotsTxtCopies,
     settings: &Resolved,
 ) -> Option<Politeness> {
-    match run.politeness(settings).await {
+    match run.politeness.open(settings).await {
         Ok((politeness, _)) => {
             let shared = politeness.clone();
-            copies.share(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
+            copies.share(|| Arc::new(SharedRobotsTxt::new(shared, run.identity.clock())));
             Some(politeness)
         }
         Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
+            tracing::warn!(%error, run_id = %run.identity.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
             None
         }
     }
@@ -78,7 +79,7 @@ impl On<'_> {
             request == Request::Sitemap && goodfetch_frontier::sitemap::is_robots_txt(url);
         if robots_seed
             && !reads
-            && let Some(settings) = run.settings()
+            && let Some(settings) = run.identity.settings()
         {
             // A crawl that reads no robots.txt for its requests did not
             // share the copy as it started (ADR 0086).
@@ -104,7 +105,7 @@ impl On<'_> {
                 )
                 .await
         {
-            tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
+            tracing::warn!(%error, run_id = %run.identity.id(), "a host's Crawl-delay was not recorded for its domain");
         }
         let allowed = preferences
             .judged(request, url, reading.as_ref(), |location| {
@@ -113,7 +114,7 @@ impl On<'_> {
             .await
             .map_err(|not_allowed| match not_allowed {
                 NotAllowed::Refused(refusal) => {
-                    answer(run, leased.crawl_request.id.as_str(), refusal)
+                    answer(&run.identity, leased.crawl_request.id.as_str(), refusal)
                 }
                 NotAllowed::PastALimit(limit) => failed(&limit.error()),
             })?;
@@ -125,17 +126,12 @@ impl On<'_> {
             .max(allowed.crawl_delay.unwrap_or_default());
         if let Some(read) = &reading
             && let AfterRobotsTxt::At(start) = read
-                .start_after(
-                    of_run.politeness.as_ref(),
-                    runs::identity(run),
-                    key,
-                    spacing,
-                )
+                .start_after(of_run.politeness.as_ref(), &run.identity, key, spacing)
                 .await
-            && let Ok(wait) = start.duration_since(run.clock().wall())
+            && let Ok(wait) = start.duration_since(run.identity.clock().wall())
         {
             let _waiting = self.hand_over.lease.permit_wait(&leased.crawl_request.url);
-            run.clock().sleep(wait).await;
+            run.identity.clock().sleep(wait).await;
         }
         Ok(reading)
     }
@@ -156,14 +152,14 @@ impl On<'_> {
             })
             .await
             .err()
-            .map(|refusal| answer(run, leased.crawl_request.id.as_str(), refusal))
+            .map(|refusal| answer(&run.identity, leased.crawl_request.id.as_str(), refusal))
     }
 }
 
 /// The answer of an attempt whose request a site's preferences refused:
 /// one whose robots.txt could not be read is retried as a failed fetch,
 /// backing its domain off; any other ends `skipped` with its reason.
-fn answer(run: &Run, work_item: &str, refusal: Refusal) -> Answer {
+fn answer(run: &RunIdentity, work_item: &str, refusal: Refusal) -> Answer {
     tracing::debug!(run_id = %run.id(), work_item, by = ?refusal.by, message = refusal.message, "a site preference refused a crawl request");
     match refusal.by {
         RefusedBy::UnreachableRobotsTxt => Answer::RobotsTxtUnreachable(refusal.message),

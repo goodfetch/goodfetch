@@ -28,7 +28,7 @@ use std::time::Duration;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Held, QueuedGroup};
 use goodfetch_engine::run_state::run_row;
-use goodfetch_engine::runs::{PartValue, ProgressPart, Run, TypedPart, TypedParts};
+use goodfetch_engine::runs::{PartValue, ProgressPart, TypedPart, TypedParts};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
@@ -49,6 +49,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 use tokio::time::Instant;
 
+use crate::crawl_run::CrawlRun;
 use crate::run_state::Tally;
 use crate::work_items;
 
@@ -100,7 +101,7 @@ pub(crate) fn room(held: bool, free: bool, starved: bool) -> Room {
 /// for those no domain holds; its handlers running against
 /// `crawl.handler.concurrency`; and that it is not idle.
 pub(crate) fn show(
-    run: &Run,
+    run: &CrawlRun,
     (queued, now): (&[QueuedGroup], Instant),
     resolved: &Resolved,
     room: Room,
@@ -116,7 +117,7 @@ pub(crate) fn show(
 /// with `room` for the requests no domain holds: a few groups, whatever
 /// the number of domains.
 pub(crate) fn show_waits(
-    run: &Run,
+    run: &CrawlRun,
     queued: &[QueuedGroup],
     resolved: &Resolved,
     now: Instant,
@@ -148,8 +149,10 @@ pub(crate) fn show_waits(
             .take(HELD_DOMAINS)
             .map(|(domain, until)| HeldDomain {
                 domain: domain.clone(),
-                next_admitted_at: until
-                    .map(|until| run.point_in_time_after(until.saturating_duration_since(now))),
+                next_admitted_at: until.map(|until| {
+                    run.identity
+                        .point_in_time_after(until.saturating_duration_since(now))
+                }),
             })
             .collect();
         let more = queued.keys.saturating_sub(shown.len());
@@ -165,7 +168,7 @@ pub(crate) fn show_waits(
         );
     }
     let waiting: Vec<WaitGroup> = groups.into_values().collect();
-    run.set_progress_part(WAITING, encoded!(&waiting));
+    run.progress.set_part(WAITING, encoded!(&waiting));
 }
 
 /// The setting `key` as `resolved` gives it, with the layer that set it.
@@ -199,14 +202,14 @@ fn backoff_setting(
 
 /// Sets the crawl's `idle`: whether `crawl.keep_alive` holds it with no
 /// work.
-pub(crate) fn show_idle(run: &Run, idle: bool) {
-    run.set_progress_part(IDLE, Value::Bool(idle));
+pub(crate) fn show_idle(run: &CrawlRun, idle: bool) {
+    run.progress.set_part(IDLE, Value::Bool(idle));
 }
 
 /// Sets the crawl's `concurrency`: `handlers` running against
 /// `handler_concurrency`, and what the Resource governor last read.
-pub(crate) fn show_concurrency(run: &Run, handlers: usize, handler_concurrency: usize) {
-    let info = run.system_info();
+pub(crate) fn show_concurrency(run: &CrawlRun, handlers: usize, handler_concurrency: usize) {
+    let info = run.governor.system_info();
     let concurrency = CrawlConcurrency {
         handlers: u64::try_from(handlers).unwrap_or(u64::MAX),
         handler_concurrency: u64::try_from(handler_concurrency).unwrap_or(u64::MAX),
@@ -219,7 +222,7 @@ pub(crate) fn show_concurrency(run: &Run, handlers: usize, handler_concurrency: 
             .map(|info| info.concurrency.browser_page.target),
         allowance_set_by: info.as_ref().map(|info| info.memory.allowance_source),
     };
-    run.set_progress_part(CONCURRENCY, encoded!(&concurrency));
+    run.progress.set_part(CONCURRENCY, encoded!(&concurrency));
 }
 
 /// The crawl's requests in flight, each as its progress shows it, by work
@@ -244,7 +247,7 @@ pub(crate) type SharedInFlight = Arc<tokio::sync::Mutex<InFlight>>;
 
 impl InFlight {
     /// `request` began.
-    pub(crate) fn began(&mut self, run: &Run, request: InFlightRequest) {
+    pub(crate) fn began(&mut self, run: &CrawlRun, request: InFlightRequest) {
         let request = Arc::new(request);
         let before = self
             .requests
@@ -255,7 +258,7 @@ impl InFlight {
     }
 
     /// The request `id` went on to `phase`.
-    pub(crate) fn went_on(&mut self, run: &Run, id: &str, phase: InFlightPhase) {
+    pub(crate) fn went_on(&mut self, run: &CrawlRun, id: &str, phase: InFlightPhase) {
         let Some(request) = self.requests.get_mut(id) else {
             return;
         };
@@ -267,13 +270,13 @@ impl InFlight {
 
     /// A page of the request `id`'s handler began to wait for a navigation
     /// gate's permit: the request waits for one until every such wait ended.
-    pub(crate) fn permit_wait_began(&mut self, run: &Run, id: &str) {
+    pub(crate) fn permit_wait_began(&mut self, run: &CrawlRun, id: &str) {
         *self.permit_waits.entry(id.to_owned()).or_default() += 1;
         self.went_on(run, id, InFlightPhase::WaitingForPermit);
     }
 
     /// A wait [`InFlight::permit_wait_began`] counted ended.
-    pub(crate) fn permit_wait_ended(&mut self, run: &Run, id: &str) {
+    pub(crate) fn permit_wait_ended(&mut self, run: &CrawlRun, id: &str) {
         let left = self.permit_waits.get_mut(id).map(|waits| {
             *waits = waits.saturating_sub(1);
             *waits
@@ -290,7 +293,7 @@ impl InFlight {
     /// flight and ended, or neither.
     pub(crate) fn settled<'a>(
         &mut self,
-        run: &Run,
+        run: &CrawlRun,
         ended: impl IntoIterator<Item = &'a str>,
         counted: Arc<Tally>,
     ) {
@@ -311,13 +314,13 @@ impl InFlight {
 
     /// Tells the Run's progress that the requests in flight changed, and
     /// hands it those there are now, unencoded.
-    fn show(&self, run: &Run) {
-        run.set_typed_progress_part(
+    fn show(&self, run: &CrawlRun) {
+        run.progress.set_typed_part(
             IN_FLIGHT,
             TypedPart::new(InFlightPart {
                 requests: self.requests.values().cloned().collect(),
                 counted: self.counted.clone(),
-                work: run.metrics().counted_work().clone(),
+                work: run.identity.metrics().counted_work().clone(),
             }),
         );
     }

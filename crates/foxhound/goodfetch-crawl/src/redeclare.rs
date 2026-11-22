@@ -16,7 +16,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::RunState;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, LabelDeclaration};
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
@@ -79,10 +80,14 @@ impl Redeclared {
     }
 
     /// Records the declarations kept for the resuming `run`, if any, in its
-    /// run file, and answers the Hooks in code kept with them, none when
-    /// nothing was kept. A write that fails is logged: the Run goes on
-    /// under the declarations it held.
-    pub(crate) async fn record(&self, run: &Run) -> Vec<CrawlHookDeclaration> {
+    /// run file through `state`, and answers the Hooks in code kept with
+    /// them, none when nothing was kept. A write that fails is logged: the
+    /// Run goes on under the declarations it held.
+    pub(crate) async fn record(
+        &self,
+        run: &RunIdentity,
+        state: &RunState,
+    ) -> Vec<CrawlHookDeclaration> {
         let Some(Declared {
             datasets,
             labels,
@@ -93,8 +98,7 @@ impl Redeclared {
         else {
             return Vec::new();
         };
-        if let Err(error) = run
-            .state()
+        if let Err(error) = state
             .write(move |connection| {
                 datasets.record_again(connection)?;
                 labels::record_again(connection, &labels)?;

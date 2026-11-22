@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::admission::{Admission, Admitted, Ended};
 use goodfetch_engine::retry_after::{self, RetryAfter};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
@@ -165,7 +166,7 @@ pub(super) fn held_past_bound(
 /// re-admits it. Answers what ending them changed of the crawl's requests
 /// by state, with the commits acknowledged when its job ran.
 pub(super) async fn end_unsent(
-    run: &Run,
+    run: &RunIdentity,
     stored: &Stored,
     admission: &mut Admission,
     refused: Vec<(Admitted, SystemTime)>,
@@ -191,7 +192,7 @@ pub(super) async fn end_unsent(
     let ended = stored.end_unsent(unsent, run.point_in_time()).await?;
     let now = run.clock().now();
     for (admitted, _) in refused {
-        run.record_outcome(RESPONSE_UNAVAILABLE.name);
+        record_outcome(run, RESPONSE_UNAVAILABLE.name);
         admission
             .ended(&admitted.id, &admitted.key, now, Ended::Done)
             .await;

@@ -27,8 +27,8 @@ use std::time::SystemTime;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_engine::runs::Run;
 use goodfetch_extractor::fields::{self, Fields};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Url;
@@ -427,7 +427,7 @@ impl CodeFree {
         extraction: Option<CrawlExtraction>,
         crawls: &Crawls,
         tiers: &FetchTiers,
-        run: &Run,
+        run: &RunIdentity,
     ) -> Option<Self> {
         let keeps_records = crate::serving::keeps_records(run);
         let work = run.metrics().counted_work();

@@ -313,6 +313,16 @@ impl TaskStarter {
         self.token.child_token()
     }
 
+    /// Answers once the owner is cancelled, which a task watches at a
+    /// cancellation point, with no token of its own.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing; a later call answers the same.
+    pub async fn cancelled(&self) {
+        self.token.cancelled().await;
+    }
+
     /// Its blocking policy.
     pub fn policy(&self) -> BlockingPolicy {
         self.policy

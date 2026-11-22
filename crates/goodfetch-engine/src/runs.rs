@@ -2285,6 +2285,12 @@ impl Runs {
         self.gates.as_ref().map(|gates| gates.keys(settings))
     }
 
+    /// The gate in admission the composition passes in, if any, which a
+    /// Run's admission opens ([`admission::of_run`]).
+    pub fn admission_gates(&self) -> Option<&Arc<dyn Gates>> {
+        self.gates.as_ref()
+    }
+
     /// The scope of the Client connection these Runs stand in, as the
     /// Usage ledger names it.
     pub(crate) fn connection_scope(&self) -> LimitScope {

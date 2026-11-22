@@ -83,11 +83,13 @@ pub struct Governor {
 
 /// A live Run's part of the Resource governor (ADRs 0040 and 0145): its
 /// share of the governor's admissions, with the governor's last sample,
-/// and its folder's filesystem, sampled while it lives (ADR 0122).
-#[derive(Debug)]
+/// and its folder's filesystem, sampled while it lives (ADR 0122). Each
+/// clone is the same part: the share and the sample are given back once
+/// the last drops.
+#[derive(Clone, Debug)]
 pub struct RunGovernor {
-    share: RunShare,
-    _sampled: Held,
+    share: Arc<RunShare>,
+    _sampled: Arc<Held>,
     system_info: watch::Receiver<Option<SystemInfo>>,
 }
 
@@ -238,8 +240,8 @@ impl Governor {
     /// sampled while the answer lives (ADR 0122).
     pub fn join_run(&self, share: u64, folder: PathBuf) -> RunGovernor {
         RunGovernor {
-            share: self.join(share),
-            _sampled: self.sample(folder),
+            share: Arc::new(self.join(share)),
+            _sampled: Arc::new(self.sample(folder)),
             system_info: self.system_info(),
         }
     }

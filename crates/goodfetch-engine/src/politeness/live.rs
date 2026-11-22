@@ -101,8 +101,12 @@ enum OwnHolding {
 }
 
 /// The Politeness a live Run shares, once it asked for it, and the holder
-/// its Permits name.
-pub struct RunPoliteness {
+/// its Permits name. Each clone is the same value: one opens it for all.
+#[derive(Clone)]
+pub struct RunPoliteness(Arc<Opening>);
+
+/// What a [`RunPoliteness`] holds.
+struct Opening {
     shared: Arc<SharedPoliteness>,
     opened: OnceCell<Politeness>,
     /// The Politeness of its own that its admission comes to hold.
@@ -133,7 +137,7 @@ pub struct RunPolitenessParts {
 impl RunPoliteness {
     /// A Run's, which has asked for none yet.
     pub fn new(parts: RunPolitenessParts) -> Self {
-        Self {
+        Self(Arc::new(Opening {
             shared: parts.shared,
             opened: OnceCell::new(),
             own: tokio::sync::Mutex::new(if parts.admits {
@@ -145,7 +149,7 @@ impl RunPoliteness {
             epoch: parts.epoch,
             folder: parts.folder,
             on_storage_failures: parts.on_storage_failures,
-        }
+        }))
     }
 
     /// The Politeness the Run's own code shares for keys outside
@@ -163,30 +167,31 @@ impl RunPoliteness {
     /// Dropping the future loses only the answer.
     pub async fn open(&self, settings: &Resolved) -> Result<(Politeness, Holder), PolitenessError> {
         let own = settings.get::<&str>(&POLITENESS_SHARING) == "run";
-        let politeness = self
+        let this = &*self.0;
+        let politeness = this
             .opened
             .get_or_try_init(|| async {
                 if own {
-                    let mut holding = self.own.lock().await;
+                    let mut holding = this.own.lock().await;
                     if let OwnHolding::Before = *holding {
                         // Its admission holds it once it opens, which its
                         // driver does before any of its tasks waits on it.
-                        let (politeness, own) = Politeness::own(&self.shared.options);
+                        let (politeness, own) = Politeness::own(&this.shared.options);
                         *holding = OwnHolding::Waiting(Box::new(own));
                         return Ok(politeness);
                     }
-                    return Politeness::in_memory(&self.shared.options, &self.shared.owner);
+                    return Politeness::in_memory(&this.shared.options, &this.shared.owner);
                 }
-                let file = self.shared.file().await?;
-                (self.on_storage_failures)(file.storage_failures(), self.shared.path.parent());
+                let file = this.shared.file().await?;
+                (this.on_storage_failures)(file.storage_failures(), this.shared.path.parent());
                 Ok(file)
             })
             .await?
             .clone();
         let holder = Holder {
-            run_id: self.run_id.clone(),
-            epoch: self.epoch,
-            run_folder: self.folder.clone(),
+            run_id: this.run_id.clone(),
+            epoch: this.epoch,
+            run_folder: this.folder.clone(),
             delegates: settings.get::<bool>(&POLITENESS_DELEGATION),
         };
         Ok((politeness, holder))
@@ -196,7 +201,7 @@ impl RunPoliteness {
     /// if one was opened before: from then on one opened is served by an
     /// actor.
     pub(crate) async fn held_by_admission(&self) -> Option<OwnPoliteness> {
-        match std::mem::replace(&mut *self.own.lock().await, OwnHolding::After) {
+        match std::mem::replace(&mut *self.0.own.lock().await, OwnHolding::After) {
             OwnHolding::Waiting(own) => Some(*own),
             OwnHolding::Before | OwnHolding::After => None,
         }
@@ -209,6 +214,6 @@ impl RunPoliteness {
     ///
     /// When the actor cannot start.
     pub(crate) fn serve(&self, own: OwnPoliteness) -> Result<(), PolitenessError> {
-        own.serve_on(&self.shared.owner)
+        own.serve_on(&self.0.shared.owner)
     }
 }

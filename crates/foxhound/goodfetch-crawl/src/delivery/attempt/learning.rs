@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_fetch_tier::{FetchTiers, Redirected};
 use goodfetch_frontier::{PageSeen, Redirect, Url};
@@ -25,7 +25,7 @@ pub(in crate::delivery) struct Lessons(Option<Arc<goodfetch_frontier::Invariants
 impl Lessons {
     /// Noted with `invariants` when `run` learns, else nowhere.
     pub(in crate::delivery) fn of(
-        run: &Run,
+        run: &RunIdentity,
         invariants: Arc<goodfetch_frontier::Invariants>,
     ) -> Self {
         Self(learns(run).then_some(invariants))
@@ -90,7 +90,7 @@ fn lesson_of(redirects: &[Redirected]) -> goodfetch_frontier::Lesson {
 
 /// Whether a crawl under `run`'s settings learns from its pages:
 /// `frontier.learning`, on unless set off (ADR 0138).
-pub(in crate::delivery) fn learns(run: &Run) -> bool {
+pub(in crate::delivery) fn learns(run: &RunIdentity) -> bool {
     get_or_default(
         run.settings().map(RunSettings::resolved),
         &FRONTIER_LEARNING,

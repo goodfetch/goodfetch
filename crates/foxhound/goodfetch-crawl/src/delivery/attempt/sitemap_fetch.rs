@@ -39,7 +39,7 @@ impl On<'_> {
                 // #565): a refused address ends it `skipped` with
                 // `domain_policy`, never retried and never backing its
                 // domain off.
-                if let Err(refused) = address_check(run, http, leased).await {
+                if let Err(refused) = address_check(&run.identity, http, leased).await {
                     return refused;
                 }
                 let hand_over = self.hand_over;
@@ -63,7 +63,7 @@ impl On<'_> {
                         }
                     };
                 }
-                let limits = Limits::of_run(run.settings());
+                let limits = Limits::of_run(run.identity.settings());
                 match http.sitemap(&url, hand_over).await {
                     Ok(body) => match sitemap::read_file(url.as_str(), &body, limits) {
                         Ok(document) => Answer::SitemapRead(document),

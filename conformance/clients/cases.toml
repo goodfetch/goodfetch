@@ -374,12 +374,11 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # a call in flight only when the catalog classes it a read or an idempotent
 # write; an Effect in flight raises `connection_lost`, an
 # `UnavailableError`, and is never sent again. Played by the Scripted engine
-# as a Daemon over a WebSocket, which drops the first link; Python's
-# WebSocket transport joins with issue 3204's Python half.
+# as a Daemon over a WebSocket, which drops the first link.
 [[capability.case]]
 id = "dropped-link-resends-reads"
 covers = ["story:11-6", "story:11-32"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["daemon"]
 
 # A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh

@@ -14,9 +14,10 @@ events and ends with `listener_events_lost`.
 TypeScript's `events.test.ts` is its twin.
 """
 
+import functools
 import gc
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Mapping
 from typing import TYPE_CHECKING, cast
 
 import anyio
@@ -40,6 +41,7 @@ from goodfetch_test_support import (
     play_script,
     three_ways,
 )
+from goodfetch_test_support import until as shared_until
 
 if TYPE_CHECKING:
     from goodfetch_collie_client.generated.handles import AsyncPage
@@ -65,18 +67,8 @@ async def failure(call: Awaitable[object]) -> GoodfetchError:
     return raised.value
 
 
-async def until(holds: Callable[[], bool], what: str) -> None:
-    """Waits until `holds()` is true, for 5 seconds at most.
-
-    A listener runs on its own task, or on a worker thread in the sync way,
-    and sets no event the test could wait on, so the wait polls it.
-    """
-    for _ in range(5000):
-        if holds():
-            return
-        await anyio.sleep(0.001)
-    message = f"{what} did not happen within 5 seconds"
-    raise AssertionError(message)
+until = functools.partial(shared_until, within=5.0, every=0.001)
+"""Waits until a listener's effect holds, for 5 seconds at most."""
 
 
 def sent(played: PlayedScript, method: str) -> bool:

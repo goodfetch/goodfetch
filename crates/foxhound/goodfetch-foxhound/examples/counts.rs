@@ -122,8 +122,12 @@
 //! `E6.undelegated_transactions` alone, over their attempts, the unit
 //! `undelegated_attempts`. `E6.delegation_transactions`
 //! divides by the Delegations taken, the unit `delegations`,
-//! `E6.delegations` by the cell's one Run, and `E6.other_transactions` by
-//! its attempts.
+//! `E6.delegations` and `E6.run_transactions` by the cell's one Run, and
+//! `E6.origin_transactions` by its origins (#1899). The cell `two_origins`
+//! crawls the site from two origins of one domain key, `pages.test` and
+//! `second.pages.test`, which serve the same pages and robots.txt: one Run
+//! and one Delegation over two origins, so a Run's own transactions and an
+//! origin's are each measured, not inferred.
 //!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site
@@ -201,8 +205,8 @@ use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    AfterStart, BARRIER_CALLS, Frontier, Handler, Navigation, Options, PAGES, Plant, body_bytes,
-    crawl_with, entries, page_analysis_plant, run_trace_plant,
+    AfterStart, BARRIER_CALLS, Frontier, Handler, Navigation, Options, Origins, PAGES, Plant,
+    body_bytes, crawl_with, entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
 
@@ -431,12 +435,13 @@ const UNDELEGATED_CONCURRENCY_1: &str = "concurrency_1_delegation_off";
 const SHARED_TRANSACTIONS: &str = "E6.shared_transactions";
 const SHARED_CELL: &str = "two_engines";
 
-/// The transactions on a Politeness file: a Permit's, a Delegation's and
-/// every other.
-const FILE_TRANSACTIONS: [Row; 3] = [
+/// The transactions on a Politeness file: a Permit's, a Delegation's, a
+/// Run's own and an origin's.
+const FILE_TRANSACTIONS: [Row; 4] = [
     Row::PolitenessTransactions,
     Row::PolitenessDelegationTransactions,
-    Row::PolitenessOtherTransactions,
+    Row::PolitenessRunTransactions,
+    Row::PolitenessOriginTransactions,
 ];
 
 /// Whether the cell named `name` takes each Permit in the Politeness file.
@@ -457,10 +462,11 @@ fn private(name: &str) -> bool {
 
 /// The rows a Run's own Politeness, in memory, counts none of (#2171): no
 /// file's transaction, open or Delegation.
-const PRIVATE_ROWS: [Row; 5] = [
+const PRIVATE_ROWS: [Row; 6] = [
     Row::PolitenessTransactions,
     Row::PolitenessDelegationTransactions,
-    Row::PolitenessOtherTransactions,
+    Row::PolitenessRunTransactions,
+    Row::PolitenessOriginTransactions,
     Row::PolitenessDelegations,
     Row::PolitenessOpens,
 ];
@@ -471,17 +477,19 @@ const PRIVATE_ROWS: [Row; 5] = [
 /// Run takes its Permits under a Delegation (#2172), with the file's
 /// transactions of its open, its robots.txt copy and its end.
 const OFF_REMOVES: &[Row] = &[
-    Row::PolitenessOtherTransactions,
+    Row::PolitenessRunTransactions,
+    Row::PolitenessOriginTransactions,
     Row::RobotsParses,
     Row::RobotsReads,
 ];
 
 /// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
 /// is its work.
-const POLITENESS_ROWS: [Row; 8] = [
+const POLITENESS_ROWS: [Row; 9] = [
     Row::PolitenessTransactions,
     Row::PolitenessDelegationTransactions,
-    Row::PolitenessOtherTransactions,
+    Row::PolitenessRunTransactions,
+    Row::PolitenessOriginTransactions,
     Row::PolitenessDelegations,
     Row::PolitenessOpens,
     Row::PolitenessScriptSends,
@@ -495,6 +503,43 @@ const ORIGINS: u64 = 1;
 /// The origins of [`BESIDE_CELL`]: the site's and the one its handler
 /// navigates to beside each page.
 const BESIDE_ORIGINS: u64 = ORIGINS + 1;
+
+/// The cell whose code-free crawl also starts from the fixture's second
+/// origin, a subdomain of the site's host and so of its domain key, which
+/// serves the same pages and robots.txt (#1899): one Run and one
+/// Delegation over [`TWO_ORIGINS`], each serving the whole site.
+const TWO_ORIGINS_CELL: &str = "two_origins";
+
+/// The origins of [`TWO_ORIGINS_CELL`].
+const TWO_ORIGINS: u64 = ORIGINS + 1;
+
+/// The origins the cell named `name` reads a robots.txt for.
+fn origins(name: &str) -> u64 {
+    match name {
+        BESIDE_CELL => BESIDE_ORIGINS,
+        TWO_ORIGINS_CELL => TWO_ORIGINS,
+        _ => ORIGINS,
+    }
+}
+
+/// The copies of the site the cell named `name` crawls: one an origin in
+/// [`TWO_ORIGINS_CELL`], one elsewhere ([`BESIDE_CELL`]'s second origin
+/// serves the navigations beside the site's pages, not a copy of it).
+fn sites(name: &str) -> usize {
+    if name == TWO_ORIGINS_CELL { 2 } else { 1 }
+}
+
+fn two_origins() -> Cell {
+    Cell {
+        name: TWO_ORIGINS_CELL,
+        settings: json!({}),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
 
 /// The owner of the run file's statements: each preparation `F2.prepares`
 /// counts has one of its functions among its [`CALLERS`] nearest callers.
@@ -1048,6 +1093,7 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
         kept_to_itself(),
+        two_origins(),
     ];
     cells.extend(undelegated());
     cells.extend(switched_off().into_iter().chain([varying_parameter()]));
@@ -1215,6 +1261,11 @@ fn crawl(
                 AfterStart::Finish
             },
             second_engine: false,
+            origins: if cell.name == TWO_ORIGINS_CELL {
+                Origins::Two
+            } else {
+                Origins::One
+            },
         },
     );
     Crawl {
@@ -1233,12 +1284,13 @@ fn crawl(
 /// The pages a crawl of `cell` on a site linking `linked` of [`PAGES`]
 /// serves: the index and its pages, and with the Frontier's outcomes the
 /// redirect's target, the sitemap's entry, the seed with a Payload and
-/// its items.
+/// its items, on each copy of the site it crawls.
 fn pages_of(cell: &Cell, linked: usize) -> usize {
-    linked
-        + cell
-            .frontier
-            .map_or(1, |frontier| 4 + frontier.items_on(linked))
+    sites(cell.name)
+        * (linked
+            + cell
+                .frontier
+                .map_or(1, |frontier| 4 + frontier.items_on(linked)))
 }
 
 /// The pages the whole site of `cell` serves beyond a `--shorter` run's:
@@ -1344,8 +1396,8 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         );
         assert_eq!(
             crawled.body_bytes,
-            body_bytes(),
-            "the site sends each body once"
+            u64::try_from(sites(cell.name)).expect("invariant: two sites at most") * body_bytes(),
+            "the site sends each body once from each of its origins"
         );
         let pages = pages_of(cell, PAGES.len());
         assert!(
@@ -1929,7 +1981,7 @@ fn main() {
             "entries": cell.entries,
             "permits": cell.requests,
             "requests": cell.requests,
-            "origins": if cell.name == BESIDE_CELL { BESIDE_ORIGINS } else { ORIGINS },
+            "origins": origins(cell.name),
             "off_attempts": if off { cell.attempts } else { 0 },
             "private_attempts": if private(cell.name) { cell.attempts } else { 0 },
             "undelegated_attempts": if undelegated { cell.attempts } else { 0 },

@@ -1061,14 +1061,53 @@ fn at(seconds: u64) -> SystemTime {
 }
 
 /// The transactions of `work`'s file: a Permit's, a Delegation's, and
-/// the others; and how many Delegations it took.
+/// the others, a Run's own and an origin's; and how many Delegations it
+/// took.
 fn transactions(work: &CountedWork) -> [u64; 4] {
     [
         work.read(Row::PolitenessTransactions),
         work.read(Row::PolitenessDelegationTransactions),
-        work.read(Row::PolitenessOtherTransactions),
+        work.read(Row::PolitenessRunTransactions) + work.read(Row::PolitenessOriginTransactions),
         work.read(Row::PolitenessDelegations),
     ]
+}
+
+/// What `work` counted on a Run's own transactions and on an origin's,
+/// after `rounds` Permits of one key at `politeness.delegation` set to
+/// `delegates`, in a home of its own.
+fn own_and_origin_transactions(delegates: bool, rounds_taken: u64) -> (u64, u64) {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let crawl = Holder {
+        delegates,
+        ..holder(&env, "crawl")
+    };
+    run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        rounds(&politeness, &crawl, "shop.test", rounds_taken).await;
+    });
+    (
+        work.read(Row::PolitenessRunTransactions),
+        work.read(Row::PolitenessOriginTransactions),
+    )
+}
+
+/// A Run's own transactions on the file, its open, its stop and the
+/// Delegations it gives back, are the Run's whatever its attempts: as
+/// many for one Permit as for five, with or without a Delegation, and
+/// none on an origin's row when no site asked anything (#1899).
+#[test]
+fn a_runs_own_transactions_do_not_grow_with_its_attempts() {
+    for delegates in [true, false] {
+        let (one, five) = (
+            own_and_origin_transactions(delegates, 1),
+            own_and_origin_transactions(delegates, 5),
+        );
+
+        assert_eq!(one, five, "at delegation {delegates}");
+        assert!(one.0 > 0, "at delegation {delegates}: no Run transaction");
+        assert_eq!(one.1, 0, "at delegation {delegates}: an origin's");
+    }
 }
 
 /// Takes and gives back `rounds` Permits of `key` for `holder`, one delay

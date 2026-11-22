@@ -1,0 +1,32 @@
+[package]
+name = "goodfetch-foxhound-compile-fail"
+description = "The compile-fail tests of goodfetch-foxhound's crawl API (trybuild), in a crate of their own so that trybuild's project builds goodfetch-foxhound's library graph alone (issue 3413); never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# trybuild copies the crate's dependencies and dev-dependencies into the
+# project it builds the cases in, in a target folder of its own, so this
+# crate takes only what the cases name: goodfetch-foxhound's library
+# without `executable` and without its dev-dependencies, which the cases
+# never use and which took that build about 120 more units (TESTING.md,
+# Levels and layout).
+[dependencies]
+goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+# The crawl API the cases misuse (tests/ui/).
+goodfetch-foxhound.workspace = true
+# The Payloads the cases derive (tests/ui/).
+serde.workspace = true
+trybuild.workspace = true
+
+[package.metadata.cargo-shear]
+# The cases under tests/ui/ name them; trybuild builds them, Cargo does not.
+ignored = ["goodfetch-foxhound", "serde"]
+
+[lints]
+workspace = true

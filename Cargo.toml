@@ -188,6 +188,9 @@ goodfetch-dataset = { path = "crates/foxhound/goodfetch-dataset" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
 # The page formats read from a document (spec #580, ADR 0007).
 goodfetch-extractor = { path = "crates/goodfetch-extractor" }
+# Foxhound's SDK crate and executable; only crates under `crates/foxhound/`
+# and `xtask` take it (ADR 0087): its compile-fail tests' crate does.
+goodfetch-foxhound = { path = "crates/foxhound/goodfetch-foxhound" }
 # Foxhound's fetch tiers; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).

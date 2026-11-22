@@ -186,6 +186,10 @@ crate = "goodfetch-foxhound"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
+crate = "goodfetch-foxhound-compile-fail"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
 crate = "goodfetch-frontier"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 

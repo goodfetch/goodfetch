@@ -6,15 +6,15 @@ capped at 10 s; the Connection greets the Daemon with the same `hello` and
 sets its Limits again; then each call in flight whose operation is a read or
 an idempotent write is sent again by its id, `events.subscribe` after the
 last event it read, and every other one fails with `connection_lost`.
-TypeScript's `reconnect.ts` and `resumed-stream.ts` are its twins.
+TypeScript's `reconnect.ts` is its twin; `listeners.ResumedEvents` is the
+`events.subscribe` that `resumed-stream.ts` resumes there.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client.generated.errors import ConnectionLostError
 
 if TYPE_CHECKING:
@@ -30,8 +30,11 @@ FIRST_DELAY = 0.25
 LONGEST_DELAY = 10.0
 """The longest wait between two attempts, in seconds."""
 
-EVENTS = "$/events"
-"""The notification that carries a batch of `events.subscribe`'s events."""
+OperationClass = Literal["read", "idempotent_write", "effect"]
+"""An operation's class (ADR 0011), as the generated `OPERATION_CLASSES` holds it."""
+
+RESENT: frozenset[OperationClass] = frozenset({"read", "idempotent_write"})
+"""The classes whose calls in flight are sent again on a new link (ADR 0079)."""
 
 
 def reconnect_delay(attempt: int, elapsed: float, within: float | None) -> float | None:
@@ -75,7 +78,7 @@ class ChannelRelinking:
     within: float | None
     """The seconds after the drop past which no attempt starts; `None` for none."""
     closing: Callable[[], bool]
-    """Whether the Connection's close began, which ends the channel instead."""
+    """Whether the Connection's close got past its Runs: the channel then ends."""
     reopen: Callable[[], Awaitable[ByteStream]]
     """Opens a new link to the engine."""
     greet: Callable[[Callable[[str, object], Awaitable[object]]], Awaitable[None]]
@@ -88,7 +91,7 @@ class ChannelRelinking:
 class Reconnect:
     """How a Connection to a remote Daemon reaches it again once its link drops."""
 
-    operation_classes: Mapping[str, str]
+    operation_classes: Mapping[str, OperationClass]
     """Each operation's class by its catalog name (ADR 0011)."""
     reopen: Callable[[], Awaitable[ByteStream]]
     """Opens a new link to the Daemon."""
@@ -104,57 +107,3 @@ class Resumable(Protocol):
     def resumed(self) -> tuple[object, int]:
         """Its params on the new link, and the credits it still had."""
         ...
-
-
-class ResumedEvents:
-    """`events.subscribe`, sent again after the last event it read (spec 606).
-
-    As the engine instance that published that event, with the credits it
-    granted less the events it received, so its readers lose no event.
-    """
-
-    def __init__(
-        self,
-        notified: Callable[[str, object], None] | None,
-        engine_instance: Callable[[], str | None],
-    ) -> None:
-        """Wraps `notified`; `engine_instance` names the engine instance reached."""
-        self._wrapped = notified
-        self._engine_instance = engine_instance
-        self._last: dict[str, object] | None = None
-        self._granted = 0
-        self._received = 0
-
-    def notified(self, method: str, params: object) -> None:
-        """Counts a batch's events, keeps the last one's position, and hands it on."""
-        if method == EVENTS:
-            positions = _positions_of(params)
-            self._received += len(positions)
-            instance = self._engine_instance()
-            if positions and instance is not None:
-                self._last = {"engine_instance": instance, "position": positions[-1]}
-        if self._wrapped is not None:
-            self._wrapped(method, params)
-
-    def granted(self, credits: int) -> None:
-        """Counts the credits granted."""
-        self._granted += credits
-
-    def resumed(self) -> tuple[object, int]:
-        """`{}` before any event was read, else after the last; the credits left."""
-        params: dict[str, object] = {} if self._last is None else {"after": self._last}
-        return params, self._granted - self._received
-
-
-def _positions_of(params: object) -> list[object]:
-    """The position of each event of a `$/events` batch, in order."""
-    members = object_members(params)
-    events = None if members is None else members.get("events")
-    if not isinstance(events, list):
-        return []
-    positions: list[object] = []
-    for item in cast("list[object]", events):
-        fields = object_members(item)
-        if fields is not None and isinstance(fields.get("event"), str):
-            positions.append(fields.get("position"))
-    return positions

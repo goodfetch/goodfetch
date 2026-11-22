@@ -866,7 +866,10 @@ class Channel:
 
         Past `timeout.connect` from the drop, the channel ends with the
         relinking's `gave_up`; a closing Connection ends it as its owner
-        says. A cancelled attempt is made again by the next reader.
+        says. A cancelled attempt counts as one made, so the next reader
+        waits the next delay before it makes another, and a greeting that
+        fails for any other reason than the engine's answer or the new link
+        ending ends the channel with `gave_up`.
         """
         relinking = self._relinking
         if relinking is None or relinking.closing():
@@ -906,10 +909,18 @@ class Channel:
             await self._finish(drop.end, refused)
             return
         except Exception as cause:
-            await self._failed(drop, transport, cause)
+            if transport is None:
+                await self._failed(drop, transport, cause)
+                return
+            with anyio.CancelScope(shield=True):
+                await _close_quietly(transport)
+            await self._finish(drop.end, relinking.gave_up(cause))
             return
         except BaseException:
-            # Cancelled: the next reader makes the attempt again.
+            # Cancelled with its caller: the next reader makes another attempt
+            # once the next delay passed, so short calls keep the backoff.
+            drop.made += 1
+            drop.next_at = None
             if transport is not None:
                 with anyio.CancelScope(shield=True):
                     await _close_quietly(transport)

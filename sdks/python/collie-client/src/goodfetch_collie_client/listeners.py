@@ -600,17 +600,63 @@ class _Published(_Subscribed[_Model]):
 
 def batch_of(params: object) -> list[tuple[str, object]]:
     """The events of a `$/events` batch, each its name and data."""
+    return [(name, fields.get("data")) for name, fields in _events_in(params)]
+
+
+def _events_in(params: object) -> list[tuple[str, dict[str, object]]]:
+    """Each event of a `$/events` batch, its name and its members, in order."""
     members = object_members(params)
     events = None if members is None else members.get("events")
     if not isinstance(events, list):
         return []
-    batch: list[tuple[str, object]] = []
+    found: list[tuple[str, dict[str, object]]] = []
     for item in cast("list[object]", events):
         fields = object_members(item)
         name = None if fields is None else fields.get("event")
         if fields is not None and isinstance(name, str):
-            batch.append((name, fields.get("data")))
-    return batch
+            found.append((name, fields))
+    return found
+
+
+class ResumedEvents:
+    """`events.subscribe`, sent again after the last event it read (spec 606).
+
+    As the engine instance that published that event, with the credits it
+    granted less the events it received, so its readers lose no event.
+    TypeScript's `resumed-stream.ts` is its twin.
+    """
+
+    def __init__(
+        self,
+        notified: Callable[[str, object], None] | None,
+        engine_instance: Callable[[], str | None],
+    ) -> None:
+        """Wraps `notified`; `engine_instance` names the engine instance reached."""
+        self._wrapped = notified
+        self._engine_instance = engine_instance
+        self._last: dict[str, object] | None = None
+        self._granted = 0
+        self._received = 0
+
+    def notified(self, method: str, params: object) -> None:
+        """Counts a batch's events, keeps the last one's position, and hands it on."""
+        if method == EVENTS:
+            positions = [fields.get("position") for _, fields in _events_in(params)]
+            self._received += len(positions)
+            instance = self._engine_instance()
+            if positions and instance is not None:
+                self._last = {"engine_instance": instance, "position": positions[-1]}
+        if self._wrapped is not None:
+            self._wrapped(method, params)
+
+    def granted(self, credits: int) -> None:
+        """Counts the credits granted."""
+        self._granted += credits
+
+    def resumed(self) -> tuple[object, int]:
+        """`{}` before any event was read, else after the last; the credits left."""
+        params: dict[str, object] = {} if self._last is None else {"after": self._last}
+        return params, self._granted - self._received
 
 
 def spawner() -> Callable[[_Work], None]:

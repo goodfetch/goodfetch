@@ -20,7 +20,7 @@ import anyio
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
-from goodfetch_collie_client._relink import ChannelRelinking, ResumedEvents
+from goodfetch_collie_client._relink import RESENT, ChannelRelinking
 from goodfetch_collie_client._rpc import (
     CallDeadline,
     Channel,
@@ -73,7 +73,7 @@ from goodfetch_collie_client.host_logging import (
     log_level,
 )
 from goodfetch_collie_client.limits import Limits, limit_list
-from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.settings import settings_on_wire
@@ -242,6 +242,12 @@ class ClientConnection:
         self._info: EngineInfo | None = None
         self._ended = False
         self._closing = Once()
+        self._runs_closed = False
+        """Whether the close got past its Runs, after which no link is reached again.
+
+        A Run closing while the link is down waits for it to be reached
+        again, as TypeScript's `#closeInOrder` does (spec 606).
+        """
         self._close_timeout = close_timeout
         self._log_level = log_level()
         """The level of the engine's logs the engine was last told.
@@ -380,11 +386,9 @@ class ClientConnection:
 
         self._channel.relink_with(
             ChannelRelinking(
-                resends=lambda method: (
-                    classes.get(method) in {"read", "idempotent_write"}
-                ),
+                resends=lambda method: classes.get(method) in RESENT,
                 within=None if connect is None else connect[0] / 1000,
-                closing=lambda: self._closing.started,
+                closing=lambda: self._runs_closed,
                 reopen=reconnect.reopen,
                 greet=greet,
                 gave_up=gave_up,
@@ -742,6 +746,7 @@ class ClientConnection:
         with anyio.move_on_after(self._close_timeout) as scope:
             failure = await self._close_in_order()
         if scope.cancelled_caught:
+            self._runs_closed = True
             self._cancel_calls()
             if self._engine is not None:
                 self._engine.kill()
@@ -779,6 +784,7 @@ class ClientConnection:
             except Exception as error:
                 # Every Run is closed before the first failure is raised.
                 failure = failure or error
+        self._runs_closed = True
         await self._channel.notify_cancelled(self._cancel_calls())
         await self._channel.close()
         # An Attached engine stops at the end of its input.

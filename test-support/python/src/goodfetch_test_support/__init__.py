@@ -85,7 +85,7 @@ from goodfetch_test_support.unicode_record import (
     UnicodeRecord,
     unicode_record,
 )
-from goodfetch_test_support.ways import Way, three_ways
+from goodfetch_test_support.ways import Way, three_ways, until
 
 __all__ = [
     "Canary",
@@ -158,6 +158,7 @@ __all__ = [
     "three_ways",
     "time_zones",
     "unicode_record",
+    "until",
     "until_scripted_engine_read",
     "write_journey_document",
 ]

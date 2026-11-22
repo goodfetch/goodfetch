@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
 
+    from goodfetch_collie_client._relink import OperationClass
     from goodfetch_collie_client.engine_choice import (
         DaemonReach,
         EngineChoice,
@@ -81,7 +82,7 @@ class ProductPackage:
     """The error class of each code the Product knows."""
     bin_folder: Path
     """The folder of its platform wheel that holds its executable."""
-    operation_classes: Mapping[str, str]
+    operation_classes: Mapping[str, OperationClass]
     """The class of each operation the Product serves (ADR 0011).
 
     A reconnect sends a call in flight again only when it is a read or an

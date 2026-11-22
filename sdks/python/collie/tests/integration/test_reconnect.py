@@ -11,8 +11,6 @@ after the drop, the resubscription's position and credits included.
 TypeScript's `reconnect.test.ts` is its twin.
 """
 
-from collections.abc import Callable
-
 import anyio
 import pytest
 from collie_calls import exit_code, failure, open_collie
@@ -25,6 +23,7 @@ from goodfetch_test_support import (
     scripted_engine_env,
     start_scripted_daemon,
     three_ways,
+    until,
     until_scripted_engine_read,
 )
 from goodfetch_test_support import Product as ToolProduct
@@ -37,23 +36,6 @@ TOKEN = "remote-daemon-token"
 
 WAIT_SECONDS = 10.0
 """How long the test waits for a listener to hear the Session's pages."""
-
-POLL_SECONDS = 0.01
-"""How often the test looks whether the listener heard them."""
-
-
-async def until(holds: Callable[[], bool], what: str) -> None:
-    """Waits until `holds()` is true, for `WAIT_SECONDS` at most.
-
-    A listener runs on its own task, or on a worker thread in the sync way,
-    and sets no event the test could wait on, so the wait polls it.
-    """
-    for _ in range(round(WAIT_SECONDS / POLL_SECONDS)):
-        if holds():
-            return
-        await anyio.sleep(POLL_SECONDS)
-    message = f"{what} did not happen within {WAIT_SECONDS} seconds"
-    raise AssertionError(message)
 
 
 def remote_env(test_env: TestEnv, product: ToolProduct, address: str) -> dict[str, str]:
@@ -83,7 +65,7 @@ async def test_reaches_the_daemon_again_and_resubscribes_after_the_last_event_re
     pages: list[object] = []
 
     subscription = session.on("page", pages.append)
-    await until(lambda: len(pages) == 2, "the Session's two pages")
+    await until(lambda: len(pages) == 2, "the Session's two pages", within=WAIT_SECONDS)
     subscription.close()
     await run.finish()
     await collie.close()

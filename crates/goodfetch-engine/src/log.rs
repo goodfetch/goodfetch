@@ -1,7 +1,8 @@
 //! The engine's side of its logs (ADRs 0059, 0078, 0122 and 0132; RT-17):
 //! the log events each Connection receives as `$/log` notifications at the
 //! level its `hello` or `connection.set_log_level` names, the `tracing`
-//! timer that reads the `Clock`, and the origin a span records of a URL.
+//! timer that reads the `Clock`, the origin a span records of a URL, and
+//! the filter that keeps WebSocket frames' payloads out of every log.
 //!
 //! [`LogEvents`] is one value the executable's `main`, or a test, makes:
 //! its [`LogEvents::layer`] joins the process's `tracing` subscriber, and
@@ -544,6 +545,29 @@ pub fn origin(url: &str) -> String {
     url::Url::parse(url).map_or_else(
         |_| "null".to_owned(),
         |url| url.origin().ascii_serialization(),
+    )
+}
+
+/// The WebSocket crates' targets: `tungstenite` logs each frame's payload
+/// at `trace`, through the `log` crate, an Exposed Daemon's `hello` and its
+/// token as much as a Borrowed browser's CDP traffic at its `cdp_url`;
+/// `tokio_tungstenite`, the stream around it, logs only where it is at that
+/// level, and is capped with it so that no release of it logs more.
+const FRAME_PAYLOAD_TARGETS: [&str; 2] = ["tungstenite", "tokio_tungstenite"];
+
+/// The process subscriber's global filter that keeps every WebSocket
+/// frame's payload out of its logs, since secrets never reach logs (ADR
+/// 0067): it caps the `tungstenite` and `tokio_tungstenite` targets at
+/// `debug` and lets every other target through, at any level.
+///
+/// Joined to the subscriber before its layers, outside their own filters,
+/// it decides first for every record, a `log` record a bridge hands to
+/// `tracing` under its own target as much as a `tracing` event: no
+/// `log.level`, `RUST_LOG` directive or later bridge lifts it.
+pub fn frame_payloads_unlogged() -> tracing_subscriber::filter::Targets {
+    FRAME_PAYLOAD_TARGETS.into_iter().fold(
+        tracing_subscriber::filter::Targets::new().with_default(LevelFilter::TRACE),
+        |targets, target| targets.with_target(target, LevelFilter::DEBUG),
     )
 }
 

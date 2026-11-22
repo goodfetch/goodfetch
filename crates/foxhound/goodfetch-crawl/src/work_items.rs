@@ -1954,6 +1954,23 @@ pub(crate) fn readmitted(blocked: bool) -> &'static [&'static str] {
     }
 }
 
+/// The Labels of the work items [`readmit`] would re-admit with `blocked`
+/// now, each once, in order. A sitemap's fetch, whose Label is the
+/// engine's empty one, is none of them.
+pub(crate) fn readmitted_labels(
+    connection: &Connection,
+    blocked: bool,
+) -> rusqlite::Result<Vec<String>> {
+    let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
+    connection
+        .prepare_cached(
+            "SELECT DISTINCT label FROM work_items
+             WHERE status IN (SELECT value FROM json_each(?1)) AND label <> '' ORDER BY label",
+        )?
+        .query_map([statuses], |row| row.get(0))?
+        .collect()
+}
+
 /// How many work items [`readmit`] would re-admit with `blocked` now: none
 /// in a run file no crawl wrote.
 pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::Result<u64> {

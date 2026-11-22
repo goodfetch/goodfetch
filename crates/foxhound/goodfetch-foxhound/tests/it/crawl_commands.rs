@@ -304,10 +304,11 @@ fn a_crawls_other_commands_each_print_one_value_of_their_type(#[case] mode: Mode
 }
 
 /// The messages a command's Connection carried, from its `trace` records
-/// on stderr: one line per direction, kind and method, with how many, in
-/// the order each first came.
+/// on stderr: one line per direction, kind and method, with how many and
+/// their bytes after the shared redactions, which the CLI measures, in the
+/// order each first came.
 fn protocol_counts(stderr: &str) -> String {
-    let mut counted: Vec<(String, usize)> = Vec::new();
+    let mut counted: Vec<(String, usize, usize)> = Vec::new();
     for line in stderr.lines() {
         let Some((_, record)) = line.split_once("goodfetch::cli::wire: message ") else {
             continue;
@@ -326,30 +327,41 @@ fn protocol_counts(stderr: &str) -> String {
             field("kind"),
             field("method")
         );
-        match counted.iter_mut().find(|(seen, _)| *seen == key) {
-            Some((_, count)) => *count += 1,
-            None => counted.push((key, 1)),
+        let bytes: usize = field("bytes")
+            .parse()
+            .expect("a wire record names its bytes");
+        match counted.iter_mut().find(|(seen, ..)| *seen == key) {
+            Some((_, count, total)) => {
+                *count += 1;
+                *total += bytes;
+            }
+            None => counted.push((key, 1, bytes)),
         }
     }
     counted
         .iter()
-        .fold(String::new(), |mut text, (key, count)| {
-            let _ = writeln!(text, "{count} x {}", key.trim_end());
+        .fold(String::new(), |mut text, (key, count, bytes)| {
+            let _ = writeln!(text, "{count} x {}, {bytes} bytes", key.trim_end());
             text
         })
 }
 
 /// The protocol counts of a followed crawl: the progress reads, each
 /// answering a change, and so the answers, vary with how fast the crawl
-/// goes, so their counts read `N`.
+/// goes, so their counts read `N` and their bytes are left out.
 fn followed_counts(stderr: &str) -> String {
     protocol_counts(stderr)
         .lines()
-        .map(|line| match line.split_once(" x ") {
-            Some((_, key)) if key == "received response" || key.ends_with(" run.progress") => {
-                format!("N x {key}\n")
+        .map(|line| {
+            let (count, key) = line
+                .split_once(" x ")
+                .expect("a protocol count reads `<count> x <key>`");
+            match key.rsplit_once(", ") {
+                Some((key, _)) if key == "received response" || key.ends_with(" run.progress") => {
+                    format!("N x {key}\n")
+                }
+                _ => format!("{count} x {key}\n"),
             }
-            _ => format!("{line}\n"),
         })
         .collect()
 }

@@ -21,7 +21,8 @@
     "@types/node": "catalog:",
     "connection-library": "workspace:*",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "4.6.7"
   },
   "engines": {
     "node": ">=24.0.0"

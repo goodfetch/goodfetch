@@ -2415,6 +2415,7 @@ dependencies = [
  "proptest",
  "prost",
  "rcgen",
+ "regex",
  "rstest",
  "rusqlite",
  "rustls",

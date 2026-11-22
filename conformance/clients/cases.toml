@@ -449,9 +449,7 @@ id = "interrupt-cancels-the-call"
 covers = ["story:11-198"]
 surfaces = ["cli"]
 modes = ["attached"]
-# Its test sends SIGINT; the Windows half, CTRL_BREAK_EVENT, has no test yet
-# (spec #326's review, SP-3).
-platforms = ["unix"]
+# Its test sends SIGINT on Unix and CTRL_BREAK_EVENT on Windows (issue 2342).
 
 # A call's own `timeout` in its three states (ADR 0080; issue 2827): left
 # out it is not sent, so the setting's default applies, null sends null, no

@@ -90,7 +90,7 @@ if TYPE_CHECKING:
         RunStarted,
         SettingsExplanation,
     )
-    from goodfetch_collie_client.generated.settings import RunSettings, Settings
+    from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
@@ -259,7 +259,7 @@ class ClientConnection:
         connect_timeout: int | NotGiven | None = not_given,
         connect_started_at: float | None = None,
         listener_queue: int = MAX_LISTENER_QUEUE,
-        settings: Settings | None = None,
+        settings: Mapping[str, object] | None = None,
         bounds: ChannelBounds | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
@@ -267,10 +267,11 @@ class ClientConnection:
         Then each of `limits`, the wire's list of the Connection's Limits,
         is set on it. `reached` says how the engine was reached, and
         `daemon` gives a Daemon's token, which `hello` carries, as it
-        carries `settings`, the Connection's own (ADR 0083), by their wire
-        spelling. A key the engine refuses, such as one outside the
-        Connection's scope (`setting_not_applicable`), fails the opening
-        with the engine's error. `listener_queue`, already checked by
+        carries `settings`, the Connection's own (ADR 0083), typed by the
+        Product's package, by their wire spelling. A key the engine refuses,
+        such as one outside the Connection's scope
+        (`setting_not_applicable`), fails the opening with the engine's
+        error. `listener_queue`, already checked by
         `listener_queue_of`, bounds the queue of each listener of its own
         Subscription; `bounds`, already checked by `bounds_of`, bound its
         calls from `hello` on, the defaults' when left out.
@@ -518,7 +519,7 @@ class ClientConnection:
         daemon: DaemonHello | None,
         connect_timeout: int | NotGiven | None,
         connect_started_at: float,
-        settings: Settings | None,
+        settings: Mapping[str, object] | None,
     ) -> None:
         params = HelloParams(
             protocol_version=ProtocolVersion(PROTOCOL_VERSION),

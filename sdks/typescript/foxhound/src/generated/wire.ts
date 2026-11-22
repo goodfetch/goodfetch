@@ -8,6 +8,7 @@ import type { FoxhoundOperationTypes } from "./operations.ts";
 export type FoxhoundWireType =
   | CollieWireType
   | "CertificateExceptionMark"
+  | "CrawlConcurrency"
   | "CrawlExtraction"
   | "CrawlHookHandleParams"
   | "CrawlRequestEnqueueLinksParams"
@@ -17,6 +18,7 @@ export type FoxhoundWireType =
   | "CrawlRequestOutcome"
   | "CrawlRequestOutcomes"
   | "CrawlRequestPushParams"
+  | "CrawlRunProgress"
   | "CrawlRunReport"
   | "CrawlStartParams"
   | "DatasetListParams"
@@ -28,12 +30,15 @@ export type FoxhoundWireType =
   | "ExportSaveAsParams"
   | "ExportStreamParams"
   | "FailedRequests"
+  | "HeldDomain"
+  | "InFlightRequest"
   | "NotAddedAtCommit"
   | "PaymentMark"
   | "RecordProvenance"
   | "RejectedRecord"
   | "RejectedRecords"
   | "RequestCounts"
+  | "RequestProgress"
   | "ResponseOrigin"
   | "RunAddSeedParams"
   | "RunAddSeedsParams"
@@ -50,13 +55,15 @@ export type FoxhoundWireType =
   | "SinkReport"
   | "SitemapReport"
   | "TierProvenance"
-  | "TransformProvenance";
+  | "TransformProvenance"
+  | "WaitGroup";
 
 /** Where Foxhound's types, operation params and results and event payloads hold fields the engine names otherwise, and points in time, which a program reads as `Date`s (ADRs 0092 and 0099). */
 export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof FoxhoundEventPayloads & string, FoxhoundWireType> = {
   types: {
     ...collieWire.types,
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
+    "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRequestEnqueueLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
@@ -66,6 +73,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlRequestOutcome": { union: { tag: "kind", known: ["succeeded", "failed", "skipped", "blocked"], path: { fields: { "ended_at": ["endedAt", "time"], "not_added": ["notAdded", { items: { type: "NotAddedAtCommit" } }], "nothing_committed": "nothingCommitted" } }, common: { fields: { "ended_at": ["endedAt", "time"] } } } },
     "CrawlRequestOutcomes": { fields: { "outcomes": ["outcomes", { items: { type: "CrawlRequestOutcome" } }] } },
     "CrawlRequestPushParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
+    "CrawlRunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "concurrency": ["concurrency", { type: "CrawlConcurrency" }], "in_flight": ["inFlight", { items: { type: "InFlightRequest" } }], "pauses": ["pauses", { items: { type: "HumanPause" } }], "requests": ["requests", { type: "RequestProgress" }], "run_id": "runId", "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }], "waiting": ["waiting", { items: { type: "WaitGroup" } }] } },
     "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "CrawlStartParams": { fields: { "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "DatasetListParams": { fields: { "run_id": "runId" } },
@@ -77,12 +85,15 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportStreamParams": { fields: { "export_id": "exportId" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
+    "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
+    "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
     "NotAddedAtCommit": { fields: { "duplicate_of": "duplicateOf" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RejectedRecord": { fields: { "request_id": "requestId" } },
     "RejectedRecords": { fields: { "records": ["records", { items: { type: "RejectedRecord" } }] } },
     "RequestCounts": { fields: { "by_block_cause": "byBlockCause", "by_error_code": "byErrorCode", "by_skip_reason": "bySkipReason" } },
+    "RequestProgress": { fields: { "by_block_cause": "byBlockCause", "by_error_code": "byErrorCode", "by_skip_reason": "bySkipReason", "in_human_pause": "inHumanPause" } },
     "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
     "RunAddSeedParams": { fields: { "attempt": ["attempt", { type: "SeedAttempt" }], "run_id": "runId" } },
     "RunAddSeedsParams": { fields: { "run_id": "runId" } },
@@ -100,6 +111,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "SitemapReport": { fields: { "not_added": "notAdded", "not_added_by_reason": "notAddedByReason" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
+    "WaitGroup": { fields: { "domains": ["domains", { items: { type: "HeldDomain" } }], "more_domains": "moreDomains" } },
   },
   params: {
     "crawl.serve": { type: "RunParams" },

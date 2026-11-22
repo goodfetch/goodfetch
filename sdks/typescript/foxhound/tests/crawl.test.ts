@@ -4,14 +4,42 @@
 // the `catalog` family and the oracle judges its Records, and a handler
 // that fails its first attempt shows the Crawl request delivered again and
 // the failed attempt's Record never committed (ADRs 0003 and 0093).
-import { Foxhound, seed, type CrawlSettings, type DatasetRecord } from "@goodfetch/foxhound";
+import {
+  Crawl,
+  Foxhound,
+  PayloadInvalidError,
+  seed,
+  type CrawlSettings,
+  type DatasetRecord,
+} from "@goodfetch/foxhound";
 import { judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
+import { z } from "zod";
 import { catalog, listing, products } from "./programs/catalog.ts";
 import { failsOnce } from "./programs/fails-once.ts";
 
 /** The settings every crawl here runs with: its pages over `http`, one handler call at a time. */
 const settings: CrawlSettings = { fetch: { tier: "http" }, crawl: { handler: { concurrency: 1 } } };
+
+/** What a `payload_invalid` names: its Label, each issue's path, and the setting a Payload too long passes. */
+function refusal(error: unknown): {
+  readonly label: unknown;
+  readonly paths: unknown[];
+  readonly limit: unknown;
+} {
+  if (!(error instanceof PayloadInvalidError)) {
+    throw new Error(`expected a PayloadInvalidError, got ${String(error)}`, { cause: error });
+  }
+  const { details } = error;
+  const issues = Array.isArray(details["issues"]) ? (details["issues"] as unknown[]) : [];
+  return {
+    label: details["label"],
+    paths: issues.map((issue) =>
+      typeof issue === "object" && issue !== null && "path" in issue ? issue.path : undefined,
+    ),
+    limit: details["limit"] ?? undefined,
+  };
+}
 
 /** Runs a crawl from `start` whose handler fails its first attempt, then reads its Dataset. */
 async function crawlFailingOnce(
@@ -62,6 +90,74 @@ describe("a program's crawls on an Attached engine", () => {
       await clientCase.check("the oracle accepts the Records", () =>
         expect(answer.outcome).toBe("verified"),
       );
+    },
+  );
+
+  test(
+    "refuses a Payload its Label's schema refuses, one not JSON and one longer than crawl.payload.max_size with payload_invalid, on a seed and at enqueue",
+    {
+      tags: [
+        "attached",
+        "story:11-1018",
+        "error:payload_invalid",
+        "setting:crawl.payload.max_size",
+        "operation:crawl.start",
+        "operation:crawl_request.enqueue",
+      ],
+    },
+    async ({ env, provingGround }) => {
+      const start = await taskStartUrl(provingGround, "catalog/1");
+      const crawl = new Crawl();
+      const page = crawl.label("page");
+      // Zod's own parse checks this one in the program, before anything is sent.
+      const shelf = crawl.label("shelf", { payload: z.object({ number: z.number().min(1) }) });
+      // A hand-written JSON Schema has no parse in the program: the engine checks it.
+      const book = crawl.label("book", {
+        payload: { type: "object", properties: { isbn: { type: "string" } }, required: ["isbn"] },
+      });
+      const refused: unknown[] = [];
+      crawl.handle(page, async (context) => {
+        const long = { isbn: "9".repeat(65 * 1024) };
+        for (const enqueued of [
+          context.enqueue("/shelf", shelf, { number: 0 }),
+          context.enqueue("/isbn", book, { isbn: 7 }),
+          context.enqueue("/long", book, long),
+        ]) {
+          await enqueued.catch((error: unknown) => refused.push(error));
+        }
+      });
+      crawl.handle(shelf, () => undefined);
+      crawl.handle(book, () => undefined);
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const foxhound = await Foxhound.connect({ env });
+
+      // `seed` itself refuses a Payload that is not JSON; `startCrawl` the others.
+      const seeds = [
+        () => seed(start, shelf, { number: 0 }),
+        () => seed(start, shelf, { number: Number.NaN }),
+        () => seed(start, book, { isbn: 7 }),
+      ];
+      const seedsRefused: unknown[] = [];
+      for (const refusedSeed of seeds) {
+        await Promise.resolve()
+          .then(async () => foxhound.startCrawl(crawl, { seeds: [refusedSeed()], settings }))
+          .catch((error: unknown) => seedsRefused.push(error));
+      }
+      const run = await foxhound.startCrawl(crawl, { seeds: [seed(start, page)], settings });
+      const report = await run.finish();
+      await foxhound.close();
+
+      expect(seedsRefused.map(refusal)).toEqual([
+        { label: "shelf", paths: ["/number"], limit: undefined },
+        { label: "shelf", paths: ["/number"], limit: undefined },
+        { label: "book", paths: ["/isbn"], limit: undefined },
+      ]);
+      expect(refused.map(refusal)).toEqual([
+        { label: "shelf", paths: ["/number"], limit: undefined },
+        { label: "book", paths: ["/isbn"], limit: undefined },
+        { label: "book", paths: [], limit: "crawl.payload.max_size" },
+      ]);
+      expect(report.lifecycle).toBe("finished");
     },
   );
 

@@ -426,10 +426,18 @@ impl TestEnv {
 
     /// Starts a command with its standard input and output piped and records
     /// its process, which must have exited when the test's teardown runs.
+    /// On Windows it starts in a process group of its own, so that
+    /// [`Process::interrupt`]'s `CTRL_BREAK_EVENT` reaches it alone and not
+    /// the test.
     pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
         let program = Path::new(command.get_program())
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
+        }
         let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

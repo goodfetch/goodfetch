@@ -1,7 +1,10 @@
 use rstest::rstest;
 use serde_json::json;
 
+use goodfetch_protocol::catalog::Product;
+
 use super::emit;
+use crate::codegen::projection::project;
 
 #[test]
 fn the_bundle_holds_the_schema_of_the_releases_file() {
@@ -535,4 +538,41 @@ fn the_bundle_holds_the_block_cause_type_with_every_cause() {
             "rate_limit"
         ]
     );
+}
+
+/// The types a crawl's `run.progress` value holds, which only Foxhound's
+/// SDKs type (ADR 0102).
+const CRAWL_PROGRESS_TYPES: [&str; 5] = [
+    "CrawlRunProgress",
+    "RequestProgress",
+    "WaitGroup",
+    "InFlightRequest",
+    "CrawlConcurrency",
+];
+
+#[test]
+fn the_catalog_lists_a_crawls_parts_of_run_progress_which_only_foxhound_reaches() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.catalog["kind_parts"],
+        json!([{
+            "name": "run.progress",
+            "product": "foxhound",
+            "kind": "crawl",
+            "description": emitted.catalog["kind_parts"][0]["description"],
+            "type": { "$ref": "#/$defs/CrawlRunProgress" },
+            "arrived_in": "0.1",
+        }])
+    );
+    let foxhound = project(&emitted.catalog, &emitted.bundle, Product::Foxhound).unwrap();
+    let collie = project(&emitted.catalog, &emitted.bundle, Product::Collie).unwrap();
+    for name in CRAWL_PROGRESS_TYPES {
+        assert!(
+            foxhound["$defs"].get(name).is_some(),
+            "Foxhound reaches {name}"
+        );
+        assert!(collie["$defs"].get(name).is_none(), "Collie reaches {name}");
+    }
+    assert_eq!(collie["kind_parts"], json!([]));
 }

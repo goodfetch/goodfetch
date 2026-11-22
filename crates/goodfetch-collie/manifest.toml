@@ -795,15 +795,6 @@ form = "type"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "executable::engine_choice"
-member = "WIRE_TARGET"
-entry = "none"
-reason = "The `tracing` target of the records of the messages a command's Connection carries, from which a test counts them (ADR 0071's protocol counts)."
-words = ["wire", "target"]
-form = "constant"
-
-[[member]]
-crate = "goodfetch-collie"
-receiver = "executable::engine_choice"
 member = "call"
 entry = "none"
 reason = "Calls `call` on the engine `reach` chooses: the Daemon, or an Attached engine in this process, `engine` on `dependencies`; either opened by a Client that needs `needs`, on a runtime whose threads the machine's settings choose."

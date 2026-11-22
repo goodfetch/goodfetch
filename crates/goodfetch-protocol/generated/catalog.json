@@ -605,7 +605,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+      "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1976,6 +1976,18 @@
       "description": "After the sample crawl visits a page.",
       "name": "sample_crawled_page",
       "product": "foxhound"
+    }
+  ],
+  "kind_parts": [
+    {
+      "arrived_in": "0.1",
+      "description": "A crawl's progress: every Run's, with its requests by state, why its due requests wait, its requests in flight, its sitemaps, whether a keep-alive crawl is idle, and its concurrency.",
+      "kind": "crawl",
+      "name": "run.progress",
+      "product": "foxhound",
+      "type": {
+        "$ref": "#/$defs/CrawlRunProgress"
+      }
     }
   ],
   "metrics": [
@@ -4328,7 +4340,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.",
+      "description": "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. A request to retry whose Label the crawl no longer declares, which a resume may drop, fails the call with `label_unknown`, naming that Label and those declared, and nothing is re-admitted: on an ended Run, against the Labels its latest start declared, before the Run returns to `running`. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.",
       "events": [],
       "kind": "round_trip",
       "name": "run.retry_failed",

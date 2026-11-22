@@ -6,8 +6,12 @@
 // `hello`, the Connection's own, though opened in the span. The Scripted
 // engine fails on params it does not expect and on a step left unused, so a
 // play with no warning, or a Daemon's clean exit, says each call carried
-// exactly that. Rust's `trace_context.rs` and Python's
+// exactly that. Where `@opentelemetry/api` does not resolve, a program
+// imports the SDK, which tries no OpenTelemetry import, and its call sends
+// no `_meta` and fails nothing. Rust's `trace_context.rs` and Python's
 // `test_trace_context.py` are its twins.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Collie } from "@goodfetch/collie";
 import {
   recordingLogger,
@@ -105,6 +109,35 @@ describe("the program's Trace context on the Scripted engine", () => {
         "the Daemon read each call's `_meta` as the script holds it and played to its end",
         () => expect(exit).toMatchObject({ code: 0 }),
       );
+    },
+  );
+
+  test(
+    "without `@opentelemetry/api`, the SDK tries none of it at import and a call sends no `_meta`",
+    { tags: ["attached", "story:11-138"] },
+    async ({ testEnv, processes }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/without-opentelemetry.json");
+      const out = join(testEnv.folder, "without-opentelemetry.json");
+      const program = processes.spawn(
+        process.execPath,
+        [join(import.meta.dirname, "fixtures", "without-opentelemetry.ts"), out],
+        { env },
+      );
+      const stderr: Buffer[] = [];
+      program.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+      program.child.stdin.end();
+
+      const exit = await program.exit;
+
+      expect({ exit, stderr: Buffer.concat(stderr).toString() }).toEqual({
+        exit: { code: 0, signal: null },
+        stderr: "",
+      });
+      // The SDK loads the API once a Connection opens, not at import; the
+      // load refused, the call the engine read carried no `_meta`.
+      expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({
+        tried: [{ stage: "connect", specifier: "@opentelemetry/api" }],
+      });
     },
   );
 });

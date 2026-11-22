@@ -54,9 +54,6 @@ use crate::tasks::TaskOwner;
 /// What a host's certificate may chain to beside Mozilla's roots.
 #[derive(Clone, Debug, Default)]
 pub struct Trust {
-    /// Trusted for every host: an Operator-configured endpoint's own
-    /// authorities, which it reaches alone.
-    everywhere: Vec<CertificateDer<'static>>,
     /// Trusted for a domain and its subdomains.
     by_domain: ListedDomains<Vec<CertificateDer<'static>>>,
 }
@@ -117,9 +114,9 @@ impl std::error::Error for CertificateInvalid {}
 pub struct TrustScope {
     /// The listed domain, `None` for the hosts no listed domain covers.
     pub domain: Option<String>,
-    /// The authorities trusted there beside Mozilla's roots: those trusted
-    /// everywhere, then the domain's own, then its parents', the most
-    /// specific first.
+    /// The authorities trusted there beside Mozilla's roots: the domain's
+    /// own, then its parents', the most specific first; none for the hosts
+    /// no listed domain covers.
     pub authorities: Vec<CertificateDer<'static>>,
 }
 
@@ -135,15 +132,6 @@ impl Trust {
     /// Mozilla's roots alone.
     pub fn default_roots() -> Self {
         Self::default()
-    }
-
-    /// An Operator-configured endpoint's own certificate authorities,
-    /// trusted beside Mozilla's roots for the endpoint, never a site.
-    pub(crate) fn endpoint(authorities: &[CertificateDer<'static>]) -> Self {
-        Self {
-            everywhere: authorities.to_vec(),
-            by_domain: ListedDomains::new(),
-        }
     }
 
     /// Trusts `authorities` for `domain`, a host or a registrable domain
@@ -164,18 +152,13 @@ impl Trust {
         Ok(self)
     }
 
-    /// The authorities trusted for `host` beside Mozilla's roots: those
-    /// trusted everywhere, then those of each listed domain that covers
-    /// it, the most specific first.
+    /// The authorities trusted for `host` beside Mozilla's roots: those of
+    /// each listed domain that covers it, the most specific first.
     fn authorities_for(&self, host: &str) -> Vec<&CertificateDer<'static>> {
-        self.everywhere
-            .iter()
-            .chain(
-                self.by_domain
-                    .covering(host)
-                    .into_iter()
-                    .flat_map(|(_, authorities)| authorities),
-            )
+        self.by_domain
+            .covering(host)
+            .into_iter()
+            .flat_map(|(_, authorities)| authorities)
             .collect()
     }
 
@@ -205,7 +188,7 @@ impl Trust {
     pub fn scopes(&self) -> Vec<TrustScope> {
         let everywhere = TrustScope {
             domain: None,
-            authorities: self.everywhere.clone(),
+            authorities: Vec::new(),
         };
         let listed = self.by_domain.iter().map(|(domain, _)| TrustScope {
             domain: Some(domain.to_owned()),
@@ -526,7 +509,7 @@ impl Verifier {
         let build = |extra: &[&CertificateDer<'static>]| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            for certificate in trust.everywhere.iter().chain(extra.iter().copied()) {
+            for &certificate in extra {
                 // A certificate that is no CA certificate trusts nothing;
                 // it is the setting's to refuse, not the request's.
                 let _ = roots.add(certificate.clone());

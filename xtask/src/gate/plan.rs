@@ -23,6 +23,7 @@ pub(crate) enum Step {
     Audit,
     Notices,
     Perf,
+    Counts,
     Linux,
     Visual,
     Tlc,
@@ -64,7 +65,7 @@ enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 24] = [
+    pub(crate) const ALL: [Self; 25] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -72,6 +73,7 @@ impl Step {
         Self::Audit,
         Self::Notices,
         Self::Perf,
+        Self::Counts,
         Self::Linux,
         Self::Visual,
         Self::Tlc,
@@ -107,6 +109,7 @@ impl Step {
             Self::FeaturesTests => "features-tests",
             Self::Notices => "notices",
             Self::Perf => "perf",
+            Self::Counts => "counts",
             Self::Linux => "linux",
             Self::Visual => "visual",
             Self::Quick => "quick",
@@ -136,7 +139,9 @@ impl Step {
             | Self::FeaturesTests
             | Self::Notices => Reach::Always,
             Self::Lint | Self::FeatureCombinations | Self::FuzzCheck | Self::Proofs => Reach::Tree,
-            Self::Perf => Reach::Job(Job::Perf),
+            // The counted rows read the benchmarks perf reads, and judge them
+            // against the register's limits, never against the base.
+            Self::Perf | Self::Counts => Reach::Job(Job::Perf),
             // On a Linux host the Pre-merge suite runs these tests itself;
             // elsewhere they are a slice of it, in a container.
             Self::Linux => Reach::Job(Job::PreMerge),
@@ -181,6 +186,7 @@ impl Step {
         matches!(
             self,
             Self::Perf
+                | Self::Counts
                 | Self::Linux
                 | Self::Visual
                 | Self::Tlc
@@ -285,19 +291,25 @@ const NARROWED: [Narrowed; 47] = [
         member: Some(XTASK),
     },
     // What one step of those a run on another tree may reuse runs or reads.
-    read_by("ci/perf.sh", &[Step::Perf]),
+    read_by("ci/perf.sh", &[Step::Perf, Step::Counts]),
     read_by("ci/perf-reference.toml", &[Step::Perf]),
     read_by("ci/linux.sh", &[Step::Linux]),
     // ci/vm/common.sh, which ci/perf.sh and ci/linux.sh source, reads the pin.
     read_by(
         "ci/visual/image.toml",
-        &[Step::Perf, Step::Linux, Step::Visual],
+        &[Step::Perf, Step::Counts, Step::Linux, Step::Visual],
     ),
     read_by("ci/visual", &[Step::Visual]),
     read_by("ci/vm/visual.sh", &[Step::Visual]),
     read_by(
         "ci/container.sh",
-        &[Step::Perf, Step::Linux, Step::Visual, Step::Windows],
+        &[
+            Step::Perf,
+            Step::Counts,
+            Step::Linux,
+            Step::Visual,
+            Step::Windows,
+        ],
     ),
     read_by("ci/msrv.sh", &[Step::Msrv]),
     read_by("ci/miri.toml", &[Step::Miri]),
@@ -426,6 +438,37 @@ impl Touched {
     }
 }
 
+/// The local layer that ran a unit, which every result of the shared record
+/// names (ADR 0135's amendment of 2026-11-22): every layer plans with the
+/// one planner over the one record, so a unit any of them ran green on a
+/// tree runs on it no more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Layer {
+    /// `just merge`'s gate, or `just pre-merge` run by hand.
+    Merge,
+    /// `just preflight`: the gate host's units of the full gate, alone.
+    Preflight,
+    /// The backstop's full run on `main`'s head.
+    Backstop,
+}
+
+impl Layer {
+    /// The layer's name in the record and on `gate record --by`.
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Merge => "merge",
+            Self::Preflight => "preflight",
+            Self::Backstop => "backstop",
+        }
+    }
+
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        [Self::Merge, Self::Preflight, Self::Backstop]
+            .into_iter()
+            .find(|layer| layer.name() == name)
+    }
+}
+
 /// A recorded result of one unit: a whole step, or a step's tests of one
 /// member.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -437,6 +480,8 @@ pub(crate) struct Outcome {
     /// When it ran, in seconds since the Unix epoch; for a result that counted
     /// earned passes, when the first run that gave one began.
     pub(crate) at: u64,
+    /// The layer that ran it; a result carried into a later record keeps it.
+    pub(crate) by: Layer,
     /// The head the earliest passes ran on, for a stress result that counted
     /// [`EarnedPasses`]. The result rests on a run this head never saw, so the
     /// backstop stresses it again.

@@ -18,6 +18,7 @@ env = ["crash_dumps", "exercise", "facts", "locales", "process", "runtime_file",
 exercise = ["facts", "variables"]
 facts = []
 fuzz = []
+host_test = ["env"]
 hostile = []
 invariants = ["observation"]
 journey_run = ["env", "proving_ground", "proving_ground_format", "variables"]

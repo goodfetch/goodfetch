@@ -244,10 +244,12 @@ impl LightBrowser {
                     ),
                     run.owner().blocking_threads(),
                 );
-                let fetching = run.settings().map_or_else(
-                    || Fetching::new(run.clock()),
-                    |settings| Fetching::of(settings.resolved(), run.clock()),
-                );
+                let fetching = match run.settings() {
+                    Some(settings) => {
+                        Fetching::of(settings.resolved(), run.clock(), run.owner()).await
+                    }
+                    None => Fetching::new(run.clock()),
+                };
                 let now = run.clock().timestamp();
                 prepare(&cache, &pin, pinned_by, &fetching, now)
                     .await

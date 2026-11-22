@@ -323,8 +323,9 @@ while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
 done
 [[ -z $waiting_for ]] || read_pull_request
 
+here=$(cd "$(dirname "$0")" && pwd)
 # This checkout's compiler cache check, which the gate runs in its own.
-compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
+compiler_cache=$here/compiler-cache.sh
 
 # A failing gate's log and test results are kept in the repository's common
 # folder, which no checkout's clean, no worktree removal and no sweep of the
@@ -517,7 +518,7 @@ fi
 # reused from earlier runs on ancestor heads (ADR 0135); the full gate's plan
 # names the nearest such run. A gate that ran on a dirty tree leaves no plan,
 # and so reused nothing.
-plan_file="$worktree/target/gate-runs/$head.plan"
+plan_file="$(cd "$worktree" && "$here/gate-records.sh")/$head.plan"
 if [[ $gate == all && -f $plan_file ]]; then
   plan=$(cat "$plan_file")
   reused=$(output_value previous "$plan")

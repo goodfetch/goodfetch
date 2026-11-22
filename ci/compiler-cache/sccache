@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# The Rust compiler wrapper (RUSTC_WRAPPER) the justfile's recipes build
+# through where the build's own wrapper is sccache (issue 3231; TESTING.md,
+# Compiler cache). It runs that sccache, saved in GOODFETCH_SCCACHE, with
+# the same arguments, except for the C and C++ compiles of DuckDB's bundled
+# sources (`libduckdb-sys`'s build script), which it makes independent of
+# where the build keeps them.
+#
+# The build script unpacks DuckDB's sources into its OUT_DIR,
+# `<target>/<profile>/build/libduckdb-sys-<hash>/out`, and the `cc` crate
+# names every source, include folder and object by its absolute path there.
+# sccache keys a compile on its arguments and its preprocessed source, both
+# holding those paths; its base directories strip only the checkout's
+# folder, so each profile (dev and test, ci-test, release, ci, bench), each
+# target folder outside a listed checkout (trybuild's `tests/trybuild`, a
+# scratch `CARGO_TARGET_DIR`) and each Cargo.lock bump of a build
+# dependency compiled the same 315 files again. Here such a compile runs
+# from OUT_DIR, with every argument under it made relative to it: the
+# compiler, the defines, the flags, the target and the sources still make
+# the key, the folder no longer does. A relative include folder the build
+# script passed (`-I duckdb`, which names nothing in the package's folder)
+# is made absolute against the folder the build script ran from, so the
+# compiler searches the same folders as before. `__FILE__` in DuckDB's
+# sources then names `duckdb/src/…` instead of the build's absolute path.
+#
+# The `cc` crate sends a build script's C and C++ compiles through
+# RUSTC_WRAPPER only when its file is named sccache, and so does
+# ci/compiler-launcher.sh for CMake, hence this file's name. Every other
+# call, Rust compiles and `--show-stats` included, reaches sccache
+# unchanged. Without that sccache it fails, as a missing RUSTC_WRAPPER does.
+# The build script passes sources, objects and include folders (`-I`) by
+# path, and the `cc` crate no other path for DuckDB, so only those move.
+set -euo pipefail
+
+self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+saved=${GOODFETCH_SCCACHE:-sccache}
+sccache=$(command -v "$saved" || true)
+if [[ -z "$sccache" || "$(cd "$(dirname "$sccache")" && pwd -P)/$(basename "$sccache")" == "$self" ]]; then
+  echo "error: $0 runs the sccache saved in GOODFETCH_SCCACHE, and $saved is missing or this script" >&2
+  exit 2
+fi
+run() {
+  exec "$sccache" "$@"
+}
+
+out=${OUT_DIR:-}
+out=${out%/}
+compiler=${1:-}
+case "${compiler##*/}" in
+  rustc | rustc.exe | clippy-driver | clippy-driver.exe) run "$@" ;;
+esac
+if [[ "${CARGO_PKG_NAME:-}" != libduckdb-sys || -z "$out" || -z "$compiler" ]]; then
+  run "$@"
+fi
+
+shift
+under_out=false
+
+# Sets `path` to path $1 as the compile sees it from OUT_DIR: relative to
+# OUT_DIR when under it, absolute against the build script's folder when
+# relative.
+relocate() {
+  case "$1" in
+    "$out") under_out=true path=. ;;
+    "$out"/*) under_out=true path=${1#"$out"/} ;;
+    /*) path=$1 ;;
+    *) path="$PWD/$1" ;;
+  esac
+}
+
+arguments=()
+path_follows=false
+for argument in "$@"; do
+  if $path_follows; then
+    relocate "$argument"
+    argument=$path
+    path_follows=false
+  else
+    case "$argument" in
+      "$out" | "$out"/*)
+        relocate "$argument"
+        argument=$path
+        ;;
+      -I) path_follows=true ;;
+      -I?*)
+        relocate "${argument#-I}"
+        argument="-I$path"
+        ;;
+    esac
+  fi
+  arguments+=("$argument")
+done
+# A call that names nothing under OUT_DIR is left as the build script made it.
+$under_out || run "$compiler" "$@"
+cd "$out"
+run "$compiler" "${arguments[@]}"

@@ -33,7 +33,7 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A Connection to the Scripted engine's Daemon at `endpoint`, on the
 /// test's runtime.
-async fn connect(endpoint: DaemonEndpoint) -> ClientConnection {
+pub(crate) async fn connect(endpoint: DaemonEndpoint) -> ClientConnection {
     let (connection, _said) = ClientConnection::open(
         ConnectionRuntime::driven(tokio::runtime::Handle::current()),
         &Network::Os,
@@ -47,7 +47,7 @@ async fn connect(endpoint: DaemonEndpoint) -> ClientConnection {
 
 /// Waits for the Scripted engine to exit and checks it played its script
 /// whole and was sent nothing else.
-fn assert_played_whole(process: &goodfetch_test_support::Process) {
+pub(crate) fn assert_played_whole(process: &goodfetch_test_support::Process) {
     let status = process.child().wait().unwrap();
     assert!(
         status.success(),

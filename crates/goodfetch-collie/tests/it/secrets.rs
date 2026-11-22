@@ -521,25 +521,22 @@ fn with_no_keychain_on_the_host_the_key_reference_defaults_to_the_encrypted_loca
 /// The real OS keychain (TESTING.md, Storage, network and OS services):
 /// each item under a service named for its test, removed after it; on
 /// Linux the child finds the Secret Service through the session bus the
-/// test was given, and on macOS the user's keychains, which the test
-/// links into its own `HOME`. A host without the service skips this
-/// module.
+/// test was given, and on macOS a keychain of the test's own, the default
+/// of its own `HOME`. A host without the service skips this module.
 mod keychain {
-    use goodfetch_engine::secrets::Keychain;
-    use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
     use goodfetch_test_support::TestEnv;
     use serde_json::json;
 
     use super::{audited, explained_key_reference, leaks, planted, started};
 
     /// The variables that lead a child to this session's keychain, once
-    /// [`reach_the_users_keychain`] gave `env` the user's on macOS.
+    /// [`keychain_of_its_own`] gave `env` one on macOS.
     #[expect(
         clippy::disallowed_methods,
         reason = "the test forwards its own session's bus to the child it starts (TESTING.md)"
     )]
     fn session(env: &TestEnv) -> Vec<(&'static str, String)> {
-        reach_the_users_keychain(env);
+        keychain_of_its_own(env);
         ["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]
             .into_iter()
             .filter_map(|name| {
@@ -548,74 +545,164 @@ mod keychain {
             .collect()
     }
 
-    /// Links the user's keychains and keychain preferences into `env`'s
-    /// `HOME`, where macOS's Security framework looks for the user's
-    /// default keychain (`Library/Keychains`, `Library/Preferences/
-    /// com.apple.security.plist`); without them a child has none. A source
-    /// the user does not have is left out.
+    /// Makes a keychain of `env`'s own the default of its `HOME`, under
+    /// which macOS's Security framework finds a user's default keychain:
+    /// made and unlocked with a throwaway password, as `ci/os-services.sh`
+    /// makes the job's, it holds this test's items alone and leaves the
+    /// user's keychains untouched. `security` writes the default into
+    /// `$HOME/Library/Preferences/com.apple.security.plist` and, where that
+    /// folder is missing, writes nothing and still succeeds, so the folder
+    /// is made first and the default read back.
     #[cfg(target_os = "macos")]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test leads the child it starts to its own user's keychain (TESTING.md)"
-    )]
-    fn reach_the_users_keychain(env: &TestEnv) {
-        let real = std::path::PathBuf::from(std::env::var_os("HOME").expect("the test has a HOME"));
-        let user = std::path::Path::new(&env.env()["HOME"]);
-        for part in [
-            "Library/Keychains",
-            "Library/Preferences/com.apple.security.plist",
-        ] {
-            let source = real.join(part);
-            if source.exists() {
-                let link = user.join(part);
-                std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-                std::os::unix::fs::symlink(&source, &link).unwrap();
-            }
-        }
+    fn keychain_of_its_own(env: &TestEnv) {
+        let path = own_keychain(env);
+        let home = std::path::Path::new(&env.env()["HOME"]);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(home.join("Library/Preferences")).unwrap();
+        let (path, password) = (path.to_str().unwrap(), throwaway_password(env));
+        security(env, &["create-keychain", "-p", &password, path]);
+        security(env, &["unlock-keychain", "-p", &password, path]);
+        security(env, &["set-keychain-settings", path]);
+        security(env, &["list-keychains", "-d", "user", "-s", path]);
+        security(env, &["default-keychain", "-d", "user", "-s", path]);
+        let default = security(env, &["default-keychain", "-d", "user"]);
+        assert!(
+            default.contains("goodfetch-test.keychain-db"),
+            "the test's keychain is not its HOME's default: {default}"
+        );
     }
 
     /// Elsewhere the variables [`session`] passes on are enough.
     #[cfg(not(target_os = "macos"))]
-    fn reach_the_users_keychain(_env: &TestEnv) {}
+    fn keychain_of_its_own(_env: &TestEnv) {}
+
+    /// The keychain [`keychain_of_its_own`] makes in `env`'s `HOME`.
+    #[cfg(target_os = "macos")]
+    fn own_keychain(env: &TestEnv) -> std::path::PathBuf {
+        std::path::Path::new(&env.env()["HOME"])
+            .join("Library/Keychains/goodfetch-test.keychain-db")
+    }
+
+    /// The throwaway password of `env`'s own keychain.
+    #[cfg(target_os = "macos")]
+    fn throwaway_password(env: &TestEnv) -> String {
+        format!("goodfetch-test-{:016x}", env.seed())
+    }
+
+    /// Runs macOS's `security` with `arguments` under `env`, as the engine
+    /// runs, its `HOME` the test's own; a failure names the command, never
+    /// a password. Returns what it printed.
+    #[cfg(target_os = "macos")]
+    fn security(env: &TestEnv, arguments: &[&str]) -> String {
+        let output = env
+            .process_command("/usr/bin/security")
+            .args(arguments)
+            .output()
+            .expect("macOS has `security`");
+        assert!(
+            output.status.success(),
+            "`security {}` failed: {}",
+            arguments[0],
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// The partitions an item must name for the engine to read it without a
+    /// confirmation: a program not signed by Apple or a team, as a build of
+    /// the engine is, matches only its own code directory's hash, which
+    /// `codesign` names in its designated requirement (`cdhash H"…"`), or
+    /// `unsigned:` where the linker signed it not at all.
+    #[cfg(target_os = "macos")]
+    fn engine_partitions() -> String {
+        let shown = std::process::Command::new("/usr/bin/codesign")
+            .args(["-d", "-r-", super::COLLIE])
+            .output()
+            .expect("macOS has `codesign`");
+        let shown = format!(
+            "{}{}",
+            String::from_utf8_lossy(&shown.stdout),
+            String::from_utf8_lossy(&shown.stderr)
+        );
+        let mut partitions = "apple-tool:,apple:,unsigned:".to_owned();
+        if let Some(rest) = shown.split("cdhash H\"").nth(1) {
+            let hash: String = rest.chars().take_while(char::is_ascii_hexdigit).collect();
+            partitions = format!("{partitions},cdhash:{hash}");
+        }
+        partitions
+    }
 
     /// Runs `work` against this OS's keychain, on a runtime of real time.
-    fn in_keychain<T>(work: impl AsyncFnOnce(&Keychain, &TaskOwner) -> T) -> T {
+    #[cfg(not(target_os = "macos"))]
+    fn in_keychain<T>(
+        work: impl AsyncFnOnce(
+            &goodfetch_engine::secrets::Keychain,
+            &goodfetch_engine::tasks::TaskOwner,
+        ) -> T,
+    ) -> T {
         let runtime = goodfetch_runtime::current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let keychain = Keychain::os();
-        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let keychain = goodfetch_engine::secrets::Keychain::os();
+        let owner = goodfetch_engine::tasks::TaskOwner::root(
+            goodfetch_engine::tasks::BlockingPolicy::Inline,
+        );
         runtime.block_on(work(&keychain, &owner))
     }
 
-    /// The item of `service`'s `account` in this OS's keychain, removed when
-    /// dropped.
+    /// The item of `service`'s `account` in the keychain an engine under
+    /// the test finds; on Linux removed when dropped, and on macOS gone
+    /// with the test's own keychain.
     struct Item {
         service: String,
         account: &'static str,
     }
 
     impl Item {
-        /// On macOS the item lets any program read it (`security -A`): one
-        /// made through the keychain API trusts only this test binary, and
-        /// the engine's read of it would wait on a confirmation no one sees.
+        /// On macOS, in `env`'s own keychain, made by [`session`] before:
+        /// any program may read the item (`security -A`), and its partitions
+        /// name the engine's, as macOS asks a confirmation no one sees of
+        /// any other program, `-A` or not.
         #[cfg(target_os = "macos")]
-        fn stored(service: String, account: &'static str, value: &str) -> Self {
-            let added = std::process::Command::new("/usr/bin/security")
-                .args(["add-generic-password", "-A", "-U", "-s", &service])
-                .args(["-a", account, "-w", value])
-                .status()
-                .expect("macOS has `security`");
-            assert!(
-                added.success(),
-                "this host has its OS keychain (TESTING.md: `ci/os-services.sh setup`)"
+        fn stored(env: &TestEnv, service: String, account: &'static str, value: &str) -> Self {
+            let (path, password) = (own_keychain(env), throwaway_password(env));
+            let path = path.to_str().unwrap();
+            security(
+                env,
+                &[
+                    "add-generic-password",
+                    "-A",
+                    "-U",
+                    "-s",
+                    &service,
+                    "-a",
+                    account,
+                    "-w",
+                    value,
+                    path,
+                ],
+            );
+            security(
+                env,
+                &[
+                    "set-generic-password-partition-list",
+                    "-S",
+                    &engine_partitions(),
+                    "-s",
+                    &service,
+                    "-a",
+                    account,
+                    "-k",
+                    &password,
+                    path,
+                ],
             );
             Self { service, account }
         }
 
         #[cfg(not(target_os = "macos"))]
-        fn stored(service: String, account: &'static str, value: &str) -> Self {
+        fn stored(_env: &TestEnv, service: String, account: &'static str, value: &str) -> Self {
             in_keychain(async |keychain, owner| {
                 keychain
                     .store(
@@ -631,6 +718,7 @@ mod keychain {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     impl Drop for Item {
         fn drop(&mut self) {
             let _ = in_keychain(async |keychain, owner| {
@@ -644,14 +732,15 @@ mod keychain {
     fn a_run_resolves_its_key_from_the_os_keychain_and_no_output_holds_it() {
         let env = TestEnv::new();
         let (canaries, _, value) = planted(&env);
+        let session = session(&env);
         let item = Item::stored(
+            &env,
             format!("goodfetch-test-{:016x}", env.seed()),
             "run-key",
             &value,
         );
         let reference = format!("keychain:{}/{}", item.service, item.account);
         env.user_configuration(&format!("run_state.key_reference = \"{reference}\"\n"));
-        let session = session(&env);
         let variables: Vec<(&str, &str)> = session
             .iter()
             .map(|(name, value)| (*name, value.as_str()))
@@ -659,6 +748,7 @@ mod keychain {
 
         let replies = started(&env, &variables, "chained");
 
+        assert!(replies.len() > 1, "the run did not start: {}", replies[0]);
         assert_eq!(
             (
                 &replies[1]["result"]["lifecycle"],

@@ -31,6 +31,7 @@ from collie_calls import CLIENT_LOGGER, engine_warnings, failure, open_collie
 from collie_tracer import Traced, start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
+    AsyncRun,
     ClosedError,
     DeadlineExceededError,
     EngineExitedError,
@@ -38,6 +39,8 @@ from goodfetch_collie import (
     EngineOutputInvalidError,
     Limits,
     Product,
+    Run,
+    RunProgress,
     SettingInvalidError,
     StartedAs,
 )
@@ -127,6 +130,28 @@ def engine_events(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
         for record in caplog.records
         if getattr(record, "source", None) == "engine"
     ]
+
+
+async def first_progress(way: Way, run: AsyncRun) -> RunProgress:
+    """The first value of `run`'s progress, read this way's; then it is closed."""
+    if way is Way.SYNC:
+        sync = cast("Run", run)
+
+        def first() -> RunProgress:
+            with sync.progress() as progress:
+                return next(progress)
+
+        return await anyio.to_thread.run_sync(first)
+    async with run.progress() as progress:
+        return await anext(progress)
+
+
+async def all_progress(way: Way, run: AsyncRun) -> list[RunProgress]:
+    """Each value of `run`'s progress, read this way's to its end."""
+    if way is Way.SYNC:
+        sync = cast("Run", run)
+        return await anyio.to_thread.run_sync(lambda: list(sync.progress()))
+    return [value async for value in run.progress()]
 
 
 async def start_and_finish_run(collie: AsyncCollie, run_id: str) -> None:
@@ -368,8 +393,9 @@ async def test_reaches_the_engine_through_the_members_generated_from_the_catalog
     run = await collie.start()
 
     progress_set = await run.set_progress_message("three pages left")
-    progress_read = await run.progress()
+    live = await first_progress(way, run)
     finished = await run.finish()
+    ended = await all_progress(way, run)
     report = await run.report()
     await collie.close()
 
@@ -377,10 +403,14 @@ async def test_reaches_the_engine_through_the_members_generated_from_the_catalog
         "a member with a positional parameter reaches its operation"
     ):
         assert (progress_set.run_id.root, progress_set.lifecycle) == (run.id, "running")
-    with client_case.check("a member with only options answers what the engine holds"):
-        assert progress_read.message == progress_set.message
+    with client_case.check("the Run's progress answers what the engine holds at once"):
+        assert live.message == progress_set.message
     with client_case.check("a member that ends the Run answers its report"):
         assert (finished.run_id.root, finished.lifecycle) == (run.id, "finished")
+    with client_case.check("the progress of a Run that ended is its last value alone"):
+        assert [(value.lifecycle, value.last) for value in ended] == [
+            ("finished", True)
+        ]
     with client_case.check("the engine holds what the members did"):
         assert (report.run_id.root, report.lifecycle) == (run.id, "finished")
 

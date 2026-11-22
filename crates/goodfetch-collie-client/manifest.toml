@@ -1096,6 +1096,14 @@ form = "round_trip"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "Run"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Run"
 member = "page_of"
 entry = "none"
 reason = "The `Page` of a page the engine opened in the Run, such as the one a Crawl request's attempt is served, with no round trip; dropping it leaves the page open."
@@ -1740,6 +1748,14 @@ receiver = "blocking::Run"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
 form = "round_trip"
 
 [[member]]

@@ -40,8 +40,10 @@ fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
 /// form's calls are spelled here, never read from `xtask gate steps`: a step
 /// that loses `--check` or `all` still runs and passes, with less of a check
 /// behind its green, so it has to fail a test. The Pre-merge suite's step
-/// runs the exercise audit after its suite.
-const ALL_HOST_CALLS: [&str; 18] = [
+/// runs the exercise audit after its suite. No full form runs the Quick
+/// suite, whose every test the Pre-merge suite runs (ADR 0135's amendment of
+/// 2026-11-22).
+const ALL_HOST_CALLS: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -52,7 +54,6 @@ const ALL_HOST_CALLS: [&str; 18] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick all",
     "_suite pre-merge all",
     "features-audit",
     "stress",
@@ -63,7 +64,7 @@ const ALL_HOST_CALLS: [&str; 18] = [
 ];
 
 /// The calls `just pre-merge` alone makes on the host, in their order.
-const CHANGED_HOST_CALLS: [&str; 18] = [
+const CHANGED_HOST_CALLS: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -74,7 +75,6 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick",
     "_suite pre-merge",
     "features-audit",
     "stress",
@@ -534,7 +534,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 25] = [
+const RECORDED_STEPS: [&str; 24] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -545,7 +545,6 @@ const RECORDED_STEPS: [&str; 25] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "quick",
     "pre-merge",
     "stress",
     "journeys-tasks",
@@ -565,7 +564,7 @@ const RECORDED_STEPS: [&str; 25] = [
 /// A full gate's calls on the host when its Pre-merge suite's tests fail
 /// outright: a green gate's, without the exercise audit, which runs only
 /// after green tests or after nextest's tests alone failed (status 100).
-const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
+const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 16] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -576,7 +575,6 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick all",
     "_suite pre-merge all",
     "stress",
     "journeys-tasks --check",
@@ -594,15 +592,14 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
 /// host's calls. The
 /// cases take each way `ci/pre-merge.sh` runs a step once:
 /// each step beside, a host step run with its `just` command (`lint`;
-/// every plain host step takes that way, by its name alone), the Quick suite
-/// and the stress run with their evidence, and the Pre-merge suite, red in its
-/// tests or in its exercise audit.
+/// every plain host step takes that way, by its name alone), the stress run
+/// with its evidence, and the Pre-merge suite, red in its tests or in its
+/// exercise audit.
 #[rstest]
 #[case::perf("perf", "perf", &["perf"], &ALL_HOST_CALLS)]
 #[case::linux("linux", "linux", &["linux"], &ALL_HOST_CALLS)]
 #[case::visual("visual", "visual", &["visual"], &ALL_HOST_CALLS)]
 #[case::lint("lint", "lint", &["lint"], &ALL_HOST_CALLS)]
-#[case::quick("_suite quick all", "quick", &["quick"], &ALL_HOST_CALLS)]
 #[case::pre_merge(
     "_suite pre-merge all",
     "pre-merge",
@@ -702,8 +699,7 @@ fn one_red_step(call: &str, step: &str, recorded_red: &[&str], host_calls: &[&st
 /// merge` finds them for the failing gate's kept results (TESTING.md,
 /// Commands); a green step leaves none.
 #[rstest]
-#[case::the_quick_suites_nextest_file("_suite quick all", "quick", "nextest/quick/junit.xml")]
-#[case::the_quick_suites_vitest_file("_suite quick all", "quick", "junit/vitest.xml")]
+#[case::the_pre_merge_suites_vitest_file("_suite pre-merge all", "pre-merge", "junit/vitest.xml")]
 #[case::the_pre_merge_suites_nextest_file(
     "_suite pre-merge all",
     "pre-merge",
@@ -824,10 +820,10 @@ fn on_the_host(run: Run) -> Vec<String> {
     "`lint.action=`"
 )]
 #[case::no_members_for_a_part(
-    "quick.action=run\nquick.members=-\n",
-    "quick.action=part\n",
+    "pre-merge.action=run\npre-merge.members=-\n",
+    "pre-merge.action=part\n",
     10,
-    "`quick.members=`"
+    "`pre-merge.members=`"
 )]
 #[case::no_reason_for_a_reuse(
     "lint.action=run\nlint.members=-\nlint.why=no earlier run\n",
@@ -838,7 +834,7 @@ fn on_the_host(run: Run) -> Vec<String> {
 #[case::no_members_for_a_part_of_the_stress_run(
     "stress.action=run\nstress.members=-\n",
     "stress.action=part\n",
-    13,
+    12,
     "`stress.members=`"
 )]
 #[case::no_action_for_a_step_beside("perf.action=run\n", "", 6, "`perf.action=`")]
@@ -1191,9 +1187,9 @@ fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
 }
 
 /// A plan of the incremental gate (ADR 0135), as `xtask gate plan` prints
-/// it: perf, the Pre-merge suite and TLC reused from an earlier run on
-/// `earlier`, the Quick suite rerun for two members and the stress run for
-/// one; every other step runs.
+/// it: perf and TLC reused from an earlier run on `earlier`, the Pre-merge
+/// suite rerun for two members and the stress run for one; every other step
+/// runs.
 fn incremental_plan(workspace: &Workspace) -> String {
     plan(
         workspace,
@@ -1203,10 +1199,9 @@ fn incremental_plan(workspace: &Workspace) -> String {
         "website/pages.spec.ts",
         &[
             ("perf", "reuse", "-", "green on earlier"),
-            ("pre-merge", "reuse", "-", "green on earlier"),
             ("tlc", "reuse", "-", "green on earlier"),
             (
-                "quick",
+                "pre-merge",
                 "part",
                 "a b :unowned",
                 "the change since earlier reaches it",
@@ -1230,7 +1225,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    for reused in ["perf", "_suite pre-merge all", "features-audit", "_tlc all"] {
+    for reused in ["perf", "_suite pre-merge all", "_tlc all"] {
         assert!(
             !run.calls.iter().any(|call| call == reused),
             "{reused} ran: {:?}",
@@ -1238,7 +1233,8 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         );
     }
     for rerun in [
-        "test quick --shuffled-all a b website/pages.spec.ts",
+        "test pre-merge --shuffled-all a b website/pages.spec.ts",
+        "features-audit",
         "stress  earlier records/planned.earned  a :unowned",
         "lint",
         "linux",
@@ -1263,7 +1259,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     let mut expected: Vec<String> = listed(&workspace, "all")
         .into_iter()
         .filter(|step| step.kind != "command")
-        .filter(|step| !["perf", "pre-merge", "tlc"].contains(&step.name.as_str()))
+        .filter(|step| !["perf", "tlc"].contains(&step.name.as_str()))
         .map(|step| format!("_gate-record merge planned {} pass", step.name))
         .collect();
     expected.sort();
@@ -1319,15 +1315,10 @@ fn a_part_of_the_stress_run_compares_its_head_with_the_last_full_gates_too() {
     );
 }
 
-/// A failed Quick suite or stress run hands `xtask gate record` the files
-/// its crates' results are read from, and runs with none of them left from
-/// an earlier run (the test-gate audit's option 4).
+/// A failed stress run hands `xtask gate record` the files its crates'
+/// results are read from, and runs with none of them left from an earlier
+/// run (the test-gate audit's option 4).
 #[rstest]
-#[case::quick(
-    "_suite quick all",
-    "quick fail --junit target/nextest/quick/junit.xml",
-    "target/nextest/quick/junit.xml"
-)]
 #[case::stress(
     "stress",
     "stress fail --selection target/stress-selection.tsv --red-commands target/stress-red-commands.tsv --started ",

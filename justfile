@@ -1143,9 +1143,10 @@ quick-steps:
 batch-check base="origin/main":
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 
-# The Pre-merge suite on this host: the Quick suite, then the tests of what
-# changed, the stress run of new and changed tests and the static checks'
-# proofs (`all`: the whole workspace). The checks that need Linux run beside
+# The Pre-merge suite on this host: the tests of what changed, the Quick
+# suite's among them, so `all` runs no Quick suite of its own (ADR 0135's
+# amendment of 2026-11-22), the stress run of new and changed tests and the
+# static checks' proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073) and `windows` (the
@@ -1987,7 +1988,8 @@ hooks:
 # pre-merge docs` when it is documents alone (`xtask affected`'s
 # `gate=docs`), `just pre-merge quick` when no test reads the change
 # (`gate=quick`), and for a change a test reads `just pre-merge all`, which
-# starts with `just quick all`'s lint and Quick suite, on the pull request
+# starts with `just quick all`'s lint and runs the Quick suite's tests in its
+# Pre-merge suite, on the pull request
 # that finishes a spec (head branch `spec/<n>`, the spec's sub-issues none
 # left open once it merges, ADR 0135's note of 2026-11-13) and nowhere else,
 # and `just pre-merge quick` on any other (ADR 0135's amendments of
@@ -2227,6 +2229,12 @@ test-health run ref="origin/main":
 _gate-compare full runs since="":
     cargo run --quiet --locked --bin xtask -- gate compare --records "$(ci/gate-records.sh)" \
       --runs "{{ runs }}" --full {{ full }} {{ if since == "" { "" } else { "--since " + since } }}
+
+# The duplicate-run check (ADR 0135's amendment of 2026-11-22): fails, naming
+# both layers, on each unit a run in the gate's records (ci/gate-records.sh)
+# ran, not reused, on a tree where an earlier run had recorded it green.
+duplicate-runs:
+    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)"
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

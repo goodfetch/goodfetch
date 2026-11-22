@@ -159,6 +159,23 @@ fn a_line_that_is_no_message_answers_its_protocol_failure(
     assert_eq!((error.failure, error.id), (failure, id));
 }
 
+/// An id reads as a whole number or as a string, a string of digits as a
+/// string; any other id reads as none.
+#[rstest]
+#[case::a_number("7", Some(RequestId::Number(7)))]
+#[case::a_negative_number("-3", Some(RequestId::Number(-3)))]
+#[case::a_string("\"x\"", Some(RequestId::Text("x".into())))]
+#[case::a_string_of_digits("\"7\"", Some(RequestId::Text("7".into())))]
+#[case::a_string_with_an_escape("\"a\x5cu0062\"", Some(RequestId::Text("ab".into())))]
+#[case::a_decimal("1.5", None)]
+#[case::a_number_past_i64("9223372036854775808", None)]
+#[case::a_boolean("true", None)]
+fn an_id_reads_as_a_number_or_a_string(#[case] id: &str, #[case] read: Option<RequestId>) {
+    let line = format!(r#"{{"jsonrpc":"1.0","id":{id},"method":"hello"}}"#);
+
+    assert_eq!(decode(line.as_bytes()).unwrap_err().id, read);
+}
+
 /// A Client's failure that names no Error code reads as the handler's own
 /// failure, `handler_failed`, which a retry may not help.
 #[test]

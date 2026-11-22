@@ -205,6 +205,15 @@ pub trait Gate: Send {
     /// The key of the request [`Gate::admit`] would admit at `now`.
     fn next_key(&self, now: Instant) -> Option<String>;
 
+    /// How many requests of `key` wait in its queue, the one
+    /// [`Gate::admit`] would admit next included: when more than one, a
+    /// grant that fills the key's concurrency keeps its Run's turn for the
+    /// next (ADR 0053's turns). None by default.
+    fn waiting_under(&self, key: &str) -> usize {
+        let _ = key;
+        0
+    }
+
     /// Holds `key` for the reason `held`: none of its requests is ready
     /// before `until`, unless [`Gate::wake`] wakes it first. A held key
     /// keeps its place.
@@ -322,24 +331,37 @@ struct Shared {
 }
 
 impl Shared {
-    /// Whether the Permits its own requests in flight hold under `key`
-    /// reach its rule's concurrency, so a take could grant nothing.
-    fn full_here(&self, key: &str) -> bool {
+    /// Whether the Permits its own requests in flight hold under `key`,
+    /// and `more` besides, reach its rule's concurrency, so a take could
+    /// grant nothing.
+    fn full_with(&self, key: &str, more: usize) -> bool {
         self.rule.concurrency().is_some_and(|cap| {
             let held = self
                 .permits
                 .values()
                 .filter(|permit| permit.key() == key)
-                .count();
+                .count()
+                + more;
             u64::try_from(held).unwrap_or(u64::MAX) >= cap
         })
     }
 
     /// Takes a Permit of `key` at `wall`, from the Politeness of its Run's
-    /// own it holds when it holds one.
-    async fn take(&mut self, key: &str, wall: SystemTime) -> Result<Taken, PolitenessError> {
+    /// own it holds when it holds one; a grant on the shared Politeness
+    /// keeps its holder's turn when `keeps_turn`.
+    async fn take(
+        &mut self,
+        key: &str,
+        wall: SystemTime,
+        keeps_turn: bool,
+    ) -> Result<Taken, PolitenessError> {
         match &mut self.own {
             Some(own) => Ok(own.take(key, &self.holder, &self.rule, wall)),
+            None if keeps_turn => {
+                self.politeness
+                    .take_keeping_turn(key, &self.holder, self.rule.clone(), wall)
+                    .await
+            }
             None => {
                 self.politeness
                     .take(key, &self.holder, self.rule.clone(), wall)
@@ -566,7 +588,7 @@ impl Admission {
                 return self.admit_from_gate(now);
             };
             let key = self.gate.next_key(now)?;
-            if shared.full_here(&key) && shared.turns.contains(&key) {
+            if shared.full_with(&key, 0) && shared.turns.contains(&key) {
                 // Its own requests in flight fill the key and it already
                 // waits in turn for it: a take would grant nothing, so the
                 // key waits for their ending's wake, or the reclaim check,
@@ -577,11 +599,22 @@ impl Admission {
                 self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 continue;
             }
+            // A grant that fills the key while another of its requests
+            // waits under it keeps the Run's turn for that one, as the
+            // refused take that would follow did: the Run asks the file
+            // nothing more until one of its requests ends.
+            let keeps_turn = shared.own.is_none()
+                && shared.full_with(&key, 1)
+                && self.gate.waiting_under(&key) > 1;
             let wall = shared.clock.wall();
-            let taken = shared.take(&key, wall).await;
+            let taken = shared.take(&key, wall, keeps_turn).await;
             match taken {
                 Ok(Taken::Granted(permit)) => {
-                    shared.turns.remove(&key);
+                    if keeps_turn {
+                        shared.turns.insert(key.clone());
+                    } else {
+                        shared.turns.remove(&key);
+                    }
                     let Some(admitted) = self.admit_from_gate(now) else {
                         self.give_back(permit, Ending::Done).await;
                         return None;

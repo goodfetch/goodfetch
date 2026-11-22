@@ -630,8 +630,8 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
             run("foxhound", Tool::Foxhound, 1, 2000),
             run("foxhound", Tool::Foxhound, 2, 2200),
             run("foxhound", Tool::Foxhound, 3, 2100),
-            run("foxhound defaults learned", Tool::Foxhound, 1, 3000),
-            run("foxhound defaults learned", Tool::Foxhound, 2, 3000),
+            run("foxhound defaults", Tool::Foxhound, 1, 3000),
+            run("foxhound defaults", Tool::Foxhound, 2, 3000),
             run("spider", Tool::Spider, 1, 1000),
             run("spider", Tool::Spider, 2, 1000),
             run("spider", Tool::Spider, 3, 1000),
@@ -660,13 +660,13 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
                 ("foxhound.spider_instruction_ratio", "foxhound", 2.1),
                 (
                     "foxhound.spider_instruction_ratio_at_defaults",
-                    "foxhound defaults learned",
+                    "foxhound defaults",
                     3.0
                 ),
             ],
             vec![
                 "`foxhound.spider_instruction_ratio`: 2.100, Foxhound's `foxhound` cell's 2100 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, the median of each cell's runs, all of the same pages and bytes.",
-                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults learned` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
+                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
             ]
         )
     );

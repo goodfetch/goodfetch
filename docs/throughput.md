@@ -58,7 +58,7 @@ with the code-free extraction `{ "formats": {}, "follow": "scope" }`. Set `polit
 
 The Politeness is the default: `politeness.sharing: shared` and `politeness.delegation: true`. While no other engine of the user uses a domain, the Run's engine holds that domain's Delegation: it keeps the domain's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the domain recalls the Delegation, so the domain's limits hold across every Run of the user. `politeness.sharing: run` gives the Run a Politeness of its own instead, which no other Run sees.
 
-The same scenario has a second Foxhound cell beside it, at the catalog's defaults: it sets nothing but the crawl's site and the scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency: 16`, so robots.txt is respected and the per-page features run as the catalog sets them. Its two rows, `fetch.http_from: browser`, the default, and `learned`, show what the defaults cost against the combination.
+The same scenario has a second Foxhound cell beside it, at the catalog's defaults: it sets nothing but the crawl's site and the scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency: 16`, so robots.txt is respected and the per-page features run as the catalog sets them. Its two rows, `fetch.http_from: learned`, the default, and `browser`, show what the defaults cost against the combination.
 
 What it gives up:
 

@@ -3,19 +3,27 @@
 //! connection owns the runtime its linked engine runs on; each call is
 //! handed to it, and the calling thread waits for its end on a channel.
 //! Nothing here enters a runtime, so it works inside one too, where it
-//! blocks only the thread that calls it.
+//! blocks only the thread that calls it. A crawl's handlers are plain
+//! functions, each run on one of the connection's tracked blocking
+//! threads ([`Crawl`]).
+
+use std::sync::Arc;
 
 use goodfetch_collie::linked::ProductConnection;
 use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, blocking};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
+pub use crawl::{Crawl, CrawlContext, CrawlRun, StartCrawl};
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
     Start,
 };
 
+use crate::crawl_requests::CrawlRequests;
 use crate::foxhound::ENGINE;
+
+mod crawl;
 
 /// A connection to Foxhound whose calls block: `foxhound.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same
@@ -41,6 +49,9 @@ use crate::foxhound::ENGINE;
 pub struct Foxhound {
     linked: ProductConnection,
     connection: blocking::ClientConnection,
+    /// The connection's stream of Crawl requests, which the reader of
+    /// each of its crawl Runs takes its own from.
+    crawl_requests: Arc<CrawlRequests>,
 }
 
 impl Foxhound {
@@ -56,6 +67,7 @@ impl Foxhound {
         Ok(Self {
             connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
+            crawl_requests: Arc::default(),
         })
     }
 

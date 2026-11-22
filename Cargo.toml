@@ -75,6 +75,9 @@ windows-native-keyring-store = { version = "1.1.0", default-features = false }
 zbus = { version = "6.0.0", default-features = false }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
+# A web handler that serves a crawl, in goodfetch-foxhound's tests: axum's
+# Router driven as a tower Service, with no socket (ADR 0081).
+axum = { version = "0.8.9", default-features = false }
 # Brotli bodies the response limits' tests decode (goodfetch-engine).
 brotli = { version = "9.0.0", default-features = false, features = ["std"] }
 # The build scripts of goodfetch-test-support and goodfetch-engine generate

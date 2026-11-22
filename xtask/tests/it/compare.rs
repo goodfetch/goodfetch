@@ -72,7 +72,7 @@ const CELLS: [(&str, &str, &str); 45] = [
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
     ("polite", "foxhound auto", "foxhound"),
-    ("raw", "foxhound defaults learned", "foxhound"),
+    ("raw", "foxhound defaults browser", "foxhound"),
 ];
 
 /// The runs of `cell` in a pass that asks for `asked`: pagesift's polite
@@ -306,8 +306,8 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
 
 /// A Callgrind cell of three runs of each cell its ratios read over the
 /// 1,000-page site. In scenario 1, Foxhound's a median of 32,000
-/// instructions a page, 48,000 in its cell at the catalog's defaults'
-/// learned row, and Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
+/// instructions a page, 48,000 in its cell at the catalog's defaults, and
+/// Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
 /// defaults and 45,000 with its Filter lists off, and Spider's 50,000, its
 /// pages holding the ad, which it does not remove.
 fn callgrind() -> Value {
@@ -321,9 +321,9 @@ fn callgrind() -> Value {
             run("raw", "spider", "spider", 1, 1_000_000, 0),
             run("raw", "spider", "spider", 2, 900_000, 0),
             run("raw", "spider", "spider", 3, 1_100_000, 0),
-            run("raw", "foxhound defaults learned", "foxhound", 1, 47_000_000, 0),
-            run("raw", "foxhound defaults learned", "foxhound", 2, 48_000_000, 0),
-            run("raw", "foxhound defaults learned", "foxhound", 3, 49_000_000, 0),
+            run("raw", "foxhound defaults", "foxhound", 1, 47_000_000, 0),
+            run("raw", "foxhound defaults", "foxhound", 2, 48_000_000, 0),
+            run("raw", "foxhound defaults", "foxhound", 3, 49_000_000, 0),
             run("extraction", "foxhound", "foxhound", 1, 59_000_000, 0),
             run("extraction", "foxhound", "foxhound", 2, 60_000_000, 0),
             run("extraction", "foxhound", "foxhound", 3, 70_000_000, 0),
@@ -699,7 +699,7 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
-         foxhound defaults, 1000 of the site's 1000 pages | foxhound defaults learned \
+         foxhound defaults, 1000 of the site's 1000 pages | foxhound defaults browser \
          (sensitivity), 1000 of the site's 1000 pages | \
          crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
          openspider, 1000 of the site's 1000 pages | fastcrw, 1000 of the site's 1000 pages | \
@@ -1429,8 +1429,8 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
 }
 
 /// In scenario 1, the Callgrind cell gives two ratios over Spider's: the
-/// maximum-throughput cell's and, at the catalog's defaults, the learned
-/// row's (#2175).
+/// maximum-throughput cell's and the cell's at the catalog's defaults,
+/// whose `fetch.http_from` is `learned` (#2175).
 #[test]
 fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
     let workspace = Workspace::from_fixture("empty");
@@ -1461,7 +1461,7 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
             json!({
                 "row": "foxhound.spider_instruction_ratio_at_defaults",
                 "scenario": "scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace",
-                "foxhound": "foxhound defaults learned",
+                "foxhound": "foxhound defaults",
                 "foxhound_per_page": 48_000.0,
                 "spider_per_page": 1_000.0,
                 "ratio": 48.0,

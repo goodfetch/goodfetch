@@ -946,7 +946,7 @@ const fn durable(durability: &'static str, commit_interval: Option<u64>) -> Conf
 
 /// Scenario 1's first cell runs the default `batch` (#2175), and its cell
 /// at the catalog's defaults prints two labelled rows: the default
-/// `fetch.http_from` in force and `learned`.
+/// `fetch.http_from` in force, `learned`, and `browser`.
 #[test]
 fn scenario_1_runs_batch_and_the_catalog_defaults_in_two_rows() {
     let at_defaults = Some(Config::Foxhound {
@@ -966,10 +966,10 @@ fn scenario_1_runs_batch_and_the_catalog_defaults_in_two_rows() {
                 Some(AtDefaults::InForce)
             ),
             (
-                "foxhound defaults learned",
+                "foxhound defaults browser",
                 Row::Sensitivity,
                 at_defaults,
-                Some(AtDefaults::Learned)
+                Some(AtDefaults::Browser)
             ),
         ]
     );

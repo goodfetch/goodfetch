@@ -2434,8 +2434,71 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1016
+title = "As a developer, I want a second Label of one name or a second handler for a Label to fail at once with `label_duplicate`, a Label without a handler to fail the Run start with `label_unhandled`, and an enqueue to an undeclared Label to fail with `label_unknown`, so that a wiring mistake never becomes a silent gap (ADR 0093; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1025
 title = "As a developer, I want handlers to run on the TypeScript event loop, in the connection's thread pool for sync Python, as tasks in the Run's task group for async Python, and inside `serve` in Rust, so that the SDK spawns nothing of its own on my executor (ADRs 0081, 0093; K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1075
+title = "As a Rust developer, I want `crawl.serve(&run).await` to answer the Run's Crawl requests with my handlers until the Run ends and return the Run report, and dropping that future to be my own stop (requests return to pending, no attempt counted), so that Rust has no loop of mine to pump (ADRs 0093, 0102)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1101
+title = "As a Rust developer, I want a handler to be `FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a` with `Fut: Send` returning `Result<(), BoxError>`, `?` on any error ending the attempt as `handler_failed` while an SDK `Error` keeps its code, so that a crawl serves inside a multi-threaded web server (ADRs 0109, 0112; SDK-06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1102
+title = "As a Rust developer, I want a panic in a handler to be caught by `serve` as `handler_failed` and a Hook's or login step's panic to be that function's own error, so that one bad handler never takes the process down (ADRs 0093, 0109)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1103
+title = "As a Rust developer, I want `ctx.skip(&msg)` and `ctx.retry(&msg)` to return a `BoxError` I `return Err(…)`, the outcome being `skipped` with reason `handler` or `retry_requested` and the internal `attempt_ended` signal never an outcome's code, so that control flow reads the same as elsewhere (ADRs 0093, 0109)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1104
+title = "As a Rust developer, I want `goodfetch_foxhound::blocking::Crawl` with handlers `Fn + Send + Sync + 'static` and a blocking `serve`, so that a synchronous program crawls without choosing a runtime (ADRs 0081, 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1105
+title = "As a Rust developer, I want `run.crawl_requests()` to be the `EventStream` beneath `serve`, a `CrawlCall` giving `context()` and `finish(result)` and a dropped call returning its request to pending without an attempt, so that the way down is typed (ADRs 0093, 0109; G8)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

@@ -482,6 +482,54 @@ fn only_a_take_in_turn_on_a_runs_own_politeness_reserves_its_send() {
     assert_eq!(reserved, (Some(goes), None, None));
 }
 
+/// A grant that keeps its holder's turn leaves the holder a waiter of the
+/// key, ahead of one that waits after it: the Permit's give back wakes the
+/// holder, not the later waiter, in the file and in memory alike, as a
+/// grant followed by a refused take did (ADR 0053's turns, #1899).
+///
+/// Covers: story:3-81
+#[test]
+fn a_grant_that_keeps_its_turn_is_woken_ahead_of_a_later_waiter() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let woken = run(async |owner| {
+        let first = engine(&env, "first", owner).await;
+        let second = engine(&env, "second", owner).await;
+        let own = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
+        let mut first_wakes = first.wakes();
+        let mut own_wakes = own.wakes();
+        let mut woken = Vec::new();
+        for (politeness, later) in [(&first, &second), (&own, &own)] {
+            let kept = granted(
+                politeness
+                    .take_keeping_turn("shop.test", &holder(&env, "keeping"), cap(1), now)
+                    .await
+                    .unwrap(),
+            );
+            later
+                .take("shop.test", &holder(&env, "later"), cap(1), now)
+                .await
+                .unwrap();
+            politeness
+                .give_back(kept, cap(1), Ending::Done, now)
+                .await
+                .unwrap();
+        }
+        woken.push(next_wake(&mut first_wakes).await);
+        woken.extend(received(&mut own_wakes));
+        woken
+    });
+
+    assert_eq!(
+        woken,
+        vec![
+            "keeping@shop.test".to_owned(),
+            "keeping@shop.test".to_owned()
+        ]
+    );
+}
+
 /// Covers: story:3-81
 #[test]
 fn a_woken_waiter_its_own_cap_still_refuses_passes_the_wake_to_the_next() {

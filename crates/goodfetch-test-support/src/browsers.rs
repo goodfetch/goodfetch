@@ -58,6 +58,12 @@ pub enum BrowserCacheError {
         "Lightpanda {LIGHTPANDA_BUILD} is not at {0}: run `ci/lightpanda-fetch.sh` (part of `just fetch`)"
     )]
     LightpandaNotFetched(PathBuf),
+    /// The tests' copy of the pinned Chrome for Testing build's archive is
+    /// missing: run `ci/chrome-for-testing-fetch.sh` (part of `just fetch`).
+    #[error(
+        "Chrome for Testing {CHROME_FOR_TESTING_BUILD}'s archive is not at {0}: run `ci/chrome-for-testing-fetch.sh` (part of `just fetch`)"
+    )]
+    ChromeForTestingNotFetched(PathBuf),
     /// The cache's files could not be written.
     #[error("the Browser cache cannot be laid out: {0}")]
     Io(#[from] io::Error),
@@ -479,22 +485,128 @@ fn lightpanda_asset() -> Option<&'static str> {
 /// missing.
 pub fn lightpanda_copy() -> Result<PathBuf, BrowserCacheError> {
     let asset = lightpanda_asset().ok_or(BrowserCacheError::NoBuild)?;
-    let variables = Variables::from_process();
-    let downloads = variables
-        .get(LIGHTPANDA_DOWNLOADS_VARIABLE)
-        .map(PathBuf::from)
-        .or_else(|| {
-            variables
-                .get("HOME")
-                .map(|home| Path::new(home).join(".cache/goodfetch/lightpanda"))
-        })
-        .unwrap_or_default();
-    let source = downloads.join(LIGHTPANDA_BUILD).join(asset);
+    let source = downloads(LIGHTPANDA_DOWNLOADS_VARIABLE, "lightpanda")
+        .join(LIGHTPANDA_BUILD)
+        .join(asset);
     if source.is_file() {
         Ok(source)
     } else {
         Err(BrowserCacheError::LightpandaNotFetched(source))
     }
+}
+
+/// The folder a `ci/*-fetch.sh` script downloads the tests' copy of a
+/// pinned build into: the one `variable` names, else
+/// `~/.cache/goodfetch/<name>`.
+fn downloads(variable: &str, name: &str) -> PathBuf {
+    let variables = Variables::from_process();
+    variables
+        .get(variable)
+        .map(PathBuf::from)
+        .or_else(|| {
+            variables
+                .get("HOME")
+                .map(|home| Path::new(home).join(".cache/goodfetch").join(name))
+        })
+        .unwrap_or_default()
+}
+
+/// The variable naming the folder `ci/chrome-for-testing-fetch.sh`
+/// downloads the tests' copy of the pinned Chrome for Testing build's
+/// archive into, `~/.cache/goodfetch/chrome-for-testing` by default.
+pub const CHROME_FOR_TESTING_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS";
+
+/// The path of the pinned Chrome for Testing build's archive for this
+/// platform below Chrome for Testing's storage, or a mirror of it:
+/// `<build>/<platform>/chrome-<platform>.zip`.
+fn chrome_for_testing_archive() -> Option<String> {
+    let folder = platform_folder()?;
+    let platform = folder.strip_prefix("chrome-")?;
+    Some(format!(
+        "{CHROME_FOR_TESTING_BUILD}/{platform}/{folder}.zip"
+    ))
+}
+
+/// The folder in `env`'s folder that the Proving ground's
+/// `browser-builds.test` serves for an engine's first use (#3100): the
+/// pinned Chrome for Testing build's archive at its path below Chrome for
+/// Testing's storage, a link to the tests' copy that
+/// `ci/chrome-for-testing-fetch.sh` downloads, so a test that downloads
+/// the build reaches no one's storage but the Proving ground's. Its root,
+/// which the test hands `ProvingGround::start_serving_builds`.
+///
+/// # Errors
+///
+/// [`BrowserCacheError::NoBuild`] on a platform Chrome for Testing builds
+/// nothing for, [`BrowserCacheError::ChromeForTestingNotFetched`] when
+/// the tests' copy is missing, and [`BrowserCacheError::Io`] when the
+/// folder cannot be written.
+pub fn browser_builds(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
+    let archive = chrome_for_testing_archive().ok_or(BrowserCacheError::NoBuild)?;
+    let source =
+        downloads(CHROME_FOR_TESTING_DOWNLOADS_VARIABLE, CHROME_FOR_TESTING).join(&archive);
+    if !source.is_file() {
+        return Err(BrowserCacheError::ChromeForTestingNotFetched(source));
+    }
+    let root = env.folder().join("browser-builds");
+    let target = root.join(&archive);
+    if let Some(folder) = target.parent() {
+        fs::create_dir_all(folder)?;
+    }
+    if fs::symlink_metadata(&target).is_err() {
+        symlink(&source, &target)?;
+    }
+    Ok(root)
+}
+
+/// The Browser cache at `root` made one its engines cannot write, as a
+/// read-only image's is (#3100): its folder's mode is `0o555` until the
+/// value is dropped, when it is writable again, so a test's folder holds
+/// no folder its removal cannot remove into.
+#[cfg(unix)]
+pub struct ReadOnlyBrowserCache {
+    root: PathBuf,
+}
+
+#[cfg(unix)]
+impl ReadOnlyBrowserCache {
+    /// Makes the cache at `root` read-only.
+    ///
+    /// # Errors
+    ///
+    /// When its mode cannot be changed.
+    pub fn new(root: &Path) -> io::Result<Self> {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(root, fs::Permissions::from_mode(0o555))?;
+        Ok(Self {
+            root: root.to_owned(),
+        })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ReadOnlyBrowserCache {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt as _;
+        // A mode left read-only only fails the folder's removal, which
+        // names it.
+        let _ = fs::set_permissions(&self.root, fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// An empty Browser cache in `env`'s folder, which the engines `env`
+/// starts are pointed at with `GOODFETCH_BROWSERS_PATH`: where an
+/// engine's first use downloads the pinned build (#3100). The test's
+/// environment, and the cache's root.
+///
+/// # Errors
+///
+/// When the folder cannot be made.
+pub fn empty_browser_cache(env: TestEnv) -> Result<(TestEnv, PathBuf), BrowserCacheError> {
+    let cache = env.folder().join("browsers");
+    fs::create_dir_all(&cache)?;
+    let env = env.with_variable(BROWSERS_PATH_VARIABLE, &cache.to_string_lossy());
+    Ok((env, cache))
 }
 
 /// [`browser_cache`], holding also the Lightpanda build Foxhound pins for

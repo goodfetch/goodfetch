@@ -106,6 +106,51 @@ pub struct ProvingGroundDescription {
     pub fixtures: ProvingGroundFixtures,
 }
 
+/// The Proving ground's prepared download host of browser builds (#3100),
+/// which serves the folder [`ProvingGround::start_serving_builds`] is
+/// given.
+pub const BROWSER_BUILDS_HOST: &str = "browser-builds.test";
+
+impl ProvingGroundDescription {
+    /// The settings, lines of a user configuration, with which an engine
+    /// reaches its hosts: each mapped to its address, and listed in
+    /// `egress.private_ranges`, since that address is loopback and listing
+    /// the names keeps `localhost` and literal loopback addresses refused.
+    pub fn reaching(&self) -> String {
+        let hosts: Vec<String> = self
+            .resolve
+            .keys()
+            .map(|host| format!("{host:?}"))
+            .collect();
+        let mapping: Vec<String> = self
+            .resolve
+            .iter()
+            .map(|(host, address)| format!("{host:?} = [{address:?}]"))
+            .collect();
+        format!(
+            "egress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
+            hosts.join(", "),
+            mapping.join(", ")
+        )
+    }
+
+    /// The settings, lines of a user configuration, with which an engine
+    /// downloads a missing browser build from [`BROWSER_BUILDS_HOST`]
+    /// (#3100): `browser.mirror` naming it at the bound port, and
+    /// `tls.trusted_cas` trusting its certificate authority for it. With
+    /// [`ProvingGroundDescription::reaching`]'s, which map the host.
+    pub fn mirroring(&self) -> String {
+        let port = self
+            .address
+            .rsplit_once(':')
+            .map_or("443", |(_, port)| port);
+        let ca = serde_json::Value::from(self.ca.to_string_lossy().into_owned());
+        format!(
+            "browser.mirror = \"https://{BROWSER_BUILDS_HOST}:{port}\"\ntls.trusted_cas = {{ {BROWSER_BUILDS_HOST:?} = [{ca}] }}\n"
+        )
+    }
+}
+
 /// The network fixtures `serve` starts beside its pages.
 #[derive(
     Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
@@ -160,8 +205,53 @@ impl ProvingGround {
         seed: u64,
         deadline: Duration,
     ) -> Result<Self, ProvingGroundError> {
+        Self::spawn(env, program, seed, deadline, None)
+    }
+
+    /// [`ProvingGround::start`], its `browser-builds.test` serving the
+    /// files below `builds`, such as the folder `browser_builds` lays out,
+    /// each at its path below it (#3100): the download host an engine
+    /// whose `browser.mirror` names it downloads a missing build from.
+    /// Without builds, that host answers every request `404`.
+    pub fn start_serving_builds(
+        env: &TestEnv,
+        seed: u64,
+        builds: &Path,
+    ) -> Result<Self, ProvingGroundError> {
+        let tools = tools()?;
+        Self::start_program_serving_builds(
+            env,
+            tools.path(Tool::ProvingGround)?,
+            seed,
+            PROVING_GROUND_DEADLINE,
+            builds,
+        )
+    }
+
+    /// [`ProvingGround::start_program`], serving the files below `builds`
+    /// as [`ProvingGround::start_serving_builds`] does.
+    pub fn start_program_serving_builds(
+        env: &TestEnv,
+        program: &Path,
+        seed: u64,
+        deadline: Duration,
+        builds: &Path,
+    ) -> Result<Self, ProvingGroundError> {
+        Self::spawn(env, program, seed, deadline, Some(builds))
+    }
+
+    fn spawn(
+        env: &TestEnv,
+        program: &Path,
+        seed: u64,
+        deadline: Duration,
+        builds: Option<&Path>,
+    ) -> Result<Self, ProvingGroundError> {
         let mut command = env.process_command(program);
         command.args(serve_arguments(seed, LOOPBACK_PORT_0, UNSHAPED));
+        if let Some(builds) = builds {
+            command.arg("--browser-builds").arg(builds);
+        }
         let process = env.spawn(&mut command).map_err(ProvingGroundError::Start)?;
         // On any failure the process is stopped, so the test's teardown finds
         // none alive.

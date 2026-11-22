@@ -39,6 +39,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::authority::Authority;
 use crate::blackhole::Blackhole;
+use crate::browser_builds::BrowserBuilds;
 use crate::certificates;
 use crate::client_hello::ClientHello;
 use crate::clock;
@@ -95,6 +96,7 @@ impl Server {
         address: SocketAddr,
         reached_on: Option<u16>,
         seed: u64,
+        builds: BrowserBuilds,
     ) -> Result<Self> {
         let listener = TcpListener::bind(address)
             .await
@@ -130,6 +132,7 @@ impl Server {
                     client_key: authority.client_key_pem().to_owned(),
                 },
                 Arc::clone(&observations),
+                builds,
             )),
             tls,
             observations,

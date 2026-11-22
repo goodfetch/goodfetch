@@ -4,8 +4,8 @@
 # worktree of its own (ci/gate-worktree.sh's `gate-backstop`), so it never
 # holds `just merge`'s, it runs `just pre-merge all` in full
 # (`GOODFETCH_GATE_FULL=1`), then compares that run with each incremental
-# run on the same tree, the gated head of the merge, in `just merge`'s
-# records (`xtask gate compare`): a result that run reused and the full run
+# run on the same tree, the gated head of the merge, in the records every
+# local layer shares (ci/gate-records.sh; `xtask gate compare`): a result that run reused and the full run
 # found red is a selection miss, a defect of the gate's selection to fix. A
 # red step run per member only makes the reused crates suspects, since the
 # members the incremental run reran may hold the red, so each suspect
@@ -210,13 +210,18 @@ if ((free < needed)); then
   exit 1
 fi
 gate_worktree_checkout "$commit"
-# The incremental runs it compares with: `just merge`'s, read only.
-merged_runs="$root/.claude/worktrees/merge-gate/target/gate-runs"
 cd "$worktree"
+# The incremental runs it compares with, read only: the records every local
+# layer shares (ci/gate-records.sh). Its own full run records in its
+# worktree instead, as the backstop's layer, so it never reuses or overwrites
+# a result it judges.
+merged_runs=$(ci/gate-records.sh)
+own_runs="$worktree/target/gate-runs"
 stoppable just fetch
 
 gate=pass
-GOODFETCH_GATE_FULL=1 stoppable just pre-merge all || gate=fail
+GOODFETCH_GATE_FULL=1 GOODFETCH_GATE_RECORDS="$own_runs" GOODFETCH_GATE_LAYER=backstop \
+  stoppable just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
 misses=0 suspects=0 unchecked=0 earned=0
@@ -224,7 +229,7 @@ misses=0 suspects=0 unchecked=0 earned=0
 since=${told_since:-$(latest_green "$(backstop_greens "$logs/results.txt")" "$commit")}
 # A JSON array of the results found, each with its kind, unit, step,
 # member, run, origin and base (`xtask gate compare`).
-compared=$(just _gate-compare "$commit" "$merged_runs" ${since:+"$since"}) || {
+compared=$(GOODFETCH_GATE_RECORDS="$own_runs" just _gate-compare "$commit" "$merged_runs" ${since:+"$since"}) || {
   echo "error: the full run on $commit could not be compared" >&2
   compared="[]"
   gate=fail

@@ -2595,6 +2595,7 @@ const SPELLING: Spelling = {
     cdpCommandLog: "cdp_command_log",
     headless: "headless",
     headlessShell: "headless_shell",
+    mirror: "mirror",
     serviceWorkers: "service_workers",
   }],
   browserCache: ["browser_cache", {

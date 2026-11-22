@@ -5,8 +5,8 @@
 # `gate_worktree_name` before this file is sourced. Each is at a fixed path
 # beside the other worktrees in the main checkout, so Cargo's fingerprints,
 # sccache's keys and the perf container's build volume, all keyed by
-# absolute paths, still hold at its next run, and the gate's records in its
-# `target/gate-runs/` serve the next run. Locked, so a `git worktree prune`
+# absolute paths, still hold at its next run; the gate's records live in the
+# repository's common directory (ci/gate-records.sh), outside it. Locked, so a `git worktree prune`
 # from another session cannot drop it, and held by one run at a time
 # through a lock folder, which the other worktree's runs read before they
 # start. Sourced, never run. It
@@ -165,10 +165,9 @@ gate_worktree_checkout() {
       # run moves to the next base (xtask perf build), the tests' temporary
       # folder with its fixture builds, the TLA+ tools, each checked against
       # its pinned SHA-256 when used,
-      # the listings saved for the base of the next gate (ci/merge-pr.sh),
-      # and the results each gate run recorded, which the next run on a
-      # descendant head reuses where the change since does not reach them.
-      CACHEDIR.TAG | debug | release | ci-test | msrv | perf-base | perf-base-tree | stress-base | tmp | tla-tools | stress-listings | gate-runs) ;;
+      # and the listings saved for the base of the next gate (ci/merge-pr.sh).
+      # The backstop's own record of its full run, which reuses nothing, goes.
+      CACHEDIR.TAG | debug | release | ci-test | msrv | perf-base | perf-base-tree | stress-base | tmp | tla-tools | stress-listings) ;;
       *) rm -rf "$entry" ;;
     esac
   done

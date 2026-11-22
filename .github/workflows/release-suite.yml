@@ -556,30 +556,23 @@ jobs:
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
       - name: "Test: Rust"
-        run: ci/egress/under-deny.sh ci/release/cell.sh rust
+        run: ci/release/cell.sh rust
       - name: "Test: TypeScript on each Node line"
-        run: ci/egress/under-deny.sh ci/release/cell.sh typescript
+        run: ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
-        run: ci/egress/under-deny.sh ci/release/cell.sh python
+        run: ci/release/cell.sh python
       # ADR 0072's exercise audit over the Rust tests the cell ran: every
       # test but the quarantined ones (ADR 0064) and those that cannot run
       # on the cell, which leave no record. With the justfile's
       # `exercise_audit` at `gate`, a declaring test that never reached its
       # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit
+        run: just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
-        run: ci/egress/under-deny.sh ci/release/cell.sh rss
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
+        run: ci/release/cell.sh rss
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash
@@ -648,30 +641,23 @@ jobs:
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
       - name: "Test: Rust"
-        run: ci/egress/under-deny.sh ci/release/cell.sh rust
+        run: ci/release/cell.sh rust
       - name: "Test: TypeScript on each Node line"
-        run: ci/egress/under-deny.sh ci/release/cell.sh typescript
+        run: ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
-        run: ci/egress/under-deny.sh ci/release/cell.sh python
+        run: ci/release/cell.sh python
       # ADR 0072's exercise audit over the Rust tests the cell ran: every
       # test but the quarantined ones (ADR 0064) and those that cannot run
       # on the cell, which leave no record. With the justfile's
       # `exercise_audit` at `gate`, a declaring test that never reached its
       # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
-        run: ci/egress/under-deny.sh just features-audit
+        run: just features-audit
       # The resident-memory check on both Products' executables (ADRs 0071,
       # 0094 and 0134); it gates nothing until ci/rss-ceilings.toml exists.
       - name: "Test: resident memory"
-        run: ci/egress/under-deny.sh ci/release/cell.sh rss
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
+        run: ci/release/cell.sh rss
       - name: Record the job's context beside its JUnit files
         if: always()
         shell: bash

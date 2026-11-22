@@ -185,17 +185,10 @@ jobs:
           architecture: ${{ matrix.arch == 'x64' && 'x64' || 'native' }}
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
       - name: "Test: the failed test, 20 times"
         env:
           TEST: ${{ matrix.test }}
-        run: ci/egress/under-deny.sh just repeat 20 --test "$TEST"
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
+        run: just repeat 20 --test "$TEST"
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh 20

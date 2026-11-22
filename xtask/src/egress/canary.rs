@@ -2,8 +2,7 @@
 //! product's side of the job tries the forbidden connection
 //! `ci/egress/endpoints.toml` names, and the attempt passes only when it did
 //! not connect and the deny's own record shows that the deny refused it: the
-//! nftables `canary` counter on Linux, the firewall's log on Windows, and on
-//! macOS the sandbox's own refusal, `EPERM`, which nothing else returns. At
+//! nftables `canary` counter on Linux and the firewall's log on Windows. At
 //! the job's end, every other connection the deny refused fails the job,
 //! named from its log.
 #![expect(
@@ -34,8 +33,8 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 enum Outcome {
     Connected,
     Refused,
-    /// Refused by a local policy before any packet left: macOS's sandbox
-    /// (`EPERM`) or a Windows Firewall block rule (`WSAEACCES`).
+    /// Refused by a local policy before any packet left: a Windows Firewall
+    /// block rule (`WSAEACCES`).
     Denied,
     TimedOut,
     Unreachable,
@@ -142,9 +141,6 @@ pub(crate) enum Record<'a> {
     Counters { before: &'a Path, after: &'a Path },
     /// The firewall's log of dropped packets (Windows).
     FirewallLog(&'a Path),
-    /// macOS's sandbox keeps no record a standard user can read; its
-    /// refusal, `EPERM`, is the record.
-    Sandbox,
 }
 
 /// What lists the connections the deny refused, at the job's end.
@@ -170,7 +166,6 @@ pub(crate) fn verdict(root: &Path, outcome: &Path, record: &Record<'_>) -> Resul
         Record::FirewallLog(log) => windows::dropped(&read(log)?)?
             .iter()
             .any(|dropped| Destination::from(dropped).is_canary(canary)),
-        Record::Sandbox => ended == Outcome::Denied,
     };
     Ok(match (ended, counted) {
         (Outcome::Connected, _) => vec![Finding::new(

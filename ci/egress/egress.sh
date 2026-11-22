@@ -16,14 +16,10 @@
 #   - on a GitHub-hosted Linux runner: the product's steps run in a network
 #     namespace whose nftables rules refuse all but the allowed endpoints, so
 #     the runner's own agent keeps its connection; its kernel log the record;
-#   - on macOS without a VM (the owner's-machine cells of the Release suite,
-#     ADR 0108): the product's steps run under a sandbox profile that refuses
-#     every connection but loopback, since the runner's standard user cannot
-#     change the firewall. The sandbox's refusal, EPERM, is the canary's
-#     record; macOS keeps no record of refusals that user can read, so the
-#     end-of-job check cannot name them, and a refused connection fails only
-#     the step that made it. The allowed endpoints cannot be named in the
-#     profile, so every download comes before the deny;
+#   - on macOS without a VM there is no deny: the runner's standard user
+#     cannot change the firewall, and a sandbox profile would stop the
+#     browser's and Plugins' own sandboxes, so the Release suite's macOS
+#     cells run outside it (ADR 0043's amendment of 2026-11-22);
 #   - on a GitHub-hosted Windows runner: Windows Firewall rules block the
 #     product's programs from all but loopback and the allowed endpoints;
 #     the firewall's log of dropped packets is the record (ci/egress/windows.ps1).
@@ -180,42 +176,6 @@ namespace_check() {
   sudo journalctl --dmesg --no-pager --output cat >"$root/$files/kernel.log"
   host_xtask report --counters "$files/counters.json" --log "$files/kernel.log"
   echo "The deny refused nothing but the Egress canary."
-}
-
-### On macOS without a VM: a sandbox profile.
-
-sandbox_deny() {
-  local job
-  job=$(job_name)
-  mkdir -p "$root/$files"
-  host_xtask endpoints --job "$job" >"$root/$files/endpoints.txt"
-  # Loopback only. A sandbox profile names no remote host but localhost, so
-  # the allowed endpoints stay unreachable: every download comes before the
-  # deny. Name lookups through mDNSResponder are refused too.
-  cat >"$SANDBOX_PROFILE" <<'PROFILE'
-(version 1)
-(allow default)
-(deny network-outbound)
-(allow network-outbound (remote ip "localhost:*"))
-(allow network-outbound (remote unix-socket))
-(deny network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
-PROFILE
-  echo "$job" >"$DENY_STATE"
-  if [[ -s "$root/$files/endpoints.txt" ]]; then
-    echo "The sandbox admits loopback only, so these allowed endpoints stay unreachable under it:"
-    sed 's/^/  - /' "$root/$files/endpoints.txt"
-  fi
-  echo "Outbound traffic denied for $job but to loopback."
-}
-
-sandbox_canary() {
-  denied_xtask canary attempt --outcome "$files/canary-outcome.txt"
-  host_xtask canary verdict --outcome "$files/canary-outcome.txt" --sandbox
-  echo "The Egress canary was refused by the sandbox."
-}
-
-sandbox_check() {
-  echo "macOS keeps no record of the sandbox's refusals that the runner's user can read: a refused connection failed the step that made it, if that step did not handle the refusal."
 }
 
 ### Dispatch.

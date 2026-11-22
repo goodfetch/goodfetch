@@ -103,6 +103,10 @@ fn no_public_type_of_the_sdk_has_a_lifetime_parameter() {
     );
 
     // A crawl's lifetime is the one its handlers borrow for, so a handler
-    // may borrow from the scope that serves it (ADR 0112's exception).
-    assert_eq!(public_types_with_lifetimes(&files), ["Crawl".to_owned()]);
+    // may borrow from the scope that serves it, and a Label's declaration
+    // keeps it for its login step: declarations, not handles (ADR 0112's
+    // exception).
+    let mut found = public_types_with_lifetimes(&files);
+    found.sort_unstable();
+    assert_eq!(found, ["Crawl".to_owned(), "LabelDeclaration".to_owned()]);
 }

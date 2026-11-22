@@ -44,9 +44,11 @@
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
 //! whole so every change to a Run's state passes through one loop. A Run's
-//! identity and the value that asks it to stop are `run_identity`'s, and
-//! its charging, with what a refusal does to it, the ledger's charging
-//! module's (ADR 0145).
+//! identity and the value that asks it to stop are `run_identity`'s; its
+//! charging, with what a refusal does to it, the ledger's charging
+//! module's; its Secrets with the making of its data key `keys`', its Run
+//! report's warnings with why it did nothing `report`'s, and its end, with
+//! the signal that it was let finish, `end`'s (ADR 0145).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -79,9 +81,7 @@ use goodfetch_protocol::run::{
     StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
-use goodfetch_protocol::secrets::{
-    KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
-};
+use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::security::SECURITY_REDACTION;
 use goodfetch_protocol::settings::{
     ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
@@ -89,18 +89,19 @@ use goodfetch_protocol::settings::{
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
 use rusqlite::Connection;
-use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
+pub use self::end::RunEnd;
 pub use self::import::fuzz_run_state_import;
-pub use self::progress::{PartValue, PauseHeld, ProgressPart, TypedPart, TypedParts};
+pub use self::keys::RunKeys;
+pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart, TypedParts};
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
-pub use self::report::ReportPart;
+pub use self::report::{ReportPart, ReportWarnings};
 pub use self::writer::{Writer, test_writer};
 
 use self::ended::{EndedHere, EndedRuns};
@@ -108,8 +109,9 @@ use self::folder::{
     Compared, FixedSettings, Found, RunRow, canonical_inputs, input_differences, masked_tags,
     read_found, read_report, text, write_end,
 };
+use self::keys::KeysParts;
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
-use self::progress::{Progress, Progressing};
+use self::progress::Progressing;
 use self::reader::Following;
 use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
@@ -145,7 +147,7 @@ use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::{self, RunIndex};
-use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
+use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, BatchSync, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions,
@@ -153,7 +155,7 @@ use crate::run_state::{
 };
 use crate::run_trace::{self, RawCallLine};
 use crate::sandbox_probe::SandboxProbe;
-use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
+use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
 use crate::tasks::{OwnerKind, TaskOwner, TaskStarter};
@@ -711,15 +713,6 @@ struct Keys {
 struct Unwrapped {
     stored: StoredKey,
     key: RunKey,
-}
-
-/// Whether a resolution of the key-encryption key makes the engine's own
-/// key where it is missing: a Run's first seal does, a resume never, as a
-/// new key would open no data key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Making {
-    Yes,
-    No,
 }
 
 /// Why a Run has no data key.
@@ -1286,14 +1279,14 @@ pub struct Run {
 struct Shared {
     /// What asks it to stop, which its identity's stop signal reads.
     stop: StopAsker,
-    /// Whether `run.finish` let it finish.
-    finish: watch::Sender<bool>,
+    /// Its end, with whether `run.finish` let it finish (ADR 0145).
+    end: RunEnd,
     /// Its charging, the ledger's charging module's (ADR 0145).
     charging: RunCharging,
-    /// What it resolves its Secret references through.
-    secrets: RunSecrets,
-    /// Its data key, once made or unwrapped.
-    key: tokio::sync::OnceCell<RunKey>,
+    /// Its Secrets and its data key (ADR 0145).
+    keys: RunKeys,
+    /// Its Run report's warnings, and why it did nothing (ADR 0145).
+    warnings: ReportWarnings,
     /// Its share of the Resource governor's admissions.
     governor: RunShare,
     /// Its folder, which the governor samples while the Run lives (ADR
@@ -1342,6 +1335,34 @@ pub fn charging(run: &Run) -> &RunCharging {
     &run.shared.charging
 }
 
+/// The progress of `run` (ADR 0102), which a function takes in place of
+/// the handle to set a part of it or hold a Human pause in it (ADR 0145):
+/// `Run` gains no method for it.
+pub fn progress(run: &Run) -> &Progress {
+    &run.shared.progress
+}
+
+/// The Secrets and data key of `run`, which a function takes in place of
+/// the handle to resolve a Secret reference or to seal and open a secret
+/// column's field (ADR 0145): `Run` gains no method for it.
+pub fn keys(run: &Run) -> &RunKeys {
+    &run.shared.keys
+}
+
+/// The Run report's warnings of `run`, which a function takes in place of
+/// the handle to hand a warning over or record why the Run did nothing
+/// (ADR 0145): `Run` gains no method for it.
+pub fn warnings(run: &Run) -> &ReportWarnings {
+    &run.shared.warnings
+}
+
+/// The end of `run`, which a function takes in place of the handle to end
+/// it or wait until it is let finish (ADR 0145): `Run` gains no method for
+/// it.
+pub fn end(run: &Run) -> &RunEnd {
+    &run.shared.end
+}
+
 impl std::fmt::Debug for Run {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -1387,129 +1408,45 @@ impl Run {
     }
 
     /// What it resolves its Secret references through, holding every value
-    /// it resolved.
+    /// it resolved: [`RunKeys::secrets`].
     pub fn secrets(&self) -> &RunSecrets {
-        &self.shared.secrets
+        self.shared.keys.secrets()
     }
 
-    /// `plaintext` sealed under its data key for the row `row` of the secret
-    /// column `column`: the only value its owner writes there. Its first
-    /// call makes the data key.
+    /// `plaintext` sealed under its data key: [`RunKeys::seal`].
     ///
     /// # Errors
     ///
-    /// As [`RunKeyError`] says.
+    /// As [`RunKeys::seal`]'s.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future of the caller that makes the key abandons the
-    /// making, and the next caller makes one again. A drop once the
-    /// wrapped key's write was queued may leave it stored: the next making
-    /// then takes that key rather than store another.
+    /// As [`RunKeys::seal`]'s.
     pub async fn seal(
         &self,
         column: &SecretColumn,
         row: &str,
         plaintext: &[u8],
     ) -> Result<Sealed, RunKeyError> {
-        let key = self.key().await?;
-        Ok(Sealed::new(key.seal(
-            column.table,
-            column.column,
-            row,
-            plaintext,
-        )?))
+        self.shared.keys.seal(column, row, plaintext).await
     }
 
-    /// The plaintext of `sealed`, read from the row `row` of the secret
-    /// column `column`, in this Run or after its resume. It never makes a
-    /// data key: a Run with none held, unwrapped at its resume or stored
-    /// by a making whose caller was dropped, sealed nothing, so nothing it
-    /// holds opens.
+    /// The plaintext of `sealed`: [`RunKeys::open`].
     ///
     /// # Errors
     ///
-    /// `Key` when the value was sealed for another place or another Run,
-    /// or changed since, or when the Run has no data key.
+    /// As [`RunKeys::open`]'s.
     ///
     /// # Cancel safety
     ///
-    /// Dropping its future abandons the read of the stored key, which
-    /// writes nothing; the next call reads it again.
+    /// As [`RunKeys::open`]'s.
     pub async fn open(
         &self,
         column: &SecretColumn,
         row: &str,
         sealed: &Sealed,
     ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
-        let key = self
-            .shared
-            .key
-            .get_or_try_init(|| self.stored_key())
-            .await?;
-        Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
-    }
-
-    /// Its data key, which seals and opens the fields of its secret
-    /// columns, made at its first use.
-    async fn key(&self) -> Result<&RunKey, RunKeyError> {
-        self.shared.key.get_or_try_init(|| self.make_key()).await
-    }
-
-    /// The data key its run state holds wrapped, which a making whose
-    /// caller was dropped stored without the Run taking it, unwrapped by
-    /// the key-encryption key its settings name; it never makes one, nor
-    /// the engine's default key-encryption key.
-    async fn stored_key(&self) -> Result<RunKey, RunKeyError> {
-        let stored = self
-            .state
-            .read(run_key::stored)
-            .await?
-            .ok_or(KeyError::DoesNotOpen)?;
-        let kek = if let Some(kek) = self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
-            kek
-        } else {
-            let (reference, layer) = self.runs.key_reference(self.settings()).await;
-            self.runs
-                .key_encryption_key(self.secrets(), &reference, layer, self.id(), Making::No)
-                .await?
-        };
-        Ok(RunKey::unwrap(self.id().clone(), &stored.wrapped, &kek)?)
-    }
-
-    /// Makes its data key, stored only wrapped by the key-encryption key
-    /// its settings name, which resolves now unless its start resolved it;
-    /// the engine's own default key is made where it is missing (#616).
-    async fn make_key(&self) -> Result<RunKey, RunKeyError> {
-        let (reference, layer) = self.runs.key_reference(self.settings()).await;
-        let kek = match self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
-            Some(kek) => kek,
-            None => {
-                self.runs
-                    .key_encryption_key(self.secrets(), &reference, layer, self.id(), Making::Yes)
-                    .await?
-            }
-        };
-        let key = RunKey::generate(self.id().clone())?;
-        let stored = StoredKey {
-            wrapped: key.wrap(&kek)?,
-            key_reference: reference.to_string(),
-        };
-        // A making whose caller was dropped once its write was queued may
-        // have stored a key the Run never took: that one is the Run's key,
-        // and this making's is not stored (the check and the write are one
-        // job of the writer, so no second key can slip between them).
-        let earlier = self
-            .state
-            .write(move |connection| match run_key::stored(connection)? {
-                Some(earlier) => Ok(Some(earlier)),
-                None => run_key::store(connection, &stored).map(|()| None),
-            })
-            .await?;
-        match earlier {
-            Some(earlier) => Ok(RunKey::unwrap(self.id().clone(), &earlier.wrapped, &kek)?),
-            None => Ok(key),
-        }
+        self.shared.keys.open(column, row, sealed).await
     }
 
     /// The engine's clock.
@@ -1635,23 +1572,19 @@ impl Run {
         self.identity.stopping().await
     }
 
-    /// Whether `run.finish` let the Run finish: a driver that waits for new
-    /// work while it has none, as a keep-alive crawl does, then ends it once
-    /// its work is done.
+    /// Whether `run.finish` let the Run finish: [`RunEnd::is_let_finish`].
     pub fn is_let_finish(&self) -> bool {
-        *self.shared.finish.borrow()
+        self.shared.end.is_let_finish()
     }
 
-    /// Answers once `run.finish` lets the Run finish.
+    /// Answers once `run.finish` lets the Run finish:
+    /// [`RunEnd::let_finish`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future loses nothing; a later call answers the same.
+    /// As [`RunEnd::let_finish`]'s.
     pub async fn let_finish(&self) {
-        let mut finish = self.shared.finish.subscribe();
-        if finish.wait_for(|finish| *finish).await.is_err() {
-            std::future::pending::<()>().await;
-        }
+        self.shared.end.let_finish().await;
     }
 
     /// Starts the tasks that ask the Run to stop at its next safe point:
@@ -1689,102 +1622,58 @@ impl Run {
         self.stop_at_safe_point(reason);
     }
 
-    /// Hands `warning` over to the Run's report (ADR 0102): kept in its run
-    /// state, in the order handed over, so a resume keeps it. A code of the
-    /// warning table, or any other, is kept as it is.
+    /// Hands `warning` over to the Run's report: [`ReportWarnings::warn`].
     ///
     /// # Errors
     ///
-    /// When its run state cannot be written.
+    /// As [`ReportWarnings::warn`]'s.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the write was queued still writes it.
+    /// As [`ReportWarnings::warn`]'s.
     pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        let warning = self.masked(warning);
-        self.state
-            .write(move |connection| report::warn(connection, &warning))
-            .await
+        self.shared.warnings.warn(warning).await
     }
 
-    /// `warning` with every value a Run resolved masked, as what the engine
-    /// keeps.
-    fn masked(&self, mut warning: RunWarning) -> RunWarning {
-        if let Cow::Owned(message) = self
-            .secrets()
-            .mask()
-            .masks()
-            .apply(&warning.message, Scope::Kept)
-        {
-            warning.message = message;
-        }
-        warning
-    }
-
-    /// Hands `warning` over to the Run's report unless it holds a warning
-    /// of the same code for the same folder, or with no folder, already,
-    /// such as one an earlier run epoch handed over before a resume.
+    /// Hands `warning` over to the Run's report unless it holds one of the
+    /// same code for the same folder already: [`ReportWarnings::warn_once`].
     ///
     /// # Errors
     ///
-    /// When its run state cannot be written.
+    /// As [`ReportWarnings::warn_once`]'s.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future does not withdraw a write already queued: the
-    /// warning may still be handed over.
+    /// As [`ReportWarnings::warn_once`]'s.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        self.warn_once_with(Syncing::Required, warning).await
+        self.shared.warnings.warn_once(warning).await
     }
 
-    /// Hands `warning` over as [`Run::warn_once`] does, in the open batch,
-    /// with no sync of its own: for a warning the Run hands over again each
-    /// time it opens, such as one its settings decide, which a crash that
-    /// loses it loses only until the resume (ADR 0142).
+    /// Hands `warning` over as [`Run::warn_once`] does, in the open batch:
+    /// [`ReportWarnings::warn_once_deferred`].
     ///
     /// # Errors
     ///
-    /// When its run state cannot be written.
+    /// As [`ReportWarnings::warn_once_deferred`]'s.
     ///
     /// # Cancel safety
     ///
-    /// As [`Run::warn_once`]'s.
+    /// As [`ReportWarnings::warn_once_deferred`]'s.
     pub async fn warn_once_deferred(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        self.warn_once_with(Syncing::Deferred { charged: 0 }, warning)
-            .await
+        self.shared.warnings.warn_once_deferred(warning).await
     }
 
-    async fn warn_once_with(
-        &self,
-        syncing: Syncing,
-        warning: RunWarning,
-    ) -> Result<(), RunStateError> {
-        let warning = self.masked(warning);
-        self.state
-            .write_with(syncing, move |connection| {
-                if report::warned(connection, &warning.code, warning.folder.as_deref())? {
-                    return Ok(());
-                }
-                report::warn(connection, &warning)
-            })
-            .await
-    }
-
-    /// Records why the Run did nothing (ADR 0102), as its driver found it:
-    /// no seed reached a handler, or a resume found nothing left. Its
-    /// report says so.
+    /// Records why the Run did nothing: [`ReportWarnings::nothing_done`].
     ///
     /// # Errors
     ///
-    /// When its run state cannot be written.
+    /// As [`ReportWarnings::nothing_done`]'s.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the write was queued still writes it.
+    /// As [`ReportWarnings::nothing_done`]'s.
     pub async fn nothing_done(&self, nothing_done: NothingDone) -> Result<(), RunStateError> {
-        self.state
-            .write(move |connection| report::record_nothing_done(connection, &nothing_done))
-            .await
+        self.shared.warnings.nothing_done(nothing_done).await
     }
 
     /// What the Run used so far, as its run state counted it, with each
@@ -2081,23 +1970,13 @@ impl Run {
         self.identity.span()
     }
 
-    /// Ends the Run as its driver says, once: its tasks stop, and its Run
-    /// report is written and given to whoever waits for it.
+    /// Ends the Run as its driver says, once: [`RunEnd::end`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the end was sent still ends the Run.
+    /// As [`RunEnd::end`]'s.
     pub async fn end(&self, ending: Ending) {
-        let end = match ending {
-            Ending::Finished(reasons) => End::Finished(reasons),
-            Ending::Failed(error) => End::Failed(error),
-            Ending::Stopped(reason) => End::Stopped(reason),
-        };
-        let _ = self
-            .runs
-            .commands
-            .send(Command::End(self.id().clone(), end))
-            .await;
+        self.shared.end.end(ending).await;
     }
 
     /// Stores `bytes` as one of the Run's page bodies, a file in its folder
@@ -2694,7 +2573,7 @@ impl Runs {
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
-        if let Some((reference, layer)) = layer_set_key_reference(start.settings.as_ref()) {
+        if let Some((reference, layer)) = keys::layer_set_key_reference(start.settings.as_ref()) {
             // The key-encryption key is used as the Run starts, to wrap its
             // data key (ADR 0015), so it resolves now, before the Run exists.
             secrets
@@ -3079,14 +2958,21 @@ impl Runs {
             return Ok(None);
         };
         let run_id = &resume.run_id;
-        let (reference, layer) = self.key_reference(resume.settings.as_ref()).await;
-        let kek = self
-            .key_encryption_key(secrets, &reference, layer, run_id, Making::No)
-            .await
-            .map_err(|error| RunError::Secret {
-                run_id: run_id.clone(),
-                error: Box::new(error),
-            })?;
+        let (reference, layer) =
+            keys::key_reference(self.engine.settings(), resume.settings.as_ref()).await;
+        let kek = keys::key_encryption_key(
+            &self.secrets,
+            secrets,
+            &reference,
+            layer,
+            run_id,
+            keys::Making::No,
+        )
+        .await
+        .map_err(|error| RunError::Secret {
+            run_id: run_id.clone(),
+            error: Box::new(error),
+        })?;
         let key = RunKey::unwrap(run_id.clone(), &stored.wrapped, &kek).map_err(|_| {
             RunError::KeyMismatch {
                 run_id: run_id.clone(),
@@ -3095,65 +2981,6 @@ impl Runs {
             }
         })?;
         Ok(Some(Unwrapped { stored, key }))
-    }
-
-    /// The Secret reference of the key-encryption key of a Run whose
-    /// settings resolved as `settings`, and the layer that set it: this
-    /// host's default where none did, or where a layer cleared it, asked
-    /// for here, so the OS keychain opens only once a Run first needs its
-    /// key, not as its settings open (issue 2204).
-    async fn key_reference(
-        &self,
-        settings: Option<&RunSettings>,
-    ) -> (SecretReference, SettingsLayer) {
-        if let Some((reference, layer)) = layer_set_key_reference(settings) {
-            return (reference, layer);
-        }
-        let default = self
-            .engine
-            .settings()
-            .host_defaults()
-            .await
-            .of(&RUN_STATE_KEY_REFERENCE);
-        let reference = default
-            .as_str()
-            .and_then(|text| SecretReference::parse(text).ok())
-            .unwrap_or_else(|| {
-                SecretReference::parse(KEY_REFERENCE_IN_KEYCHAIN)
-                    .expect("invariant: the keychain's default is a Secret reference")
-            });
-        (reference, SettingsLayer::Default)
-    }
-
-    /// The key-encryption key `reference`, set by `layer`, gives for the
-    /// Run `run_id`, resolved through `secrets`. With `Making::Yes`, the
-    /// engine's own key ([`is_engine_key`]) is made first where it is
-    /// missing.
-    async fn key_encryption_key(
-        &self,
-        secrets: &RunSecrets,
-        reference: &SecretReference,
-        layer: SettingsLayer,
-        run_id: &RunId,
-        making: Making,
-    ) -> Result<SecretString, SecretError> {
-        let purpose = Purpose {
-            placeholder: RUN_STATE_KEY_REFERENCE.name,
-            domain: None,
-            domains: &[],
-            layer: Some(layer),
-            run_id: Some(run_id),
-        };
-        match secrets.resolve(reference, &purpose).await {
-            Err(SecretError::Unavailable {
-                failure: SecretFailure::Missing | SecretFailure::NotConfigured,
-                ..
-            }) if making == Making::Yes && is_engine_key(reference) => {
-                self.secrets.make_key(reference).await?;
-                secrets.resolve(reference, &purpose).await
-            }
-            resolved => resolved,
-        }
     }
 
     /// The identity of the machine this engine's Goodfetch home is on,
@@ -3791,6 +3618,9 @@ impl Ended {
 struct Live {
     id: RunId,
     run: Option<Run>,
+    /// Lets it finish, once `run.finish` does, for its end to read: set
+    /// only here (ADR 0145).
+    let_finish: watch::Sender<bool>,
     folder: PathBuf,
     kind: RunKind,
     needs: Product,
@@ -5169,12 +4999,14 @@ impl Registry {
             })
             .await
             .map_err(|error| unavailable(error.to_string()))?;
-        let run = self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
+        let (run, let_finish) =
+            self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
         run.shared.charging.hold(charging);
         let live = Live {
             id: run_id.clone(),
             progress: run.shared.progress.clone(),
             run: Some(run),
+            let_finish,
             folder,
             kind: start.kind,
             needs: start.needs,
@@ -5293,8 +5125,8 @@ impl Registry {
                 self.end_or_report(run_id, End::Finished(Vec::new())).await
             }
             (EndedBy::Driver, Letting::Finish) => {
-                if let Some(run) = &live.run {
-                    run.shared.finish.send_replace(true);
+                if live.run.is_some() {
+                    live.let_finish.send_replace(true);
                 }
                 Ok(live.report.subscribe())
             }
@@ -5409,9 +5241,10 @@ impl Registry {
 
     /// The live Run `run_id`, of `kind`, as its driver holds it, writing
     /// `state` in its folder, under its resolved `settings`, resolving its
-    /// Secret references through `keys`. Its charging has read nothing
-    /// yet: a new Run takes the one its start read its Limits with, and a
-    /// resumed one reads them next.
+    /// Secret references through `keys`, and what lets it finish, which
+    /// the registry alone sets. Its charging has read nothing yet: a new
+    /// Run takes the one its start read its Limits with, and a resumed one
+    /// reads them next.
     fn new_run(
         &mut self,
         run_id: &RunId,
@@ -5420,7 +5253,7 @@ impl Registry {
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
-    ) -> Run {
+    ) -> (Run, watch::Sender<bool>) {
         let folder = &self.folder(run_id);
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
@@ -5472,16 +5305,24 @@ impl Registry {
                 })
             }),
         });
-        Run {
-            identity,
-            state,
-            admitting: Arc::clone(&self.admitting),
+        let runs = self.handle(connection);
+        let (let_finish, finish) = watch::channel(false);
+        let warnings = ReportWarnings::new(state.clone(), keys.secrets.mask().clone());
+        let keys = RunKeys::new(KeysParts {
+            secrets: keys.secrets,
+            key: keys.key,
+            identity: identity.clone(),
+            state: state.clone(),
+            settings: self.setup.engine.settings().clone(),
+            engine_secrets: self.setup.secrets.clone(),
+        });
+        let run = Run {
             shared: Arc::new(Shared {
                 stop,
-                finish: watch::Sender::new(false),
+                end: RunEnd::new(run_id.clone(), runs.commands.clone(), finish),
                 charging,
-                secrets: keys.secrets,
-                key: tokio::sync::OnceCell::new_with(keys.key),
+                keys,
+                warnings,
                 governor: self.setup.governor.join(share),
                 _sampled: self.setup.governor.sample(folder.to_owned()),
                 storage: self.setup.governor.storage(),
@@ -5498,10 +5339,14 @@ impl Registry {
                 attempt_writes: std::sync::OnceLock::new(),
                 trace,
             }),
+            identity,
+            state,
+            admitting: Arc::clone(&self.admitting),
             owner,
-            runs: self.handle(connection),
+            runs,
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
-        }
+        };
+        (run, let_finish)
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every
@@ -5967,18 +5812,18 @@ impl Registry {
         let weakened = joined_weakened(&listed, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
+        let (run, let_finish) =
+            self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
         self.read_limits(&run).await;
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
         }
-        run.shared
-            .progress
-            .resumed(lifecycle, progress_message.clone());
+        progress(&run).resumed(lifecycle, progress_message.clone());
         let live = Live {
             id: run_id.clone(),
             progress: run.shared.progress.clone(),
             run: Some(run),
+            let_finish,
             folder,
             kind: recorded.kind,
             needs: recorded.needs,
@@ -6552,7 +6397,7 @@ impl Recording {
 /// asking for it here would open the OS keychain (issue 2204).
 fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
     let mut settings = run.settings()?.resolved().explain(&[], Vec::new()).settings;
-    if run.shared.key.get().is_some()
+    if run.shared.keys.holds_key()
         && let Some(known) = run.runs.engine.settings().known_host_defaults()
         && let Some(default) = settings.iter_mut().find(|explained| {
             explained.key == RUN_STATE_KEY_REFERENCE.name
@@ -6562,20 +6407,6 @@ fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
         default.value = known.of(&RUN_STATE_KEY_REFERENCE);
     }
     Some(settings)
-}
-
-/// The Secret reference of the key-encryption key that a layer of
-/// `settings` set, and that layer; none where the default stands.
-fn layer_set_key_reference(
-    settings: Option<&RunSettings>,
-) -> Option<(SecretReference, SettingsLayer)> {
-    let resolved = settings?.resolved();
-    let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
-    (layer != SettingsLayer::Default).then_some(())?;
-    Some((
-        resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-        layer,
-    ))
 }
 
 /// A Run on its way to its end.
@@ -6717,9 +6548,11 @@ impl Closing {
 
 mod clean_up;
 mod discard;
+mod end;
 mod ended;
 mod folder;
 mod import;
+mod keys;
 pub mod lifecycle;
 mod list;
 pub mod outcome;

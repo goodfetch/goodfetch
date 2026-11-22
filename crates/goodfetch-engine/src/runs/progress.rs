@@ -216,9 +216,11 @@ fn epoch_floor(epoch: u64) -> u64 {
 }
 
 /// A live Run's progress, which its registry and its driver change and its
-/// readers follow.
+/// readers follow: a value a function takes in place of the Run's handle
+/// to set a part of it or hold a Human pause in it (ADR 0145). Clones
+/// share it.
 #[derive(Clone, Debug)]
-pub(super) struct Progress {
+pub struct Progress {
     changes: Arc<watch::Sender<Progressing>>,
 }
 
@@ -254,7 +256,7 @@ impl Progress {
 
     /// Sets the part `name` its kind of Run adds to `part`: a change only
     /// when it differs from the part it held.
-    pub(super) fn set_part(&self, name: &str, part: Value) {
+    pub fn set_part(&self, name: &str, part: Value) {
         self.changes.send_if_modified(|progressing| {
             if progressing.kind_parts.get(name) == Some(&part) {
                 return false;
@@ -266,14 +268,14 @@ impl Progress {
     }
 
     /// Sets the typed part `name` its kind of Run adds to `part`; a change.
-    pub(super) fn set_typed_part(&self, name: &'static str, part: TypedPart) {
+    pub fn set_typed_part(&self, name: &'static str, part: TypedPart) {
         self.change(|progressing| {
             progressing.typed_parts.0.insert(name, part);
         });
     }
 
     /// Adds `pause` to the pauses waiting; a change.
-    pub(super) fn pause(&self, pause: HumanPause) -> PauseHeld {
+    pub fn pause(&self, pause: HumanPause) -> PauseHeld {
         let mut id = 0;
         self.change(|progressing| {
             id = progressing.next_pause;

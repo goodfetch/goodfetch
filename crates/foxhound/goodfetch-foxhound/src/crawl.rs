@@ -27,8 +27,8 @@ use goodfetch_collie_client::{
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
-    LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration, LabelUnknownDetails, RequestSeed,
-    Seed as SeedRequest, Seeds,
+    LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
+    RequestSeed, Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails, DatasetRecord, RECORD,
@@ -47,12 +47,14 @@ use crate::crawl_requests::CrawlRequests;
 use crate::sync::{AtomicU64, Mutex};
 
 mod context;
+mod declaration;
 mod handles;
 #[cfg(test)]
 mod tests;
 
 pub use context::CrawlContext;
 use context::{Attempt, Ending, retry_requested};
+pub use declaration::LabelDeclaration;
 pub use handles::{Dataset, Label, Seed};
 
 /// The source of each crawl's own number, which its Labels and Datasets
@@ -120,9 +122,18 @@ struct Delivered {
 /// ```
 pub struct Crawl<'a> {
     id: CrawlId,
-    /// Each Label in the order declared, with its handler once attached.
-    labels: Vec<(Arc<str>, Option<Handler<'a>>)>,
+    /// Each Label in the order declared.
+    labels: Vec<Declared<'a>>,
     datasets: Vec<DatasetDeclaration>,
+}
+
+/// A Label a crawl declares: its name, what `crawl.start` declares it
+/// with, and its handler once attached.
+#[derive(Clone)]
+struct Declared<'a> {
+    name: Arc<str>,
+    wire: WireLabel,
+    handler: Option<Handler<'a>>,
 }
 
 impl Default for Crawl<'_> {
@@ -136,7 +147,7 @@ impl fmt::Debug for Crawl<'_> {
         let labels: Vec<(&str, bool)> = self
             .labels
             .iter()
-            .map(|(name, handler)| (&**name, handler.is_some()))
+            .map(|declared| (&*declared.name, declared.handler.is_some()))
             .collect();
         formatter
             .debug_struct("Crawl")
@@ -166,15 +177,22 @@ impl<'a> Crawl<'a> {
         }
     }
 
-    /// Declares the Label `name`, whose requests carry a Payload of type
-    /// `P`, and returns it, the handle seeds, enqueues and its handler
-    /// name it by.
+    /// Declares a Label, whose requests carry a Payload of type `P`, and
+    /// returns it, the handle seeds, enqueues and its handler name it by:
+    /// a bare name, `crawl.label::<P>(name)`, or a [`LabelDeclaration`]
+    /// with the Label's Payload schema and settings (ADR 0099).
     ///
     /// # Errors
     ///
-    /// `label_duplicate` when the crawl already declares a Label `name`.
-    pub fn label<P>(&mut self, name: &str) -> Result<Label<P>, Error> {
-        if self.labels.iter().any(|(declared, _)| **declared == *name) {
+    /// `label_duplicate` when the crawl already declares a Label of its
+    /// name, and `setting_not_applicable` for a key of its settings a
+    /// Label does not set; neither declares it.
+    pub fn label<P>(
+        &mut self,
+        declaration: impl Into<LabelDeclaration<'a, P>>,
+    ) -> Result<Label<P>, Error> {
+        let (name, wire) = declaration.into().into_parts()?;
+        if self.labels.iter().any(|declared| *declared.name == *name) {
             return Err(Error::of_sdk(
                 &LABEL_DUPLICATE,
                 &format!("the crawl already declares the Label `{name}`"),
@@ -183,7 +201,11 @@ impl<'a> Crawl<'a> {
             ));
         }
         let name: Arc<str> = Arc::from(name);
-        self.labels.push((Arc::clone(&name), None));
+        self.labels.push(Declared {
+            name: Arc::clone(&name),
+            wire,
+            handler: None,
+        });
         Ok(Label {
             name,
             crawl: self.id,
@@ -215,7 +237,7 @@ impl<'a> Crawl<'a> {
         let slot = self
             .labels
             .iter_mut()
-            .find_map(|(name, slot)| (*name == label.name).then_some(slot))
+            .find_map(|declared| (declared.name == label.name).then_some(&mut declared.handler))
             .expect("invariant: a Label of this crawl is declared on it");
         if slot.is_some() {
             return Err(Error::of_sdk(
@@ -341,7 +363,11 @@ impl<'a> Crawl<'a> {
         let delivered = delivered(call, &run.connection, &run.run, self.id, declared)
             .map_err(|error| params_unread(&error))?;
         let label = delivered.attempt.params.crawl_request.label.as_str();
-        let Some((name, Some(handler))) = self.labels.iter().find(|(name, _)| **name == *label)
+        let Some(Declared {
+            name,
+            handler: Some(handler),
+            ..
+        }) = self.labels.iter().find(|declared| *declared.name == *label)
         else {
             return Err(label_unknown(label, declared.to_vec()));
         };
@@ -351,7 +377,10 @@ impl<'a> Crawl<'a> {
     /// The `label_unhandled` of the crawl's first Label with no handler,
     /// if it has one.
     fn unhandled(&self) -> Option<Error> {
-        let (name, _) = self.labels.iter().find(|(_, handler)| handler.is_none())?;
+        let Declared { name, .. } = self
+            .labels
+            .iter()
+            .find(|declared| declared.handler.is_none())?;
         Some(Error::of_sdk(
             &LABEL_UNHANDLED,
             &format!("the crawl attaches no handler to the Label `{name}`"),
@@ -364,7 +393,7 @@ impl<'a> Crawl<'a> {
     fn declared(&self) -> Vec<String> {
         self.labels
             .iter()
-            .map(|(name, _)| name.to_string())
+            .map(|declared| declared.name.to_string())
             .collect()
     }
 
@@ -378,7 +407,10 @@ impl<'a> Crawl<'a> {
     /// that attaches none is answered by the program itself, through
     /// [`CrawlRun::crawl_requests`].
     fn start_params(&self, seeds: Vec<Seed>) -> Result<CrawlStartParams, Error> {
-        if self.labels.iter().any(|(_, handler)| handler.is_some())
+        if self
+            .labels
+            .iter()
+            .any(|declared| declared.handler.is_some())
             && let Some(error) = self.unhandled()
         {
             return Err(error);
@@ -413,7 +445,7 @@ impl<'a> Crawl<'a> {
             labels: self
                 .labels
                 .iter()
-                .map(|(name, _)| (name.to_string(), LabelDeclaration::default()))
+                .map(|declared| (declared.name.to_string(), declared.wire.clone()))
                 .collect(),
             datasets: self.datasets.clone(),
             extraction: None,
@@ -934,6 +966,7 @@ const _: () = {
     send_sync_static::<CrawlCall>();
     send_sync_static::<EventStream<CrawlCall>>();
     send_sync_static::<Label<()>>();
+    send_sync_static::<LabelDeclaration<'static, ()>>();
     send_sync_static::<Dataset<()>>();
     send_static::<Seed>();
     send_static::<StartCrawl>();

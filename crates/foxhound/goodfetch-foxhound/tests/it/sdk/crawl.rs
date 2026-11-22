@@ -269,7 +269,7 @@ fn an_axum_handler_serves_the_tracer_crawl_on_every_call() {
     });
 }
 
-/// Covers: story:11-1025
+/// Covers: story:11-1025, story:11-1102
 #[test]
 fn a_panic_in_a_handler_fails_its_request_with_handler_failed_and_serve_goes_on() {
     let env = TestEnv::new();

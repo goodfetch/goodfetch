@@ -229,6 +229,12 @@ UNREADABLE_LISTS: dict[str, Callable[[Path], object]] = {
     "not-utf-8": lambda home: _write_list(home, after=b',"note":"\xff"'),
     "byte-order-mark": lambda home: _write_list(home, before=b"\xef\xbb\xbf"),
     "not-a-number-constant": lambda home: _write_list(home, after=b',"note":NaN'),
+    "nested-deeper-than-its-reader-goes": lambda home: _write_list(
+        home, after=b',"note":' + b"[" * 100_000 + b"]" * 100_000
+    ),
+    "format-minor-past-its-bound": lambda home: listed(
+        home, [entry(home)], "0." + "1" * 5000
+    ),
 }
 """Writers of a list the engine would not read."""
 
@@ -248,6 +254,19 @@ def test_is_the_pick_with_a_list_it_cannot_read(home: Path, case: str) -> None:
     [
         pytest.param("1.0.0-rc.2", "1.0.1", False, id="a-newer-patch"),
         pytest.param("1.0.9", "1.0.10", False, id="patch-10-above-patch-9"),
+        pytest.param("1.0.9", "1.0." + "1" * 5000, False, id="a-patch-of-5000-digits"),
+        pytest.param(
+            "1.0.0-" + "9" * 20,
+            "1.0.0-1" + "0" * 20,
+            True,
+            id="pre-release-numbers-past-64-bits-as-words",
+        ),
+        pytest.param(
+            "1.0.0-rc.10",
+            "1.0.0-rc." + "0" * 30 + "11",
+            False,
+            id="pre-release-number-with-leading-zeros",
+        ),
         pytest.param("1.2.0", "1.10.0", False, id="a-newer-minor-of-the-major"),
         pytest.param("1.0.0-rc.2", "1.0.0", False, id="release-above-its-pre-release"),
         pytest.param("1.0.0-rc.2", "1.0.0-rc.10", False, id="pre-release-numbers"),

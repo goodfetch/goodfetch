@@ -21,7 +21,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, NoReturn, TypeVar, cast
 
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client.generated.models import ArtifactKind, Product
@@ -38,6 +38,9 @@ U64_MAX = 2**64 - 1
 
 _ARTIFACT_KINDS = frozenset(kind.value for kind in ArtifactKind)
 """Every kind of the Browser cache's artifacts, from the generated `ArtifactKind`."""
+
+_PRODUCTS = frozenset(product.value for product in Product)
+"""Every Product's mark, from the generated `Product`."""
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -108,13 +111,14 @@ class _ProductVersion:
     text: str
     major: int
     minor: int
-    patch: int
+    patch: str
+    """Its patch number's canonical digits, unbounded, as the engine keeps them."""
     pre_release: tuple[str, ...] | None
 
 
 @dataclass(frozen=True)
 class _ArtifactId:
-    kind: str
+    kind: ArtifactKind
     name: str
     build: str
 
@@ -134,7 +138,7 @@ class _Entry:
     last_seen: _Instant
 
 
-def _refuse_constant(name: str) -> object:
+def _refuse_constant(name: str) -> NoReturn:
     # JSON has no NaN or Infinity, which Python's parser takes by default.
     message = f"{name} is no JSON value"
     raise ValueError(message)
@@ -156,7 +160,8 @@ def _installed(home: str) -> list[_Entry]:
         with open(os.path.join(home, "installed-executables.json"), "rb") as file:
             text = file.read().decode("utf-8")
         document = object_members(json.loads(text, parse_constant=_refuse_constant))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
+        # Nested deeper than Python's parser goes, the engine's goes no deeper.
         return []
     if document is None or _format_major(document.get("format_version")) != 0:
         return []
@@ -171,8 +176,8 @@ def _format_major(value: object) -> int | None:
     match = _FORMAT_VERSION.fullmatch(value)
     if match is None:
         return None
-    major, minor = int(match[1]), int(match[2])
-    return major if major <= 0xFFFF and minor <= 0xFFFF else None
+    major, minor = _bounded(match[1], 0xFFFF), _bounded(match[2], 0xFFFF)
+    return major if minor is not None else None
 
 
 def _entry_of(value: object) -> _Entry | None:
@@ -193,7 +198,7 @@ def _entry_of(value: object) -> _Entry | None:
         not isinstance(kind, str)
         or kind not in ("product_executable", "linked_program")
         or not isinstance(product, str)
-        or product not in ("collie", "foxhound")
+        or product not in _PRODUCTS
         or version is None
         or not isinstance(path, str)
         or not isinstance(size, int)
@@ -230,7 +235,7 @@ def _artifact_id(value: object) -> _ArtifactId | None:
         or not isinstance(build, str)
     ):
         return None
-    return _ArtifactId(kind, name, build)
+    return _ArtifactId(ArtifactKind(kind), name, build)
 
 
 def _instant(value: object) -> _Instant | None:
@@ -357,11 +362,11 @@ def _product_version(value: object) -> _ProductVersion | None:
     match = _PRODUCT_VERSION.fullmatch(value)
     if match is None:
         return None
-    major, minor, patch = int(match[1]), int(match[2]), int(match[3])
-    if major > U64_MAX or minor > U64_MAX:
+    major, minor = _bounded(match[1], U64_MAX), _bounded(match[2], U64_MAX)
+    if major is None or minor is None:
         return None
     pre_release = None if match[4] is None else tuple(match[4].split("."))
-    return _ProductVersion(value, major, minor, patch, pre_release)
+    return _ProductVersion(value, major, minor, match[3], pre_release)
 
 
 def _same_line(left: _ProductVersion, right: _ProductVersion) -> bool:
@@ -378,6 +383,7 @@ def _compare_versions(left: _ProductVersion, right: _ProductVersion) -> int:
     return (
         _compare(left.major, right.major)
         or _compare(left.minor, right.minor)
+        or _compare(len(left.patch), len(right.patch))
         or _compare(left.patch, right.patch)
         or _compare_pre_releases(left.pre_release, right.pre_release)
         or _compare(left.text, right.text)
@@ -410,8 +416,20 @@ def _number_of(identifier: str) -> int | None:
     """An identifier of digits alone that fits 64 bits, as the engine reads a number."""
     if _NUMBER.fullmatch(identifier) is None:
         return None
-    number = int(identifier)
-    return number if number <= U64_MAX else None
+    return _bounded(identifier, U64_MAX)
+
+
+def _bounded(digits: str, limit: int) -> int | None:
+    """`digits` as a number when it is at most `limit`, else `None`.
+
+    Leading zeros aside, more digits than `limit` has are past it unread:
+    Python's `int` refuses a string of more than 4300 digits.
+    """
+    significant = digits.lstrip("0") or "0"
+    if len(significant) > len(str(limit)):
+        return None
+    number = int(significant)
+    return number if number <= limit else None
 
 
 _Ordered = TypeVar("_Ordered", int, str)

@@ -26,7 +26,10 @@
 //!   does, `--subprotocol` is answered when the handshake offers it and
 //!   none is answered otherwise, as by a Daemon of another protocol major.
 //!   Each WebSocket message carries one JSON-RPC message each way, and the
-//!   WebSocket closes when the play ends;
+//!   WebSocket closes when the play ends. A `drop` step drops the Client's
+//!   connection with no close, as a lost network link does, and plays the
+//!   steps after it to the next Client that connects, the one mode that
+//!   takes another;
 //! - `http`: as a Daemon's HTTP listener (ADRs 0027 and 0070), on loopback
 //!   TCP on port 0, printing `{"address": …, "token": …}`. Each request
 //!   posts one JSON-RPC message, played only behind `--token` as its bearer
@@ -72,7 +75,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand, ValueEnum};
 use goodfetch_test_support::{
     ATTACHED_RECORD, ATTACHED_SCRIPT, DaemonEndpoint, Ending, RuntimeFile, SCRIPTED_DAEMON_TOKEN,
-    Script, play,
+    Script, play, play_relinking,
 };
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, handshake, http};
@@ -738,7 +741,9 @@ impl Write for &HttpListener<'_> {
 struct WebSocketListener<'a> {
     listener: &'a TcpListener,
     subprotocol: &'a str,
-    socket: OnceCell<RefCell<WebSocket<TcpStream>>>,
+    /// The Client's WebSocket, none until a step first reads or writes or
+    /// once a `drop` step dropped it.
+    socket: RefCell<Option<WebSocket<TcpStream>>>,
     /// The last message received, as one line, until the play reads it all.
     received: RefCell<io::Cursor<Vec<u8>>>,
     /// What the play wrote past its last full line.
@@ -750,7 +755,7 @@ impl<'a> WebSocketListener<'a> {
         Self {
             listener,
             subprotocol,
-            socket: OnceCell::new(),
+            socket: RefCell::new(None),
             received: RefCell::new(io::Cursor::new(Vec::new())),
             written: RefCell::new(Vec::new()),
         }
@@ -758,11 +763,14 @@ impl<'a> WebSocketListener<'a> {
 
     /// Plays `script` to the first Client to connect, accepting it only
     /// when a step first reads or writes, so a script that exits at once
-    /// never waits for one; the WebSocket is closed when the play ends.
+    /// never waits for one; a `drop` step drops it, and the steps after
+    /// play to the next Client. The WebSocket is closed when the play ends.
     fn play(&self, script: &Script, record: impl Write) -> Result<Ending, Failure> {
-        let ending = play(script, BufReader::new(self), self, record);
-        if let Some(socket) = self.socket.get() {
-            let mut socket = socket.borrow_mut();
+        let ending = play_relinking(script, BufReader::new(self), self, record, || {
+            self.drop_client();
+            Ok(())
+        });
+        if let Some(socket) = self.socket.borrow_mut().as_mut() {
             // A Client that already went leaves nothing to close.
             let _ = socket.close(None).and_then(|()| socket.flush());
             let _ = socket.get_ref().shutdown(Shutdown::Both);
@@ -770,16 +778,39 @@ impl<'a> WebSocketListener<'a> {
         Ok(ending?)
     }
 
-    /// The WebSocket of the first Client, whose handshake must carry the
+    /// Drops the Client's connection with no WebSocket close, as a lost
+    /// network link does, and forgets what it sent and was sent, so the
+    /// next read or write accepts the next Client. Each message is one
+    /// line, so the play's reader holds nothing of it past the last line.
+    fn drop_client(&self) {
+        if let Some(socket) = self.socket.borrow_mut().take() {
+            // A Client that already went leaves nothing to shut down.
+            let _ = socket.get_ref().shutdown(Shutdown::Both);
+        }
+        *self.received.borrow_mut() = io::Cursor::new(Vec::new());
+        self.written.borrow_mut().clear();
+    }
+
+    /// Runs `act` on the Client's WebSocket, accepting the Client first when
+    /// none is connected.
+    fn with_socket<T>(&self, act: impl FnOnce(&mut WebSocket<TcpStream>) -> T) -> io::Result<T> {
+        let mut socket = self.socket.borrow_mut();
+        if socket.is_none() {
+            *socket = Some(self.accept()?);
+        }
+        let socket = socket
+            .as_mut()
+            .expect("invariant: the Client's WebSocket was just accepted");
+        Ok(act(socket))
+    }
+
+    /// The WebSocket of the next Client, whose handshake must carry the
     /// listener's own `Origin`, by its loopback address or `localhost`, as a
     /// Client outside a browser sends it (ADR 0067), or it is answered `403`
     /// and the play reads its end. As the Daemon does (ADR 0049), the
     /// subprotocol is answered when the handshake offers it and none is
     /// answered otherwise.
-    fn socket(&self) -> io::Result<&RefCell<WebSocket<TcpStream>>> {
-        if let Some(socket) = self.socket.get() {
-            return Ok(socket);
-        }
+    fn accept(&self) -> io::Result<WebSocket<TcpStream>> {
         let port = self.listener.local_addr()?.port();
         let origins = [
             format!("http://127.0.0.1:{port}"),
@@ -821,9 +852,8 @@ impl<'a> WebSocketListener<'a> {
                 }
                 Ok(response)
             };
-        let socket = tungstenite::accept_hdr(stream, check)
-            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error.to_string()))?;
-        Ok(self.socket.get_or_init(|| RefCell::new(socket)))
+        tungstenite::accept_hdr(stream, check)
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error.to_string()))
     }
 }
 
@@ -835,7 +865,7 @@ impl Read for &WebSocketListener<'_> {
             if read > 0 || buffer.is_empty() {
                 return Ok(read);
             }
-            let message = match self.socket()?.borrow_mut().read() {
+            let message = match self.with_socket(WebSocket::read)? {
                 Ok(message) => message,
                 Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
                     return Ok(0);
@@ -862,18 +892,15 @@ impl Write for &WebSocketListener<'_> {
         while let Some(end) = written.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = written.drain(..=end).take(end).collect();
             let text = String::from_utf8(line).map_err(|_| invalid("a line that is no UTF-8"))?;
-            self.socket()?
-                .borrow_mut()
-                .send(Message::text(text))
+            self.with_socket(|socket| socket.send(Message::text(text)))?
                 .map_err(|error| io::Error::other(error.to_string()))?;
         }
         Ok(buffer.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match self.socket.get() {
+        match self.socket.borrow_mut().as_mut() {
             Some(socket) => socket
-                .borrow_mut()
                 .flush()
                 .map_err(|error| io::Error::other(error.to_string())),
             None => Ok(()),

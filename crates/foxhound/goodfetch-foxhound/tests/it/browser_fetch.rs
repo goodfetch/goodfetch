@@ -156,7 +156,7 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
     clippy::disallowed_methods,
     reason = "the test reads the Run's CDP trace from outside the engine, on no async worker"
 )]
-fn contexts_created(env: &TestEnv, run_id: &str) -> usize {
+pub(crate) fn contexts_created(env: &TestEnv, run_id: &str) -> usize {
     let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
     std::fs::read_to_string(file)
         .unwrap()

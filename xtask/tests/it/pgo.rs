@@ -423,9 +423,13 @@ impl Build {
     }
 }
 
+/// The flags of a profile-guided build. rustc reads `profile_use` as
+/// `profile-use`; sccache 0.18 does not, and so does not take the profile
+/// for an output of the compile, which it would rewrite on each cache hit,
+/// making Cargo rebuild every crate of the next build (mozilla/sccache#2960).
 fn profile_use(folder: &Path) -> String {
     format!(
-        "{STABLE_MARK} -Cprofile-use={} -Cllvm-args=-no-pgo-warn-mismatch",
+        "{STABLE_MARK} -Cprofile_use={} -Cllvm-args=-no-pgo-warn-mismatch",
         folder.join("merged.profdata").display()
     )
 }
@@ -1194,8 +1198,9 @@ const REWRITTEN: &str = "#[inline(never)] pub fn kept(n: u64) -> u64 { let mut s
 /// A profile trained before Cargo's metadata changed still guides the
 /// functions whose code is the same, and LLVM drops the records of a
 /// function whose code changed (their hash no longer matches) rather than
-/// apply stale counts to it. The LLVM tools are rustup's `llvm-tools`,
-/// which `just musl-toolchain` adds, as `xtask pgo refresh` needs.
+/// apply stale counts to it, with the flag spelled as ci/musl/cargo
+/// spells it. The LLVM tools are rustup's `llvm-tools`, which
+/// `just musl-toolchain` adds, as `xtask pgo refresh` needs.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_profile_guides_the_functions_whose_code_held_and_drops_the_rest() {
@@ -1255,7 +1260,7 @@ fn a_profile_guides_the_functions_whose_code_held_and_drops_the_rest() {
         &[
             "-O",
             "-C",
-            &format!("profile-use={}", merged.display()),
+            &format!("profile_use={}", merged.display()),
             "--emit",
             "llvm-ir",
             "-o",

@@ -562,9 +562,8 @@ impl Flow {
         }
     }
 
-    /// Cancels the call unless it ended. A call not sent yet is cancelled
-    /// once it is: the closed stream tells the Connection that no one
-    /// reads it.
+    /// Cancels the call unless it ended. A call not sent yet is never
+    /// sent: the closed stream tells the Connection that no one reads it.
     fn cancel(&mut self) {
         // Ended, or never sent: nothing to cancel.
         if self.reply.take().is_none() {

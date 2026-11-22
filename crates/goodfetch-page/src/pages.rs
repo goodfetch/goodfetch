@@ -112,8 +112,8 @@ use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_value::{
-    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, OwnFetch,
-    PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
+    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
+    OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
 };
 use crate::proxy;
 use crate::recovery;
@@ -485,7 +485,12 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
                 let sessions = paging.clone();
                 async move {
                     sessions
-                        .new_page(&params.session_id, &params.settings, &context)
+                        .new_page(
+                            &params.session_id,
+                            &params.settings,
+                            &HeldPlace::default(),
+                            &context,
+                        )
                         .await
                 }
             },

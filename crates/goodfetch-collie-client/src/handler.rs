@@ -21,6 +21,7 @@ use crate::error::{BoxError, Error};
 use crate::line;
 use crate::opening_process::OpeningProcess;
 use crate::sync::{Mutex, MutexGuard};
+use crate::write_queue::{WeakWriteQueue, WriteQueue};
 use goodfetch_protocol::error_code::ErrorCode;
 
 /// The streams the engine's requests go to, by method, or `None` once the
@@ -63,7 +64,7 @@ impl Streams {
 
     /// Hands `request` to its method's stream, or answers it with the
     /// method error when none serves it. Answers go out through `lines`.
-    pub(crate) fn hand(&self, request: Request, lines: &mpsc::UnboundedSender<Vec<u8>>) {
+    pub(crate) fn hand(&self, request: Request, lines: &WriteQueue) {
         let call = HandlerCall {
             id: request.id,
             method: request.method,
@@ -132,8 +133,9 @@ pub struct HandlerCall {
     id: RequestId,
     method: String,
     params: Value,
-    /// The Connection's output, which a held request never keeps open.
-    lines: mpsc::WeakUnboundedSender<Vec<u8>>,
+    /// The Connection's write queue, which a held request never keeps
+    /// going.
+    lines: WeakWriteQueue,
     answered: bool,
     /// The process whose Connection read the request, the only one whose
     /// answer reaches the engine.

@@ -3,12 +3,21 @@
 //! it is retired. A crawl keeps the Run's pool, which every Label that sets
 //! none of the keys a login rests on shares, and one pool per Label that
 //! sets one (`labels`), so a logged-in section of a site and its public
-//! section never share a Session. In each pool, a request goes to a new
-//! Session while the pool has room, as Crawlee's does, then to one drawn
-//! from `Entropy` among the Sessions open at its domain's proxy tier that
-//! send from the client it needs, its own HTTP transport or its browser
-//! ([`SendsFrom`]); with none open there, the drawn Session makes room, so
-//! `max_size` bounds both clients together. A Session is retired once
+//! section never share a Session. In each pool, under
+//! `session.pool.growth: on_demand`, the default (#2178), a request goes to
+//! an open Session at its domain's proxy tier that sends from the client it
+//! needs, its own HTTP transport or its browser ([`SendsFrom`]), and serves
+//! fewer than `session.pool.session_concurrency` requests: one that holds a
+//! page first, then, under `session.pool.affinity: host`, one whose last
+//! request went to its host, drawn from `Entropy` among those. A new
+//! Session opens only when none has room, or when a block left its domain
+//! owing one (ADR 0021), and one of the browser client only while a
+//! browser-page place can be had, else the request waits. Under `eager`, a
+//! request goes to a new Session while the pool has room, as Crawlee's
+//! does (#920). Either way a full pool draws among the Sessions open at the
+//! tier, and with none open there, a Session drawn among every open one
+//! makes room, so `max_size` bounds both clients together. A Session is
+//! retired once
 //! its error score reaches `max_error_score`, after `max_uses` requests or
 //! at `max_age`. A block that escalates retires its Session (ADR 0021):
 //! `rate_limit` and `ip_block` move its domain one proxy tier up, where the
@@ -53,7 +62,7 @@ use goodfetch_protocol::page::SessionId;
 use rusqlite::Connection;
 
 use crate::labels::PoolKey;
-use crate::settings::PoolSettings;
+use crate::settings::{Affinity, Growth, PoolSettings};
 use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
 
 /// What an attempt's ending says of the Session that served it.
@@ -121,6 +130,36 @@ struct Open {
     stored: StoredSession,
     /// Whether its next page is its first since the crawl resumed.
     revalidate: bool,
+    /// The host its last request went to, which `session.pool.affinity:
+    /// host` prefers; in memory only.
+    last_host: Option<String>,
+    /// Whether it keeps a page open between two requests, which a draw
+    /// prefers; in memory only.
+    holds_page: bool,
+}
+
+impl Open {
+    fn new(stored: StoredSession, revalidate: bool) -> Self {
+        Self {
+            stored,
+            revalidate,
+            last_host: None,
+            holds_page: false,
+        }
+    }
+}
+
+/// What a request a pool's Session serves wants of it: the domain key its
+/// proxy tier and blocks are kept under, the host it goes to, and the
+/// client it sends from.
+#[derive(Clone, Copy, Debug)]
+pub struct Wanted<'a> {
+    /// Its domain key.
+    pub domain_key: &'a str,
+    /// Its URL's host.
+    pub host: &'a str,
+    /// The client it sends from.
+    pub sends_from: SendsFrom,
 }
 
 /// What a pool holds open for a draw: the proxy tier the draw's domain is
@@ -219,6 +258,10 @@ pub struct SessionPool {
     replaced: BTreeMap<String, u64>,
     /// The Sessions that rotated within a block, not yet taken.
     rotated: Vec<Rotated>,
+    /// The domain keys a block that retired a Session left owing a new
+    /// one, which their next on-demand draw opens (ADR 0021); in memory
+    /// only.
+    owed: BTreeSet<String>,
 }
 
 impl SessionPool {
@@ -236,13 +279,11 @@ impl SessionPool {
             pools.entry(pool).or_default().opened = opened;
         }
         for ((pool, position), stored) in stored.open {
-            pools.entry(pool).or_default().open.insert(
-                position,
-                Open {
-                    stored,
-                    revalidate: true,
-                },
-            );
+            pools
+                .entry(pool)
+                .or_default()
+                .open
+                .insert(position, Open::new(stored, true));
         }
         Ok(Self {
             entropy,
@@ -257,6 +298,7 @@ impl SessionPool {
             blocked: stored.blocked,
             replaced: BTreeMap::new(),
             rotated: Vec::new(),
+            owed: BTreeSet::new(),
         })
     }
 
@@ -305,27 +347,51 @@ impl SessionPool {
         std::mem::take(&mut self.rotated)
     }
 
-    /// The Session of `pool` that serves a request on `domain_key` at
-    /// `now`, sent from `sends_from`, which counts as one of its uses, and
-    /// as one attempt it serves until [`SessionPool::settle`]. It is never
-    /// a Session of the other client: with no room, and none of that client
-    /// open at the domain's proxy tier, one drawn among every open Session
-    /// makes room.
+    /// The Session of `pool` that serves a request `wanted` at `now`, as
+    /// `settings.growth` draws it, which counts as one of its uses, and as
+    /// one attempt it serves until [`SessionPool::settle`]. It is never a
+    /// Session of the other client. On demand, a Session of the browser
+    /// client opens only once `place` says a browser-page place can be had,
+    /// asked only then; otherwise none is drawn, `None`, and the request
+    /// waits for a Session with room or a place. Eager never asks.
     pub fn draw(
         &mut self,
         pool: &PoolKey,
-        domain_key: &str,
-        sends_from: SendsFrom,
+        wanted: &Wanted<'_>,
         settings: &PoolSettings,
         now: SystemTime,
-    ) -> ServingSession {
+        place: impl FnOnce() -> bool,
+    ) -> Option<ServingSession> {
+        let position = match settings.growth {
+            Growth::Eager => self.eager(pool, wanted, settings, now),
+            Growth::OnDemand => self.on_demand(pool, wanted, settings, now, place)?,
+        };
+        Some(self.serving(pool, position, Some(wanted.host)))
+    }
+
+    /// The position an eager draw takes (#920): a new Session while the
+    /// pool has room; else one drawn among those open at the domain's
+    /// proxy tier; else, with none open there, one drawn among every open
+    /// Session makes room for a new one.
+    fn eager(
+        &mut self,
+        pool: &PoolKey,
+        wanted: &Wanted<'_>,
+        settings: &PoolSettings,
+        now: SystemTime,
+    ) -> u64 {
+        let Wanted {
+            domain_key,
+            sends_from,
+            ..
+        } = *wanted;
         let Drawable {
             tier,
             room,
             at_tier,
             every,
         } = self.drawable(pool, domain_key, sends_from, (settings, now));
-        let position = if room {
+        if room {
             self.open_session(pool, tier, sends_from, now, domain_key)
         } else if at_tier.is_empty() {
             let making_room = self.pick(&every);
@@ -333,8 +399,126 @@ impl SessionPool {
             self.open_session(pool, tier, sends_from, now, domain_key)
         } else {
             self.pick(&at_tier)
+        }
+    }
+
+    /// The position an on-demand draw takes (#2178), `None` when the
+    /// request waits: an open Session at the domain's proxy tier of the
+    /// client wanted, outside every address block blocked on the domain,
+    /// that has room under `session_concurrency`, unless the domain is owed
+    /// a new Session; else a new Session, once a place can be had for one
+    /// of the browser client, while the pool has room, the domain is owed
+    /// one or none is open at the tier, one drawn among every open Session
+    /// making room in a full pool; else, in a full pool, one of the busy
+    /// Sessions at the tier.
+    fn on_demand(
+        &mut self,
+        pool: &PoolKey,
+        wanted: &Wanted<'_>,
+        settings: &PoolSettings,
+        now: SystemTime,
+        place: impl FnOnce() -> bool,
+    ) -> Option<u64> {
+        let Wanted {
+            domain_key,
+            host,
+            sends_from,
+        } = *wanted;
+        let Drawable {
+            tier,
+            room,
+            mut at_tier,
+            every,
+        } = self.drawable(pool, domain_key, sends_from, (settings, now));
+        at_tier.retain(|position| !self.in_blocked_block(pool, *position, domain_key));
+        let free: Vec<u64> = at_tier
+            .iter()
+            .copied()
+            .filter(|position| {
+                let serving = self.serving.get(&id(pool, *position)).copied();
+                settings
+                    .session_concurrency
+                    .is_none_or(|concurrency| serving.unwrap_or_default() < concurrency)
+            })
+            .collect();
+        let owed = self.owed.contains(domain_key);
+        if !owed && !free.is_empty() {
+            return Some(self.prefer(pool, &free, host, settings.affinity));
+        }
+        if !(room || owed || at_tier.is_empty()) {
+            return Some(self.prefer(pool, &at_tier, host, settings.affinity));
+        }
+        if sends_from == SendsFrom::Browser && !place() {
+            return None;
+        }
+        if !room {
+            let making_room = self.pick(&every);
+            self.retire(pool, making_room, Retirement::PoolFull);
+        }
+        self.owed.remove(domain_key);
+        Some(self.open_session(pool, tier, sends_from, now, domain_key))
+    }
+
+    /// The position drawn among `positions` of `pool`, which hold at least
+    /// one: among those that hold a page if any does, then, under
+    /// `affinity: host`, among those whose last request went to `host` if
+    /// any did.
+    fn prefer(&mut self, pool: &PoolKey, positions: &[u64], host: &str, affinity: Affinity) -> u64 {
+        let open = self.pools.get(pool).map(|sessions| &sessions.open);
+        let narrowed = |positions: &[u64], keeps: &dyn Fn(&Open) -> bool| -> Vec<u64> {
+            let kept: Vec<u64> = positions
+                .iter()
+                .copied()
+                .filter(|position| open.and_then(|open| open.get(position)).is_some_and(keeps))
+                .collect();
+            if kept.is_empty() {
+                positions.to_vec()
+            } else {
+                kept
+            }
         };
-        self.serving(pool, position)
+        let mut drawn = narrowed(positions, &|open| open.holds_page);
+        if affinity == Affinity::Host {
+            drawn = narrowed(&drawn, &|open| open.last_host.as_deref() == Some(host));
+        }
+        self.pick(&drawn)
+    }
+
+    /// Whether the open Session at `position` of `pool` takes its local
+    /// addresses, with no proxy, from a block blocked on `domain_key`.
+    fn in_blocked_block(&self, pool: &PoolKey, position: u64, domain_key: &str) -> bool {
+        let Some(local) = self.local.as_ref().filter(|local| !local.proxied) else {
+            return false;
+        };
+        let Some(blocked) = self
+            .blocked
+            .get(domain_key)
+            .filter(|blocked| !blocked.is_empty())
+        else {
+            return false;
+        };
+        let ordinal = self
+            .pools
+            .get(pool)
+            .and_then(|sessions| sessions.open.get(&position))
+            .and_then(|open| open.stored.address_ordinal);
+        ordinal
+            .and_then(|ordinal| local.at(ordinal).ok())
+            .is_some_and(|addresses| {
+                blocks_of(addresses, local.blocks)
+                    .iter()
+                    .any(|block| blocked.contains(block))
+            })
+    }
+
+    /// Notes whether the open Session `session` keeps a page open between
+    /// two requests, which a draw prefers among those with room; one no
+    /// longer open changes nothing.
+    pub fn holds_page(&mut self, session: &SessionId, holds: bool) {
+        let (pool, position) = key(session);
+        if let Some(open) = self.open_mut(&pool, position) {
+            open.holds_page = holds;
+        }
     }
 
     /// As [`SessionPool::draw`], for a Session that only reads a site's
@@ -364,7 +548,7 @@ impl SessionPool {
         } else {
             return None;
         };
-        Some(self.serving(pool, position))
+        Some(self.serving(pool, position, None))
     }
 
     /// What `pool` holds open for a draw on `domain_key` at `now`, sent
@@ -395,15 +579,18 @@ impl SessionPool {
         }
     }
 
-    /// The open Session at `position` of `pool`, drawn: one use more, and
-    /// one attempt more it serves.
-    fn serving(&mut self, pool: &PoolKey, position: u64) -> ServingSession {
+    /// The open Session at `position` of `pool`, drawn for a request to
+    /// `host`, if it says: one use more, and one attempt more it serves.
+    fn serving(&mut self, pool: &PoolKey, position: u64, host: Option<&str>) -> ServingSession {
         let open = self
             .pools
             .get_mut(pool)
             .and_then(|sessions| sessions.open.get_mut(&position))
             .expect("invariant: the drawn Session is open");
         open.stored.uses += 1;
+        if let Some(host) = host {
+            open.last_host = Some(host.to_owned());
+        }
         let revalidate = std::mem::take(&mut open.revalidate);
         let serving = ServingSession {
             id: id(pool, position),
@@ -470,6 +657,11 @@ impl SessionPool {
         if let Some(retirement) = retirement {
             if matches!(retirement, Retirement::Escalated | Retirement::Blocked) {
                 self.blocked_on(&pool, position, domain_key);
+                // Escalation by new Session (ADR 0021): the domain's next
+                // draw opens one whatever the growth rule says.
+                if settings.growth == Growth::OnDemand {
+                    self.owed.insert(domain_key.to_owned());
+                }
             }
             self.retire(&pool, position, retirement);
         }
@@ -621,13 +813,7 @@ impl SessionPool {
             retired_because: None,
             address_ordinal,
         };
-        sessions.open.insert(
-            position,
-            Open {
-                stored,
-                revalidate: false,
-            },
-        );
+        sessions.open.insert(position, Open::new(stored, false));
         position
     }
 

@@ -427,6 +427,10 @@ rows! {
     /// set-up. Its Session's browser context is made as the Session opens,
     /// not in a page's opening.
     PageOpeningCommands => "C7.opening_commands", "page_opening", "opening_commands";
+    /// `C7.contexts_created`: a browser context a Session of the browser
+    /// pool makes as it opens, once for the Session's life; a Borrowed
+    /// browser's Session finds the default one and makes none.
+    ContextsCreated => "C7.contexts_created", "page_opening", "contexts_created";
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
     InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";

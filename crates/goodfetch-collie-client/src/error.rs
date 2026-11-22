@@ -7,14 +7,16 @@
 use std::fmt;
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, ErrorGroup};
+use goodfetch_protocol::catalog::{ErrorCodeDefinition, ErrorGroup, wire_millis};
 use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails,
 };
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CLOSED, CONNECTION_FORKED, CONNECTION_LOST, CallCancelledDetails, CancelledBy,
-    ClosedValue, DEADLINE_EXCEEDED, ENGINE_EXITED, EngineExitedDetails, Form, INTERNAL,
+    ClosedValue, DEADLINE_EXCEEDED, DeadlineExceededDetails, ENGINE_EXITED, EngineExitedDetails,
+    Form, INTERNAL, WaitedFor,
 };
 use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
@@ -25,7 +27,8 @@ use goodfetch_protocol::page::RESPONSE_NOT_JSON;
 use goodfetch_protocol::page::ai_work::{NOT_VERIFIED, NotVerifiedDetails};
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
 use goodfetch_protocol::settings::{
-    SETTING_INVALID, SETTING_UNKNOWN, SettingInvalidDetails, SettingLimit, SettingUnknownDetails,
+    RunOrigin, SETTING_INVALID, SETTING_UNKNOWN, SettingInvalidDetails, SettingLimit,
+    SettingUnknownDetails, SettingsLayer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -473,6 +476,46 @@ impl Error {
     #[must_use]
     pub fn timed_out() -> Self {
         Self::of(&DEADLINE_EXCEEDED, "the call timed out".to_owned())
+    }
+
+    /// The call's own timeout, `after`, the setting `key` given as an
+    /// argument, ran out while it waited in the Client's queue for a place
+    /// among the engine's calls in flight, so it was never sent:
+    /// `deadline_exceeded`, its `waited_for` `calls_in_flight` (ADR 0038's
+    /// note of 2026-11-21).
+    pub(crate) fn queue_timed_out(key: &str, after: Duration) -> Self {
+        let value = wire_millis(after);
+        Self::of_runtime(
+            &DEADLINE_EXCEEDED,
+            &format!(
+                "the call waited {value} ms, its `{key}`, for a place among the engine's calls in flight, so it was not sent"
+            ),
+            "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+        )
+        .with_details(&DeadlineExceededDetails {
+            limit: SettingLimit {
+                key: key.to_owned(),
+                value: Value::from(value),
+                layer: SettingsLayer::Run,
+                origin: Some(RunOrigin::Argument),
+            },
+            elapsed: value,
+            waited_for: WaitedFor::CALLS_IN_FLIGHT,
+            ended_by: None,
+            observed: None,
+        })
+    }
+
+    /// A call the Client refused before sending it, of the code `defined`,
+    /// saying what failed and its `fix`, with `details`, such as a call
+    /// past a Connection's own bound (issue 3189).
+    pub(crate) fn refused_by_client(
+        defined: &ErrorCodeDefinition,
+        what_failed: &str,
+        fix: &str,
+        details: &impl Serialize,
+    ) -> Self {
+        Self::of_runtime(defined, what_failed, fix).with_details(details)
     }
 
     /// The transport could not reach the engine: `connection_lost`, with

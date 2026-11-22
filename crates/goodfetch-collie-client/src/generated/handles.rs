@@ -116,7 +116,7 @@ impl Run {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.run")
     }
 
     /// Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
@@ -308,7 +308,7 @@ impl Run {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.close")
     }
 
     /// Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -638,7 +638,7 @@ impl Page {
                 timeout: None,
             },
         );
-        call.wire_timeout().map(move |result| {
+        call.wire_timeout("timeout.navigation").map(move |result| {
             result
                 .response
                 .map(|response| crate::Response::new(host, response))
@@ -756,7 +756,7 @@ impl Page {
                 timeout: None,
             },
         );
-        call.wire_timeout().map(|result| result.value)
+        call.wire_timeout("timeout.wait").map(|result| result.value)
     }
 
     /// Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -782,7 +782,7 @@ impl Page {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.wait")
     }
 
     /// Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -808,7 +808,7 @@ impl Page {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.wait")
     }
 
     /// Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -837,7 +837,7 @@ impl Page {
                 timeout: None,
             },
         );
-        call.wire_timeout()
+        call.wire_timeout("timeout.wait")
             .map(move |result| crate::Exchange::new(host, result))
     }
 
@@ -865,7 +865,7 @@ impl Page {
                 timeout: None,
             },
         );
-        call.wire_timeout()
+        call.wire_timeout("timeout.wait")
             .map(move |result| crate::Exchange::new(host, result))
     }
 
@@ -894,7 +894,7 @@ impl Page {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.wait")
     }
 
     /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
@@ -1118,7 +1118,7 @@ impl Locator {
                     timeout: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.wait")
     }
 
     /// Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1144,7 +1144,7 @@ impl Locator {
                 timeout: None,
             },
         );
-        call.wire_timeout().map(|result| result.count)
+        call.wire_timeout("timeout.wait").map(|result| result.count)
     }
 
     /// Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1176,7 +1176,7 @@ impl Locator {
                 timeout: None,
             },
         );
-        call.wire_timeout().map(|result| result.value)
+        call.wire_timeout("timeout.wait").map(|result| result.value)
     }
 }
 

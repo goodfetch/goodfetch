@@ -432,11 +432,26 @@ mutants base="":
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     JUST="{{ just_executable() }}" ci/tool.sh cargo-mutants ci/mutants.sh run "$base"
 
+# ADR 0072's in-diff mutation testing of the TypeScript SDK's hand-written
+# runtime (ci/mutants-typescript.sh): StrykerJS mutates only the runtime
+# lines the committed changes since `base` (the merge base with
+# `origin/main` by default) touch, never a test or what `xtask codegen`
+# writes. The report and its survivors' list, summary.md, go to
+# target/mutants-typescript/; a surviving mutant never fails it.
+# Mutation-tests the TypeScript changes since `base`: `just mutants-typescript [base]`.
+mutants-typescript base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="{{ base }}"
+    [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    JUST="{{ just_executable() }}" ci/mutants-typescript.sh "$base"
+
 # ADR 0072's full mutation run of the SDKs' hand-written runtimes, weekly once
 # the nightly tier is on (TESTING.md, Feature coverage): StrykerJS over the
-# TypeScript SDK (sdks/typescript/stryker.config.mjs) and mutmut over each
-# Python SDK package that has a `[tool.mutmut]` in its pyproject.toml, never
-# over what `xtask codegen` writes (ADR 0099). StrykerJS's report goes to
+# TypeScript SDK (ci/mutants-typescript.sh, sdks/typescript/stryker.config.mjs)
+# and mutmut over each Python SDK package that has a `[tool.mutmut]` in its
+# pyproject.toml, never over what `xtask codegen` writes (ADR 0099).
+# StrykerJS's report and its survivors' list, summary.md, go to
 # target/mutants-sdks/typescript/, mutmut's log to
 # target/mutants-sdks/python/<package>.log and its results to the package's
 # `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
@@ -452,27 +467,14 @@ mutants-sdks sdk="all":
       typescript | python | all) ;;
       *) echo "usage: just mutants-sdks [typescript | python | all]" >&2; exit 2 ;;
     esac
-    # The tests find the commit's executables as under `just test`.
-    export GOODFETCH_TEST_SUITE=pre-merge
-    {{ just_executable() }} _test-tools
-    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
-    # Each runner's arguments that skip the quarantined tests (ADR 0064).
-    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
-    if [[ "{{ sdk }}" != python ]]; then
-      # StrykerJS sets Vitest's name pattern itself, so its setup file
-      # (sdks/typescript/vitest.stryker.setup.ts) skips the tests the
-      # quarantine's pattern does not match.
-      pattern=$(jq -r '.vitest[]? | ltrimstr("--testNamePattern=")' <<< "$exclusions")
-      if [[ -n "$pattern" ]]; then export GOODFETCH_STRYKER_NAME_PATTERN="$pattern"; fi
-      # Each StrykerJS test runner writes `stryker-setup-<n>.js` into the
-      # working directory and deletes it when it stops, unless StrykerJS
-      # kills it first (StrykerJS 10.1.1).
-      status=0
-      pnpm exec stryker run sdks/typescript/stryker.config.mjs || status=$?
-      rm -f stryker-setup-*.js
-      [[ $status -eq 0 ]] || exit "$status"
-    fi
+    if [[ "{{ sdk }}" != python ]]; then JUST="{{ just_executable() }}" ci/mutants-typescript.sh; fi
     if [[ "{{ sdk }}" != typescript ]]; then
+      # The tests find the commit's executables as under `just test`.
+      export GOODFETCH_TEST_SUITE=pre-merge
+      {{ just_executable() }} _test-tools
+      export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+      # The arguments that skip the quarantined tests (ADR 0064).
+      exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
       logs="$PWD/target/mutants-sdks/python"
       mkdir -p "$logs"
       for manifest in sdks/python/*/pyproject.toml; do

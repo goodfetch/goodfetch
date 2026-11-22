@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "48"
+version = "49"
 
 [[capability]]
 name = "lifecycle"
@@ -343,8 +343,10 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # one, raises its group's class with the code kept. The program fills a
 # field with a Secret's value, the canary, which no rendering of any error
 # (message, string form, debug form, stack) nor any log line holds. Played
-# by the Scripted engine: attached in TypeScript and Python (asyncio, Trio
-# and the sync API), and as the Daemon Rust's client crate reaches.
+# by the Scripted engine in TypeScript and Python (asyncio, Trio and the
+# sync API), attached and as a Daemon, and as the Daemon Rust's client crate
+# reaches; linked, Rust's engine answers the same failures from a test
+# composition's handlers (issue 3146).
 [[capability]]
 name = "errors"
 
@@ -352,7 +354,6 @@ name = "errors"
 id = "errors-and-outcomes"
 covers = ["story:11-28", "story:11-30", "story:11-187"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # Partial results (ADR 0079; issue 3161): a value of a declared type is
 # complete. A navigation into a redirect loop raises `too_many_redirects`,
@@ -371,12 +372,12 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # a call in flight only when the catalog classes it a read or an idempotent
 # write; an Effect in flight raises `connection_lost`, an
 # `UnavailableError`, and is never sent again. Played by the Scripted engine
-# as a Daemon over a WebSocket, which drops the first link; only
-# TypeScript's WebSocket transport reaches a dropped Daemon again yet.
+# as a Daemon over a WebSocket, which drops the first link; Python's
+# WebSocket transport joins with issue 3204's Python half.
 [[capability.case]]
 id = "dropped-link-resends-reads"
 covers = ["story:11-6", "story:11-32"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["daemon"]
 
 # A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -23,6 +22,7 @@ from goodfetch_collie_client.generated.errors import (
     ProgramError,
     SettingInvalidError,
 )
+from goodfetch_test_support import WORKSPACE
 
 if TYPE_CHECKING:
     from goodfetch_collie_client.generated.errors import ErrorGroup
@@ -94,7 +94,7 @@ def test_a_code_it_does_not_know_raises_its_group_class_keeping_the_code() -> No
     )
 
 
-_CATALOG = Path(__file__).parents[5] / "crates/goodfetch-protocol/generated/collie.json"
+_CATALOG = WORKSPACE / "crates/goodfetch-protocol/generated/collie.json"
 _CODES: list[dict[str, object]] = json.loads(_CATALOG.read_text(encoding="utf-8"))[
     "error_codes"
 ]

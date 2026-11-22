@@ -55,7 +55,7 @@ impl Commits {
     ///
     /// SQLite's error.
     pub(super) fn count(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
-        let commits = Self(Arc::new(Mutex::new(Row::PolitenessOtherTransactions)));
+        let commits = Self(Arc::new(Mutex::new(Row::PolitenessRunTransactions)));
         let counted = commits.clone();
         let work = work.clone();
         connection.commit_hook(Some(move || {
@@ -366,12 +366,14 @@ impl FileBackend {
         let (ready_at, turn) = rule
             .0
             .given_back_in_memory(&mut self.store, permit, ending, now);
+        // An ending other than done is what the site asked, a back-off or
+        // a wait: an origin's work, as a site's ask is (#1899).
         if ending != Ending::Done {
             let tables = &self.store.tables;
             transaction(
                 &self.connection,
                 &self.commits,
-                Row::PolitenessOtherTransactions,
+                Row::PolitenessOriginTransactions,
                 |transaction| rule.0.write_back(tables, &permit.key, transaction),
             )
             .map_err(|error| sqlite_error(&context.path, &error))?;
@@ -419,7 +421,7 @@ impl FileBackend {
                     if S::read_an_ask(&writes) {
                         // A site's ask is no Permit's work, as under a
                         // Delegation (#1899).
-                        commits.count_on(Row::PolitenessOtherTransactions);
+                        commits.count_on(Row::PolitenessOriginTransactions);
                     }
                     (answer, writes)
                 })
@@ -434,7 +436,7 @@ impl FileBackend {
             transaction(
                 &self.connection,
                 &self.commits,
-                Row::PolitenessOtherTransactions,
+                Row::PolitenessOriginTransactions,
                 |transaction| state.save(transaction, key, &writes),
             )
             .map_err(failed)?;
@@ -463,7 +465,7 @@ impl FileBackend {
         let (rows, turn) = transaction(
             &self.connection,
             &self.commits,
-            Row::PolitenessOtherTransactions,
+            Row::PolitenessRunTransactions,
             |transaction| {
                 delegation.rule.0.write_back(tables, key, transaction)?;
                 let mut rows = Vec::with_capacity(permits.len());
@@ -522,7 +524,7 @@ impl FileBackend {
         transaction(
             &self.connection,
             &self.commits,
-            Row::PolitenessOtherTransactions,
+            Row::PolitenessRunTransactions,
             |transaction| {
                 transaction
                     .prepare_cached(STOP_WAITING)?
@@ -575,7 +577,7 @@ impl FileBackend {
         let turns = transaction(
             &self.connection,
             &self.commits,
-            Row::PolitenessOtherTransactions,
+            Row::PolitenessRunTransactions,
             |transaction| {
                 let mut turns = Vec::new();
                 for key in &idle {
@@ -626,7 +628,7 @@ impl FileBackend {
         transaction(
             &self.connection,
             &self.commits,
-            Row::PolitenessOtherTransactions,
+            Row::PolitenessRunTransactions,
             |transaction| {
                 transaction.prepare_cached(GONE_WAITERS)?.execute([gone])?;
                 next_turn(transaction, key, generation, now)

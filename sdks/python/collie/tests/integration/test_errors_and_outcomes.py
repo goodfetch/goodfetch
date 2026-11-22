@@ -7,18 +7,22 @@ has raising its group's class with the code kept, and carries its code,
 group, retryable flag, operation, call and Run IDs, the fields that apply
 and its details. The program fills a field with a Secret's value, the
 canary (ADR 0067): no rendering of any error, its string form, `repr` or
-traceback, nor anything the SDK logged, holds it. TypeScript's
+traceback, nor anything the SDK logged, holds it. Played attached, and as a
+Daemon, whose script exits 0 only once every step played. TypeScript's
 `errors-and-outcomes.test.ts` is its twin.
 """
 
 import logging
 import traceback
+from dataclasses import dataclass
 
 import pytest
-from collie_calls import engine_warnings, failure, locator_on, open_collie
+from collie_calls import engine_warnings, exit_code, failure, locator_on, open_collie
 from goodfetch_collie import (
+    AsyncCollie,
     DeadlineExceededError,
     EnginePanickedError,
+    GoodfetchError,
     InternalError,
     ModelError,
     PageError,
@@ -30,6 +34,7 @@ from goodfetch_collie import (
     TargetNotUniqueError,
     UnavailableError,
 )
+from goodfetch_collie_client.generated.models import Navigated
 from goodfetch_test_support import (
     Canary,
     ClientCaseRecord,
@@ -38,6 +43,7 @@ from goodfetch_test_support import (
     Way,
     scripted_engine_env,
     search_canaries,
+    start_scripted_daemon,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
@@ -55,8 +61,7 @@ CANARY = Canary(
 ACTION_TIMEOUT = ("timeout.action", 5000, "run", "argument")
 """The timeout the script's page failures outlived, set by the call's argument."""
 
-
-@pytest.mark.covers(
+COVERS = pytest.mark.covers(
     "story:11-28",
     "story:11-30",
     "story:11-187",
@@ -66,22 +71,37 @@ ACTION_TIMEOUT = ("timeout.action", 5000, "run", "argument")
     "error:secret_unavailable",
     "error:engine_panicked",
 )
-@pytest.mark.client_case(id="errors-and-outcomes", mode="attached")
-@three_ways
-async def test_returns_an_outcome_and_raises_each_failure_as_its_codes_class(
-    way: Way,
-    test_env: TestEnv,
-    product: ToolProduct,
-    client_case: ClientCaseRecord,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A 404 returned, then one failure in each group, rendering no Secret."""
-    env = scripted_engine_env(
-        test_env, product, "sdk-python/run/errors-and-outcomes.json"
-    )
-    caplog.set_level(logging.DEBUG, logger="goodfetch")
-    collie = await open_collie(way, env)
+"""What both modes' tests cover."""
 
+
+@dataclass(frozen=True, slots=True)
+class Played:
+    """What the case's calls answered, in the script's order."""
+
+    missing: Navigated
+    unbound: GoodfetchError
+    input_refused: GoodfetchError
+    not_unique: GoodfetchError
+    deadline: GoodfetchError
+    unavailable: GoodfetchError
+    from_outside: GoodfetchError
+    panicked: GoodfetchError
+
+    def errors(self) -> list[GoodfetchError]:
+        """Each failure, in the script's order."""
+        return [
+            self.unbound,
+            self.input_refused,
+            self.not_unique,
+            self.deadline,
+            self.unavailable,
+            self.from_outside,
+            self.panicked,
+        ]
+
+
+async def played(way: Way, collie: AsyncCollie) -> Played:
+    """Plays the case's calls on `collie`, then finishes the Run and closes it."""
     run = await collie.start()
     page = await run.new_page()
     missing = await page.goto("https://shop.test/missing")
@@ -96,16 +116,36 @@ async def test_returns_an_outcome_and_raises_each_failure_as_its_codes_class(
     panicked = await failure(locator_on(way, page, "#done").click())
     await run.finish()
     await collie.close()
-    errors = [
-        unbound,
-        input_refused,
-        not_unique,
-        deadline,
-        unavailable,
-        from_outside,
-        panicked,
-    ]
+    return Played(
+        missing=missing,
+        unbound=unbound,
+        input_refused=input_refused,
+        not_unique=not_unique,
+        deadline=deadline,
+        unavailable=unavailable,
+        from_outside=from_outside,
+        panicked=panicked,
+    )
 
+
+def check_played(
+    client_case: ClientCaseRecord,
+    answered: Played,
+    records: list[logging.LogRecord],
+) -> None:
+    """The 404 returned, each failure's class, code, group and details, no Secret.
+
+    No rendering of an error, nor any of `records`, holds the canary.
+    """
+    errors = answered.errors()
+    missing = answered.missing
+    unbound = answered.unbound
+    input_refused = answered.input_refused
+    not_unique = answered.not_unique
+    deadline = answered.deadline
+    unavailable = answered.unavailable
+    from_outside = answered.from_outside
+    panicked = answered.panicked
     with client_case.check("a 404 is the navigation's outcome, returned, not raised"):
         assert missing.response is not None
         assert (missing.response.status, missing.response.url) == (
@@ -280,10 +320,55 @@ async def test_returns_an_outcome_and_raises_each_failure_as_its_codes_class(
         ]
         logged = [
             NamedOutput(f"log {index}", f"{record.getMessage()} {vars(record)!r}")
-            for index, record in enumerate(caplog.records)
+            for index, record in enumerate(records)
         ]
         assert search_canaries([CANARY], [*rendered, *logged]) == []
+
+
+@COVERS
+@pytest.mark.client_case(id="errors-and-outcomes", mode="attached")
+@three_ways
+async def test_returns_an_outcome_and_raises_each_failure_as_its_codes_class(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 404 returned, then one failure in each group, rendering no Secret."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/errors-and-outcomes.json"
+    )
+    caplog.set_level(logging.DEBUG, logger="goodfetch")
+    answered = await played(way, await open_collie(way, env))
+
+    check_played(client_case, answered, caplog.records)
     with client_case.check(
         "the script played to its end, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
+
+
+@COVERS
+@pytest.mark.client_case(id="errors-and-outcomes", mode="daemon")
+@three_ways
+async def test_returns_the_same_outcome_and_failures_from_a_daemon(
+    way: Way,
+    test_env: TestEnv,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same 404 and failures from a Daemon, rendering no Secret."""
+    daemon = start_scripted_daemon(
+        test_env, "sdk-python/run/errors-and-outcomes-from-a-daemon.json", "socket"
+    )
+    caplog.set_level(logging.DEBUG, logger="goodfetch")
+    collie = await open_collie(way, test_env.env, engine="daemon")
+    answered = await played(way, collie)
+    code = await exit_code(daemon.wait)
+
+    check_played(client_case, answered, caplog.records)
+    with client_case.check(
+        "the Daemon played its script through, so the Client sent exactly what it holds"
+    ):
+        assert code == 0

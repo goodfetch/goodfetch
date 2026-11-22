@@ -82,6 +82,11 @@ pub(crate) const PAGES: [usize; 12] =
 /// The host the site is served on.
 const HOST: &str = "pages.test";
 
+/// The host of the site's second origin ([`Origins::Two`]): a
+/// subdomain of [`HOST`], so one domain key, that serves the same pages
+/// and robots.txt, its links staying on it.
+const SECOND_ORIGIN_HOST: &str = "second.pages.test";
+
 /// The host of another domain key, which a handler navigating beside its
 /// page reaches ([`Options::beside`]): it answers every path with
 /// [`BESIDE_PAGE`].
@@ -603,6 +608,31 @@ pub(crate) struct Options {
     /// through the per-user file (#2173). Their Records, requests and
     /// counts add up.
     pub(crate) second_engine: bool,
+    /// The origins a code-free crawl starts from, each at its index.
+    pub(crate) origins: Origins,
+}
+
+/// The origins of the site a code-free crawl starts from.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Origins {
+    /// [`HOST`] alone.
+    #[default]
+    One,
+    /// [`HOST`] and [`SECOND_ORIGIN_HOST`], a second origin under the
+    /// site's domain key, which serves the same pages and robots.txt: one
+    /// Run over two origins, whose Records, attempts and body bytes add up
+    /// (#1899).
+    Two,
+}
+
+impl Origins {
+    /// The hosts it starts from, [`HOST`] first.
+    fn hosts(self) -> &'static [&'static str] {
+        match self {
+            Self::One => &[HOST],
+            Self::Two => &[HOST, SECOND_ORIGIN_HOST],
+        }
+    }
 }
 
 /// The Run of the second engine of [`Options::second_engine`].
@@ -725,6 +755,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         linked_pages,
         after_start,
         second_engine,
+        origins,
     } = options;
     let mut settings = settings;
     if after_start == AfterStart::BarrierCalls {
@@ -754,7 +785,13 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         linked,
         besides: Arc::clone(&besides),
     });
-    let started = crawl_start(settings, (fields, formats), handler, frontier, linked);
+    let started = crawl_start(
+        settings,
+        (fields, formats),
+        handler,
+        frontier,
+        (linked, origins),
+    );
     let driven = |seed: u64| Driven {
         home,
         start,
@@ -1108,18 +1145,22 @@ fn crawl_start(
     ),
     handler: Option<Handler>,
     frontier: Option<Frontier>,
-    linked: usize,
+    (linked, origins): (usize, Origins),
 ) -> Value {
     let mut settings = serde_json::Map::from_iter([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
             "network".to_owned(),
-            json!({ "resolve": { HOST: ["127.0.0.1"], BESIDE_HOST: ["127.0.0.1"] } }),
+            json!({ "resolve": {
+                HOST: ["127.0.0.1"],
+                SECOND_ORIGIN_HOST: ["127.0.0.1"],
+                BESIDE_HOST: ["127.0.0.1"],
+            } }),
         ),
         (
             "egress".to_owned(),
-            json!({ "private_ranges": [HOST, BESIDE_HOST] }),
+            json!({ "private_ranges": [HOST, SECOND_ORIGIN_HOST, BESIDE_HOST] }),
         ),
     ]);
     settings.extend(cell);
@@ -1184,9 +1225,10 @@ fn crawl_start(
         "title".to_owned(),
         json!({ "locator": { "kind": "css", "selector": "h1" } }),
     );
-    seeds.insert(
-        0,
-        json!({ "url": format!("http://{HOST}/"), "label": "page" }),
+    let indexes = origins.hosts().iter();
+    seeds.splice(
+        0..0,
+        indexes.map(|host| json!({ "url": format!("http://{host}/"), "label": "page" })),
     );
     json!({
         "jsonrpc": "2.0",

@@ -206,7 +206,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 140] = [
+const ROWS: [Row; 141] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -896,14 +896,23 @@ const ROWS: [Row; 140] = [
         happens: true,
         valgrind: None,
     },
-    // The file's other transactions, per attempt, as ADR 0140's E6 counts
-    // the file's work: a Run's open, its robots.txt copy, a site's ask, a
-    // Delegation given back and the Run's end, which a Run of more attempts
-    // spreads thinner.
+    // A Run's own transactions on the file, per Run: its open, a Delegation
+    // given back idle, waiters withdrawn and its stop, which no attempt or
+    // origin repeats (#1899).
     Row {
-        name: "E6.other_transactions",
+        name: "E6.run_transactions",
         family: "B1",
-        unit: "attempts",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    // An origin's transactions on the file, per origin a Run reads a
+    // robots.txt for: its robots.txt copy and the site's asks, read or
+    // written as learned (#1899).
+    Row {
+        name: "E6.origin_transactions",
+        family: "B1",
+        unit: "origins",
         happens: true,
         valgrind: None,
     },

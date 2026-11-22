@@ -17,7 +17,14 @@ use crate::politeness::{CrawlDelays, TABLES};
 
 /// Every transaction the file committed, whatever it counted on.
 fn transactions(work: &CountedWork) -> u64 {
-    work.read(Row::PolitenessTransactions) + work.read(Row::PolitenessOtherTransactions)
+    [
+        Row::PolitenessTransactions,
+        Row::PolitenessRunTransactions,
+        Row::PolitenessOriginTransactions,
+    ]
+    .map(|row| work.read(row))
+    .into_iter()
+    .sum()
 }
 
 /// A Politeness file at `path` whose transactions `work` counts, outside
@@ -113,9 +120,9 @@ async fn a_newer_copy_a_run_reads_is_recorded_even_when_it_asks_what_the_run_rec
     assert_eq!((after_the_older_copy, recorded(&path)), (10_000, 5_000));
 }
 
-/// A robots.txt's Crawl-delay read is a site's ask, no Permit's work, even
-/// when it asks none and changes nothing: its transaction counts on
-/// `E6.other_transactions` (#1899).
+/// A robots.txt's Crawl-delay read is a site's ask, no Permit's work and
+/// no Run's own, even when it asks none and changes nothing: its
+/// transaction counts on `E6.origin_transactions` (#1899).
 ///
 /// Covers: story:6-243
 #[tokio::test(start_paused = true)]
@@ -125,21 +132,22 @@ async fn a_crawl_delay_read_that_changes_nothing_counts_as_a_sites_ask() {
     let work = CountedWork::default();
     let politeness = opened(env.folder().join("politeness.sqlite"), &work, &owner).await;
     let crawl_delays = CrawlDelays::new(politeness);
-    let (permits, others) = (
-        work.read(Row::PolitenessTransactions),
-        work.read(Row::PolitenessOtherTransactions),
-    );
+    let rows = [
+        Row::PolitenessTransactions,
+        Row::PolitenessRunTransactions,
+        Row::PolitenessOriginTransactions,
+    ];
+    let before = rows.map(|row| work.read(row));
 
     crawl_delays
         .read(KEY, SHOP, &Arc::new(Fetched::NotFound(404)), None)
         .await
         .unwrap();
 
-    assert_eq!(
-        (
-            work.read(Row::PolitenessTransactions) - permits,
-            work.read(Row::PolitenessOtherTransactions) - others,
-        ),
-        (0, 1)
-    );
+    let counted: Vec<u64> = rows
+        .iter()
+        .zip(before)
+        .map(|(row, before)| work.read(*row) - before)
+        .collect();
+    assert_eq!(counted, [0, 0, 1]);
 }

@@ -271,6 +271,7 @@ impl Published {
                 timeout: None,
                 reply,
                 notified: Some(notified),
+                streams_itself: true,
             },
             CREDITS,
         );

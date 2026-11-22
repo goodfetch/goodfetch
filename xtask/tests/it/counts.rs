@@ -769,7 +769,8 @@ const OTHER_B1_ROWS: &str = "\
 | `E6.undelegated_transactions` | Politeness transactions per attempt at `politeness.delegation: false` | ≤ 3 | 6 | B1 | must not grow | `just counts` | implementer done |
 | `E6.delegations` | Delegations taken per Run | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E6.delegation_transactions` | transactions per Delegation taken | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
-| `E6.other_transactions` | other Politeness transactions per Run | 4 | 4 | B1 | must not grow | `just counts` | implementer done |
+| `E6.run_transactions` | a Run's own Politeness transactions per Run | 4 | 4 | B1 | must not grow | `just counts` | implementer done |
+| `E6.origin_transactions` | an origin's Politeness transactions per origin | 2 | 2 | B1 | must not grow | `just counts` | implementer done |
 | `E6.shared_transactions` | Politeness transactions per attempt of two engines crawling one site | ≤ 3 | 3 | B1 | must not grow | `just counts` | implementer done |
 ";
 
@@ -861,7 +862,8 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("E6.undelegated_transactions", 0),
         ("E6.delegations", 1),
         ("E6.delegation_transactions", 1),
-        ("E6.other_transactions", 4),
+        ("E6.run_transactions", 4),
+        ("E6.origin_transactions", 2),
         ("E6.shared_transactions", 0),
     ]
     .iter()

@@ -462,6 +462,10 @@ pub(crate) enum Layer {
     Preflight,
     /// The backstop's full run on `main`'s head.
     Backstop,
+    /// The implementer's `just quick` (`quick_runs`).
+    Quick,
+    /// The pre-push hook's `just quick`.
+    PrePush,
 }
 
 impl Layer {
@@ -471,13 +475,21 @@ impl Layer {
             Self::Merge => "merge",
             Self::Preflight => "preflight",
             Self::Backstop => "backstop",
+            Self::Quick => "quick",
+            Self::PrePush => "pre-push",
         }
     }
 
     pub(crate) fn from_name(name: &str) -> Option<Self> {
-        [Self::Merge, Self::Preflight, Self::Backstop]
-            .into_iter()
-            .find(|layer| layer.name() == name)
+        [
+            Self::Merge,
+            Self::Preflight,
+            Self::Backstop,
+            Self::Quick,
+            Self::PrePush,
+        ]
+        .into_iter()
+        .find(|layer| layer.name() == name)
     }
 }
 

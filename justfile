@@ -1114,6 +1114,7 @@ quick-steps:
     echo "just commit-messages <base>"
     echo "just floor-guard <base>"
     echo "just commit-leaks <base>"
+    echo "# A run a green one on the same tree already holds (just _quick-held <head> <base> changed|all) runs nothing after them."
     echo "# The change's gate, its gate= line:"
     echo "cargo run --quiet --locked --bin xtask -- affected --local --since <base>"
     echo "# gate=docs: just lint-documents, and nothing after it."
@@ -2133,10 +2134,8 @@ _gate-plan:
     mkdir -p target "$records"
     echo '{}' >target/gate-listing-tools.json
     # The variables that change what the steps run or how join the host
-    # fingerprint, so a result counts only for a run in the same environment;
-    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
-    # and the thread and job caps the gate removes before its steps.
-    variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
+    # fingerprint (ci/gate-variables.sh).
+    variables=$(ci/gate-variables.sh)
     # With a GitHub token in the run's environment, lint's zizmor also runs
     # its online audits, which read GitHub: such a lint is never reused.
     zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
@@ -2153,6 +2152,36 @@ _gate-plan:
 _gate-record by head step status *evidence:
     cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
+
+# Exits 0, naming the run, when `just quick` in the form `form` (`changed` or
+# `all`) already passed on `head`'s tree against `base`, on this host and in
+# this environment, within a day, as a layer recorded it in the gate's
+# records (ci/gate-records.sh; ADR 0135's amendment of 2026-11-22); exits 1,
+# saying why, when it is due. As `_gate-plan` does before it reuses a lint,
+# it reads each quarantined test's issue again.
+_quick-held head base form:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    records=$(ci/gate-records.sh)
+    variables=$(ci/gate-variables.sh)
+    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- gate quick held --records "$records" --head "{{ head }}" \
+      --base "{{ base }}" --form {{ form }} --now "$(date +%s)" --environment "$variables" \
+      ${zizmor_token:+--zizmor-online}
+
+# Records a run of `just quick` in the form `form` on `head`'s tree against
+# `base` (`pass` or `fail`), by the layer `by` that ran it (`quick`,
+# `pre-push`), in the gate's records; nothing when the working tree is no
+# longer `head`'s or lint's zizmor read GitHub.
+_quick-record by head base form status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    variables=$(ci/gate-variables.sh)
+    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
+    cargo run --quiet --bin xtask -- gate quick record --records "$(ci/gate-records.sh)" --by {{ by }} \
+      --head "{{ head }}" --base "{{ base }}" --form {{ form }} --status {{ status }} --now "$(date +%s)" \
+      --environment "$variables" ${zizmor_token:+--zizmor-online}
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
 # cron on `main`'s head, each run with that commit's own scripts: in a gate

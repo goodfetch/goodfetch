@@ -9,7 +9,9 @@
 //! more than the tree: the commit checks, whose commits differ from head to
 //! head, and the audit, whose advisories change without the tree. A plan on a
 //! head replaces that head's record, so a rerun on the same head is out of the
-//! check's sight; every other run on a tree is a head of its own.
+//! check's sight; every other run on a tree is a head of its own. Each run of
+//! `just quick` the implementer's layer or the pre-push hook's recorded
+//! (`quick_runs`) counts as a run of its own, so it sees one on the same head.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -18,7 +20,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result};
 
 use super::plan::{GateRun, Outcome, Step, past_max_age, short};
-use super::runs;
+use super::{quick_runs, runs};
 use crate::check::{self, Finding};
 
 /// Reads every record in `records` and reports each unit run twice on one
@@ -31,6 +33,7 @@ pub(crate) fn check(records: &Path) -> Result<ExitCode> {
                 .with_context(|| format!("reading the gate's record of {}", short(&head)))?,
         );
     }
+    read.extend(quick_runs::as_gate_runs(quick_runs::read(records)?));
     Ok(check::report(&duplicates(&read)))
 }
 

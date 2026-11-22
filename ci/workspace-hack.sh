@@ -27,26 +27,66 @@
 # `cargo hakari verify` checks both sides, so the check here is the
 # regeneration's diff instead, and `manage-deps --dry-run` for the members'
 # dependency lines.
+#
+# The check writes nothing in the tree, so it can run beside a build or a
+# test run in it (issue 3236): `cargo hakari generate` writes the
+# workspace-hack's manifest and writes `Cargo.lock` back, with its own bytes
+# but a new modification time, and `manage-deps --dry-run` writes
+# `Cargo.lock` back too. Both run in a mirror of the workspace in a
+# temporary folder: links to the tree's files and folders, except a copy of
+# each of those two files and real folders on the way to the manifest.
 set -euo pipefail
 
+hack=crates/goodfetch-workspace-hack
 root=$(cd "$(dirname "$0")/.." && pwd)
-manifest=$root/crates/goodfetch-workspace-hack/Cargo.toml
+manifest=$root/$hack/Cargo.toml
 
 # Drops the code side's tables (`[dependencies]` and
-# `[target.'cfg(…)'.dependencies]`) from hakari's section.
+# `[target.'cfg(…)'.dependencies]`) from hakari's section of the manifest
+# at $1.
 keep_build_side() {
   awk '
     /^### BEGIN HAKARI SECTION/ { inside = 1; drop = 0; print; next }
     /^### END HAKARI SECTION/ { inside = 0; drop = 0; print; next }
     inside && /^\[/ { drop = ($0 == "[dependencies]" || $0 ~ /^\[target\..*\.dependencies\]$/) }
     !drop { print }
-  ' "$manifest" >"$manifest.tmp"
-  mv "$manifest.tmp" "$manifest"
+  ' "$1" >"$1.tmp"
+  mv "$1.tmp" "$1"
 }
 
 generate() {
   (cd "$root" && cargo hakari generate --quiet && cargo hakari manage-deps --quiet --yes)
-  keep_build_side
+  keep_build_side "$manifest"
+}
+
+# Makes $2 a folder holding a link to each entry of the folder $1 but the
+# target folder and Git's.
+link_entries() {
+  local entry
+  mkdir "$2"
+  for entry in "$1"/* "$1"/.[!.]*; do
+    [[ -e $entry || -L $entry ]] || continue
+    case ${entry##*/} in
+      target | .git) ;;
+      *) ln -s "$entry" "$2/${entry##*/}" ;;
+    esac
+  done
+}
+
+# Fills the folder $1 with the workspace's mirror.
+mirror() {
+  local folder=$1 part path=""
+  rmdir "$folder"
+  link_entries "$root" "$folder"
+  for part in ${hack//\// }; do
+    path=${path:+$path/}$part
+    rm "$folder/$path"
+    link_entries "$root/$path" "$folder/$path"
+  done
+  for path in Cargo.lock "$hack/Cargo.toml"; do
+    rm "$folder/$path"
+    cp -p "$root/$path" "$folder/$path"
+  done
 }
 
 case "${1:-}" in
@@ -54,17 +94,17 @@ case "${1:-}" in
     generate
     ;;
   check)
-    saved=$(mktemp)
-    cp "$manifest" "$saved"
-    trap 'cp "$saved" "$manifest"; rm -f "$saved"' EXIT
-    (cd "$root" && cargo hakari generate --quiet)
-    keep_build_side
+    copy=$(mktemp -d)
+    trap 'rm -rf "$copy"' EXIT
+    mirror "$copy"
+    (cd "$copy" && cargo hakari generate --quiet)
+    keep_build_side "$copy/$hack/Cargo.toml"
     failed=0
-    if ! diff -u "$saved" "$manifest"; then
+    if ! diff -u --label "$hack/Cargo.toml" --label "$hack/Cargo.toml (generated)" "$manifest" "$copy/$hack/Cargo.toml"; then
       echo "error[workspace-hack] crates/goodfetch-workspace-hack/Cargo.toml is out of date: run ci/workspace-hack.sh generate" >&2
       failed=1
     fi
-    if ! (cd "$root" && cargo hakari manage-deps --dry-run --quiet); then
+    if ! (cd "$copy" && cargo hakari manage-deps --dry-run --quiet); then
       echo "error[workspace-hack] a member does not depend on goodfetch-workspace-hack: run ci/workspace-hack.sh generate" >&2
       failed=1
     fi

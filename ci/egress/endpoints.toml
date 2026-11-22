@@ -12,7 +12,8 @@
 #   jobs it is: saas-sinks, benchmark, testnets, vendor-conformance,
 #   clean-up-rules-daily, cloud-run-deploy, model, integration-account,
 #   unpinned-releases or fixture-licence.
-# - [[outside]]: a job that runs none of the product, with the reason.
+# - [[outside]]: a job that runs none of the product, or one ADR 0043 lets run
+#   it without the deny, with the reason.
 
 # The Egress canary's forbidden connection: a public address no job may reach.
 canary = "1.1.1.1:443"
@@ -54,8 +55,8 @@ job = "update-screenshots.yml#update"
 
 # The Release suite's cells (ADR 0108). The hosted Linux cells deny in a
 # network namespace, the Windows cell with firewall rules on the product's
-# programs, the macOS cells with a sandbox profile, and the visual job in
-# the owner's machine's VM (ci/egress/egress.sh).
+# programs, and the visual job in the owner's machine's VM
+# (ci/egress/egress.sh). The macOS cells run outside the deny (ADR 0043's amendment of 2026-11-22).
 [[deny]]
 job = "release-suite.yml#linux-x64"
 
@@ -65,11 +66,13 @@ job = "release-suite.yml#linux-arm64"
 [[deny]]
 job = "release-suite.yml#windows-x64"
 
-[[deny]]
+[[outside]]
 job = "release-suite.yml#macos-arm64"
+reason = "On macOS itself, the runner's standard user has no deny but a sandbox profile, under which the browser's and Plugins' own Seatbelt sandboxes cannot start; the Linux cells run the same tests under the deny (ADR 0043's amendment of 2026-11-22)."
 
-[[deny]]
+[[outside]]
 job = "release-suite.yml#macos-x64"
+reason = "As the macos-arm64 cell, under Rosetta 2 (ADR 0043's amendment of 2026-11-22)."
 
 [[deny]]
 job = "release-suite.yml#visual"
@@ -135,8 +138,9 @@ reason = "It counts the month's minutes from the results store; it runs none of 
 [[deny]]
 job = "diagnostic.yml#rerun"
 
-[[deny]]
+[[outside]]
 job = "diagnostic.yml#rerun-owner-machine"
+reason = "It runs a failed macOS cell's tests again on the owner's machine, as that cell runs them: outside the deny (ADR 0043's amendment of 2026-11-22)."
 
 [[outside]]
 job = "diagnostic.yml#select"

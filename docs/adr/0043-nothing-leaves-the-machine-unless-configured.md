@@ -42,6 +42,8 @@ Goodfetch's users send it the URLs, accounts and tasks they care most about, so 
 
     > Amended on 2026-10-19 (owner decision of 2026-10-19): the mirror is fetched before the deny and is not reachable under it. A job under the deny reaches only the fixtures, and its named endpoints when this ADR names it; every pinned download, the test V8 build (ADR 0067) and Goodfetch's own releases from `compat/releases.toml` (ADR 0066) included, comes before the deny, so a denied step that reaches GitHub fails the job ([#135](https://github.com/goodfetch/goodfetch/issues/135)).
   - **A canary** in every job under the deny tries a forbidden connection after the deny starts and must be refused.
+
+    > Amended on 2026-11-22 (owner decision of 2026-11-22, [#3142](https://github.com/goodfetch/goodfetch/issues/3142#issuecomment-7074577220)): the Release suite's macOS cells on the owner's machine (ADR 0108), and the reruns of their failed tests, run outside the deny. There the runner's standard user cannot change the firewall, and the one deny it could apply, a `sandbox-exec` profile, confines the whole process tree: the browser's renderers and ADR 0033's Plugins then cannot start their own Seatbelt sandboxes, and the cell would have to test them switched off. The Linux cells run the same tests under the deny. Once those cells run on hosted macOS runners (ADR 0108), whether they deny again is decided then.
 - Only these jobs may also reach named endpoints, and only those:
 
   > Amended by [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md): adds the provider check, the recorder and the Evaluations, which reach only the Model providers, gateways and hosted Decision providers they name.

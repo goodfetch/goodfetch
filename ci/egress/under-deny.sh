@@ -3,8 +3,8 @@
 # system (ci/egress/egress.sh says how each is denied):
 #   ci/egress/under-deny.sh <command>…
 # On a hosted Linux runner, in the deny's network namespace, as the runner's
-# own user; on macOS, under the deny's sandbox profile; on Windows, as is,
-# since the firewall's rules block the product's programs wherever they run.
+# own user; on Windows, as is, since the firewall's rules block the
+# product's programs wherever they run.
 # Cargo, uv and pnpm run offline, from what the job fetched before the deny.
 # It refuses to run before the deny is in place. In the owner's machine's VM,
 # steps run through ci/vm/exec.sh instead.
@@ -24,12 +24,12 @@ source "$here/host.sh"
 }
 export CARGO_NET_OFFLINE=true UV_OFFLINE=1 npm_config_offline=true
 
-case "$(deny_backend)" in
+backend=$(deny_backend)
+case "$backend" in
   namespace)
     exec sudo --preserve-env ip netns exec "$NAMESPACE" \
       setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups -- env "PATH=$PATH" "$@"
     ;;
-  sandbox) exec sandbox-exec -f "$SANDBOX_PROFILE" "$@" ;;
   windows) exec "$@" ;;
   vm)
     echo "error: in the job's VM, run the step through ci/vm/exec.sh" >&2

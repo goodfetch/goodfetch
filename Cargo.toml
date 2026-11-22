@@ -717,8 +717,9 @@ strip = "debuginfo"
 # script defines `DEBUG`, which turns on DuckDB's assertions and debug-only
 # checks, whenever Cargo gives it debug information, line tables included,
 # and `NDEBUG` only without (issue 3233). `ci` and `bench` inherit it, so
-# every profile builds DuckDB as its own release builds do, and the tests
-# run the DuckDB that ships. The Rust code keeps the profile's line tables.
+# every profile compiles DuckDB with the optimization and defines of
+# DuckDB's own release builds. Every other package keeps the profile's line
+# tables.
 [profile.release.package.libduckdb-sys]
 debug = false
 

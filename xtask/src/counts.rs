@@ -1667,6 +1667,9 @@ fn run_valgrind_target(
         .arg(format!("*::{}::*", benchmark.function))
         .current_dir(&environment.root)
         .env("GUNGRAUN_HOME", &gungraun_home)
+        // Its rows are read in the build `just perf` measures, with the
+        // wire's functions inlined, whatever the shell exports.
+        .env_remove(CALLGRIND_NAMES_VARIABLE)
         .stderr(Stdio::inherit());
     if let Some(plant) = plant {
         command.env(PLANT_VARIABLE, plant);
@@ -1788,9 +1791,10 @@ fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<
 /// other crate keeps the hashes of `cargo bench`'s own build, in the
 /// workspace's target folder, so its dependencies are built once for both.
 /// Cargo keeps one copy of a crate per profile, so this build and `cargo
-/// bench`'s, which sets nothing, rebuild in turn the two readers and the
+/// bench`'s, which runs without it, rebuild in turn the two readers and the
 /// workspace's crates above them; the product, and every other benchmark,
-/// keep the wire's functions inlined.
+/// keep the wire's functions inlined. The dev build runs without it too,
+/// whatever the shell exports.
 fn build_command(family: &Family, optimized: bool, cargo: &OsStr) -> Command {
     let mut command = crate::child_cargo::command(cargo);
     command
@@ -1800,6 +1804,8 @@ fn build_command(family: &Family, optimized: bool, cargo: &OsStr) -> Command {
         command
             .args(["--profile", "bench"])
             .env(CALLGRIND_NAMES_VARIABLE, "1");
+    } else {
+        command.env_remove(CALLGRIND_NAMES_VARIABLE);
     }
     command
 }

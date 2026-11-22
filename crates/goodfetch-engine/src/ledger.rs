@@ -45,7 +45,11 @@ use jiff::Timestamp;
 use rusqlite::{Connection, Row};
 
 use self::changes::Changes;
-pub use self::charging::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
+pub(crate) use self::charging::ChargingParts;
+pub use self::charging::{
+    Allowance, Change, ChargeError, Charged, Charging, Counted, Refusal, Reservation, RunCharging,
+    UnjournaledCharges, Unmade,
+};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::run_limits::Given;
 pub use self::sizing::{SliceSizing, slice_size};

@@ -28,9 +28,9 @@ use goodfetch_protocol::page::proxy::ProxyProviderConfiguration;
 use sha2::{Digest as _, Sha256};
 
 use goodfetch_engine::CallError;
-use goodfetch_engine::ledger::Refusal as LedgerRefusal;
+use goodfetch_engine::ledger::{Allowance, ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::{Allowance, ChargeError, Run};
+use goodfetch_engine::runs::Run;
 use goodfetch_protocol::catalog::PriceValue;
 use goodfetch_protocol::page::proxy::{CountryCode, ProxyKind, ProxyServer};
 use goodfetch_protocol::run::RunWarning;

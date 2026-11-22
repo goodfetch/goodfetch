@@ -12,6 +12,9 @@
 //! its read interval, `usage.ledger_read_interval` of its engine's clock
 //! (issue 2602). A charge its Slices cover is then a step in memory: no
 //! SQL, no file, no Limit evaluated again.
+//!
+//! A live Run charges through [`RunCharging`], the value of its charging
+//! that a function takes in place of the Run's handle (ADR 0145).
 
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
@@ -19,6 +22,8 @@ use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit};
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
 
+pub(crate) use self::live::ChargingParts;
+pub use self::live::{Allowance, ChargeError, RunCharging, UnjournaledCharges};
 use super::{
     Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
     StoredLimit, TARGET, point_in_time,
@@ -967,3 +972,5 @@ fn reached(stored: &StoredLimit, now: Timestamp) -> Refusal {
     let (_, bounds) = stored.period_key(now);
     Refusal::Reached(Box::new(stored.reached(bounds.map(|bounds| bounds.end))))
 }
+
+mod live;

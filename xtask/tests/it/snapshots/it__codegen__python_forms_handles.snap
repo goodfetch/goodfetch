@@ -87,7 +87,7 @@ class AsyncPage(AsyncHandle):
         """Closes the page."""
         await self._host.close("page.close", models.PageParams(page_id=self._host.id))
 
-    async def goto(self, url: str, referrer: str, *, fresh: bool, timeout: timedelta | None | NotGiven = not_given) -> models.Navigated:
+    async def goto(self, url: str, referrer: str, *, fresh: bool, timeout: timedelta | None | NotGiven = not_given) -> int:
         """Navigates the page to a URL.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -95,11 +95,11 @@ class AsyncPage(AsyncHandle):
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
-        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
+        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).status
 
-    async def is_ready(self) -> models.Readiness:
+    async def is_ready(self) -> bool:
         """Whether the page's document has loaded."""
-        return result_of(models.Readiness, await self._host.call("page.is_ready", models.PageParams(page_id=self._host.id)))
+        return result_of(models.Readiness, await self._host.call("page.is_ready", models.PageParams(page_id=self._host.id))).ready
 
     async def read(self, fields: dict[str, models.PageField]) -> models.Read:
         """Reads the named fields from the page."""
@@ -233,7 +233,7 @@ class Page(Handle):
         """Closes the page."""
         self._host.close("page.close", models.PageParams(page_id=self._host.id))
 
-    def goto(self, url: str, referrer: str, *, fresh: bool, timeout: timedelta | None | NotGiven = not_given) -> models.Navigated:
+    def goto(self, url: str, referrer: str, *, fresh: bool, timeout: timedelta | None | NotGiven = not_given) -> int:
         """Navigates the page to a URL.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -241,11 +241,11 @@ class Page(Handle):
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
-        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
+        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).status
 
-    def is_ready(self) -> models.Readiness:
+    def is_ready(self) -> bool:
         """Whether the page's document has loaded."""
-        return result_of(models.Readiness, self._host.call("page.is_ready", models.PageParams(page_id=self._host.id)))
+        return result_of(models.Readiness, self._host.call("page.is_ready", models.PageParams(page_id=self._host.id))).ready
 
     def read(self, fields: dict[str, models.PageField]) -> models.Read:
         """Reads the named fields from the page."""

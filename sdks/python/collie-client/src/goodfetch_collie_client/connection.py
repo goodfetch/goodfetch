@@ -31,6 +31,7 @@ from goodfetch_collie_client._rpc import (
     phase_exceeded,
 )
 from goodfetch_collie_client._shared_subscription import SharedSubscription
+from goodfetch_collie_client._trace_context import carry, current, untraced
 from goodfetch_collie_client.attached_engine import EngineExit
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
@@ -314,17 +315,19 @@ class ClientConnection:
             bounds,
         )
         try:
-            await connection._hello(
-                needs,
-                daemon,
-                connect_timeout,
-                anyio.current_time()
-                if connect_started_at is None
-                else connect_started_at,
-                settings,
-            )
-            for limit in limits:
-                await connection._set_limit(limit)
+            # The Connection's own, for every caller: no Trace context (ADR 0132).
+            with untraced():
+                await connection._hello(
+                    needs,
+                    daemon,
+                    connect_timeout,
+                    anyio.current_time()
+                    if connect_started_at is None
+                    else connect_started_at,
+                    settings,
+                )
+                for limit in limits:
+                    await connection._set_limit(limit)
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await connection._end()
@@ -411,10 +414,11 @@ class ClientConnection:
         `timeout_setting` is the setting the call's own `timeout` sets, such
         as `timeout.navigation`, which a call queued past that timeout names.
         The engine's answers are not validated beyond `hello`'s protocol
-        version (STYLE.md), nor are the params, which the engine checks.
+        version (STYLE.md), nor are the params, which the engine checks. It
+        carries its caller's Trace context (ADR 0132).
         """
         self._opener.ensure_current(operation)
-        wire = _wire(params)
+        wire = carry(_wire(params), current())
         deadline = (
             None if timeout_setting is None else _deadline_of(timeout_setting, wire)
         )
@@ -429,7 +433,9 @@ class ClientConnection:
         self._opener.ensure_current(operation)
         self.ensure_open(operation)
         result = await self._channel.call(
-            operation, params, deadline=_deadline_of("timeout", params)
+            operation,
+            carry(params, current()),
+            deadline=_deadline_of("timeout", params),
         )
         # Engine answers are not validated beyond `hello`'s protocol version
         # (STYLE.md): a result is the JSON the channel decoded.
@@ -452,10 +458,12 @@ class ClientConnection:
         a dropped link is reached again, when its operation may be;
         `events.subscribe` is sent again after the last event it read, as
         the engine instance that published it, with the credits it had left,
-        so its readers lose no event (spec 606).
+        so its readers lose no event (spec 606). It carries its caller's
+        Trace context (ADR 0132).
         """
         self._opener.ensure_current(method)
         self.ensure_open(method)
+        params = carry(params, current())
         if method != _EVENTS_SUBSCRIBE or not self._channel.relinks:
             return await self._channel.stream(method, params, notified, sent=sent)
         resumed = ResumedEvents(notified, lambda: self._engine_instance)

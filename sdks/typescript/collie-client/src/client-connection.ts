@@ -60,6 +60,12 @@ import {
   type TransportEnd,
 } from "./rpc.ts";
 import { resumable } from "./resumed-stream.ts";
+import {
+  carry,
+  traceContextSource,
+  type TraceContext,
+  type TraceContextSource,
+} from "./trace-context.ts";
 import { batchOf, type LastRead } from "./stream.ts";
 import { fromWire, toWire, type Wire } from "./wire.ts";
 
@@ -241,6 +247,8 @@ export class ClientConnection implements AsyncDisposable {
   readonly #closingLink = new AbortController();
   #ended = false;
   #closing: Promise<void> | undefined;
+  /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
+  #traceContext: TraceContextSource = () => undefined;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
@@ -326,6 +334,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
+      connection.#traceContext = await traceContextSource();
       await connection.#hello(options);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
@@ -384,7 +393,8 @@ export class ClientConnection implements AsyncDisposable {
    * had left, so its readers lose no event (spec 606).
    */
   #subscribe(opened: ChannelOpenOptions): Stream {
-    return resumable<LastRead>((options) => this.stream("events.subscribe", {}, options), opened, {
+    // It belongs to no one caller, so it carries no Trace context (ADR 0132).
+    return resumable<LastRead>((options) => this.#open("events.subscribe", {}, options), opened, {
       read: (method, params) => {
         if (method !== "$/events") {
           return undefined;
@@ -547,13 +557,14 @@ export class ClientConnection implements AsyncDisposable {
     wire: Wire<keyof Types & string>,
   ): Caller<Types> {
     const channel = this.#channel;
+    const traceContext = (): TraceContext | undefined => this.#traceContext();
     return {
       async call<Name extends keyof Types & string>(
         operation: Name,
         params: Types[Name]["params"],
         options: CallOptions,
       ): Promise<Types[Name]["result"]> {
-        const sent = toWire(params, wire.params[operation], wire.types);
+        const sent = carry(toWire(params, wire.params[operation], wire.types), traceContext());
         const result = await channel.call(operation, sent, options);
         // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
         return fromWire(result, wire.results[operation], wire.types);
@@ -603,6 +614,11 @@ export class ClientConnection implements AsyncDisposable {
    * Client granted credits for; `notified` hears each notification.
    */
   stream(method: string, params: unknown, options: ChannelOpenOptions): Stream {
+    return this.#open(method, carry(params, this.#traceContext()), options);
+  }
+
+  /** Sends the streamed call `method` with `params` as they are. */
+  #open(method: string, params: unknown, options: ChannelOpenOptions): Stream {
     this.#openOrThrow(method);
     const channel = this.#channel;
     const { id, result } = channel.open(method, params, options);
@@ -631,7 +647,7 @@ export class ClientConnection implements AsyncDisposable {
   /** Sends `operation` as the main path does, its params and result unconverted. */
   #raw(operation: string, params: unknown, options: CallOptions): Promise<unknown> {
     this.#openOrThrow(operation);
-    return this.#channel.call(operation, params, options);
+    return this.#channel.call(operation, carry(params, this.#traceContext()), options);
   }
 
   #openOrThrow(operation: string): void {

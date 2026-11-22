@@ -482,7 +482,9 @@ zip = { version = "9.0.5", default-features = false }
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
-# `goodfetch_callgrind_names` is set by `xtask counts` alone, on the build it
+# `goodfetch_callgrind_names` is set by the build scripts of its two readers,
+# `goodfetch-engine` and `goodfetch-fetch-tier`, on their own crate alone, when
+# `GOODFETCH_CALLGRIND_NAMES` is set, as `xtask counts` sets it on the build it
 # reads `E1.handled_page_wire_share` in, where the wire's functions are never
 # inlined so that Callgrind names them.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }

@@ -1,6 +1,6 @@
 //! How long opening a Connection waits for `hello`'s answer (ADRs 0080 and
-//! 0083): `timeout.connect`, 30 s, or the connection's own `timeout`, in
-//! its three states. Past it, the opening fails with `deadline_exceeded`,
+//! 0083): `timeout.connect`, 30 s or as the project file sets it, or the
+//! connection's own `timeout`, in its three states. Past it, the opening fails with `deadline_exceeded`,
 //! whose `limit` names `timeout.connect` and the layer that set it.
 
 use std::time::Duration;
@@ -21,8 +21,9 @@ use crate::error::Error;
 const TIMEOUT_FIX: &str = "give at least 1 ms, or `.no_timeout()` for no timeout";
 
 /// How long opening a Connection waits for the engine to answer `hello`
-/// (ADR 0080): `timeout.connect` when left as it is, no deadline, or a
-/// duration of the connection's own, given as an argument.
+/// (ADR 0080): `timeout.connect` when left as it is, its default or as the
+/// project file sets it, no deadline, or a duration of the connection's
+/// own, given as an argument.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ConnectTimeout {
     /// `timeout.connect`'s default, 30 s.
@@ -33,6 +34,9 @@ pub enum ConnectTimeout {
     /// At most this long: `timeout.connect` at the run layer, given as an
     /// argument.
     After(Duration),
+    /// At most this long: `timeout.connect` as the project file sets it,
+    /// the one layer that sets it (ADR 0083).
+    Project(Duration),
 }
 
 impl ConnectTimeout {
@@ -64,6 +68,31 @@ impl ConnectTimeout {
             ),
             &details,
         ))
+    }
+
+    /// It, once the project file's `timeout.connect`, `project`, is
+    /// taken: that value in place of the default, while a connection's own
+    /// `timeout` and no timeout win over it.
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` at `project_configuration` for a value that is no
+    /// whole number of 1 ms or more, whichever state it is in, as the
+    /// engine would refuse that value with the rest of the file.
+    pub fn with_project(self, project: Option<&Value>) -> Result<Self, Error> {
+        let Some(value) = project else {
+            return Ok(self);
+        };
+        let after = match value.as_u64() {
+            Some(0) => Err("a timeout of 0 ms would end the opening at once"),
+            Some(millis) => Ok(Duration::from_millis(millis)),
+            None => Err("it is no whole number of milliseconds"),
+        };
+        match (after, self) {
+            (Ok(after), Self::Default) => Ok(Self::Project(after)),
+            (Ok(_), kept) => Ok(kept),
+            (Err(reason), _) => Err(project_refused(value, reason)),
+        }
     }
 
     /// What is left of it once `elapsed` of an opening has passed, which a
@@ -132,6 +161,15 @@ impl ConnectTimeout {
             }
             Self::Off => None,
             Self::After(after) => Some((after, argument(after))),
+            Self::Project(after) => Some((
+                after,
+                SettingLimit {
+                    key: TIMEOUT_CONNECT.name.to_owned(),
+                    value: Value::from(wire_millis(after)),
+                    layer: SettingsLayer::ProjectConfiguration,
+                    origin: None,
+                },
+            )),
         }
     }
 }
@@ -168,6 +206,30 @@ fn argument(after: Duration) -> SettingLimit {
         layer: SettingsLayer::Run,
         origin: Some(RunOrigin::Argument),
     }
+}
+
+/// The `setting_invalid` of the project file's `timeout.connect` set to
+/// `value`, which is wrong for `reason`.
+fn project_refused(value: &Value, reason: &str) -> Error {
+    let key = TIMEOUT_CONNECT.name;
+    let fix = format!("set `{key}` in the project file to at least 1 ms, or remove it for 30 s");
+    let details = SettingInvalidDetails {
+        key: key.to_owned(),
+        layer: Some(SettingsLayer::ProjectConfiguration),
+        reason: reason.to_owned(),
+        limit: Some(SettingLimit {
+            key: key.to_owned(),
+            value: value.clone(),
+            layer: SettingsLayer::ProjectConfiguration,
+            origin: None,
+        }),
+        fix: Some(fix.clone()),
+    };
+    failed(
+        &SETTING_INVALID,
+        format!("The project file's `{key}`, {value}: {reason}; {fix}."),
+        &details,
+    )
 }
 
 /// The failure of `code` with `message` and its `details`, as the engine

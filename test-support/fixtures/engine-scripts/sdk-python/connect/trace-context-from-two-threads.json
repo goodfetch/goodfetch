@@ -1,0 +1,65 @@
+{
+  "description": "A Python Client's hello accepted, sent outside any span and carrying no `_meta`; then two threads sharing its sync Connection, each in its own span, both entered before either calls: the first thread's `config.explain` carries the first span's `traceparent` and `tracestate`, then the second thread's carries the second span's `traceparent` alone, which has no `tracestate` (ADR 0132).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "_meta": {
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-1a2b3c4d5e6f7081-01",
+            "tracestate": "vendor=value"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "files": [],
+          "settings": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "config.explain",
+        "params": {
+          "_meta": {
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "files": [],
+          "settings": []
+        }
+      }
+    }
+  ]
+}

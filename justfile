@@ -1908,12 +1908,17 @@ miri-setup:
 
 # Checks that every commit from `base` to `head`, merges aside, is signed off
 # by its author (ADR 0018). Locally: since the merge base with `origin/main`.
+# A commit any layer judged green before, in the gate's records
+# (`ci/gate-records.sh`), is not judged again: the pre-push hook judges the
+# pushed commits, and `just merge` the rest, its own merge of `main`'s tip
+# among them (ADR 0135's amendment of 2026-11-22).
 dco base="" head="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
-    cargo run --quiet --bin xtask -- dco --base "$base" --head "{{ head }}"
+    cargo run --quiet --bin xtask -- dco --base "$base" --head "{{ head }}" \
+      --records "$(ci/gate-records.sh)"
 
 # The recorded starting point of the Conventional Commits rule
 # (CONTRIBUTING.md): this commit, the tip of spec #130's integration branch
@@ -1923,14 +1928,15 @@ conventional_commits_since := "9e62a6c527577f8dc08b119bdf2acb952fcc62b1"
 
 # Checks that every commit from `base` to `head`, merges aside, after the
 # rule's starting point has a Conventional Commits subject (CONTRIBUTING.md).
-# Locally: since the merge base with `origin/main`.
+# Locally: since the merge base with `origin/main`. As for `just dco`, a commit
+# judged green before on the same rules is not judged again.
 commit-messages base="" head="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
     cargo run --quiet --bin xtask -- commit-messages --base "$base" --head "{{ head }}" \
-      --since "{{ conventional_commits_since }}"
+      --since "{{ conventional_commits_since }}" --records "$(ci/gate-records.sh)"
 
 # Whether this checkout's builds reuse the C and C++ objects other checkouts
 # compiled (TESTING.md, Compiler cache): where the Rust compiler wrapper is

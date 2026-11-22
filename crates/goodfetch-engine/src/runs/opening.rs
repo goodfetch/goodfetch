@@ -631,7 +631,7 @@ impl Registry {
                 .start(declared, start, secrets, (row, syncing))
                 .await;
             if let Ok(Started::New(run)) = &started {
-                link.add_to(run.span());
+                link.add_to(run.identity.span());
             }
             let _ = answer.send(started);
         });
@@ -662,7 +662,7 @@ impl Registry {
         self.beside(Some(run_id), async move {
             let resumed = opening.resume(resume, fixed, keys, stored).await;
             if let Ok(Resumed::New { run, .. }) = &resumed {
-                link.add_to(run.span());
+                link.add_to(run.identity.span());
             }
             let _ = answer.send(resumed);
         });
@@ -790,7 +790,7 @@ impl Registry {
             .run
             .clone()
             .expect("invariant: a Run goes live with its writer");
-        run.watch_safe_points(timeout, live.ended_by);
+        super::watch_safe_points(&run, timeout, live.ended_by);
         self.setup.metrics.run_live(live.kind);
         self.live.insert(live.id.clone(), live);
         if let Some(interval) = interval {

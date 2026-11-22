@@ -37,7 +37,7 @@ use crate::engine::{Dependencies, Engine};
 use crate::home::Home;
 use crate::run_key::{self, sealing};
 use crate::run_state::{RunStateTables, SecretColumn};
-use crate::runs::{EndedBy, Run, Start, Started};
+use crate::runs::{self, EndedBy, Run, Start, Started};
 
 /// Starts a Collie Run its program drives, which the tests seal values in;
 /// with `opens_settings`, its settings opened as a start opens them.
@@ -147,14 +147,15 @@ fn sealing() -> Contribution {
                     let Started::New(run) = started else {
                         panic!("the Run began before");
                     };
+                    let identity = runs::identity(&run);
                     let held = Arc::new(run.clone());
                     kept.lock()
                         .await
-                        .insert(run.id().to_string(), Arc::downgrade(&held));
-                    run.spawn(async move {
-                        held.cancellation().cancelled().await;
+                        .insert(identity.id().to_string(), Arc::downgrade(&held));
+                    identity.spawn(async move {
+                        runs::identity(&held).owner().cancelled().await;
                     });
-                    Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+                    Ok::<Value, CallError>(json!({ "run_id": identity.id().to_string() }))
                 }
             },
         ))
@@ -163,7 +164,7 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let sealed = run
+                let sealed = runs::keys(&run)
                     .seal(
                         &VALUE,
                         &row.to_string(),
@@ -172,7 +173,7 @@ fn sealing() -> Contribution {
                     .await
                     .map_err(|error| no_key(&error))?;
                 let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
-                run.state()
+                runs::state(&run)
                     .write(move |connection| {
                         connection
                             .execute(
@@ -193,8 +194,7 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let sealed: crate::run_key::Sealed = run
-                    .state()
+                let sealed: crate::run_key::Sealed = runs::state(&run)
                     .read(move |connection| {
                         rusqlite::OptionalExtension::optional(connection.query_row(
                             "SELECT value FROM test_secrets WHERE row = ?1",
@@ -205,7 +205,7 @@ fn sealing() -> Contribution {
                     .await
                     .unwrap()
                     .unwrap_or_else(|| crate::run_key::Sealed::new(vec![1; 1 + 24 + 16 + 4]));
-                let opened = run
+                let opened = runs::keys(&run)
                     .open(&VALUE, &row.to_string(), &sealed)
                     .await
                     .map_err(|error| no_key(&error))?;
@@ -224,7 +224,7 @@ fn stored_key() -> Handler {
             let run = live(&context, &params).await;
             let row = params["row"].as_i64().unwrap();
             let kek = secrecy::SecretString::from(params["kek"].as_str().unwrap().to_owned());
-            let key = run_key::RunKey::generate(run.id().clone()).unwrap();
+            let key = run_key::RunKey::generate(runs::identity(&run).id().clone()).unwrap();
             let stored = run_key::StoredKey {
                 wrapped: key.wrap(&kek).unwrap(),
                 key_reference: "secretfile:run-state-key".to_owned(),
@@ -237,7 +237,7 @@ fn stored_key() -> Handler {
                     params["value"].as_str().unwrap().as_bytes(),
                 )
                 .unwrap();
-            run.state()
+            runs::state(&run)
                 .write(move |connection| {
                     run_key::store(connection, &stored)?;
                     connection
@@ -267,18 +267,22 @@ fn no_key(error: &crate::runs::RunKeyError) -> CallError {
 /// The data key of `run`, unwrapped from what its run state stores by the
 /// key-encryption key the Run holds, as the Run itself unwraps it.
 async fn data_key(run: &Run) -> secrecy::zeroize::Zeroizing<[u8; sealing::KEY_LENGTH]> {
-    let stored = run
-        .state()
+    let stored = runs::state(run)
         .read(run_key::stored)
         .await
         .unwrap()
         .expect("the Run stored its key");
-    let kek = run
+    let kek = runs::keys(run)
         .secrets()
         .held_for(RUN_STATE_KEY_REFERENCE.name)
         .await
         .expect("the Run holds its key-encryption key");
-    sealing::unwrap(run.id().as_str(), stored.wrapped.as_bytes(), &kek).unwrap()
+    sealing::unwrap(
+        runs::identity(run).id().as_str(),
+        stored.wrapped.as_bytes(),
+        &kek,
+    )
+    .unwrap()
 }
 
 async fn live(context: &CallContext, params: &Value) -> Run {

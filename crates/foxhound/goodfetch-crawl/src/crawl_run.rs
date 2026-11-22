@@ -58,7 +58,7 @@ impl CrawlRun {
     pub(crate) fn of(run: Run, runs: &Runs) -> Arc<Self> {
         Arc::new(Self {
             identity: runs::identity(&run).clone(),
-            state: run.state().clone(),
+            state: runs::state(&run).clone(),
             charging: runs::charging(&run).clone(),
             keys: runs::keys(&run).clone(),
             warnings: runs::warnings(&run).clone(),

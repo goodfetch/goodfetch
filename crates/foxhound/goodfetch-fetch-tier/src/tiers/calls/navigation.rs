@@ -95,7 +95,8 @@ pub(super) async fn navigate(
     };
     let first = Hop::get(url);
     let mut permit = Some(gate.admit(&first).await.map_err(stopped)?);
-    let clock = run.clock();
+    let identity = runs::identity(&run);
+    let clock = identity.clock();
     let http = &page.http;
     // A document tier runs no refresh: a handler's own navigation is given
     // the stub (ADR 0118).
@@ -106,7 +107,7 @@ pub(super) async fn navigate(
     // The transport's refusal of a hop at its connection, which the chain
     // turns into a crawl request's skip: the call answers it as it is.
     let refused_at_connection = OnceLock::new();
-    let on = (&clock, run.owner(), run.metrics().counted_work());
+    let on = (&clock, identity.owner(), identity.metrics().counted_work());
     let fetched = follow(first, &following, &gate, on, |hop| {
         // The first hop's permit is released once its answer arrived; a
         // later hop's, by the chain (ADR 0118).
@@ -196,8 +197,10 @@ async fn opened_on(
     (extractor, readers): (Option<BuiltIn>, &Arc<UntouchedReaders>),
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
-    run.owner()
-        .handler_analysis(run.metrics().counted_work(), move || {
+    let identity = runs::identity(run);
+    identity
+        .owner()
+        .handler_analysis(identity.metrics().counted_work(), move || {
             Opened::navigated(&reading, read, extractor, &readers)
         })
         .await
@@ -264,7 +267,7 @@ impl HopGate for Navigating {
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run().clock();
+            let clock = runs::identity(self.hand_over.run()).clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }

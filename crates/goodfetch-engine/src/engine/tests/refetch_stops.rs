@@ -66,12 +66,16 @@ fn stops() -> Contribution {
         |params: Value, context: CallContext| async move {
             let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
             let run = context.runs().live(run_id).await.unwrap();
-            run.record_refetch_stop(
-                params["domain"].as_str().unwrap().to_owned(),
-                params["cause"].as_str().unwrap().to_owned(),
-            )
-            .await
-            .unwrap();
+            context
+                .engine()
+                .run_index()
+                .record_refetch_stop(
+                    crate::runs::identity(&run),
+                    params["domain"].as_str().unwrap().to_owned(),
+                    params["cause"].as_str().unwrap().to_owned(),
+                )
+                .await
+                .unwrap();
             Ok::<Value, CallError>(json!({}))
         },
     ))

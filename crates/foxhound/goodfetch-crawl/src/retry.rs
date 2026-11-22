@@ -148,9 +148,10 @@ async fn reopened(
         .map_err(|error| run_error(error, &context))?;
     match resumed {
         Resumed::New { run, kind, .. } => {
-            let readmitted = readmit(runs::identity(&run), run.state(), blocked).await;
+            let identity = runs::identity(&run);
+            let readmitted = readmit(identity, runs::state(&run), blocked).await;
             if let Some(driver) = context.driver(kind) {
-                run.spawn(driver(*run.clone(), context.clone(), settings));
+                identity.spawn(driver(*run.clone(), context.clone(), settings));
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }

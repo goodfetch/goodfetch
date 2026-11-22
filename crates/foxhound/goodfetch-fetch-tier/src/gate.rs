@@ -415,7 +415,7 @@ impl HandOver {
         let Some(politeness) = &of_run.politeness else {
             return Ok(());
         };
-        let run = &of_run.run;
+        let run = runs::identity(&of_run.run);
         let key = of_run.keys.key(url);
         if let Some(send_at) = lead.then(|| self.reserved_send.take()).flatten() {
             if let Ok(wait) = send_at.duration_since(run.clock().wall())
@@ -488,7 +488,7 @@ impl RunHandOver {
         };
         let key = self.keys.key(hop.url.as_str());
         if let Err(error) = goodfetch_frontier::latency_measured(politeness, &key, latency).await {
-            tracing::warn!(%error, run_id = %self.run.id(), "a response's latency was not recorded for its domain");
+            tracing::warn!(%error, run_id = %runs::identity(&self.run).id(), "a response's latency was not recorded for its domain");
         }
     }
 }
@@ -506,7 +506,7 @@ impl fmt::Debug for Gate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Gate")
-            .field("run", self.0.run().id())
+            .field("run", runs::identity(self.0.run()).id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
     }
@@ -618,11 +618,10 @@ impl NavigationGate for Gate {
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
                     let readers = Arc::clone(&self.0.untouched);
-                    let counted = self.0.run().metrics().counted_work();
+                    let run = runs::identity(self.0.run());
+                    let counted = run.metrics().counted_work();
                     let work = counted.clone();
-                    self.0
-                        .run()
-                        .owner()
+                    run.owner()
                         .handler_analysis(counted, move || {
                             readers.markup_use_signals(signals, &html, &url, &work)
                         })
@@ -664,7 +663,7 @@ impl Gate {
     /// ([`SitePreferences::judged`]).
     pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, site_preferences::NotAllowed> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let preferences = &hand_over.site_preferences;
         let key = hand_over.keys.key(url.as_str());
         let own = key == self.0.domain_key;
@@ -724,16 +723,11 @@ impl Gate {
         crawl_delay: Duration,
     ) -> Option<SystemTime> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let spacing = hand_over.domain_delay.max(crawl_delay);
         if let Some(read) = read
             && let AfterRobotsTxt::At(start) = read
-                .start_after(
-                    hand_over.politeness.as_ref(),
-                    runs::identity(run),
-                    key,
-                    spacing,
-                )
+                .start_after(hand_over.politeness.as_ref(), run, key, spacing)
                 .await
         {
             return Some(start);
@@ -769,7 +763,7 @@ impl Gate {
         goodfetch_frontier::last_start(politeness, key)
             .await
             .unwrap_or_else(|error| {
-                tracing::warn!(%error, run_id = %self.0.run().id(), "a domain's last start could not be read");
+                tracing::warn!(%error, run_id = %runs::identity(self.0.run()).id(), "a domain's last start could not be read");
                 None
             })
     }
@@ -777,7 +771,7 @@ impl Gate {
     /// A Permit of `key` beside the Run's own requests, once the domain
     /// has room, given back once released.
     async fn beside(&self, key: &str) -> Permit {
-        let run = self.0.run();
+        let run = runs::identity(self.0.run());
         let clock = run.clock();
         loop {
             let room = self.0.second_copies.take(key, clock.now()).await;
@@ -799,7 +793,7 @@ impl Gate {
     /// domain from its response's arrival.
     async fn robots_txt(&self, url: &Url, key: &str) -> Option<Reading> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let reading = hand_over
             .site_preferences
             .read_robots_txt(&hand_over.robots_txt, url, |location| {
@@ -829,7 +823,7 @@ impl ChainGate {
     /// another request. A run file that cannot answer leaves the hop to the
     /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
-        let run = self.hand_over.run();
+        let run = runs::identity(self.hand_over.run());
         self.hand_over
             .of_run
             .hops
@@ -922,7 +916,7 @@ impl HopGate for ChainGate {
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run().clock();
+            let clock = runs::identity(self.hand_over.run()).clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }
@@ -953,7 +947,7 @@ impl HopGate for ChainGate {
     /// file that cannot answer lets the chain end on its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
-            let run = self.hand_over.run();
+            let run = runs::identity(self.hand_over.run());
             let recorded = self
                 .hand_over
                 .of_run

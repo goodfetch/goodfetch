@@ -67,7 +67,13 @@ fn walls() -> Contribution {
         |params: Value, context: CallContext| async move {
             let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
             let run = context.runs().live(run_id).await.unwrap();
-            run.record_consent_wall(params["domain"].as_str().unwrap().to_owned())
+            context
+                .engine()
+                .run_index()
+                .record_consent_wall(
+                    crate::runs::identity(&run),
+                    params["domain"].as_str().unwrap().to_owned(),
+                )
                 .await
                 .unwrap();
             Ok::<Value, CallError>(json!({}))

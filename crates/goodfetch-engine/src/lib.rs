@@ -107,4 +107,5 @@ pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::{CALLER, EngineContext};
 pub use info::{contribution, contribution_sharing};
 pub use product::{Channel, Identity, Requested};
+pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

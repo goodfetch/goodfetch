@@ -65,7 +65,7 @@ fn noting() -> Contribution {
                 let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                 let value = params["value"].as_i64().unwrap();
                 let run = context.runs().live(run_id).await.unwrap();
-                run.state()
+                crate::runs::state(&run)
                     .write(move |connection| {
                         connection
                             .execute("INSERT INTO notes (value) VALUES (?1)", [value])

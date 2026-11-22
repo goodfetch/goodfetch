@@ -506,7 +506,8 @@ async fn reach(params: Value, context: CallContext) -> Result<Value, CallError> 
         ("any.test", ExceptionKind::Any),
         ("pinned.test", ExceptionKind::TrustOnFirstUse),
     ] {
-        run.secrets()
+        crate::runs::keys(&run)
+            .secrets()
             .exception_hosts()
             .add(host, KeyHash::of_public_key(host.as_bytes()), kind)
             .await;

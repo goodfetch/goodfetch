@@ -71,13 +71,11 @@ pub(super) fn arm(
     }
     let deadline = match timeout {
         Some(timeout) => timeout.map(Duration::from_millis),
-        None => page
-            .document
-            .run
+        None => runs::identity(&page.document.run)
             .settings()
             .map(|settings| settings.resolved().get::<Duration>(&TIMEOUT_WAIT)),
     };
-    let clock = page.document.run.clock();
+    let clock = runs::identity(&page.document.run).clock();
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Box::pin(async move {
@@ -122,7 +120,7 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
     else {
         return;
     };
-    let limits = Limits::of_run(run.settings());
+    let limits = Limits::of_run(runs::identity(&run).settings());
     while armed(tiers, page_id) {
         let Some(call) = replay.next_call() else {
             break;
@@ -159,7 +157,7 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
         let Some(json) = json else {
             // A call the site no longer answers as it answered the browser,
             // a signed one, a token taken once: no wait is answered from it.
-            tracing::debug!(run_id = %run.id(), url = %call, status = fetched.status, "a replayed call was not answered with JSON");
+            tracing::debug!(run_id = %runs::identity(&run).id(), url = %call, status = fetched.status, "a replayed call was not answered with JSON");
             break;
         };
         let Ok(response) = answered(tiers, page_id, runs::files(&run), fetched).await else {

@@ -35,7 +35,7 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::ledger::{ChargeError, Ledger, Refusal, UnjournaledCharges};
-use crate::runs::{EndedBy, Start, Started};
+use crate::runs::{self, EndedBy, Start, Started};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
@@ -155,7 +155,8 @@ pub(super) fn charging() -> Contribution {
                 let mut refused = false;
                 let mut unjournaled = UnjournaledCharges::default();
                 for _ in 0..params["unjournaled"].as_u64().unwrap_or(0) {
-                    run.charge_unjournaled(&mut unjournaled, "requests", 1)
+                    runs::charging(&run)
+                        .charge_unjournaled(&mut unjournaled, "requests", 1)
                         .await
                         .unwrap();
                     charged += 1;
@@ -166,7 +167,7 @@ pub(super) fn charging() -> Contribution {
                             .add_limit(&newer_limit(), Timestamp::UNIX_EPOCH)
                             .unwrap();
                     }
-                    match run.charge("requests", 1).await {
+                    match runs::charging(&run).charge("requests", 1).await {
                         Ok(()) => charged += 1,
                         Err(ChargeError::Refused(_)) => {
                             refused = true;
@@ -176,7 +177,8 @@ pub(super) fn charging() -> Contribution {
                     }
                 }
                 if !unjournaled.is_empty() {
-                    run.queue_charged(unjournaled, |_| Ok(()))
+                    runs::charging(&run)
+                        .queue_charged(unjournaled, |_| Ok(()))
                         .await
                         .unwrap()
                         .await
@@ -192,7 +194,7 @@ pub(super) fn charging() -> Contribution {
             &RESERVE,
             |params: Value, context: CallContext| async move {
                 let run = started(&params, &context).await?;
-                let reserved = run
+                let reserved = runs::charging(&run)
                     .reserve(
                         "paid_solves",
                         Some("USD"),
@@ -203,7 +205,10 @@ pub(super) fn charging() -> Contribution {
                     return Ok::<Value, CallError>(json!({ "refused": true }));
                 };
                 if let Some(cost) = params["cost"].as_u64() {
-                    run.settle(reservation, cost).await.unwrap();
+                    runs::charging(&run)
+                        .settle(reservation, cost)
+                        .await
+                        .unwrap();
                 }
                 Ok(json!({ "refused": false }))
             },
@@ -215,7 +220,7 @@ async fn charge_live(params: Value, context: CallContext) -> Result<Value, CallE
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = context.runs().live(run_id).await.unwrap();
     for _ in 0..params["amount"].as_u64().unwrap() {
-        match run.charge("requests", 1).await {
+        match runs::charging(&run).charge("requests", 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(reached))) => {
                 return Err(crate::run::limit_reached(&reached));
@@ -250,38 +255,44 @@ async fn covered(params: Value, context: CallContext) -> Result<Value, CallError
     // The clock stands still from here, so the Limits the Run reads as it
     // takes its Slice stay current, and the other thread serves that charge.
     let first = held_thread().await;
-    run.charge("requests", 1).await.unwrap();
-    let priced = run.reserve("requests", Some("USD"), 1).await.unwrap();
-    run.settle(priced, 1).await.unwrap();
+    let charging = runs::charging(&run);
+    charging.charge("requests", 1).await.unwrap();
+    let priced = charging.reserve("requests", Some("USD"), 1).await.unwrap();
+    charging.settle(priced, 1).await.unwrap();
     let second = held_thread().await;
 
     let changes = async {
-        run.charge("requests", 1).await.unwrap();
-        run.charge_part("requests", "first", 1, None).await.unwrap();
-        run.charge_part("requests", "first", 1, Some(("USD", 3)))
+        charging.charge("requests", 1).await.unwrap();
+        charging
+            .charge_part("requests", "first", 1, None)
+            .await
+            .unwrap();
+        charging
+            .charge_part("requests", "first", 1, Some(("USD", 3)))
             .await
             .unwrap();
         let mut unjournaled = UnjournaledCharges::default();
-        run.charge_unjournaled(&mut unjournaled, "requests", 1)
+        charging
+            .charge_unjournaled(&mut unjournaled, "requests", 1)
             .await
             .unwrap();
-        let reservation = run.reserve("requests", None, 2).await.unwrap();
-        run.settle(reservation, 1).await.unwrap();
-        let allowance = run
+        let reservation = charging.reserve("requests", None, 2).await.unwrap();
+        charging.settle(reservation, 1).await.unwrap();
+        let allowance = charging
             .reserve_part("requests", "first", None, |amount| amount, 2, 1)
             .await
             .unwrap()
             .unwrap();
-        run.settle_part(allowance, 1, 0).await.unwrap();
-        let allowance = run
+        charging.settle_part(allowance, 1, 0).await.unwrap();
+        let allowance = charging
             .reserve_part("requests", "first", Some("USD"), |amount| amount * 3, 2, 1)
             .await
             .unwrap()
             .unwrap();
-        run.settle_part(allowance, 1, 3).await.unwrap();
+        charging.settle_part(allowance, 1, 3).await.unwrap();
         unjournaled
     };
-    let another_slice = run.charge("requests", 20);
+    let another_slice = charging.charge("requests", 20);
     tokio::pin!(another_slice);
     let (unjournaled, charged_while_held) = tokio::select! {
         biased;
@@ -299,7 +310,8 @@ async fn covered(params: Value, context: CallContext) -> Result<Value, CallError
         None => Some(another_slice.await.is_ok()),
     };
     if let Some(unjournaled) = unjournaled {
-        run.queue_charged(unjournaled, |_| Ok(()))
+        runs::charging(&run)
+            .queue_charged(unjournaled, |_| Ok(()))
             .await
             .unwrap()
             .await
@@ -319,8 +331,9 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
     let ended: Vec<_> = (0..params["tasks"].as_u64().unwrap())
         .map(|task| {
             let (end, ended) = tokio::sync::oneshot::channel();
-            let charging = run.clone();
-            run.spawn(async move {
+            let held = run.clone();
+            runs::identity(&run).spawn(async move {
+                let charging = runs::charging(&held);
                 let mut charged = 0_u64;
                 for charge in 0..each {
                     // Every third charge is a claim's, journaled in a write
@@ -369,7 +382,7 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
     // A claim's journal rides the open batch at a level that batches
     // attempts, answered before the batch commits and seen by a reader only
     // once it does (ADR 0142): the last read follows the batch's seal.
-    run.state().seal().await.unwrap();
+    runs::state(&run).seal().await.unwrap();
     journal.read(journaled_slices(&run).await);
     Ok(json!({
         "charged": charged,
@@ -399,7 +412,7 @@ impl Journal {
 
 /// Each Slice `run`'s state journals, with the Run's Usage of it.
 async fn journaled_slices(run: &crate::runs::Run) -> Vec<(String, u64)> {
-    run.state()
+    runs::state(run)
         .read(|connection| {
             connection
                 .prepare("SELECT CAST(slice_id AS TEXT), used FROM usage")?

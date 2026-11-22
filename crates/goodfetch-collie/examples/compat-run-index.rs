@@ -27,6 +27,7 @@ use goodfetch_engine::needs_you::{
 };
 use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::runs;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -121,7 +122,13 @@ async fn consent_wall(params: Value, context: CallContext) -> Result<Value, Call
         .live(run_id)
         .await
         .expect("invariant: the scenario's Run is live");
-    run.record_consent_wall(params["domain"].as_str().unwrap_or_default().to_owned())
+    context
+        .engine()
+        .run_index()
+        .record_consent_wall(
+            runs::identity(&run),
+            params["domain"].as_str().unwrap_or_default().to_owned(),
+        )
         .await
         .expect("invariant: the corpus's Run index is written");
     Ok(json!({}))
@@ -154,12 +161,16 @@ async fn refetch_stopped(params: Value, context: CallContext) -> Result<Value, C
         .live(run_id)
         .await
         .expect("invariant: the scenario's Run is live");
-    run.record_refetch_stop(
-        params["domain"].as_str().unwrap_or_default().to_owned(),
-        params["cause"].as_str().unwrap_or_default().to_owned(),
-    )
-    .await
-    .expect("invariant: the corpus's Run index is written");
+    context
+        .engine()
+        .run_index()
+        .record_refetch_stop(
+            runs::identity(&run),
+            params["domain"].as_str().unwrap_or_default().to_owned(),
+            params["cause"].as_str().unwrap_or_default().to_owned(),
+        )
+        .await
+        .expect("invariant: the corpus's Run index is written");
     Ok(json!({}))
 }
 

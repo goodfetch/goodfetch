@@ -74,9 +74,12 @@ fn use_foxhound() -> Contribution {
             let Started::New(run) = started else {
                 panic!("the Run began before");
             };
-            run.uses(Product::Foxhound).await;
-            run.end(Ending::Finished(Vec::new())).await;
-            Ok::<Value, CallError>(json!({ "run_id": run.id() }))
+            let run_id = crate::runs::identity(&run).id();
+            context.runs().uses(run_id.clone(), Product::Foxhound).await;
+            crate::runs::end(&run)
+                .end(Ending::Finished(Vec::new()))
+                .await;
+            Ok::<Value, CallError>(json!({ "run_id": run_id }))
         },
     ))
 }

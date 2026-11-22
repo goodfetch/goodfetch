@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_encoding::Kind;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_page::page_value::{DocumentReader, ReadDocument, Reading};
 
 use super::{Served, lock};
@@ -75,7 +75,7 @@ impl std::fmt::Debug for BrowserReader {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("BrowserReader")
-            .field("run", self.hand_over.run().id())
+            .field("run", runs::identity(self.hand_over.run()).id())
             .field("handled", &self.handled)
             .finish_non_exhaustive()
     }

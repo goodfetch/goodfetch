@@ -36,7 +36,7 @@ use super::{Client, attached_on, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::run_state::RunStateError;
-use crate::runs::{EndedBy, Ending, ReportPart, Run, Start, Started};
+use crate::runs::{self, EndedBy, Ending, ReportPart, Run, Start, Started};
 
 /// Acts on a live Run as an area does.
 const HAND_OVER: Operation = Operation {
@@ -123,12 +123,15 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
             .as_str()
             .map(|currency| (currency, charge["price"]["amount"].as_u64().unwrap()));
         match charge["part"].as_str() {
-            Some(part) => run.charge_part(usage_kind, part, amount, price).await.ok(),
-            None => run.charge(usage_kind, amount).await.ok(),
+            Some(part) => runs::charging(&run)
+                .charge_part(usage_kind, part, amount, price)
+                .await
+                .ok(),
+            None => runs::charging(&run).charge(usage_kind, amount).await.ok(),
         };
     }
     if let Some(reserve) = params.get("reserve") {
-        let reservation = run
+        let reservation = runs::charging(&run)
             .reserve(
                 reserve["usage_kind"].as_str().unwrap(),
                 reserve["currency"].as_str(),
@@ -136,25 +139,29 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
             )
             .await
             .unwrap();
-        run.settle(reservation, reserve["cost"].as_u64().unwrap())
+        runs::charging(&run)
+            .settle(reservation, reserve["cost"].as_u64().unwrap())
             .await
             .unwrap();
     }
     for warning in params["warnings"].as_array().into_iter().flatten() {
         let warning: RunWarning = serde_json::from_value(warning.clone()).unwrap();
-        run.warn(warning).await.unwrap();
+        runs::warnings(&run).warn(warning).await.unwrap();
     }
     if let Some(nothing_done) = params.get("nothing_done") {
         let nothing_done: NothingDone = serde_json::from_value(nothing_done.clone()).unwrap();
-        run.nothing_done(nothing_done).await.unwrap();
+        runs::warnings(&run)
+            .nothing_done(nothing_done)
+            .await
+            .unwrap();
     }
     let ends = if let Some(error) = params.get("fail") {
         let error: EndingError = serde_json::from_value(error.clone()).unwrap();
-        run.end(Ending::Failed(error)).await;
+        runs::end(&run).end(Ending::Failed(error)).await;
         true
     } else if let Some(reason) = params.get("stop") {
         let reason: StopReason = serde_json::from_value(reason.clone()).unwrap();
-        run.stop(reason);
+        runs::stop_at_safe_point(&run, reason);
         true
     } else {
         false
@@ -194,21 +201,21 @@ async fn drive(params: Value, context: CallContext) -> Result<Value, CallError> 
     let slow = params["slow"].as_bool() == Some(true);
     let driver = run.clone();
     // The driver reads its stop from the Run's identity alone (ADR 0145).
-    let identity = crate::runs::identity(&run).clone();
-    run.spawn(async move {
+    let identity = runs::identity(&run).clone();
+    runs::identity(&run).spawn(async move {
         let stopping = async {
             let reason = identity.stopping().await;
             if slow {
                 identity.clock().sleep(Duration::from_mins(1)).await;
             }
-            driver.end(Ending::Stopped(reason)).await;
+            runs::end(&driver).end(Ending::Stopped(reason)).await;
         };
         tokio::select! {
-            () = driver.cancellation().cancelled() => {}
+            () = identity.owner().cancelled() => {}
             () = stopping => {}
         }
     });
-    Ok(json!({ "run_id": run.id() }))
+    Ok(json!({ "run_id": runs::identity(&run).id() }))
 }
 
 /// Polls the engine's own `run.stop` of `params` once, as its call's task

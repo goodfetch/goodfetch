@@ -141,7 +141,7 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
 /// The Run index of one user and major, as one engine opens it: its writer
 /// and the connection its reads keep, which its clones share.
 #[derive(Clone, Debug)]
-pub(crate) struct RunIndex {
+pub struct RunIndex {
     store: Arc<KeptStore<IndexFile>>,
 }
 
@@ -317,8 +317,12 @@ impl RunIndex {
     ///
     /// # Errors
     ///
-    /// As [`Self::write`].
-    pub(crate) async fn record_consent_wall(
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_consent_wall(
         &self,
         run: &RunIdentity,
         domain: String,
@@ -362,8 +366,12 @@ impl RunIndex {
     ///
     /// # Errors
     ///
-    /// As [`Self::write`].
-    pub(crate) async fn record_refetch_stop(
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_refetch_stop(
         &self,
         run: &RunIdentity,
         domain: String,

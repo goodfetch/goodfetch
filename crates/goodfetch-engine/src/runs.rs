@@ -43,7 +43,9 @@
 //! whose end stops it (ADR 0078).
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
-//! whole so every change to a Run's state passes through one loop. A Run's
+//! whole so every change to a Run's state passes through one loop, and the
+//! `Run` handle with one free function per power, [`identity`], [`state`],
+//! [`charging`] and the others (ADR 0145). A Run's
 //! disk work runs beside that loop, which keeps each Run's calls in order
 //! meanwhile, `beside`'s; a start's or a resume's opening is `opening`'s. A Run's
 //! identity and the value that asks it to stop are `run_identity`'s; its
@@ -53,8 +55,9 @@
 //! the signal that it was let finish, `end`'s (ADR 0145). The record that
 //! a Run uses another Product's entry is a command of the registry's
 //! handle, [`Runs::uses`], and the two records a Run leaves in the Run
-//! index for "Needs you" are `run_index`'s, over its identity: the `Run`
-//! handle only forwards to them.
+//! index for "Needs you" are `run_index`'s, over its identity. The handle's
+//! own methods are only those the page crate still calls, each forwarding to
+//! a power; every other caller reaches a power through its free function.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -73,11 +76,11 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
+use goodfetch_protocol::governor::RUN_SHARE;
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
-    AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle, LimitScope,
+    AxisReason, Checkpoint, Completeness, EndingError, Lifecycle, LimitScope,
     MAX_PROGRESS_MESSAGE_CHARACTERS, NothingDone, Presence, ProgressMessage, RUN_IN_USE,
     RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL, RUN_STATE_BATCH_PAGES,
     RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC, RUN_STATE_COMMIT_INTERVAL,
@@ -119,7 +122,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::CallError;
-use crate::admission::{self, Admission, AdmissionError, Gates};
+use crate::admission::{self, Gates};
 use crate::audit::{AuditLog, Origin};
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
@@ -133,9 +136,7 @@ use crate::governor::{
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{
-    Allowance, ChargeError, Charged, ChargingParts, Reservation, RunCharging, UnjournaledCharges,
-};
+use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -144,7 +145,7 @@ use crate::politeness::{
     RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
 };
 use crate::robots_txt::{Answer, Fetched, NotRead, OwnCopies};
-use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport, RunFiles};
+use crate::run_files::{self, KeepError, KeptExport, RunFiles};
 use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::RunIndex;
 use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
@@ -1343,8 +1344,6 @@ struct Shared {
     entropy: RunEntropy,
     /// Its progress (ADR 0102).
     progress: Progress,
-    /// The gate in admission the composition passes in, if any.
-    gates: Option<Arc<dyn Gates>>,
     /// The Politeness it shares, the Politeness module's (ADR 0145).
     politeness: RunPoliteness,
     /// Its own copies of the robots.txt files its program's navigation
@@ -1435,6 +1434,55 @@ pub fn own_robots_txt(run: &Run) -> &OwnCopies {
 /// for it.
 pub fn files(run: &Run) -> &RunFiles {
     &run.shared.files
+}
+
+/// The run state's writer of `run`, which a function takes in place of
+/// the handle to read or write its state (ADR 0145): `Run` gains no method
+/// for it.
+pub fn state(run: &Run) -> &RunState {
+    &run.state
+}
+
+/// Asks `run` to stop at its next safe point for `reason`, such as the
+/// resource governor's `resources` (ADRs 0040 and 0122) or its engine's
+/// loss; the first reason asked stays.
+pub(crate) fn stop_at_safe_point(run: &Run, reason: StopReason) {
+    run.shared.stop.at_safe_point(reason);
+}
+
+/// Starts the tasks that ask `run` to stop at its next safe point: once
+/// its `timeout` passes; and for a Run its program drives, which has
+/// nothing in flight in the engine, the one that then stops it.
+fn watch_safe_points(run: &Run, timeout: Option<Duration>, ended_by: EndedBy) {
+    // A commit its writer could not make stops it from its last
+    // acknowledged one, as at `critical` (ADR 0122).
+    stop_on_failures(
+        &run.identity,
+        &run.shared.stop,
+        run.state.storage_failures(),
+        Some(run.identity.folder()),
+    );
+    if let Some(timeout) = timeout {
+        let timed = run.clone();
+        run.identity.spawn(async move {
+            let clock = timed.identity.clock();
+            tokio::select! {
+                () = timed.owner.cancelled() => {}
+                () = clock.sleep(timeout) => stop_at_safe_point(&timed, StopReason::Timeout),
+            }
+        });
+    }
+    if ended_by == EndedBy::Finish {
+        let stopped = run.clone();
+        run.identity.spawn(async move {
+            tokio::select! {
+                () = stopped.owner.cancelled() => {}
+                reason = stopped.identity.stopping() => {
+                    stopped.shared.end.end(Ending::Stopped(reason)).await;
+                }
+            }
+        });
+    }
 }
 
 impl std::fmt::Debug for Run {
@@ -1533,13 +1581,6 @@ impl Run {
         self.runs.engine.sandbox_probe()
     }
 
-    /// Shows `pause`, a Human pause waiting on one of its pages (ADR 0092),
-    /// in its progress until the handle answered ends or is dropped: its
-    /// beginning and its end each give a new value.
-    pub fn human_pause(&self, pause: HumanPause) -> PauseHeld {
-        self.shared.progress.pause(pause)
-    }
-
     /// Records in the Run index that the Run met a consent wall on the
     /// registrable domain `domain` and left it, so "Needs you" offers the
     /// domain for `consent.domains` (ADR 0048).
@@ -1559,46 +1600,6 @@ impl Run {
             .await
     }
 
-    /// Records in the Run index that the Run's refetch without the site's
-    /// stored data stopped on the registrable domain `domain` for `cause`,
-    /// the Block cause, the `401` or `403` status or the login page that
-    /// answered it, so "Needs you" lists the domain with the layer of
-    /// `wall.refetch_domains` that lists it (ADR 0052). The Run's first
-    /// stop on a domain is kept.
-    ///
-    /// # Errors
-    ///
-    /// When the Run index cannot be written.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future after the write began still records it.
-    pub async fn record_refetch_stop(
-        &self,
-        domain: String,
-        cause: String,
-    ) -> Result<(), RunStateError> {
-        self.runs
-            .engine
-            .run_index()
-            .record_refetch_stop(&self.identity, domain, cause)
-            .await
-    }
-
-    /// Sets the part `name` its kind of Run adds to its progress, such as a
-    /// crawl's `waiting` (ADR 0102): a new value when it changed.
-    pub fn set_progress_part(&self, name: &str, part: Value) {
-        self.shared.progress.set_part(name, part);
-    }
-
-    /// Sets the part `name` its kind of Run adds to its progress to
-    /// `part`, which it keeps typed, such as a crawl's `in_flight`: a new
-    /// value, whose reader has the part encoded. The caller says so only
-    /// when the part changed.
-    pub fn set_typed_progress_part(&self, name: &'static str, part: TypedPart) {
-        self.shared.progress.set_typed_part(name, part);
-    }
-
     /// An `Entropy` of its own for one of the Run's owners, such as its
     /// driver, forked from the Run's, which the engine's forked when the
     /// Run went live (ADR 0059).
@@ -1616,11 +1617,6 @@ impl Run {
         self.owner.token()
     }
 
-    /// Whether the Run was asked to stop at its next safe point.
-    pub(crate) fn is_stopping(&self) -> bool {
-        self.identity.is_stopping()
-    }
-
     /// Answers once something asks the Run to stop at its next safe point,
     /// such as its `timeout.run` passing, with the reason it stops for: its
     /// driver then admits nothing new, lets each attempt in flight commit
@@ -1632,61 +1628,6 @@ impl Run {
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
         self.identity.stopping().await
-    }
-
-    /// Whether `run.finish` let the Run finish: [`RunEnd::is_let_finish`].
-    pub fn is_let_finish(&self) -> bool {
-        self.shared.end.is_let_finish()
-    }
-
-    /// Answers once `run.finish` lets the Run finish:
-    /// [`RunEnd::let_finish`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunEnd::let_finish`]'s.
-    pub async fn let_finish(&self) {
-        self.shared.end.let_finish().await;
-    }
-
-    /// Starts the tasks that ask the Run to stop at its next safe point:
-    /// once its `timeout` passes; and for a Run its program drives, which
-    /// has nothing in flight in the engine, the one that then stops it.
-    fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
-        // A commit its writer could not make stops it from its last
-        // acknowledged one, as at `critical` (ADR 0122).
-        stop_on_failures(
-            &self.identity,
-            &self.shared.stop,
-            self.state.storage_failures(),
-            Some(self.folder()),
-        );
-        if let Some(timeout) = timeout {
-            let timed = self.clone();
-            self.spawn(async move {
-                let clock = timed.clock();
-                tokio::select! {
-                    () = timed.cancellation().cancelled() => {}
-                    () = clock.sleep(timeout) => timed.stop_at_safe_point(StopReason::Timeout),
-                }
-            });
-        }
-        if ended_by == EndedBy::Finish {
-            let stopped = self.clone();
-            self.spawn(async move {
-                tokio::select! {
-                    () = stopped.cancellation().cancelled() => {}
-                    reason = stopped.stopping() => stopped.end(Ending::Stopped(reason)).await,
-                }
-            });
-        }
-    }
-
-    /// Asks the Run to stop at its next safe point for `reason`, such as
-    /// the resource governor's `resources` (ADRs 0040 and 0122) or its
-    /// engine's loss; the first reason asked stays.
-    pub fn stop(&self, reason: StopReason) {
-        self.stop_at_safe_point(reason);
     }
 
     /// Hands `warning` over to the Run's report: [`ReportWarnings::warn`].
@@ -1716,33 +1657,6 @@ impl Run {
         self.shared.warnings.warn_once(warning).await
     }
 
-    /// Hands `warning` over as [`Run::warn_once`] does, in the open batch:
-    /// [`ReportWarnings::warn_once_deferred`].
-    ///
-    /// # Errors
-    ///
-    /// As [`ReportWarnings::warn_once_deferred`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`ReportWarnings::warn_once_deferred`]'s.
-    pub async fn warn_once_deferred(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        self.shared.warnings.warn_once_deferred(warning).await
-    }
-
-    /// Records why the Run did nothing: [`ReportWarnings::nothing_done`].
-    ///
-    /// # Errors
-    ///
-    /// As [`ReportWarnings::nothing_done`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`ReportWarnings::nothing_done`]'s.
-    pub async fn nothing_done(&self, nothing_done: NothingDone) -> Result<(), RunStateError> {
-        self.shared.warnings.nothing_done(nothing_done).await
-    }
-
     /// What the Run used so far, as its run state counted it, with each
     /// Limit that applies to it and what is left of it (ADR 0101).
     ///
@@ -1760,44 +1674,6 @@ impl Run {
             .state
             .read(move |connection| report::usage(connection, limits))
             .await?)
-    }
-
-    /// Asks the Run to stop at its next safe point for `reason`; the first
-    /// reason asked stays.
-    fn stop_at_safe_point(&self, reason: StopReason) {
-        self.shared.stop.at_safe_point(reason);
-    }
-
-    /// Keeps `reason`, unless one was asked before, as what a call in
-    /// flight reads once the Run's tasks are cancelled (ADR 0113), such as
-    /// the Client whose abort stops it at once, waking nothing that waits
-    /// for a safe point: the Run ends now, not at one.
-    fn stopped_at_once(&self, reason: StopReason) {
-        self.shared.stop.at_once(reason);
-    }
-
-    /// Its admission under `settings`: [`admission::of_run`] over its run
-    /// file's writer, its clock, its entropy and the Politeness it shares.
-    ///
-    /// # Errors
-    ///
-    /// As [`admission::of_run`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`admission::of_run`]'s.
-    pub async fn admission(
-        &self,
-        settings: &Resolved,
-    ) -> Result<Option<Admission>, AdmissionError> {
-        admission::of_run(
-            self.shared.gates.as_ref(),
-            (&self.state, self.clock()),
-            &self.shared.entropy,
-            &self.shared.politeness,
-            settings,
-        )
-        .await
     }
 
     /// The Politeness its own code shares for keys outside admission, and
@@ -1892,21 +1768,6 @@ impl Run {
         self.identity.spawn(future);
     }
 
-    /// Its `tracing` span, whose field is its Run ID: the parent of what its
-    /// driver and its pages record (ADR 0132).
-    pub fn span(&self) -> &tracing::Span {
-        self.identity.span()
-    }
-
-    /// Ends the Run as its driver says, once: [`RunEnd::end`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunEnd::end`]'s.
-    pub async fn end(&self, ending: Ending) {
-        self.shared.end.end(ending).await;
-    }
-
     /// Stores `bytes` as one of the Run's page bodies:
     /// [`RunFiles::store_body`].
     ///
@@ -1921,46 +1782,6 @@ impl Run {
         self.shared.files.store_body(bytes).await
     }
 
-    /// Keeps the file `source` reads for the program, as the Run's file of
-    /// `kind` named `name`: [`RunFiles::keep_file`].
-    ///
-    /// # Errors
-    ///
-    /// As [`RunFiles::keep_file`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunFiles::keep_file`]'s.
-    pub async fn keep_file<R>(
-        &self,
-        kind: FileKind,
-        name: String,
-        source: R,
-    ) -> Result<Kept, KeepError>
-    where
-        R: std::io::Read + Send + 'static,
-    {
-        self.shared.files.keep_file(kind, name, source).await
-    }
-
-    /// The wall time now, as a point in time of the Run's (ADR 0102).
-    pub fn point_in_time(&self) -> SystemTime {
-        self.identity.point_in_time()
-    }
-
-    /// The wall time `wait` from now, as a point in time of the Run's, such
-    /// as when a domain is next admitted (ADR 0102).
-    pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
-        self.identity.point_in_time_after(wait)
-    }
-
-    /// What the engine's Resource governor read and decided at its last
-    /// sample, once it sampled (ADR 0040): what a Run's progress says of
-    /// its concurrency.
-    pub fn system_info(&self) -> Option<SystemInfo> {
-        self.shared.governor.system_info()
-    }
-
     /// Charges `amount` of `usage_kind` against every Limit that holds the
     /// Run, as [`RunCharging::charge`] does.
     ///
@@ -1973,73 +1794,6 @@ impl Run {
     /// As [`RunCharging::charge`]'s.
     pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
         self.shared.charging.charge(usage_kind, amount).await
-    }
-
-    /// Charges `amount` of `usage_kind` under `part` of the kind, with
-    /// `price` when priced, as [`RunCharging::charge_part`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::charge`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::charge`]'s.
-    pub async fn charge_part(
-        &self,
-        usage_kind: &str,
-        part: &str,
-        amount: u64,
-        price: Option<(&str, u64)>,
-    ) -> Result<(), ChargeError> {
-        self.shared
-            .charging
-            .charge_part(usage_kind, part, amount, price)
-            .await
-    }
-
-    /// Charges `amount` of `usage_kind` into `charges`, without journaling
-    /// it, as [`RunCharging::charge_unjournaled`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::charge_unjournaled`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::charge_unjournaled`]'s.
-    pub async fn charge_unjournaled(
-        &self,
-        charges: &mut UnjournaledCharges,
-        usage_kind: &str,
-        amount: u64,
-    ) -> Result<(), ChargeError> {
-        self.shared
-            .charging
-            .charge_unjournaled(charges, usage_kind, amount)
-            .await
-    }
-
-    /// Queues `work` as one write of the Run's state that first journals
-    /// `charges`, as [`RunCharging::queue_charged`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::queue_charged`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::queue_charged`]'s.
-    pub async fn queue_charged<T, F>(
-        &self,
-        charges: UnjournaledCharges,
-        work: F,
-    ) -> Result<impl Future<Output = Result<T, ChargeError>> + Send + 'static, ChargeError>
-    where
-        T: Send + 'static,
-        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
-    {
-        self.shared.charging.queue_charged(charges, work).await
     }
 
     /// Reserves ahead an amount of `usage_kind` the Run is about to use,
@@ -2087,66 +1841,6 @@ impl Run {
             .charging
             .settle_part(allowance, used, cost)
             .await
-    }
-
-    /// Reserves `worst`, the worst case of a cost the Run is about to pay
-    /// in `currency`, as [`RunCharging::reserve`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::reserve`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::reserve`]'s.
-    pub async fn reserve(
-        &self,
-        usage_kind: &str,
-        currency: Option<&str>,
-        worst: u64,
-    ) -> Result<Reservation, ChargeError> {
-        self.shared
-            .charging
-            .reserve(usage_kind, currency, worst)
-            .await
-    }
-
-    /// Who allows the Run to pay for `usage_kind` in `currency`, as
-    /// [`RunCharging::allowed_by`] answers.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::allowed_by`].
-    pub async fn allowed_by(
-        &self,
-        usage_kind: &str,
-        currency: &str,
-    ) -> Result<Option<goodfetch_protocol::run::LimitSetter>, ChargeError> {
-        self.shared.charging.allowed_by(usage_kind, currency).await
-    }
-
-    /// Settles `reservation` at `cost`, what the Run paid, as
-    /// [`RunCharging::settle`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::settle`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::settle`]'s.
-    pub async fn settle(&self, reservation: Reservation, cost: u64) -> Result<(), ChargeError> {
-        self.shared.charging.settle(reservation, cost).await
-    }
-
-    /// Records that the Run uses an entry of `product`'s, as
-    /// [`Runs::uses`] does for its Run ID.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`Runs::uses`]'s.
-    pub async fn uses(&self, product: Product) {
-        self.runs.uses(self.id().clone(), product).await;
     }
 }
 
@@ -4038,7 +3732,10 @@ impl Registry {
             return;
         }
         let candidates = self.live.values().filter_map(|live| {
-            let run = live.run.as_ref().filter(|run| !run.is_stopping())?;
+            let run = live
+                .run
+                .as_ref()
+                .filter(|run| !run.identity.is_stopping())?;
             Some(((live.id.clone(), run), run.governor().weight()))
         });
         let Some((run_id, run)) = last_resort_run(candidates) else {
@@ -4048,10 +3745,13 @@ impl Registry {
             run_id = %run_id,
             "memory stayed critical at the governor's floor: the Run with the largest footprint stops"
         );
-        run.stop(StopReason::Resources {
-            resource: goodfetch_protocol::run::Resource::Memory,
-            folder: None,
-        });
+        stop_at_safe_point(
+            run,
+            StopReason::Resources {
+                resource: goodfetch_protocol::run::Resource::Memory,
+                folder: None,
+            },
+        );
         self.memory_stop = MemoryStop::Stopping(run_id);
     }
 
@@ -4102,10 +3802,13 @@ impl Registry {
                 .into_iter()
                 .find(|folder| sample.of(folder).is_some_and(Filesystem::is_critical))
             {
-                run.stop(StopReason::Resources {
-                    resource: goodfetch_protocol::run::Resource::Storage,
-                    folder: Some(folder.display().to_string()),
-                });
+                stop_at_safe_point(
+                    run,
+                    StopReason::Resources {
+                        resource: goodfetch_protocol::run::Resource::Storage,
+                        folder: Some(folder.display().to_string()),
+                    },
+                );
             }
             let Some((folder, filesystem)) =
                 worst(sample, &[&live.folder, run_state, home, temporary])
@@ -4147,10 +3850,13 @@ impl Registry {
     /// an I/O error (ADR 0122).
     fn storage_failed(&self, folder: &Path) {
         for run in self.live.values().filter_map(|live| live.run.as_ref()) {
-            run.stop(StopReason::Resources {
-                resource: goodfetch_protocol::run::Resource::Storage,
-                folder: Some(folder.display().to_string()),
-            });
+            stop_at_safe_point(
+                run,
+                StopReason::Resources {
+                    resource: goodfetch_protocol::run::Resource::Storage,
+                    folder: Some(folder.display().to_string()),
+                },
+            );
         }
     }
 
@@ -4820,7 +4526,6 @@ impl Registry {
                 warnings,
                 governor,
                 progress,
-                gates: self.setup.gates.clone(),
                 politeness,
                 own_robots_txt: OwnCopies::new(state.clone()),
                 files,
@@ -5057,7 +4762,7 @@ impl Registry {
     ) -> Reply<Result<Waiting, RunError>> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
-                run.stop_at_safe_point(StopReason::Abort { by });
+                stop_at_safe_point(run, StopReason::Abort { by });
             }
             return Reply::Now(Ok(Waiting::Report(live.report.subscribe())));
         }
@@ -5738,7 +5443,10 @@ impl Closing {
             governor,
         } = self;
         if let End::Stopped(reason) = &end {
-            run.stopped_at_once(reason.clone());
+            // Kept, unless one was asked before, as what a call in flight
+            // reads once the Run's tasks are cancelled (ADR 0113), waking
+            // nothing that waits for a safe point: the Run ends now.
+            run.shared.stop.at_once(reason.clone());
         }
         run.owner.stop().await;
         let (stop_reason, error, finished) = match end {

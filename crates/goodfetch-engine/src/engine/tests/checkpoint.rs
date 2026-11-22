@@ -37,7 +37,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::run::format_refusal;
 use crate::run_state::RunStateTables;
-use crate::runs::{EndedBy, Run, Start, Started};
+use crate::runs::{self, EndedBy, Run, Start, Started};
 use crate::transport::{self, Network};
 
 /// Starts a Collie Run its program drives: `run_id`, bound to this
@@ -123,13 +123,14 @@ fn keeping() -> Contribution {
                     let Started::New(run) = started else {
                         panic!("the Run began before");
                     };
-                    let run_id = run.id().to_string();
+                    let identity = runs::identity(&run);
+                    let run_id = identity.id().to_string();
                     let held = Arc::new(run.clone());
                     kept.lock()
                         .await
                         .insert(run_id.clone(), Arc::downgrade(&held));
-                    run.spawn(async move {
-                        held.cancellation().cancelled().await;
+                    identity.spawn(async move {
+                        runs::identity(&held).owner().cancelled().await;
                     });
                     Ok::<Value, CallError>(json!({ "run_id": run_id }))
                 }
@@ -142,7 +143,7 @@ fn keeping() -> Contribution {
                     .upgrade()
                     .expect("the Run is live");
                 let value = params["value"].as_i64().unwrap();
-                run.state()
+                runs::state(&run)
                     .write(move |connection| {
                         connection
                             .execute("INSERT INTO notes (value) VALUES (?1)", [value])

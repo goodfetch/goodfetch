@@ -585,7 +585,7 @@ impl Decoded {
         let base_url = goodfetch_frontier::document_base(&url, base_href.as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let signals = UseSignals::of(&fetched.headers);
-        let work = run.metrics().counted_work();
+        let work = runs::identity(run).metrics().counted_work();
         // What the hand-off reads ahead, of a crawl request's own document.
         let ahead = ahead.filter(|_| own && not_document.is_none());
         let formats_of = |tree: Option<&goodfetch_counted_work::ParsedHtml>| {
@@ -740,7 +740,7 @@ impl Reading for OpenedReading {
         // `ahead` reads only in a hand-off the document takes anyway.
         let ahead = self.pooled(&decoding).then_some(&self.ahead);
         let decoded = decoding.parsed(runs::identity(&self.run));
-        let work = self.run.metrics().counted_work();
+        let work = self.work();
         if let Some(refresh) = decoded
             .refresh(&fetched, &self.readers, work)
             .filter(|refresh| follows(refresh))
@@ -756,7 +756,7 @@ impl Reading for OpenedReading {
     }
 
     fn work(&self) -> &CountedWork {
-        self.run.metrics().counted_work()
+        runs::identity(&self.run).metrics().counted_work()
     }
 }
 
@@ -957,7 +957,7 @@ impl FetchTiers {
     /// until the answer drops: each takes the attempt's navigation gate and
     /// lease check (the `gate` module).
     pub fn hand_over(&self, hand_over: Arc<HandOver>) -> HandedOver {
-        let run = hand_over.run().id().clone();
+        let run = runs::identity(hand_over.run()).id().clone();
         let mut handed = lock(&self.served.handed);
         handed.last += 1;
         let number = handed.last;
@@ -1246,7 +1246,8 @@ impl FetchTiers {
             types: hand_over.content_types.clone(),
             handled: tier.following.handled.clone(),
         };
-        let clock = run.clock();
+        let identity = runs::identity(run);
+        let clock = identity.clock();
         let mut first = true;
         let ahead = self.read_ahead(run, hand_over).await;
         let reading = Arc::new(OpenedReading {
@@ -1256,7 +1257,7 @@ impl FetchTiers {
             readers: Arc::clone(&hand_over.untouched),
             ahead: ahead.clone(),
         });
-        let on = (&clock, run.owner(), &reading);
+        let on = (&clock, identity.owner(), &reading);
         let own = OwnDocument {
             accepts: &accepts,
             encoding: hand_over.encoding,
@@ -1392,10 +1393,12 @@ impl FetchTiers {
             let readers = Arc::clone(&hand_over.untouched);
             let mut fetched = fetched;
             let passed = fetched.pass.take();
-            let decoding = Decoding::of(runs::identity(run), &fetched, (forced, &readers, passed));
+            let identity = runs::identity(run);
+            let decoding = Decoding::of(identity, &fetched, (forced, &readers, passed));
             if decoding.on_pool(&ahead) {
-                run.owner()
-                    .analysis(run.metrics().counted_work(), move || {
+                identity
+                    .owner()
+                    .analysis(identity.metrics().counted_work(), move || {
                         decoding.parsed(runs::identity(&reading)).opened(
                             &reading,
                             &fetched,
@@ -1639,9 +1642,9 @@ impl FetchTiers {
                 canonical,
             });
         }
-        let run = served.run.clone();
+        let run = runs::identity(&served.run).clone();
         let work = run.metrics().counted_work().clone();
-        let extractor = chosen_extractor(runs::identity(&run), served.extractor);
+        let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
             .analysis(run.metrics().counted_work(), move || {
@@ -1724,7 +1727,7 @@ impl FetchTiers {
         // Any other selector reads the page's kept tree while a handler
         // reads it, else a parse of its document (ADR 0138).
         let selector = selector.to_owned();
-        let work = served.run.metrics().counted_work().clone();
+        let work = runs::identity(&served.run).metrics().counted_work().clone();
         let document = Arc::clone(&served);
         let read = calls::on_tree(&served, move |tree| {
             matched(tree, &selector, &work).map(|elements| ServedLinks {
@@ -1784,7 +1787,7 @@ impl FetchTiers {
             );
         }
         let fields = fields.clone();
-        let work = served.run.metrics().counted_work().clone();
+        let work = runs::identity(&served.run).metrics().counted_work().clone();
         let base_url = served.base_url.clone();
         let read = calls::on_tree(&served, move |tree| {
             document::found(tree, &fields, &work).map(|found| FieldsFound { base_url, found })
@@ -1911,9 +1914,11 @@ impl FetchTiers {
             (verdict, noindex)
         } else {
             let check = check.clone();
-            let work = run.metrics().counted_work().clone();
-            run.owner()
-                .analysis(run.metrics().counted_work(), move || {
+            let identity = runs::identity(&run);
+            let work = identity.metrics().counted_work().clone();
+            identity
+                .owner()
+                .analysis(identity.metrics().counted_work(), move || {
                     expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
@@ -1952,7 +1957,7 @@ impl FetchTiers {
         let run = page.document.run.clone();
         // Its document's hand-off classified it, when it took one.
         if let Classified::Read(classified) = &page.classified {
-            let received = run.clock().wall();
+            let received = runs::identity(&run).clock().wall();
             return classified
                 .clone()
                 .map(|block| (block.clone(), blocked(block, &response, received)));
@@ -2082,7 +2087,7 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        let run_id = hand_over.run().id();
+        let run_id = runs::identity(hand_over.run()).id();
         let own = OwnFetch {
             url: &request.url,
             method: request.method.as_str(),
@@ -2207,7 +2212,7 @@ impl FetchTiers {
     /// handed `run`'s pages over last.
     fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
         if let Ok(opening) = OPENING.try_with(Arc::clone)
-            && opening.run().id() == run
+            && runs::identity(opening.run()).id() == run
         {
             return Some(opening);
         }
@@ -2304,7 +2309,7 @@ impl RunOfCall for FetchTiers {
     ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
         let run = self
             .served_page(&PageId(page_id.to_owned()))
-            .map(|page| page.hand_over.run().id().clone());
+            .map(|page| runs::identity(page.hand_over.run()).id().clone());
         Box::pin(std::future::ready(run))
     }
 
@@ -2349,8 +2354,7 @@ impl HandlerPages for FetchTiers {
         let Some(hand_over) = self.handed_over(run) else {
             return ProgramPages.reader(run, session);
         };
-        let handled = hand_over
-            .run()
+        let handled = runs::identity(hand_over.run())
             .settings()
             .map(|settings| Following::of(settings.resolved()).handled)
             .unwrap_or_default();

@@ -193,8 +193,9 @@ impl EngineContext {
         &self.ledger
     }
 
-    /// The Run index of the engine's major (ADRs 0031 and 0098).
-    pub(crate) fn run_index(&self) -> &RunIndex {
+    /// The Run index of the engine's major (ADRs 0031 and 0098), where a
+    /// Run's consent walls and refetch stops are recorded for "Needs you".
+    pub fn run_index(&self) -> &RunIndex {
         &self.run_index
     }
 

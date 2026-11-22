@@ -173,7 +173,11 @@ fn holding_a_run(held: &Arc<Mutex<Option<Run>>>) -> Contribution {
                 async move {
                     let mut held = held.lock().await;
                     let run = held.as_ref().unwrap();
-                    let found = context.runs().live(run.id().clone()).await.is_ok();
+                    let found = context
+                        .runs()
+                        .live(runs::identity(run).id().clone())
+                        .await
+                        .is_ok();
                     let decided = runs::end(run).is_decided();
                     if params["let_go"] == true {
                         // The engine's end waits for the Run's writer, which

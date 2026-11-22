@@ -274,7 +274,7 @@ impl Effects {
                 .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
                 .map_err(unstaged)?;
         }
-        let declaring = (identity, run.state());
+        let declaring = (identity, runs::state(&run));
         let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
@@ -328,25 +328,25 @@ impl Effects {
             return Err(not_running(&entry));
         };
         let run = live(&run_id, context).await?;
-        let identity = runs::identity(&run);
+        let (identity, state) = (runs::identity(&run), runs::state(&run));
         let run_shelf = self.shelf(&run_id).await;
         let mut book = run_shelf.book.lock().await;
         let Some(at) = book.bodies.iter().position(|body| body.entry == number) else {
             drop(book);
-            return closed_before((identity, run.state()), &entry, number, context).await;
+            return closed_before((identity, state), &entry, number, context).await;
         };
         let limit: u64 = get_or_default(
-            run.settings().map(RunSettings::resolved),
+            identity.settings().map(RunSettings::resolved),
             &EFFECT_OUTPUT_MAX_SIZE,
         );
         let (event, output, oversized) = ended(outcome, limit);
         let body = book.bodies.swap_remove(at);
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
-                let performed_at = run.point_in_time();
-                let output =
-                    output.map(|output| run.secrets().mask().masks().json(&output, Scope::Kept));
-                run.state()
+                let performed_at = identity.point_in_time();
+                let masks = runs::keys(&run).secrets().mask().masks();
+                let output = output.map(|output| masks.json(&output, Scope::Kept));
+                state
                     .write(move |connection| {
                         done(connection, number, output.as_deref(), performed_at)
                     })
@@ -356,7 +356,7 @@ impl Effects {
             }
             Ok(Next::Dropped) => {
                 let sent = body.sent.is_some();
-                run.state()
+                state
                     .write_deferred(move |connection| drop_entry(connection, number))
                     .await
                     .map_err(|error| unwritten(identity, &error, context))
@@ -367,7 +367,7 @@ impl Effects {
             }
             Ok(Next::To(EffectState::Uncertain)) => {
                 let (effect, reason) = body.uncertain(&entry, event);
-                run.state()
+                state
                     .write(move |connection| turn_uncertain(connection, number, reason))
                     .await
                     .map(|()| EffectClosed::Uncertain {

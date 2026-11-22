@@ -296,7 +296,7 @@ fn body(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Box::pin(async move {
-        let stored = run
+        let stored = runs::files(&run)
             .store_body(body)
             .await
             .map_err(|error| failed(&url, &error))?;
@@ -332,8 +332,7 @@ pub(super) fn on_browser(
         return None;
     }
     Some(Box::pin(async move {
-        let stored = held
-            .run
+        let stored = runs::files(&held.run)
             .store_body(held.body.clone())
             .await
             .map_err(|error| failed(&held.request_id, &error))?;
@@ -392,7 +391,10 @@ fn fields_read(page: Arc<ServedPage>, params: &PageReadParams) -> Served {
     let page_id = params.page_id.clone();
     Box::pin(async move {
         let document = Arc::clone(&page.document);
-        let work = document.run.metrics().counted_work().clone();
+        let work = runs::identity(&document.run)
+            .metrics()
+            .counted_work()
+            .clone();
         let findings = crate::document::findings(&fields, &work)
             .map_err(|sentence| CallError::protocol(ProtocolFailure::InvalidParams, sentence))?;
         let base_url = document.base_url.clone();
@@ -444,7 +446,10 @@ fn waited(
     let page_id = page_id.clone();
     Box::pin(async move {
         let document = Arc::clone(&page.document);
-        let work = page.document.run.metrics().counted_work().clone();
+        let work = runs::identity(&page.document.run)
+            .metrics()
+            .counted_work()
+            .clone();
         let met = on_tree(&page.document, move |tree| match wait {
             Wait::Shown(state) => {
                 let shown = shown((tree, &document.html), &selector, &work)?;
@@ -487,12 +492,11 @@ where
         return tree.read(read).await;
     }
     let served = Arc::clone(document);
-    let work = served.run.metrics().counted_work().clone();
+    let run = runs::identity(&document.run);
+    let work = run.metrics().counted_work().clone();
     Some(
-        document
-            .run
-            .owner()
-            .handler_analysis(document.run.metrics().counted_work(), move || {
+        run.owner()
+            .handler_analysis(run.metrics().counted_work(), move || {
                 read(&work.parse_html(CountedRow::PageParses, &served.html))
             })
             .await,
@@ -602,7 +606,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
             page.http.transport.as_ref(),
             &hop,
             &page.http.bounds,
-            &run.clock(),
+            &runs::identity(&run).clock(),
         )
         .await;
         drop(permit);

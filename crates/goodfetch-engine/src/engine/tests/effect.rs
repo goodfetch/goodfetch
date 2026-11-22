@@ -78,7 +78,7 @@ fn window(effects: &Effects) -> Contribution {
                     let run = context.runs().live(run_id).await.map_err(failed)?;
                     effects
                         .sending(
-                            (runs::identity(&run), run.state()),
+                            (runs::identity(&run), runs::state(&run)),
                             None,
                             params["command"].as_str().unwrap(),
                         )
@@ -102,7 +102,7 @@ fn window(effects: &Effects) -> Contribution {
                     };
                     let reconciled = effects
                         .reconcile(
-                            (runs::identity(&run), run.state()),
+                            (runs::identity(&run), runs::state(&run)),
                             params["entry"].as_str().unwrap(),
                             answer,
                             &context,

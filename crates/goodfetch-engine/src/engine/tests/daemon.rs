@@ -1038,8 +1038,9 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn stuck_handler() -> Handler {
     Handler::new(&STUCK, |params: Value, context: CallContext| async move {
         let run = driven(&context, &params).await;
-        run.spawn(std::future::pending());
-        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+        let identity = crate::runs::identity(&run);
+        identity.spawn(std::future::pending());
+        Ok::<Value, CallError>(json!({ "run_id": identity.id().to_string() }))
     })
 }
 

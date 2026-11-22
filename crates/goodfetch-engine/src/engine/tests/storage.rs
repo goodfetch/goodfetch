@@ -438,8 +438,7 @@ fn noting() -> Contribution {
                 let Ok(run) = context.runs().live(run_id).await else {
                     return Ok::<Value, CallError>(json!({ "acknowledged": false }));
                 };
-                let written = run
-                    .state()
+                let written = crate::runs::state(&run)
                     .write(move |connection| {
                         connection
                             .execute("INSERT INTO notes (value) VALUES (?1)", [value])
@@ -454,7 +453,7 @@ fn noting() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                 let run = context.runs().live(run_id).await.unwrap();
-                let charged = run.charge("requests", 1).await;
+                let charged = crate::runs::charging(&run).charge("requests", 1).await;
                 Ok::<Value, CallError>(json!({ "acknowledged": charged.is_ok() }))
             },
         ))

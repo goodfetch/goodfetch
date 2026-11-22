@@ -9,7 +9,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Final, Literal, Unpack
 
+from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_of
+from .models import CallCancelledDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -119,6 +121,14 @@ class BrowserLaunchFailedError(UnavailableError):
         super().__init__(message, code="browser_launch_failed", group="unavailable", retryable=False, **fields)
 
 
+class BrowserNeedsGuiSessionError(UnavailableError):
+    """The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="browser_needs_gui_session", group="unavailable", retryable=False, **fields)
+
+
 class BrowserNotInstalledError(UnavailableError):
     """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path."""
 
@@ -138,9 +148,13 @@ class BrowserSandboxUnavailableError(UnavailableError):
 class CallCancelledError(UnavailableError):
     """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
 
+    typed_details: CallCancelledDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="call_cancelled", group="unavailable", retryable=False, **fields)
+        self.typed_details = details_of(CallCancelledDetails, self.details)
 
 
 class CapabilityUnavailableError(UnavailableError):
@@ -945,6 +959,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_host_unreachable": BrowserHostUnreachableError,
     "browser_launch_failed": BrowserLaunchFailedError,
+    "browser_needs_gui_session": BrowserNeedsGuiSessionError,
     "browser_not_installed": BrowserNotInstalledError,
     "browser_sandbox_unavailable": BrowserSandboxUnavailableError,
     "call_cancelled": CallCancelledError,

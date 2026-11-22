@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
-    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SettingScope,
+    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, SchemaOf, Setting, SettingScope,
     SharedTypeValue,
 };
 
@@ -16,9 +16,15 @@ use super::{
 /// (ADR 0083), outermost first.
 pub type ScopesOf = fn(&Setting) -> &'static [SettingScope];
 
+/// The type the TypeScript and Python SDKs read an Error code's details as,
+/// by the code's name (ADR 0079); `None` for a code whose details they read
+/// as a map.
+pub type DetailsOf = fn(&str) -> Option<SchemaOf>;
+
 /// The catalog's sections, filled one module's [`Entries`] at a time.
 pub struct Sections {
     scopes_of: ScopesOf,
+    details_of: DetailsOf,
     operations: Vec<Value>,
     events: Vec<Value>,
     handler_requests: Vec<Value>,
@@ -32,10 +38,12 @@ pub struct Sections {
 
 impl Sections {
     /// Empty sections, whose settings list the scopes `scopes_of` gives
+    /// them and whose Error codes name the details type `details_of` gives
     /// them.
-    pub fn new(scopes_of: ScopesOf) -> Self {
+    pub fn new(scopes_of: ScopesOf, details_of: DetailsOf) -> Self {
         Self {
             scopes_of,
+            details_of,
             operations: Vec::new(),
             events: Vec::new(),
             handler_requests: Vec::new(),
@@ -71,10 +79,9 @@ impl Sections {
                 .map(|request| handler_request_entry(product, request, generator)),
         );
         self.error_codes.extend(
-            entries
-                .error_codes
-                .iter()
-                .map(|code| error_code_entry(product, code)),
+            entries.error_codes.iter().map(|code| {
+                error_code_entry(product, code, (self.details_of)(code.name), generator)
+            }),
         );
         self.plugin_kinds.extend(
             entries
@@ -215,8 +222,15 @@ fn error_group_entry(group: ErrorGroup) -> Value {
     })
 }
 
-fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
-    json!({
+/// An Error code's entry; its `details` names `details`, the type the SDKs
+/// read its details as, when they read them typed.
+fn error_code_entry(
+    product: Product,
+    code: &ErrorCodeDefinition,
+    details: Option<SchemaOf>,
+    generator: &mut SchemaGenerator,
+) -> Value {
+    let mut entry = json!({
         "name": code.name,
         "product": product.as_str(),
         "description": code.description,
@@ -225,7 +239,11 @@ fn error_code_entry(product: Product, code: &ErrorCodeDefinition) -> Value {
         "retryable": code.retryable,
         "exit_code": code.exit_code,
         "arrived_in": code.arrived_in.to_string(),
-    })
+    });
+    if let Some(details) = details {
+        entry["details"] = json!(details(generator));
+    }
+    entry
 }
 
 fn plugin_kind_entry(

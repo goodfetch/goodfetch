@@ -81,6 +81,19 @@ impl BuildPlatform {
             Self::LinuxArm64 => return None,
         })
     }
+
+    /// Where the executable of Chrome for Testing's `chrome-headless-shell`
+    /// build for it is, in the folder its archive unpacks to, as a
+    /// `/`-separated path.
+    pub fn chrome_headless_shell_executable(self) -> Option<&'static str> {
+        Some(match self {
+            Self::LinuxX64 => "chrome-headless-shell-linux64/chrome-headless-shell",
+            Self::MacArm64 => "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+            Self::MacX64 => "chrome-headless-shell-mac-x64/chrome-headless-shell",
+            Self::WindowsX64 => "chrome-headless-shell-win64/chrome-headless-shell.exe",
+            Self::LinuxArm64 => return None,
+        })
+    }
 }
 
 /// One download a Product version pins: by URL, the digest of its archive,

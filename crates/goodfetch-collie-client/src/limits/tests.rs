@@ -3,7 +3,9 @@
 //! wire's form, one per Usage kind and currency.
 //! Covers: story:11-51
 
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::RunLimit;
+use goodfetch_test_support::case_logs;
 use proptest::prelude::*;
 use rstest::rstest;
 
@@ -40,6 +42,12 @@ fn money_refuses_an_amount_it_cannot_turn_exactly(
     #[case] currency: &str,
     #[case] expected: MoneyError,
 ) {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "money-inexact-refused-before-sending",
+        RustMode::Linked,
+    )
+    .unwrap();
     assert_eq!(Money::new(amount, currency), Err(expected));
 }
 

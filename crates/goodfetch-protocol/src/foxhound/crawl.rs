@@ -26,7 +26,7 @@ use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
 use crate::page::{FormatsRequest, PageId, PageResponse};
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunLimit, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -145,6 +145,12 @@ fn is_zero(priority: &i64) -> bool {
 pub struct Seeds(Vec<Seed>);
 
 impl Seeds {
+    /// The seeds `seeds`, in the order given, or none when `seeds` is
+    /// empty: a crawl starts from at least one.
+    pub fn new(seeds: Vec<Seed>) -> Option<Self> {
+        (!seeds.is_empty()).then_some(Self(seeds))
+    }
+
     /// Each seed, in the order given.
     pub fn iter(&self) -> impl Iterator<Item = &Seed> {
         self.0.iter()
@@ -153,13 +159,8 @@ impl Seeds {
 
 impl<'de> Deserialize<'de> for Seeds {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let seeds = Vec::<Seed>::deserialize(deserializer)?;
-        if seeds.is_empty() {
-            return Err(serde::de::Error::custom(
-                "a crawl starts from at least one seed",
-            ));
-        }
-        Ok(Self(seeds))
+        Self::new(Vec::<Seed>::deserialize(deserializer)?)
+            .ok_or_else(|| serde::de::Error::custom("a crawl starts from at least one seed"))
     }
 }
 
@@ -309,6 +310,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The Run's own Limits, as `run.start` takes them (ADRs 0041 and
+    /// 0080): at most one per Usage kind and currency. A start that names
+    /// the Run again lowers them and never raises them (ADR 0102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<RunLimit>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).
@@ -466,6 +473,33 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "handler_failed",
     description: "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
     group: ErrorGroup::Program,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `handler_failed` details: the exception the handler failed with
+/// (ADR 0109).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HandlerFailedDetails {
+    /// The exception's type name: `BoxError` or `panic` from Rust (ADR
+    /// 0109).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_type: String,
+    /// The exception's message.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_message: String,
+    /// The frames of the program's code, as one text; empty from Rust.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_stack: String,
+}
+
+/// A handler's own request to retry its attempt: `ctx.retry(message)`
+/// (ADR 0093).
+pub const RETRY_REQUESTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "retry_requested",
+    description: "The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error.",
+    group: ErrorGroup::Page,
     retryable: true,
     exit_code: None,
     arrived_in: ARRIVED_IN,
@@ -886,6 +920,7 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[CRAWL_REQUEST_HANDLE],
     error_codes: &[
         HANDLER_FAILED,
+        RETRY_REQUESTED,
         RESPONSE_UNAVAILABLE,
         RESPONSE_NOT_OK,
         HANDLER_LOST,

@@ -302,6 +302,35 @@ fn user_configuration_turns_on_the_engines_json_log_with_the_dispatch_and_outcom
     );
 }
 
+/// Where the tests run with no GUI session, every test's user
+/// configuration sets the headless shell first, and a test's own setting of
+/// it wins (#3224).
+#[test]
+fn with_no_gui_session_the_user_configuration_launches_the_headless_shell() {
+    let variables: Variables = [(crate::NO_GUI_SESSION_VARIABLE, "1")]
+        .into_iter()
+        .collect();
+    let env = TestEnv::create("env::tests::no_gui_session", &variables).unwrap();
+    let created = user_configuration(&env);
+
+    env.user_configuration("browser.headless_shell = false\n");
+
+    assert_eq!(
+        (created, user_configuration(&env)),
+        (
+            "version = \"0.1\"\n\n[settings]\nbrowser.headless_shell = true\ngovernor.host_memory = false\n\
+             log.output = \"file\"\nlog.file.max_files = 10000\n\
+             log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n"
+                .to_owned(),
+            "version = \"0.1\"\n\n[settings]\ngovernor.host_memory = false\nlog.output = \"file\"\n\
+             log.file.max_files = 10000\n\
+             log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n\
+             browser.headless_shell = false\n"
+                .to_owned(),
+        )
+    );
+}
+
 #[test]
 fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
     let env = test_env("env::tests::log_level");

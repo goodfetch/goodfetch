@@ -9,14 +9,13 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use goodfetch_collie::{Collie, ConnectOptions, ErrorCode, RunId, StartedAs, blocking};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
 use goodfetch_protocol::settings::SettingInvalidDetails;
-use goodfetch_test_support::{CASE_LOGS_VARIABLE, TestEnv, Variables, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::json;
 
 mod closing;
@@ -44,16 +43,6 @@ mod trace_context;
 /// Goodfetch home.
 fn options(env: &TestEnv) -> ConnectOptions {
     ConnectOptions::default().environment(env.env_os())
-}
-
-/// Starts running the client conformance `case` in `linked` mode: its entry
-/// joins the case log `just test` names (ADR 0069), which `xtask clients
-/// check` is to read for `sdk-rust` (issue 3158).
-fn linked_case(case: &str) -> ClientCaseRun {
-    let folder = Variables::from_process()
-        .get(CASE_LOGS_VARIABLE)
-        .map(PathBuf::from);
-    ClientCaseRun::start(folder.as_deref(), case, RustMode::Linked).unwrap()
 }
 
 /// Covers: story:11-3, story:11-11, story:11-59
@@ -145,6 +134,8 @@ fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
 /// Covers: story:11-178
 #[test]
 fn the_members_generated_from_the_catalog_reach_the_engine() {
+    let _case =
+        ClientCaseRun::start(case_logs().as_deref(), "catalog-mapping", RustMode::Linked).unwrap();
     let env = TestEnv::new();
     let message = ProgressMessage::parse("three pages left").unwrap();
     real_time_runtime().block_on(async {
@@ -189,6 +180,12 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
 /// Covers: story:11-40, setting:timeout.run, operation:run.finish
 #[test]
 fn a_run_finishes_with_its_timeout_left_out_or_given_as_a_duration() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "call-timeout-three-states",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
@@ -272,6 +269,12 @@ fn no_timeout_waits_for_the_stop_with_no_deadline() {
 /// Covers: story:11-41, story:11-42, setting:timeout.connect
 #[test]
 fn connect_takes_its_timeout_left_out_given_or_none_and_refuses_zero() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-timeout-three-states",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         for options in [

@@ -31,6 +31,8 @@ use std::time::{Duration, Instant};
 
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_client::{HomeLayout, robots_txt_read, robots_txt_readings};
+#[cfg(unix)]
+use goodfetch_test_support::skipped_without_gui_session;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -121,6 +123,11 @@ fn is_dump(file: &std::path::Path) -> bool {
 #[cfg(unix)]
 #[test]
 fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dump_folder() {
+    if skipped_without_gui_session(
+        "the headless shell writes no crash dump where the full build writes one",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

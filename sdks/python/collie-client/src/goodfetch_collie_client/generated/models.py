@@ -8,7 +8,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from goodfetch_collie_client.generated.open_values import Verdict
+from goodfetch_collie_client.generated.open_values import (
+    CancelledBy,
+    ClosedValue,
+    Verdict,
+)
 from goodfetch_collie_client.point_in_time import PointInTime
 from goodfetch_collie_client.unknown_member import UnknownMember
 from pydantic import BaseModel, ConfigDict, Field, RootModel
@@ -216,6 +220,24 @@ class BrowserName(StrEnum):
     """Firefox."""
     safari = "safari"
     """Safari."""
+
+
+class CallCancelledDetails(BaseModel):
+    """What `call_cancelled` details (ADR 0113)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    by: CancelledBy
+    """Who stopped the call."""
+    closed: ClosedValue | None = None
+    """
+    What was closed or stopped under it, when something was rather than
+    the call itself cancelled.
+    """
+    person: str | None = None
+    """Whom the stopping Client acts for (ADR 0031), when known."""
 
 
 class CertificateExceptionKind(StrEnum):

@@ -95,7 +95,7 @@ class AsyncPage(AsyncHandle):
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
-        return result_of(models.Navigated, await self._host.call("page.goto", params))
+        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
 
     async def is_ready(self) -> models.Readiness:
         """Whether the page's document has loaded."""
@@ -137,7 +137,7 @@ class AsyncPage(AsyncHandle):
             params.state = None if state is None else models.ReadyState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Acted, await self._host.call("page.wait_for_ready", params))
+        return result_of(models.Acted, await self._host.call("page.wait_for_ready", params, timeout_setting="timeout.wait"))
 
     def locator(self, selector: str) -> AsyncLocator:
         """What an action looks for on a page, resolved again at each use.
@@ -241,7 +241,7 @@ class Page(Handle):
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
-        return result_of(models.Navigated, self._host.call("page.goto", params))
+        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
 
     def is_ready(self) -> models.Readiness:
         """Whether the page's document has loaded."""
@@ -283,7 +283,7 @@ class Page(Handle):
             params.state = None if state is None else models.ReadyState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Acted, self._host.call("page.wait_for_ready", params))
+        return result_of(models.Acted, self._host.call("page.wait_for_ready", params, timeout_setting="timeout.wait"))
 
     def locator(self, selector: str) -> Locator:
         """What an action looks for on a page, resolved again at each use.

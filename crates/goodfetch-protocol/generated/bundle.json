@@ -830,6 +830,40 @@
         }
       ]
     },
+    "CallCancelledDetails": {
+      "description": "What `call_cancelled` details (ADR 0113).",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/CancelledBy",
+          "arrived_in": "0.1",
+          "description": "Who stopped the call."
+        },
+        "closed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClosedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What was closed or stopped under it, when something was rather than\nthe call itself cancelled."
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "Whom the stopping Client acts for (ADR 0031), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "type": "object"
+    },
     "CancelParams": {
       "additionalProperties": false,
       "description": "What `$/cancel` names: the call to stop.",
@@ -844,6 +878,32 @@
         "id"
       ],
       "type": "object"
+    },
+    "CancelledBy": {
+      "description": "Who stopped a call that `call_cancelled` ended (ADR 0113): the\nvocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open\n(ADR 0079).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through a Client that acts for them (ADR 0031).",
+          "type": "string"
+        },
+        {
+          "const": "client",
+          "description": "Another Client, such as through `$/cancel`.",
+          "type": "string"
+        },
+        {
+          "const": "program",
+          "description": "The program, closing a parent value from another task or thread.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "CapabilityResult": {
       "description": "One capability of a `conformance` document.",
@@ -1451,6 +1511,37 @@
         "crates_io"
       ],
       "type": "object"
+    },
+    "ClosedValue": {
+      "description": "What was closed or stopped under a call that `call_cancelled` ended\n(ADR 0113), open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "page",
+          "description": "Its page.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "Its page's Session.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "Its page's browser.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "Its Run, stopped.",
+          "type": "string"
+        },
+        {
+          "const": "connection",
+          "description": "Its Connection.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "CommandError": {
       "additionalProperties": true,
@@ -3003,6 +3094,14 @@
           "arrived_in": "0.1",
           "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue. A seed, a sitemap rule or an enqueue\nnaming a Label the crawl does not declare fails with\n`label_unknown`, and so does a start under the ID of a Run with\npending requests of a Label no longer declared, before any work; a\ncode-free crawl declares its own Label.",
           "type": "object"
+        },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "The Run's own Limits, as `run.start` takes them (ADRs 0041 and\n0080): at most one per Usage kind and currency. A start that names\nthe Run again lowers them and never raises them (ADR 0102).",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": "array"
         },
         "project": {
           "anyOf": [
@@ -19259,7 +19358,11 @@
                     "type": "boolean"
                   },
                   "headless": {
-                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
+                    "type": "boolean"
+                  },
+                  "headless_shell": {
+                    "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
                   "service_workers": {
@@ -19360,12 +19463,12 @@
                     "type": "integer"
                   },
                   "max_pending_calls": {
-                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   "max_queued_write_bytes": {
-                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   }
@@ -22263,7 +22366,11 @@
                     "type": "boolean"
                   },
                   "headless": {
-                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
+                    "type": "boolean"
+                  },
+                  "headless_shell": {
+                    "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
                   "service_workers": {
@@ -22364,12 +22471,12 @@
                     "type": "integer"
                   },
                   "max_pending_calls": {
-                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   "max_queued_write_bytes": {
-                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   }
@@ -25283,7 +25390,11 @@
                     "type": "boolean"
                   },
                   "headless": {
-                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                    "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
+                    "type": "boolean"
+                  },
+                  "headless_shell": {
+                    "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
                   "service_workers": {
@@ -25384,12 +25495,12 @@
                     "type": "integer"
                   },
                   "max_pending_calls": {
-                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   "max_queued_write_bytes": {
-                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                    "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
                     "minimum": 1,
                     "type": "integer"
                   }

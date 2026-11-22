@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::ObservedRequest;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, skipped_without_gui_session};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -484,6 +484,11 @@ fn later_fingerprints(
 /// Covers: story:5-119, setting:fetch.http_from, setting:fetch.tier
 #[test]
 fn under_learned_a_list_replays_its_calls_from_the_cheapest_sender_that_matches_the_browser() {
+    if skipped_without_gui_session(
+        "its transport replays the full build's identity, which differs from the headless shell's, so no call leaves the browser",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     env.user_configuration(&format!(

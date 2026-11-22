@@ -143,6 +143,10 @@ pub(super) struct ErrorCode {
     /// The code's own row of ADR 0069's exit-code table, when it has one.
     #[serde(default)]
     pub(super) exit_code: Option<u8>,
+    /// The type its class reads its details as, when the SDKs read them
+    /// typed (ADR 0079); otherwise they stay a map.
+    #[serde(default)]
+    pub(super) details: Option<TypeName>,
 }
 
 impl ErrorCode {
@@ -468,7 +472,13 @@ impl Layer {
             .into_iter()
             .filter(|entry| own(entry.product))
             .collect();
-        let roots = roots(&operations, &events, &plugin_kinds, &handler_requests);
+        let roots = roots(
+            &operations,
+            &events,
+            &error_codes,
+            &plugin_kinds,
+            &handler_requests,
+        );
         let reached = projection::reached(&roots, &all.definitions)?;
         let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
             .into_iter()
@@ -568,6 +578,7 @@ fn without_meta(definitions: &mut Map<String, Value>) {
 fn roots(
     operations: &[Operation],
     events: &[Event],
+    error_codes: &[ErrorCode],
     plugin_kinds: &[PluginKind],
     handler_requests: &[HandlerRequest],
 ) -> Value {
@@ -576,6 +587,10 @@ fn roots(
         .iter()
         .flat_map(|operation| [reference(&operation.params), reference(&operation.result)]);
     let events = events.iter().map(|event| reference(&event.payload));
+    let details = error_codes
+        .iter()
+        .filter_map(|code| code.details.as_ref())
+        .map(reference);
     let methods = plugin_kinds
         .iter()
         .flat_map(|kind| &kind.methods)
@@ -586,6 +601,7 @@ fn roots(
     Value::Array(
         operations
             .chain(events)
+            .chain(details)
             .chain(methods)
             .chain(handler_requests)
             .collect(),

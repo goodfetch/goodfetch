@@ -10,13 +10,14 @@
 
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{EngineChoice, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::catalog::{
     ErrorGroup, Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach,
     Stability, schema_of,
 };
 use goodfetch_protocol::connection::EngineExitedDetails;
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::options;
@@ -59,6 +60,12 @@ const ENDING: Composed = Composed {
 /// Covers: story:11-24, error:engine_exited
 #[test]
 fn the_linked_engine_ending_fails_the_call_it_leaves_unanswered_with_engine_exited() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "engine-exited-carries-its-evidence",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let failed = real_time_runtime().block_on(async {
         let connection =

@@ -15,7 +15,7 @@ autobenches = false
 # entry, which Foxhound's starts from.
 # Its own commands, which take the command line's and the Export's
 # dependencies.
-executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "dep:serde", "dep:serde_json", "goodfetch-collie/executable"]
+executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "goodfetch-collie/executable"]
 # The program's OpenTelemetry context in each request it sends (ADR 0132),
 # read as Collie's SDK reads it, whose connection Foxhound's opens.
 opentelemetry = ["goodfetch-collie/opentelemetry"]
@@ -34,14 +34,26 @@ goodfetch-frontier.workspace = true
 goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
+# A crawl's serve (ADR 0112): its handlers' futures, polled inside it, each
+# caught at a panic.
+futures-util = { workspace = true, features = ["alloc", "std"] }
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
 goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
 # The params' JSON Schemas `crawl start`'s flags take their values from.
 schemars = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+# A crawl's Payloads and Records, and the params of its calls.
+serde.workspace = true
+serde_json.workspace = true
+# The Crawl requests a connection's Runs share, handed to each Run's serve
+# (ADR 0112).
+tokio = { workspace = true, features = ["macros", "sync"] }
+# A crawl's serve's answer that no longer reaches the engine; and the test
+# subscriber an in-process engine's dispatch records reach the exercise
+# record through (tests/it/code_free_resume.rs and
+# tests/it/tier_race/scripted.rs; ADR 0072).
+tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
@@ -60,10 +72,6 @@ goodfetch-clean-up-rules.workspace = true
 # The robots.txt URLs the run state's corpus writer keeps copies of
 # (examples/compat-run-state.rs).
 url.workspace = true
-# The test subscriber an in-process engine's dispatch records reach the
-# exercise record through (tests/it/code_free_resume.rs and
-# tests/it/tier_race/scripted.rs; ADR 0072).
-tracing.workspace = true
 # The Exports' bytes the tests decode and digest (tests/it/exports.rs).
 data-encoding.workspace = true
 sha2.workspace = true

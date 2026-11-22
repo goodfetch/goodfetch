@@ -27,7 +27,8 @@ use std::time::Duration;
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    ProvingGround, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
+    ProvingGround, TestEnv, browser_cache, chrome_headless, reported_debugging_port,
+    skipped_without_gui_session,
 };
 use serde_json::{Value, json};
 
@@ -94,6 +95,11 @@ fn relayed_hosts(observations: &Value) -> BTreeSet<String> {
 /// Covers: story:4-83
 #[test]
 fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
+    if skipped_without_gui_session(
+        "it routes the browser through a proxy its profile's preferences name, which the headless shell does not read",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -210,7 +216,7 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
     );
     let debugging_profile = env.folder().join("debugging-port-profile");
-    let mut command = env.process_command(chrome_for_testing(&cache));
+    let mut command = env.process_command(chrome_headless(&cache));
     command
         .args(chromium_background_traffic_off())
         .args([

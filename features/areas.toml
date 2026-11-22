@@ -199,6 +199,13 @@ number = 3
 kind = "error"
 prefix = "handler_"
 
+# A handler's own request to retry its attempt, `ctx.retry` (ADR 0093,
+# issue 2804).
+[[area]]
+number = 3
+kind = "error"
+prefix = "retry_requested"
+
 # A crawl's wiring mistakes (ADR 0093, ADR 0104, issue 2800).
 [[area]]
 number = 3
@@ -1026,6 +1033,12 @@ prefix = "page_events_lost"
 number = 5
 kind = "error"
 prefix = "browser_launch_failed"
+
+# The full build's headless launch with no GUI session on macOS (#3224).
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_needs_gui_session"
 
 # The guard's locator actions and their refusal (#700).
 [[area]]

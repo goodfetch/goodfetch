@@ -22,6 +22,7 @@ use goodfetch_fetch_tier::{FetchBounds, Hop, HttpProfile, Wreq, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{
     ProvingGround, ReceivedRequests, TestEnv, browser_cache, chrome_for_testing_dumping_dom,
+    skipped_without_gui_session,
 };
 use serde_json::Value;
 use url::Url;
@@ -87,6 +88,11 @@ fn ja4_head(request: &Value) -> String {
 /// Covers: story:5-122
 #[test]
 fn a_stealth_session_s_http_presents_its_browser_s_tls_and_http2_fingerprint() {
+    if skipped_without_gui_session(
+        "the transport presents the full build's ClientHello, where the headless shell's lacks two of its extensions",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let port = proving_ground.address().port();

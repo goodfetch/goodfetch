@@ -469,30 +469,45 @@ class Collie(Connection):
 
 
 def async_connect_over(
-    transport: ByteStream, *, max_listener_queue: int = MAX_LISTENER_QUEUE
+    transport: ByteStream,
+    *,
+    max_listener_queue: int = MAX_LISTENER_QUEUE,
+    settings: Settings | None = None,
 ) -> Connecting:
     """Opens an `AsyncCollie` over `transport`, with no process behind it.
 
-    `max_listener_queue` is `connect()`'s.
+    `max_listener_queue` and `settings` are `connect()`'s.
     """
     return Connecting(
         functools.partial(
-            open_over, _COLLIE, transport, max_listener_queue=max_listener_queue
+            open_over,
+            _COLLIE,
+            transport,
+            max_listener_queue=max_listener_queue,
+            settings=settings,
         )
     )
 
 
 def connect_over(
-    transport: ByteStream, *, max_listener_queue: int = MAX_LISTENER_QUEUE
+    transport: ByteStream,
+    *,
+    max_listener_queue: int = MAX_LISTENER_QUEUE,
+    settings: Settings | None = None,
 ) -> Collie:
     """Opens a sync `Collie` over `transport`, with no process behind it.
 
     Its private loop drives `transport`, so a transport bound to another
-    event loop does not fit. `max_listener_queue` is `connect()`'s.
+    event loop does not fit. `max_listener_queue` and `settings` are
+    `connect()`'s.
     """
     return _open_sync(
         functools.partial(
-            open_over, _COLLIE, transport, max_listener_queue=max_listener_queue
+            open_over,
+            _COLLIE,
+            transport,
+            max_listener_queue=max_listener_queue,
+            settings=settings,
         )
     )
 

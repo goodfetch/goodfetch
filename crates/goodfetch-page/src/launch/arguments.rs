@@ -54,6 +54,10 @@ const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 /// (ADR 0044).
 const WEBRTC_POLICY: &str = "--webrtc-ip-handling-policy=disable_non_proxied_udp";
 
+/// [`WEBRTC_POLICY`] for the headless shell, which reads the content
+/// layer's switch and not the full build's (#3224).
+const SHELL_WEBRTC_POLICY: &str = "--force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+
 /// No reload of a page left on a network error page: Chromium loads one
 /// again on its own, a second after its error page and with backoff after
 /// that, unless it runs with `--enable-automation`, which the engine never
@@ -88,6 +92,8 @@ pub(crate) struct Launch<'a> {
     pub(crate) data_folder: &'a Path,
     /// `browser.headless`.
     pub(crate) headless: bool,
+    /// Whether the browser is the headless shell (`browser.headless_shell`).
+    pub(crate) headless_shell: bool,
     /// `network.resolve`: host names, each with its addresses.
     pub(crate) resolve: &'a HostMapping,
     /// The size of `/dev/shm` in bytes, where one was measured.
@@ -156,7 +162,14 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         .map(str::to_owned),
     );
     arguments.extend(chromium_background_traffic_off());
-    arguments.push(WEBRTC_POLICY.to_owned());
+    arguments.push(
+        if launch.headless_shell {
+            SHELL_WEBRTC_POLICY
+        } else {
+            WEBRTC_POLICY
+        }
+        .to_owned(),
+    );
     if !launch.sandbox {
         arguments.push(NO_SANDBOX.to_owned());
     }

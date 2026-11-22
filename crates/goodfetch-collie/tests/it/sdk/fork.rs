@@ -24,8 +24,9 @@ use std::time::Duration;
 use goodfetch_collie::{Collie, Error, RunId, Tags};
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, blocking};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::Lifecycle;
-use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, real_time_runtime};
+use goodfetch_test_support::{ATTACHED_RECORD, TestEnv, case_logs, real_time_runtime};
 use serde_json::{Value, json};
 
 use super::options;
@@ -48,6 +49,12 @@ const FIX: &str = "Connect in the child process: a Connection and every Run, Ses
 /// Covers: story:11-23, error:connection_forked
 #[test]
 fn a_connection_used_after_fork_fails_in_the_child_which_connects_on_its_own_linked() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connection-used-after-fork",
+        RustMode::Linked,
+    )
+    .unwrap();
     let (env, child_env) = (TestEnv::new(), TestEnv::new());
     let nightly = RunId::parse(NIGHTLY).unwrap();
     let (collie, run) = real_time_runtime().block_on(async {

@@ -9,12 +9,13 @@
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::browser_cache::{
     ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BrowserNotInstalledDetails,
 };
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::{DaemonEndpoint, NotInProductDetails};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, case_logs};
 use serde_json::{Value, json};
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
@@ -213,6 +214,12 @@ fn assert_download_failed(error: &Error, failure: &Value) {
 /// Covers: story:11-10, story:11-13, story:11-189, story:11-294
 #[test]
 fn foxhounds_operation_and_setting_and_each_missing_build_fail_with_their_code_and_fix() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "product-and-provisioning-errors",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (process, endpoint) = scripted_daemon(
         &env,

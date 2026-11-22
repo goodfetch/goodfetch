@@ -101,6 +101,8 @@ fn input_record(workspace: &Workspace) -> Value {
 #[test]
 fn the_input_record_names_the_workspace_and_each_source_of_its_tools() {
     let workspace = Workspace::from_fixture("test-tools");
+    // Bytes of its own, which a checkout's line endings leave as they are.
+    workspace.write("crates/goodfetch-collie/src/main.rs", b"fn main() {}\n");
 
     test_tools(&workspace);
 
@@ -130,6 +132,35 @@ fn the_input_record_names_the_workspace_and_each_source_of_its_tools() {
     let source = &record["inputs"][3];
     let metadata = std::fs::metadata(workspace.path().join(source[0].as_str().unwrap())).unwrap();
     assert_eq!(source[1], metadata.len());
+    // The SHA-256 of `fn main() {}\n`.
+    assert_eq!(
+        source[3],
+        "536e506bb90914c243a12b397b9a998f85ae2cbd9ba02dfd03a9e155ca5ca0f4"
+    );
+}
+
+/// A check that writes a source back with its own bytes moves its time
+/// alone: the writer's digest and the reader's agree, so a test still reads
+/// the tools (issue 3236).
+#[test]
+fn a_test_reads_the_built_tools_once_a_source_of_theirs_is_rewritten_unchanged() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+    let lockfile = workspace.path().join("Cargo.lock");
+    let modified = std::fs::metadata(&lockfile).unwrap().modified().unwrap();
+    let content = workspace.read("Cargo.lock").unwrap();
+    workspace.write("Cargo.lock", &content);
+    std::fs::File::options()
+        .write(true)
+        .open(&lockfile)
+        .unwrap()
+        .set_modified(modified + std::time::Duration::from_secs(3600))
+        .unwrap();
+
+    let read = goodfetch_test_support::Tools::read_built_from(Some(&manifest), workspace.path());
+
+    assert!(read.is_ok(), "{}", read.unwrap_err());
 }
 
 /// The record's writer and its reader, `goodfetch-test-support`, agree on

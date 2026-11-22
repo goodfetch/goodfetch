@@ -92,7 +92,7 @@ const USER: SettingsLayer = SettingsLayer::UserConfiguration;
 const NOTHING: Value = Value::Null;
 
 /// Covers: story:8-2, story:8-3, story:8-4, story:8-5, story:8-6, story:8-9, story:8-10, story:8-102
-/// Covers: setting:browser.access_mode, setting:stealth.fingerprint_method, setting:stealth.generated_identity
+/// Covers: setting:browser.access_mode, setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:browser.headless_shell
 /// Covers: setting:stealth.identity.os, setting:stealth.identity.device, setting:stealth.identity.brand
 /// Covers: setting:stealth.human_input, setting:stealth.chromium_build
 /// Covers: setting:identified.signing_key, setting:identified.signature_agent
@@ -165,6 +165,12 @@ const NOTHING: Value = Value::Null;
 #[case::an_inherited_stealth_yields_to_a_borrowed_browser(json!({}), json!({ "browser": { "access_mode": "stealth" }, "stealth": { "human_input": true } }), json!({}), json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222" }), BrowserFamily::Chromium, Ok(standard(SettingsLayer::Default)))]
 #[case::a_signing_item_set_where_a_borrowed_browser_opens(json!({ "identified": { "signing_key": "env:BOT_KEY" } }), json!({}), json!({}), json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222" }), BrowserFamily::Chromium, Err(Refusal::OnBorrowed { key: "identified.signing_key", source: "cdp_url" }))]
 #[case::standard_set_where_a_borrowed_browser_opens(json!({ "browser": { "access_mode": "standard" } }), json!({}), json!({}), json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222" }), BrowserFamily::Chromium, Ok(standard(SettingsLayer::Default)))]
+// The headless shell (#3224) runs only headless, and never under `stealth`.
+#[case::the_headless_shell_opens_standard(json!({}), json!({ "browser": { "headless_shell": true } }), json!({}), NOTHING, BrowserFamily::Chromium, Ok(standard(SettingsLayer::Default)))]
+#[case::the_headless_shell_beside_a_headful_browser(json!({}), json!({ "browser": { "headless_shell": true, "headless": false } }), json!({}), NOTHING, BrowserFamily::Chromium, Err(Refusal::ShellNotHeadless { layer: RUN }))]
+#[case::a_configured_headless_shell_beside_a_headful_run(json!({}), json!({ "browser": { "headless": false } }), json!({ "browser": { "headless_shell": true } }), NOTHING, BrowserFamily::Chromium, Err(Refusal::ShellNotHeadless { layer: USER }))]
+#[case::a_configured_headless_shell_under_stealth(json!({ "browser": { "access_mode": "stealth" } }), json!({}), json!({ "browser": { "headless_shell": true } }), NOTHING, BrowserFamily::Chromium, Err(Refusal::ShellUnderStealth { layer: USER }))]
+#[case::the_headless_shell_yields_to_a_borrowed_browser(json!({}), json!({ "browser": { "headless_shell": true, "headless": false } }), json!({}), json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222" }), BrowserFamily::Chromium, Ok(standard(SettingsLayer::Default)))]
 fn a_session_opens_in_the_access_mode_its_settings_and_source_resolve_to(
     #[case] own: Value,
     #[case] run_settings: Value,

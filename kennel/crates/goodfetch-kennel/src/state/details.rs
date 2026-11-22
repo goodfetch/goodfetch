@@ -72,7 +72,7 @@ pub use seeds::{SeedsConfirmation, SeedsOffer};
 
 use super::part;
 use fields::{
-    governor_fields, lifecycle, progress_fields, report_fields, unreported, usage_fields,
+    governor_fields, lifecycle, point, progress_fields, report_fields, unreported, usage_fields,
 };
 use records::records_query;
 use seeds::Seeding;
@@ -877,15 +877,15 @@ impl Details {
             lifecycle: lifecycle(row.lifecycle).to_owned(),
             verdict: row
                 .verdict
+                .as_ref()
                 .map_or_else(String::new, |verdict| verdict.as_str().to_owned()),
             completeness: row
                 .completeness
                 .map_or_else(String::new, |completeness| completeness.as_str().to_owned()),
-            started: text::shown(row.started_at.as_str(), VALUE_MOST),
+            started: text::shown(&point(row.started_at), VALUE_MOST),
             ended: row
                 .ended_at
-                .as_ref()
-                .map_or_else(String::new, |ended| text::shown(ended.as_str(), VALUE_MOST)),
+                .map_or_else(String::new, |ended| text::shown(&point(ended), VALUE_MOST)),
             progress: text::shown(&shown, VALUE_MOST),
         }
     }

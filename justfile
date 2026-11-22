@@ -153,6 +153,8 @@ lint:
     step lint-drift '{{ just_executable() }} lint-drift'
     step xtask 'cargo build --quiet --bin xtask'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    # The first-party crates the workspace excludes, the forks under vendor/ aside.
+    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
@@ -1297,8 +1299,9 @@ rss-propose *scenarios:
 # each tool in a fresh process against a fresh Proving ground at 16
 # requests at once over the scenario's 1,000-page site, unless the scenario
 # names another site or concurrency; then the sizes cell, scenario 1's main
-# rows of Foxhound and Spider over the sites of 100, 1,000 and 10,000 pages
-# at 16, 1 and 64 requests at once, for their peak memory (spec #2165).
+# rows over the sites of 100, 1,000 and 10,000 pages, every tool's at 16
+# requests at once and Foxhound's and Spider's at 1 and 64, for their peak
+# memory (spec #2165).
 # Foxhound is built for the Rust target it ships for here (the static musl
 # one on Linux, ADR 0024), Spider for the host's; every executable is
 # dropped from the page cache before each trial.

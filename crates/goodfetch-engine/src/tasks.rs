@@ -27,12 +27,16 @@
 //! the Simulation and in-process tests, blocking calls run inline and an
 //! actor's loop runs as a task on the host's runtime. A Page analysis runs
 //! in production on a thread of the CPU pool's own (ADR 0138), at most one
-//! a core, never on a blocking thread, whose count the runtime `main`
-//! builds caps at `governor.blocking_threads`.
+//! a core, and on the owner's blocking threads, whose count the runtime
+//! `main` builds caps at `governor.blocking_threads`, only when the pool
+//! cannot start a thread, so that it runs at all. The system resolver's
+//! lookups run on a pool of that kind of their own, never on a blocking
+//! thread either (#2870).
 
 use std::any::Any;
 use std::future::Future;
 use std::io;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
@@ -531,6 +535,73 @@ impl BlockingThreads {
     {
         run_blocking(&self.tracker, self.policy, &self.panics, work).await
     }
+}
+
+/// The name the lookup pool's threads carry, which `/proc/<pid>/task/*/comm`
+/// shows apart from Tokio's workers and blocking threads and from the CPU
+/// pool's (#2870).
+pub(crate) const LOOKUP_THREAD: &str = "gf-lookup";
+
+/// The lookup pool: the system resolver's lookups run on its threads, at
+/// most one a core, never on Tokio's blocking pool, so none waits behind
+/// the work `governor.blocking_threads` caps (#2870). The process's
+/// lookups share it; a thread ends once idle for its keep-alive.
+static LOOKUPS: OnceLock<cpu_pool::CpuPool> = OnceLock::new();
+
+/// The addresses the operating system's resolver (`getaddrinfo`) gives
+/// `host` on `port`, looked up on a thread of the lookup pool
+/// ([`LOOKUP_THREAD`]).
+///
+/// # Errors
+///
+/// The resolver's, and one of kind `Other` when the pool has no thread to
+/// run the lookup on.
+///
+/// # Cancel safety
+///
+/// Dropping the future before a thread of the pool takes the lookup runs
+/// nothing; once it started, it runs to its end, since `getaddrinfo`
+/// cannot be cancelled, and its answer is dropped.
+pub(crate) async fn system_lookup(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    // An address is its own answer, as Tokio's `lookup_host` has it.
+    if let Ok(address) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(address, port)]);
+    }
+    let host = host.to_owned();
+    on_lookup_thread(move || {
+        (host.as_str(), port)
+            .to_socket_addrs()
+            .map(Iterator::collect)
+    })
+    .await
+    .unwrap_or_else(|| {
+        Err(io::Error::other(
+            "the lookup pool has no thread to run a lookup on",
+        ))
+    })
+}
+
+/// Runs `work` on a thread of the lookup pool, and answers what it
+/// returns, or none when the pool has no thread to run it on.
+async fn on_lookup_thread<T, F>(work: F) -> Option<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let pool = LOOKUPS.get_or_init(|| {
+        let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+        cpu_pool::CpuPool::new(LOOKUP_THREAD, cores.get(), cpu_pool::KEEP_ALIVE)
+    });
+    let (answer, answered) = oneshot::channel();
+    let job: cpu_pool::Job = Box::new(move || {
+        if !answer.is_closed() {
+            let _ = answer.send(work());
+        }
+    });
+    // A pool with no thread drops the jobs it gives back, whose callers
+    // then find their answer gone.
+    let _ = pool.run(job);
+    answered.await.ok()
 }
 
 /// Where an owner's panics are told: logged at `error` with its kind, then

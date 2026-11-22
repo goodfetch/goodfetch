@@ -71,7 +71,7 @@ class AsyncRun(AsyncHandle):
         params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.run")
-        return result_of(models.RunReport, await self._host.call("run.finish", params))
+        return result_of(models.RunReport, await self._host.call("run.finish", params, timeout_setting="timeout.run"))
 
     async def migrate(self, *, location: str | None | NotGiven = not_given) -> models.RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
@@ -158,7 +158,7 @@ class AsyncRun(AsyncHandle):
         params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
-        return result_of(models.RunReport, await self._host.call("run.stop", params))
+        return result_of(models.RunReport, await self._host.call("run.stop", params, timeout_setting="timeout.close"))
 
     async def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -323,7 +323,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, await self._host.call("page.goto", params))
+        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
 
     async def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -375,7 +375,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("page.wait_for_function", params))
+        return result_of(models.Evaluated, await self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait"))
 
     async def wait_for_load_state(self, *, state: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -390,7 +390,7 @@ class AsyncPage(AsyncHandle):
             params.state = None if state is None else models.LoadState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Reached, await self._host.call("page.wait_for_load_state", params))
+        return result_of(models.Reached, await self._host.call("page.wait_for_load_state", params, timeout_setting="timeout.wait"))
 
     async def wait_for_request(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageRequest:
         """Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -405,7 +405,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageRequest, await self._host.call("page.wait_for_request", params))
+        return result_of(models.PageRequest, await self._host.call("page.wait_for_request", params, timeout_setting="timeout.wait"))
 
     async def wait_for_request_finished(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -420,7 +420,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageExchange, await self._host.call("page.wait_for_request_finished", params))
+        return result_of(models.PageExchange, await self._host.call("page.wait_for_request_finished", params, timeout_setting="timeout.wait"))
 
     async def wait_for_response(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -435,7 +435,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageExchange, await self._host.call("page.wait_for_response", params))
+        return result_of(models.PageExchange, await self._host.call("page.wait_for_response", params, timeout_setting="timeout.wait"))
 
     async def wait_for_url(self, url: models.UrlMatcher, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given) -> models.Reached:
         """Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -450,7 +450,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.LoadState(wait_until)
-        return result_of(models.Reached, await self._host.call("page.wait_for_url", params))
+        return result_of(models.Reached, await self._host.call("page.wait_for_url", params, timeout_setting="timeout.wait"))
 
     @overload
     def on(self, event: Literal["console"], listener: AsyncListener[models.ConsoleMessage]) -> Subscription: ...
@@ -574,7 +574,7 @@ class AsyncLocator(AsyncHandle):
             params.state = None if state is None else models.ElementState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Reached, await self._host.call("locator.wait_for", params))
+        return result_of(models.Reached, await self._host.call("locator.wait_for", params, timeout_setting="timeout.wait"))
 
     async def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> models.Counted:
         """Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -587,7 +587,7 @@ class AsyncLocator(AsyncHandle):
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Counted, await self._host.call("locator.wait_for_count", params))
+        return result_of(models.Counted, await self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait"))
 
     async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
         """Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -606,7 +606,7 @@ class AsyncLocator(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params))
+        return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait"))
 
 
 class Run(Handle):
@@ -659,7 +659,7 @@ class Run(Handle):
         params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.run")
-        return result_of(models.RunReport, self._host.call("run.finish", params))
+        return result_of(models.RunReport, self._host.call("run.finish", params, timeout_setting="timeout.run"))
 
     def migrate(self, *, location: str | None | NotGiven = not_given) -> models.RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
@@ -746,7 +746,7 @@ class Run(Handle):
         params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
-        return result_of(models.RunReport, self._host.call("run.stop", params))
+        return result_of(models.RunReport, self._host.call("run.stop", params, timeout_setting="timeout.close"))
 
     def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -894,7 +894,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, self._host.call("page.goto", params))
+        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
 
     def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -946,7 +946,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("page.wait_for_function", params))
+        return result_of(models.Evaluated, self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait"))
 
     def wait_for_load_state(self, *, state: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -961,7 +961,7 @@ class Page(Handle):
             params.state = None if state is None else models.LoadState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Reached, self._host.call("page.wait_for_load_state", params))
+        return result_of(models.Reached, self._host.call("page.wait_for_load_state", params, timeout_setting="timeout.wait"))
 
     def wait_for_request(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageRequest:
         """Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -976,7 +976,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageRequest, self._host.call("page.wait_for_request", params))
+        return result_of(models.PageRequest, self._host.call("page.wait_for_request", params, timeout_setting="timeout.wait"))
 
     def wait_for_request_finished(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -991,7 +991,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageExchange, self._host.call("page.wait_for_request_finished", params))
+        return result_of(models.PageExchange, self._host.call("page.wait_for_request_finished", params, timeout_setting="timeout.wait"))
 
     def wait_for_response(self, *, timeout: timedelta | None | NotGiven = not_given, url: models.UrlMatcher | None | NotGiven = not_given) -> models.PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1006,7 +1006,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(url, NotGiven):
             params.url = url
-        return result_of(models.PageExchange, self._host.call("page.wait_for_response", params))
+        return result_of(models.PageExchange, self._host.call("page.wait_for_response", params, timeout_setting="timeout.wait"))
 
     def wait_for_url(self, url: models.UrlMatcher, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given) -> models.Reached:
         """Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1021,7 +1021,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.LoadState(wait_until)
-        return result_of(models.Reached, self._host.call("page.wait_for_url", params))
+        return result_of(models.Reached, self._host.call("page.wait_for_url", params, timeout_setting="timeout.wait"))
 
     @overload
     def on(self, event: Literal["console"], listener: Listener[models.ConsoleMessage]) -> Subscription: ...
@@ -1145,7 +1145,7 @@ class Locator(Handle):
             params.state = None if state is None else models.ElementState(state)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Reached, self._host.call("locator.wait_for", params))
+        return result_of(models.Reached, self._host.call("locator.wait_for", params, timeout_setting="timeout.wait"))
 
     def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> models.Counted:
         """Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1158,7 +1158,7 @@ class Locator(Handle):
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Counted, self._host.call("locator.wait_for_count", params))
+        return result_of(models.Counted, self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait"))
 
     def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
         """Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1177,4 +1177,4 @@ class Locator(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("locator.wait_for_function", params))
+        return result_of(models.Evaluated, self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait"))

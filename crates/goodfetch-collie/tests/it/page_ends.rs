@@ -30,7 +30,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use goodfetch_protocol::home::USAGE_LEDGER;
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, skipped_without_gui_session};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
@@ -64,7 +64,7 @@ fn browser_processes(env: &TestEnv, holds: impl Fn(&str) -> bool) -> Vec<String>
         .unwrap();
     String::from_utf8_lossy(&listed.stdout)
         .lines()
-        .filter(|line| line.contains(&marker) && line.contains("--user-data-dir=") && holds(line))
+        .filter(|line| line.contains(&marker) && of_a_browser(line) && holds(line))
         .filter_map(|line| line.split_whitespace().next().map(str::to_owned))
         .collect()
 }
@@ -85,6 +85,13 @@ fn signal(signal: &str, processes: &[String]) {
         })
         .count();
     assert!(signalled > 0, "kill -{signal} {processes:?}");
+}
+
+/// A process of a browser of the test: the full build's each name its
+/// profile, while the headless shell's helpers name their `--type` alone,
+/// and the test's marker in the path of the shell's build (#3224).
+fn of_a_browser(line: &str) -> bool {
+    line.contains("--user-data-dir=") || line.contains("--type=")
 }
 
 /// The browser process itself: its helpers each name the `--type` they are.
@@ -434,6 +441,11 @@ fn a_browser_killed_by_a_signal_leaves_its_runs_pool_and_the_next_session_opens_
 /// Covers: story:5-28
 #[test]
 fn a_browser_quit_raises_call_cancelled_naming_the_browser_and_ends_its_session() {
+    if skipped_without_gui_session(
+        "the headless shell, which no person quits, exits with status 143 on `SIGTERM`, where the full build exits with 0",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let (mut exchange, page, session) = on_a_page(&env, &proving_ground, "quit");

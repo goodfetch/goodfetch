@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::DaemonEndpoint;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, case_logs};
 
 use crate::scripted_daemon::{daemon_hello, scripted_daemon};
 
@@ -65,6 +66,12 @@ async fn cancelled_clicks(endpoint: DaemonEndpoint) -> Error {
 /// Covers: story:11-47
 #[test]
 fn a_dropped_or_timed_out_click_is_cancelled_once_by_its_id_and_never_sent_again() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "cancellation-reaches-the-engine",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let (process, endpoint) =
         scripted_daemon(&env, "sdk-rust/run/cancellation-reaches-the-engine.json");

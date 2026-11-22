@@ -279,10 +279,26 @@ impl Error {
         error
     }
 
+    /// A failure a Product crate's SDK raises itself, of the code
+    /// `defined`, such as Foxhound's `label_duplicate` at a crawl's
+    /// declaration: in ADR 0079's layout, what failed, then `fix`, which
+    /// its field holds too, its data holding `details`' fields.
+    #[must_use]
+    pub fn of_sdk(
+        defined: &ErrorCodeDefinition,
+        what_failed: &str,
+        fix: &str,
+        details: &impl Serialize,
+    ) -> Self {
+        Self::of_runtime(defined, what_failed, fix).with_details(details)
+    }
+
     /// A call refused before it is sent, as the engine would refuse its
     /// params: `invalid_params`, group `program`, not retryable, with `fix`
-    /// and the operation.
-    pub(crate) fn refused(operation: &str, reason: &str, fix: &str) -> Self {
+    /// and the operation. A Product crate's SDK refuses its own calls'
+    /// params with it too, such as a crawl's start with no seed.
+    #[must_use]
+    pub fn refused(operation: &str, reason: &str, fix: &str) -> Self {
         let failure = ProtocolFailure::InvalidParams;
         let mut data = Map::new();
         data.insert("fix".to_owned(), fix.into());

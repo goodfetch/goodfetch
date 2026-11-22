@@ -28,7 +28,7 @@ use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
-    cli, runtime,
+    cli, runtime, skipped_without_gui_session,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -605,6 +605,11 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
 /// Covers: story:5-61
 #[test]
 fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
+    if skipped_without_gui_session(
+        "its Browser cache holds the full build beside the headless shell, and the clean-up deletes the full build while the shell runs",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

@@ -62,9 +62,9 @@ pub fn play_relinking(
     client: impl BufRead,
     engine: impl Write,
     record: impl Write,
-    relink: &mut dyn FnMut() -> io::Result<()>,
+    mut relink: impl FnMut() -> io::Result<()>,
 ) -> Result<Ending, PlayError> {
-    played(script, client, engine, record, Some(relink))
+    played(script, client, engine, record, Some(&mut relink))
 }
 
 fn played(

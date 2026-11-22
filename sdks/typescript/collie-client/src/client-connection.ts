@@ -59,6 +59,7 @@ import {
   type Transport,
   type TransportEnd,
 } from "./rpc.ts";
+import { resumable } from "./resumed-stream.ts";
 import { batchOf, type LastRead } from "./stream.ts";
 import { fromWire, toWire, type Wire } from "./wire.ts";
 
@@ -383,38 +384,24 @@ export class ClientConnection implements AsyncDisposable {
    * had left, so its readers lose no event (spec 606).
    */
   #subscribe(opened: ChannelOpenOptions): Stream {
-    let last: LastRead | undefined;
-    let granted = 0;
-    let received = 0;
-    const stream = this.stream(
-      "events.subscribe",
-      {},
-      {
-        ...opened,
-        notified: (method, params) => {
-          if (method === "$/events") {
-            const events = batchOf(params);
-            received += events.length;
-            const newest = events.at(-1);
-            if (newest !== undefined && this.#engineInstance !== undefined) {
-              last = { engine_instance: this.#engineInstance, position: newest.position };
-            }
-          }
-          opened.notified?.(method, params);
-        },
-        resume: () => ({
-          params: last === undefined ? {} : { after: last },
-          credits: granted - received,
-        }),
+    return resumable<LastRead>((options) => this.stream("events.subscribe", {}, options), opened, {
+      read: (method, params) => {
+        if (method !== "$/events") {
+          return undefined;
+        }
+        const events = batchOf(params);
+        const newest = events.at(-1);
+        const instance = this.#engineInstance;
+        return {
+          count: events.length,
+          last:
+            newest === undefined || instance === undefined
+              ? undefined
+              : { engine_instance: instance, position: newest.position },
+        };
       },
-    );
-    return {
-      result: stream.result,
-      grant: (credits) => {
-        granted += credits;
-        stream.grant(credits);
-      },
-    };
+      params: (last) => (last === undefined ? {} : { after: last }),
+    });
   }
 
   /** The engine reached. */

@@ -18,6 +18,7 @@ import {
   ensureRunOpen,
   idOfLocator,
   pageOf,
+  resumable,
   Sequence,
   type ClientConnection,
   fromWire,
@@ -100,7 +101,9 @@ export class CrawlRun extends Run {
    * and once the Run has ended and every Record is read, the iteration
    * ends. Its stream is sent when it is called (ADR 0081), and `break`,
    * `return()`, `close()`, `using` or releasing it unread cancel it at
-   * once. On a closed Run it throws `closed`, sending nothing.
+   * once; after a remote Daemon's dropped link, it is sent again after
+   * the last Record read (spec 606). On a closed Run it throws `closed`,
+   * sending nothing.
    */
   records<I extends object>(
     dataset: Dataset<I>,
@@ -111,7 +114,14 @@ export class CrawlRun extends Run {
     const connection = this.#crawlHost.connection;
     const params = { run_id: this.id(), dataset: dataset.name };
     return new Sequence({
-      open: (opened) => connection.stream("run.records", params, opened),
+      open: (opened) =>
+        resumable<number>((sent) => connection.stream("run.records", params, sent), opened, {
+          read: (method, notification) => {
+            const number = method === "$/record" ? recordNumberOf(notification) : undefined;
+            return number === undefined ? undefined : { count: 1, last: number };
+          },
+          params: (last) => (last === undefined ? params : { ...params, after: last }),
+        }),
       itemOf: recordOf,
       credits: RECORD_CREDITS,
       regrant: RECORD_REGRANT,
@@ -245,6 +255,14 @@ export function handleRequest(
   signal: AbortSignal,
 ): Promise<CrawlRequestHandled> {
   return handleIn(run, request, signal);
+}
+
+/** The number of the Record a `$/record` carries, read from its wire form alone. */
+function recordNumberOf(params: unknown): number | undefined {
+  if (typeof params !== "object" || params === null || !("record" in params)) return undefined;
+  const { record } = params;
+  if (typeof record !== "object" || record === null || !("number" in record)) return undefined;
+  return typeof record.number === "number" ? record.number : undefined;
 }
 
 /** The Record a `$/record` notification carries; none for any other notification. */

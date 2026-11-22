@@ -223,6 +223,22 @@ interface Waiting {
   notified: ((method: string, params: unknown) => void) | undefined;
   /** What it is sent again with on a new link; `undefined` when it never is. */
   readonly again: (() => Resent) | undefined;
+  /** Its own timeout, which fails it while the Client holds it back; `undefined` for none. */
+  readonly deadline: HeldDeadline | undefined;
+}
+
+/** A call's own timeout, counted from when the call was made. */
+interface HeldDeadline {
+  readonly limit: { readonly key: string; readonly value: number };
+  readonly startedAt: number;
+}
+
+/** `deadline` counted from now, or `undefined` when it bounds nothing. */
+function heldDeadline(deadline: CallDeadline | undefined): HeldDeadline | undefined {
+  const value = deadline?.value;
+  return deadline === undefined || value === undefined || value === null
+    ? undefined
+    : { limit: { key: deadline.key, value }, startedAt: Date.now() };
 }
 
 /** A call as it is sent again on a new link: its request, then the notifications naming it. */
@@ -242,7 +258,11 @@ export interface Resumed {
 export interface ChannelCallOptions {
   /** Cancels the call in flight, rejecting it with the signal's reason; a queued call is never sent. */
   readonly signal?: AbortSignal | undefined;
-  /** The call's own timeout, which fails it with `deadline_exceeded` while it waits in the queue. */
+  /**
+   * The call's own timeout, which fails it with `deadline_exceeded` while
+   * the Client holds it back: in the queue, or while it reaches the engine
+   * again.
+   */
   readonly deadline?: CallDeadline | undefined;
 }
 
@@ -300,6 +320,8 @@ type Attempt =
   | { readonly kind: "greeted"; readonly reading: Promise<TransportEnd> }
   /** The greeting was refused: no attempt follows. */
   | { readonly kind: "refused"; readonly failure: GoodfetchError }
+  /** The new link sent a line that is no message, the engine's fault: no attempt follows. */
+  | { readonly kind: "invalid"; readonly end: TransportEnd }
   /** No link came of it, for `cause`. */
   | { readonly kind: "failed"; readonly cause: unknown };
 
@@ -352,21 +374,23 @@ async function abortedWith(signal: AbortSignal): Promise<unknown> {
 
 /**
  * The error a call in flight when its link dropped fails with, never sent
- * again: an Effect's, whose journal says whether it happened (ADR 0079), or
- * a stream's that cannot be resumed.
+ * again: an Effect, whose journal says whether it happened (ADR 0079).
  */
-function lostCall(stream: boolean): ConnectionLostError {
-  return stream
-    ? new ConnectionLostError(
-        "the Connection to the engine dropped while the stream was open, and it cannot be resumed, so it was not sent again",
-        { fix: "Open the stream again: the Client reaches the engine again by itself." },
-      )
-    : new ConnectionLostError(
-        "the Connection to the engine dropped before the call was answered, so whether it took effect is unknown, and it was not sent again",
-        {
-          fix: "Check the Run's Effect journal for whether it happened before making the call again: the Client reaches the engine again by itself.",
-        },
-      );
+function lostCall(): ConnectionLostError {
+  return new ConnectionLostError(
+    "the Connection to the engine dropped before the call was answered, so whether it took effect is unknown, and it was not sent again",
+    {
+      fix: "Check the Run's Effect journal for whether it happened before making the call again: the Client reaches the engine again by itself.",
+    },
+  );
+}
+
+/** The error a stream open when its link dropped fails with, when it cannot be resumed. */
+function lostStream(): ConnectionLostError {
+  return new ConnectionLostError(
+    "the Connection to the engine dropped while the stream was open, and it cannot be resumed, so it was not sent again",
+    { fix: "Open the stream again: the Client reaches the engine again by itself." },
+  );
 }
 
 /** A call in flight: its id, which its notifications and credits name, and its answer. */
@@ -456,8 +480,16 @@ export class Channel {
       return { id, result: Promise.reject(overloaded) };
     }
     const again = this.#againOf(id, method, request, options);
+    const deadline = heldDeadline(options.deadline);
     const answer = new Promise<unknown>((resolve, reject) => {
-      this.#waiting.set(id, { method, resolve, reject, notified: options.notified, again });
+      this.#waiting.set(id, {
+        method,
+        resolve,
+        reject,
+        notified: options.notified,
+        again,
+        deadline,
+      });
     });
     const abort = (): void => {
       const waiting = this.#waiting.get(id);
@@ -474,7 +506,7 @@ export class Channel {
     if (!this.#held && this.#inFlight.size < this.#cap) {
       this.#dispatch(id, request);
     } else {
-      this.#enqueue(id, method, request, options.deadline);
+      this.#enqueue(id, method, { request, timer: undefined, notes: [] }, deadline);
     }
     const result = answer.finally(() => signal?.removeEventListener("abort", abort));
     return { id, result };
@@ -514,7 +546,14 @@ export class Channel {
     this.#nextId += 1;
     const request = encodeMessage({ id, method, params });
     const answer = new Promise<unknown>((resolve, reject) => {
-      this.#waiting.set(id, { method, resolve, reject, notified: undefined, again: undefined });
+      this.#waiting.set(id, {
+        method,
+        resolve,
+        reject,
+        notified: undefined,
+        again: undefined,
+        deadline: undefined,
+      });
     });
     this.#dispatch(id, request);
     return answer;
@@ -536,24 +575,24 @@ export class Channel {
   }
 
   /**
-   * Holds the call `id` back until a place frees, failing it with
-   * `deadline_exceeded` once its own timeout passes first. Its bytes count
-   * as waiting to be written.
+   * Holds the call `id` back, last, until a place frees and no call is
+   * held, failing it with `deadline_exceeded` once its own timeout passes
+   * first. Its bytes and its notes' count as waiting to be written.
    */
   #enqueue(
     id: MessageId,
     method: string,
-    request: Uint8Array,
-    deadline: CallDeadline | undefined,
+    queued: Queued,
+    deadline: HeldDeadline | undefined,
   ): void {
-    this.#queuedWriteBytes += request.length;
-    const queued: Queued = { request, timer: undefined, notes: [] };
+    this.#queuedWriteBytes += queued.notes.reduce(
+      (bytes, note) => bytes + note.length,
+      queued.request.length,
+    );
     this.#queued.set(id, queued);
-    const value = deadline?.value;
-    if (deadline !== undefined && value !== undefined && value !== null) {
-      const startedAt = Date.now();
-      this.#arm(queued, startedAt + value, () => {
-        this.#expire(id, method, { key: deadline.key, value }, startedAt);
+    if (deadline !== undefined) {
+      this.#arm(queued, deadline.startedAt + deadline.limit.value, () => {
+        this.#expire(id, method, deadline);
       });
     }
   }
@@ -592,27 +631,32 @@ export class Channel {
   }
 
   /**
-   * Fails the queued call `id`, never sent, once its own timeout of
-   * `limit`'s value passed since `startedAt`.
+   * Fails the queued call `id`, never sent on the link it waits for, once
+   * its own `deadline` passed: what it waited for is a new link's greeting
+   * while calls are held, and a place among the calls in flight otherwise.
    */
-  #expire(
-    id: MessageId,
-    method: string,
-    limit: { readonly key: string; readonly value: number },
-    startedAt: number,
-  ): void {
+  #expire(id: MessageId, method: string, { limit, startedAt }: HeldDeadline): void {
     const waiting = this.#waiting.get(id);
     if (this.#unqueue(id) === undefined || waiting === undefined) {
       return;
     }
     this.#waiting.delete(id);
-    const exceeded = phaseExceeded(
-      `the call waited ${limit.value} ms, its \`${limit.key}\`, for a place among the engine's calls in flight, so it was not sent`,
-      "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
-      { key: limit.key, value: limit.value, layer: "run", origin: "argument" },
-      startedAt,
-      "calls_in_flight",
-    );
+    const given = { key: limit.key, value: limit.value, layer: "run", origin: "argument" } as const;
+    const exceeded = this.#held
+      ? phaseExceeded(
+          `the call waited ${limit.value} ms, its \`${limit.key}\`, while the Client reached the engine again after the link dropped, so it was not sent`,
+          "Give the call a longer `timeout`, or make it again once the engine is reached.",
+          given,
+          startedAt,
+          "hello",
+        )
+      : phaseExceeded(
+          `the call waited ${limit.value} ms, its \`${limit.key}\`, for a place among the engine's calls in flight, so it was not sent`,
+          "Make fewer calls at once on this Connection, or give the call a longer `timeout`.",
+          given,
+          startedAt,
+          "calls_in_flight",
+        );
     waiting.reject(this.#inCall(exceeded, method));
   }
 
@@ -842,6 +886,9 @@ export class Channel {
         case "refused":
           this.#end(attempt.failure);
           return undefined;
+        case "invalid":
+          this.#end(await this.#owner.ended(attempt.end));
+          return undefined;
         case "failed":
           cause = attempt.cause;
           break;
@@ -860,32 +907,30 @@ export class Channel {
    */
   #dropped(): void {
     this.#held = true;
-    const resent: [MessageId, Queued][] = [];
+    const earlier = new Map(this.#queued);
+    this.#queued.clear();
     for (const [id, waiting] of this.#waiting) {
-      if (this.#queued.has(id)) {
+      if (earlier.has(id)) {
         continue;
       }
       const again = waiting.again?.();
       if (again === undefined) {
         this.#waiting.delete(id);
-        waiting.reject(this.#inCall(lostCall(waiting.notified !== undefined), waiting.method));
+        const lost = waiting.notified === undefined ? lostCall() : lostStream();
+        waiting.reject(this.#inCall(lost, waiting.method));
       } else {
-        resent.push([id, { request: again.request, timer: undefined, notes: again.notes }]);
-        this.#queuedWriteBytes += again.notes.reduce(
-          (bytes, note) => bytes + note.length,
-          again.request.length,
-        );
+        const queued = { request: again.request, timer: undefined, notes: again.notes };
+        this.#enqueue(id, waiting.method, queued, waiting.deadline);
       }
+    }
+    // The calls queued before the drop follow, their timers still running.
+    for (const [id, queued] of earlier) {
+      this.#queued.set(id, queued);
     }
     // A call cancelled and not answered yet holds no place on the new link.
     this.#inFlight.clear();
-    const queued = [...resent, ...this.#queued];
-    this.#queued.clear();
-    for (const [id, entry] of queued) {
-      this.#queued.set(id, entry);
-    }
     for (const serving of this.#serving.values()) {
-      serving.abort(lostCall(false));
+      serving.abort(lostCall());
     }
     this.#serving.clear();
   }
@@ -927,7 +972,11 @@ export class Channel {
               failure: error instanceof GoodfetchError ? error : relinking.gaveUp(error),
             }),
           ),
-        reading.then((end) => ({ kind: "failed", cause: causeOf(end) })),
+        reading.then((end) =>
+          end.kind === "invalid"
+            ? { kind: "invalid", end }
+            : { kind: "failed", cause: causeOf(end) },
+        ),
         abortedWith(attempt.signal).then((cause) => ({ kind: "failed", cause })),
       ]);
       if (outcome.kind !== "greeted") {

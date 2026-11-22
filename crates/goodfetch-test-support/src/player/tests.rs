@@ -55,7 +55,7 @@ fn a_drop_plays_the_steps_after_it_to_the_next_client() {
         io::BufReader::new(&links),
         &mut written,
         io::sink(),
-        &mut || {
+        || {
             relinked += 1;
             links.links.borrow_mut().remove(0);
             Ok(())

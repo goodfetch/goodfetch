@@ -766,7 +766,7 @@ impl<'a> WebSocketListener<'a> {
     /// never waits for one; a `drop` step drops it, and the steps after
     /// play to the next Client. The WebSocket is closed when the play ends.
     fn play(&self, script: &Script, record: impl Write) -> Result<Ending, Failure> {
-        let ending = play_relinking(script, BufReader::new(self), self, record, &mut || {
+        let ending = play_relinking(script, BufReader::new(self), self, record, || {
             self.drop_client();
             Ok(())
         });

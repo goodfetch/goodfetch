@@ -22,14 +22,19 @@ cover("7", "9");
 cover("7");
 `;
 
+/** Starts the program through the process record while `namespace` is the run's. */
 async function run(namespace: StrykerNamespace): Promise<void> {
   const processes = new ProcessRecord();
-  const child = reachMutationChild(process.env, namespace);
-  const started = processes.spawn(process.execPath, ["-e", COVERS], { env: child.env });
-  const exit = await started.exit;
-  child.ended();
-  await processes.close();
-  expect(exit).toMatchObject({ code: 0 });
+  // oxlint-disable-next-line no-underscore-dangle -- StrykerJS's own name for its namespace.
+  globalThis.__stryker__ = namespace;
+  try {
+    const started = processes.spawn(process.execPath, ["-e", COVERS], { env: process.env });
+    expect(await started.exit).toMatchObject({ code: 0 });
+  } finally {
+    // oxlint-disable-next-line no-underscore-dangle -- StrykerJS's own name for its namespace.
+    globalThis.__stryker__ = undefined;
+    await processes.close();
+  }
 }
 
 describe("reachMutationChild", () => {

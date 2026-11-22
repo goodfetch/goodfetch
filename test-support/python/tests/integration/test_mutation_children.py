@@ -91,9 +91,6 @@ deprecated()
 """A program shaped as a mutated module whose function warns at its caller's line."""
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 12), reason="`skip_file_prefixes` came with Python 3.12"
-)
 def test_a_warning_from_a_mutated_function_shows_its_callers_line(
     test_env: TestEnv,
 ) -> None:

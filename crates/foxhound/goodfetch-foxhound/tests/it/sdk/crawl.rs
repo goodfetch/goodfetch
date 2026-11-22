@@ -25,7 +25,7 @@ use goodfetch_foxhound::{
     LabelDeclaration, RunId, Schema, Seed, blocking, error_code,
 };
 use goodfetch_protocol::foxhound::crawl::LabelUnknownDetails;
-use goodfetch_protocol::foxhound::frontier::PayloadInvalidDetails;
+use goodfetch_protocol::foxhound::frontier::{PayloadInvalidDetails, PayloadSchemaChangedDetails};
 use goodfetch_protocol::foxhound::report::CountOf;
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
@@ -977,4 +977,89 @@ fn an_enqueue_whose_payload_its_label_refuses_fails_with_payload_invalid_naming_
         )
     });
     assert_eq!(refused, expected);
+}
+
+/// A crawl of books whose Payloads `payload` types, and whose handler
+/// takes each one.
+fn books(payload: Value) -> (Crawl<'static>, Label<Value>) {
+    let mut crawl = Crawl::new();
+    let book = crawl
+        .label(LabelDeclaration::<Value>::new("book").payload(&Schema::json(payload).unwrap()))
+        .unwrap();
+    crawl
+        .handle(&book, |_ctx: CrawlContext<Value>| async { Ok(()) })
+        .unwrap();
+    (crawl, book)
+}
+
+/// A Run whose connection closed before its two books were served resumes
+/// under its Run ID only once its pending Payloads are checked against the
+/// `book` Label's new schema (ADR 0082): a schema they all fail, one that
+/// requires a title, refuses the resume with `payload_schema_changed`,
+/// naming the Label, how many of its pending Payloads fail it and how, and
+/// one they all fit resumes the Run, which then serves both.
+///
+/// Covers: story:11-1018, error:payload_schema_changed, operation:crawl.start
+#[test]
+fn a_resume_after_its_labels_payload_schema_changed_checks_the_pending_payloads() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let urls = [
+        site.url("shop.test", "/book"),
+        site.url("shop.test", "/empty"),
+    ];
+    let changed = RunId::parse("changed").unwrap();
+    let isbn = json!({
+        "type": "object",
+        "properties": { "isbn": { "type": "string" } },
+        "required": ["isbn"],
+    });
+    let mut titled = isbn.clone();
+    titled["properties"]["title"] = json!({ "type": "string" });
+    let mut required = titled.clone();
+    required["required"] = json!(["isbn", "title"]);
+    real_time_runtime().block_on(async {
+        let start = async |foxhound: &Foxhound, crawl: &Crawl<'_>, book: &Label<Value>| {
+            let seeds = urls
+                .iter()
+                .map(|url| Seed::new(url, book, json!({ "isbn": "0" })));
+            foxhound.start_crawl(crawl, seeds).run_id(&changed).await
+        };
+        let first = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let (crawl, book) = books(isbn);
+        start(&first, &crawl, &book).await.unwrap();
+        first.close().await.unwrap();
+
+        let second = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let (crawl, book) = books(required);
+        let refused = start(&second, &crawl, &book).await.unwrap_err();
+        let (crawl, book) = books(titled);
+        let run = start(&second, &crawl, &book).await.unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        second.close().await.unwrap();
+
+        assert_eq!(
+            refused.code(),
+            error_code::PAYLOAD_SCHEMA_CHANGED,
+            "{refused}"
+        );
+        let details: PayloadSchemaChangedDetails = refused.details().unwrap();
+        let paths: Vec<String> = details.issues.into_iter().map(|issue| issue.path).collect();
+        assert_eq!(
+            (
+                details.label.as_str(),
+                details.failing,
+                details.pending,
+                paths
+            ),
+            ("book", 2, 2, vec![String::new()])
+        );
+        assert_eq!(report.report.lifecycle, Lifecycle::Finished);
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (requests.succeeded, requests.failed),
+            (2, 0),
+            "{requests:?}"
+        );
+    });
 }

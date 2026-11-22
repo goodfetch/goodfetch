@@ -98,8 +98,10 @@ _logger = logging.getLogger(CLIENT_LOGGER)
 class RunHost(Streams, Protocol):
     """What a Run reaches its engine through: its Connection."""
 
-    async def call(self, operation: str, params: BaseModel) -> object:
-        """Sends one call and returns its result as the engine sent it."""
+    async def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
+        """Sends one call and returns its result, as `AsyncHandleHost.call` does."""
         ...
 
     async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
@@ -365,10 +367,18 @@ class _AsyncHost(Generic[_Id]):
         if failed is not None:
             raise failed
 
-    async def call(self, operation: str, params: BaseModel) -> object:
+    async def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
         """Sends one call, unless the Run or value is closed, after what `on` sent."""
         return await self._sent(
-            operation, functools.partial(self._connection.call, operation, params)
+            operation,
+            functools.partial(
+                self._connection.call,
+                operation,
+                params,
+                timeout_setting=timeout_setting,
+            ),
         )
 
     async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
@@ -584,11 +594,18 @@ class _SyncHost(Generic[_Id]):
         """The ID each of the handle's calls carries."""
         return self._host.id
 
-    def call(self, operation: str, params: BaseModel) -> object:
+    def call(
+        self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
+    ) -> object:
         """Sends one call on the private loop and waits for its result."""
         try:
             return self._loop.call(
-                functools.partial(self._host.call, operation, params)
+                functools.partial(
+                    self._host.call,
+                    operation,
+                    params,
+                    timeout_setting=timeout_setting,
+                )
             )
         except LoopStopped:
             # Its Connection closed the Run before stopping the loop.

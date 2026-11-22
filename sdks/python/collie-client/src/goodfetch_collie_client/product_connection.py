@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import anyio
 
 from goodfetch_collie_client._deployment_variables import check_deployment_variables
+from goodfetch_collie_client._rpc import ChannelBounds, bounds_of, phase_exceeded
 from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
     CLOSE_TIMEOUT,
@@ -28,7 +29,6 @@ from goodfetch_collie_client.connection import (
     EngineInfo,
     Reached,
     connect_limit,
-    phase_exceeded,
 )
 from goodfetch_collie_client.engine_choice import (
     AttachedReach,
@@ -158,10 +158,15 @@ async def open_engine(
     reached is logged at info on the `goodfetch.client` logger, its
     `EngineInfo` as the record's `engine`. `settings`, the Connection's own
     (ADR 0083), go in `hello`, and a key the engine refuses fails the opening
-    with its error, such as `setting_not_applicable`.
+    with its error, such as `setting_not_applicable`. Their
+    `connection.max_pending_calls` and `connection.max_queued_write_bytes`
+    bound the Connection's own calls from `hello` on; one that is no whole
+    number of 1 or more (`setting_invalid`) raises before any engine is
+    reached.
     """
     connection_limits = limit_list(limits)
     listener_queue = listener_queue_of(max_listener_queue)
+    bounds = bounds_of(settings)
     checked = (
         connect_timeout
         if isinstance(connect_timeout, NotGiven)
@@ -179,7 +184,7 @@ async def open_engine(
         started_at=started_at,
     )
     opening = _Opening(
-        close_timeout, connection_limits, checked, listener_queue, settings
+        close_timeout, connection_limits, checked, listener_queue, settings, bounds
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
@@ -212,6 +217,7 @@ class _Opening:
     connect_timeout: int | NotGiven | None
     listener_queue: int
     settings: Settings | None
+    bounds: ChannelBounds
 
 
 _REFUSALS = frozenset({"not_in_product", "protocol_version_unsupported"})
@@ -355,6 +361,7 @@ async def _open_attached(
         connect_timeout=opening.connect_timeout,
         listener_queue=opening.listener_queue,
         settings=opening.settings,
+        bounds=opening.bounds,
     )
 
 
@@ -381,6 +388,7 @@ async def _open_daemon(
         connect_started_at=connect_started_at,
         listener_queue=opening.listener_queue,
         settings=opening.settings,
+        bounds=opening.bounds,
     )
 
 
@@ -411,18 +419,23 @@ async def open_over(
     *,
     close_timeout: float = CLOSE_TIMEOUT,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
+    settings: Settings | None = None,
 ) -> ClientConnection:
     """Finishes `hello`, naming `product`, over `transport`.
 
     Such as the Scripted engine's in-memory player (ADR 0069): `connect()`'s
-    Connection with no process behind it. `max_listener_queue` is
-    `connect()`'s, and a bad one raises `setting_invalid` before `hello`.
+    Connection with no process behind it. `max_listener_queue` and
+    `settings` are `connect()`'s, and a bad bound raises `setting_invalid`
+    before `hello`.
     """
     listener_queue = listener_queue_of(max_listener_queue)
+    bounds = bounds_of(settings)
     return await ClientConnection.open(
         transport,
         needs=product.needs,
         error_classes=product.error_classes,
         close_timeout=close_timeout,
         listener_queue=listener_queue,
+        settings=settings,
+        bounds=bounds,
     )

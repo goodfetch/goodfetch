@@ -1224,7 +1224,7 @@ mod opening;
 
 pub use bounds::{
     CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
-    applies_client_bounds,
+    applies_client_bound,
 };
 pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
 pub use opening::{NETWORK_MAX_HELLO_SIZE, TIMEOUT_HELLO};

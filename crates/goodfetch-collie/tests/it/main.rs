@@ -25,6 +25,7 @@ fn daemon_client(
     goodfetch_test_client::DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
 }
 
+mod ai_work;
 mod attached;
 mod audit;
 #[cfg(unix)]

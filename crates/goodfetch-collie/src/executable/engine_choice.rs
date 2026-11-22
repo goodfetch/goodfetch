@@ -974,7 +974,7 @@ impl Interrupts {
     fn listening() -> Self {
         Self {
             ctrl_c: tokio::signal::windows::ctrl_c().ok(),
-            ctrl_break: tokio::signal::windows::ctrl_break().ok(),
+            ctrl_break: None,
         }
     }
 

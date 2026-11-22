@@ -39,8 +39,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::path::Path;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
 use std::time::SystemTime;
 
 use bytes::Bytes;
@@ -52,7 +54,7 @@ use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
-use goodfetch_engine::transport::{self, ConnectionWriter, Network};
+use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
@@ -63,7 +65,7 @@ use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
 use goodfetch_test_client::Hello;
 use jiff::Timestamp;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 
 /// The paragraphs every page's body is made of, each 128 bytes.
 const PARAGRAPHS: &[u8] = include_bytes!("fixtures/paragraphs.html");
@@ -79,6 +81,14 @@ pub(crate) const PAGES: [usize; 12] =
 
 /// The host the site is served on.
 const HOST: &str = "pages.test";
+
+/// The host of another domain key, which a handler navigating beside its
+/// page reaches ([`Options::beside`]): it answers every path with
+/// [`BESIDE_PAGE`].
+const BESIDE_HOST: &str = "beside.test";
+
+/// The page [`BESIDE_HOST`] answers.
+const BESIDE_PAGE: &str = "<!DOCTYPE html><html><body><h1>Beside</h1></body></html>";
 
 /// The end of every page's body.
 const TAIL: &[u8] = b"</main></body></html>\n";
@@ -169,6 +179,8 @@ struct Site {
     requests: Arc<AtomicU64>,
     /// How many of [`PAGES`] it links and serves.
     linked: usize,
+    /// The pages [`BESIDE_HOST`] answered.
+    besides: Arc<AtomicU64>,
 }
 
 /// The seed that redirects, to [`MOVED_TO`].
@@ -214,6 +226,18 @@ fn frontier_page(path: &str) -> Option<Page> {
             head: head(path, ""),
             paragraphs: 0,
         })
+}
+
+/// The page [`BESIDE_HOST`] answers every path with.
+fn beside_page() -> Sent {
+    let headers = vec![
+        (
+            "content-type".to_owned(),
+            "text/html; charset=utf-8".to_owned(),
+        ),
+        ("content-length".to_owned(), BESIDE_PAGE.len().to_string()),
+    ];
+    plain(200, headers, BESIDE_PAGE.to_owned())
 }
 
 /// One answer of no paragraphs: a redirect, or a sitemap.
@@ -265,7 +289,10 @@ impl Transport for Site {
                 ROBOTS_TXT.to_owned(),
             ))));
         }
-        let path = hop.url.path();
+        if hop.url.host_str() == Some(BESIDE_HOST) {
+            self.besides.fetch_add(1, Ordering::Relaxed);
+            return Box::pin(std::future::ready(Ok(beside_page())));
+        }
         if let Some(to) = self.moved(path) {
             self.hops.fetch_add(1, Ordering::Relaxed);
             let location = ("location".to_owned(), to.to_owned());
@@ -392,9 +419,16 @@ impl Body for Chunks {
 pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant> {
     let work = work.clone();
     let plant: Plant = match row {
-        Row::PageSelectorCompilations => Arc::new(move |_: &str| {
-            let _ = work.compile_selector(row, "h1");
-        }),
+        // An `XPath` expression the engine's cache has not kept, a new one
+        // each page, read as a field's locator is (issue 2713).
+        Row::PageSelectorCompilations => {
+            let planted = AtomicU64::new(0);
+            Arc::new(move |_: &str| {
+                let n = planted.fetch_add(1, Ordering::Relaxed) + 1;
+                goodfetch_fetch_tier::check_xpath(&format!("//h1[{n}]"), &work)
+                    .expect("invariant: the plant's expression is XPath 1.0");
+            })
+        }
         Row::PageFileOpens => Arc::new(move |_: &str| {
             let exe = std::env::current_exe().expect("invariant: a running executable has a path");
             work.open_file(row, OpenOptions::new().read(true), &exe)
@@ -445,6 +479,9 @@ pub(crate) struct Crawled {
     pub(crate) attempts: u64,
     /// Every request the site was sent: its pages' and robots.txt's.
     pub(crate) requests: u64,
+    /// The pages [`BESIDE_HOST`] answered: a handler's navigations beside
+    /// its page, each a second copy of a request its Run admitted.
+    pub(crate) besides: u64,
 }
 
 /// The entries the Run traces under `home` hold once its crawl ended: one
@@ -503,6 +540,17 @@ pub(crate) fn crawl(home: &Path, start: SystemTime, seed: u64) -> Crawled {
     crawl_with(home, start, seed, Options::default())
 }
 
+/// Where a crawl's handler navigates its page once its `h1` is visible.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Navigation {
+    /// Nowhere: it has handled its page.
+    #[default]
+    Stays,
+    /// To [`BESIDE_HOST`], another domain key, which takes a Permit beside
+    /// the Run's own: a second copy (#2171).
+    Beside,
+}
+
 /// What a crawl runs with beyond the fixture: the counts cells' (ADR 0140).
 #[derive(Default)]
 pub(crate) struct Options {
@@ -517,9 +565,11 @@ pub(crate) struct Options {
     /// The formats the crawl's extraction asks for: none by default.
     pub(crate) formats: serde_json::Map<String, Value>,
     /// A handler serves each page, on its document tier, in place of the
-    /// code-free extraction: it waits on the page's `h1` as attached, then as
-    /// visible, which the tier answers from the page's own document.
-    pub(crate) handler: bool,
+    /// code-free extraction.
+    pub(crate) handler: Option<Handler>,
+    /// Where the [`Handler::Waits`] handler navigates its page once its `h1`
+    /// is visible.
+    pub(crate) navigation: Navigation,
     /// The Frontier's outcomes beyond a links batch.
     pub(crate) frontier: Option<Frontier>,
     /// Every page without its paragraphs: the same batches, hops and sitemaps
@@ -547,6 +597,33 @@ pub(crate) struct Options {
     pub(crate) linked_pages: Option<usize>,
     /// What the crawl is sent once it started.
     pub(crate) after_start: AfterStart,
+    /// A second engine on the same home crawls the same site beside it, as
+    /// the Run [`BESIDE_RUN`], with entropy of its own and on the same
+    /// runtime: two engines crawling one site, which share its Politeness
+    /// through the per-user file (#2173). Their Records, requests and
+    /// counts add up.
+    pub(crate) second_engine: bool,
+}
+
+/// The Run of the second engine of [`Options::second_engine`].
+pub(crate) const BESIDE_RUN: &str = "beside";
+
+/// The handler that serves each page of a handled crawl, on its document
+/// tier.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Handler {
+    /// Waits on the page's `h1` as attached, then as visible, which the
+    /// tier answers from the page's own document, and answers no Record.
+    Waits,
+    /// One `page.read` of the page's heading by an `XPath` locator, which
+    /// the engine parses once for the crawl (issue 2713), then an answer
+    /// with no Record.
+    XpathRead,
+    /// The reference handler of `E1.handled_page_wire_share` (#2407): one
+    /// `page.read` of [`REFERENCE_FIELDS`] fields, one `crawl_request.push`
+    /// of what it read and one `crawl_request.enqueue_links` of the page's
+    /// links, then an answer with no Record.
+    Reference,
 }
 
 /// What a crawl is sent once it started.
@@ -637,6 +714,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         fields,
         formats,
         handler,
+        navigation,
         frontier,
         small_pages,
         run_state_vfs,
@@ -646,6 +724,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         setup_vfs,
         linked_pages,
         after_start,
+        second_engine,
     } = options;
     let mut settings = settings;
     if after_start == AfterStart::BarrierCalls {
@@ -659,6 +738,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     let (sent, attempts) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let requests = Arc::new(AtomicU64::new(0));
+    let besides = Arc::new(AtomicU64::new(0));
     let site = Arc::new(Site {
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
@@ -672,21 +752,36 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         requests: Arc::clone(&requests),
         linked,
+        besides: Arc::clone(&besides),
     });
-    let (records, handled) = drive(
-        site,
-        &crawl_start(settings, (fields, formats), handler, frontier, linked),
-        Driven {
-            home,
-            start,
-            seed,
-            metrics,
-            run_state_vfs,
-            handler,
-            credits: CREDITS,
-            after_start,
-        },
-    );
+    let started = crawl_start(settings, (fields, formats), handler, frontier, linked);
+    let driven = |seed: u64| Driven {
+        home,
+        start,
+        seed,
+        metrics: metrics.clone(),
+        run_state_vfs: run_state_vfs.clone(),
+        handler,
+        navigation,
+        credits: CREDITS,
+        after_start,
+    };
+    let (records, handled) = if second_engine {
+        let mut beside = started.clone();
+        beside["params"]["run_id"] = json!(BESIDE_RUN);
+        let site: Arc<dyn Transport> = site;
+        let ((mut records, handled), (more, more_handled)) = goodfetch_test_support::runtime()
+            .block_on(async {
+                tokio::join!(
+                    serve(Arc::clone(&site), &started, driven(seed)),
+                    serve(site, &beside, driven(seed + 1)),
+                )
+            });
+        records.extend(more);
+        (records, handled + more_handled)
+    } else {
+        drive(site, &started, driven(seed))
+    };
     Crawled {
         records,
         handled,
@@ -695,22 +790,26 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         sitemaps: sitemaps.load(Ordering::Relaxed),
         attempts: attempts.load(Ordering::Relaxed),
         requests: requests.load(Ordering::Relaxed),
+        besides: besides.load(Ordering::Relaxed),
     }
 }
 
 /// What [`drive`] runs a crawl on: the Goodfetch home `home`, a paused
 /// clock starting at `start`, entropy seeded with `seed`, `metrics`, where
 /// its engine records, among them its Counted work, and the VFS its run
-/// file opens through; whether a `handler` serves its pages, so it keeps no
-/// Record; and the `credits` its read of the Records gives, at least one a
-/// Record.
+/// file opens through; the `handler` that serves its pages, if any, so it
+/// keeps no Record of the code-free extraction; and the `credits` its read
+/// of the Records gives, at least one a Record.
 pub(crate) struct Driven<'a> {
     pub(crate) home: &'a Path,
     pub(crate) start: SystemTime,
     pub(crate) seed: u64,
     pub(crate) metrics: Metrics,
     pub(crate) run_state_vfs: Option<String>,
-    pub(crate) handler: bool,
+    pub(crate) handler: Option<Handler>,
+    /// Where the [`Handler::Waits`] handler navigates its page once its `h1`
+    /// is visible.
+    pub(crate) navigation: Navigation,
     pub(crate) credits: u64,
     /// What the crawl is sent once it started.
     pub(crate) after_start: AfterStart,
@@ -726,6 +825,12 @@ pub(crate) fn drive(
     crawl_start: &Value,
     on: Driven<'_>,
 ) -> (Vec<Value>, u64) {
+    goodfetch_test_support::runtime().block_on(serve(site, crawl_start, on))
+}
+
+/// [`drive`]'s crawl, on the runtime it is awaited on: the Run is the one
+/// `crawl_start` names.
+async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) -> (Vec<Value>, u64) {
     let Driven {
         home,
         start,
@@ -733,6 +838,7 @@ pub(crate) fn drive(
         metrics,
         run_state_vfs,
         handler,
+        navigation,
         credits,
         after_start,
     } = on;
@@ -742,68 +848,68 @@ pub(crate) fn drive(
         "params": { "id": "records", "credits": credits },
     })
     .to_string();
-    goodfetch_test_support::runtime().block_on(async {
-        let (network, dialer) = transport::in_memory();
-        let client = async {
-            let (reader, mut writer) = dialer
-                .connect()
-                .await
-                .expect("invariant: the engine listens")
-                .split();
-            let mut lines = BufReader::new(reader).lines();
-            send(&mut writer, &hello()).await;
-            send(&mut writer, &crawl_start.to_string()).await;
-            let mut records = Vec::new();
-            let mut waits = Waits::default();
-            let mut calls_out = 0;
-            while let Ok(Some(line)) = lines.next_line().await {
-                let message: Value =
-                    serde_json::from_str(&line).expect("invariant: the engine writes JSON");
-                if waits.read(&message, &mut writer).await {
-                    continue;
+    let run = crawl_start["params"]["run_id"]
+        .as_str()
+        .expect("invariant: a crawl's start names its Run");
+    let (network, dialer) = transport::in_memory();
+    let client = async {
+        let (reader, mut writer) = dialer
+            .connect()
+            .await
+            .expect("invariant: the engine listens")
+            .split();
+        let mut lines = BufReader::new(reader).lines();
+        send(&mut writer, &hello()).await;
+        send(&mut writer, &encode(crawl_start)).await;
+        let mut records = Vec::new();
+        let mut handled = Handled::of(handler, navigation);
+        let mut calls_out = 0;
+        while let Some(line) = next_line(&mut lines).await {
+            let message = decode(&line);
+            if handled.read(&message, &mut writer).await {
+                continue;
+            }
+            if message["id"] == "start" && after_start == AfterStart::BarrierCalls {
+                assert!(message.get("result").is_some(), "{message}");
+                send(&mut writer, &set(run)).await;
+                send(&mut writer, &add_seed(run)).await;
+                calls_out = BARRIER_CALLS;
+            } else if message["id"] == "start" {
+                assert!(message.get("result").is_some(), "{message}");
+                send(&mut writer, &finish(run)).await;
+            } else if message["id"] == "set" || message["id"] == "add" {
+                assert!(message.get("result").is_some(), "{message}");
+                calls_out -= 1;
+                if calls_out == 0 {
+                    send(&mut writer, &finish(run)).await;
                 }
-                if message["id"] == "start" && after_start == AfterStart::BarrierCalls {
-                    assert!(message.get("result").is_some(), "{message}");
-                    send(&mut writer, SET).await;
-                    send(&mut writer, &add_seed()).await;
-                    calls_out = BARRIER_CALLS;
-                } else if message["id"] == "start" {
-                    assert!(message.get("result").is_some(), "{message}");
-                    send(&mut writer, FINISH).await;
-                } else if message["id"] == "set" || message["id"] == "add" {
-                    assert!(message.get("result").is_some(), "{message}");
-                    calls_out -= 1;
-                    if calls_out == 0 {
-                        send(&mut writer, FINISH).await;
-                    }
-                } else if message["id"] == "finish" {
-                    assert!(message.get("result").is_some(), "{message}");
-                    if handler {
-                        break;
-                    }
-                    send(&mut writer, RECORDS).await;
-                    send(&mut writer, &credits).await;
-                } else if message["method"] == "$/record" {
-                    records.push(message["params"]["record"]["value"].clone());
-                } else if message["id"] == "records" {
-                    assert!(message.get("result").is_some(), "{message}");
+            } else if message["id"] == "finish" {
+                assert!(message.get("result").is_some(), "{message}");
+                if handler.is_some() {
                     break;
                 }
+                send(&mut writer, &records_of(run)).await;
+                send(&mut writer, &credits).await;
+            } else if message["method"] == "$/record" {
+                records.push(message["params"]["record"]["value"].clone());
+            } else if message["id"] == "records" {
+                assert!(message.get("result").is_some(), "{message}");
+                break;
             }
-            writer.shutdown().await.expect("invariant: in memory");
-            while let Ok(Some(_)) = lines.next_line().await {}
-            (records, waits.answered)
-        };
-        let (served, read) = tokio::join!(
-            engine.run_attached(
-                Network::InMemory(network),
-                dependencies(home, start, seed, run_state_vfs)
-            ),
-            client
-        );
-        served.expect("invariant: the engine got its Connection");
-        read
-    })
+        }
+        writer.shutdown().await.expect("invariant: in memory");
+        while let Ok(Some(_)) = lines.next_line().await {}
+        (records, handled.answered())
+    };
+    let (served, read) = tokio::join!(
+        engine.run_attached(
+            Network::InMemory(network),
+            dependencies(home, start, seed, run_state_vfs)
+        ),
+        client
+    );
+    served.expect("invariant: the engine got its Connection");
+    read
 }
 
 /// `count` links of the site as a shop's pages write them: every fourth one a
@@ -850,6 +956,7 @@ pub(crate) fn start_with_seeds(
         robots_txt: false,
         requests: Arc::default(),
         linked: 0,
+        besides: Arc::default(),
     }));
     let engine = foxhound(tiers, Metrics::default());
     let seeds: Vec<Value> = urls
@@ -893,7 +1000,11 @@ pub(crate) fn start_with_seeds(
                     serde_json::from_str(&line).expect("invariant: the engine writes JSON");
                 if message["id"] == "start" {
                     assert!(message.get("result").is_some(), "{message}");
-                    send(&mut writer, ABORT).await;
+                    send(
+                        &mut writer,
+                        &on_run("abort", "run.abort", "pages", json!({})),
+                    )
+                    .await;
                 } else if message["id"] == "abort" {
                     assert!(message.get("result").is_some(), "{message}");
                     break;
@@ -939,31 +1050,46 @@ fn dependencies(
     }
 }
 
-/// `run.finish`, which answers once the crawl's work items are done.
-const FINISH: &str =
-    r#"{"jsonrpc":"2.0","id":"finish","method":"run.finish","params":{"run_id":"pages"}}"#;
-
-/// `run.abort`, which a Run that only had to start ends with.
-const ABORT: &str =
-    r#"{"jsonrpc":"2.0","id":"abort","method":"run.abort","params":{"run_id":"pages"}}"#;
-
-/// `key_value_store.set` of `pages`, outside any handler: a call no page
-/// will make again.
-const SET: &str = r#"{"jsonrpc":"2.0","id":"set","method":"key_value_store.set","params":{"run_id":"pages","key":"cursor","value":3}}"#;
-
-/// `run.add_seed` of the site's index to `pages`, outside any attempt: a
-/// duplicate of its first seed, which adds no page.
-fn add_seed() -> String {
-    json!({
-        "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
-        "params": { "run_id": "pages", "seed": { "url": format!("http://{HOST}/"), "label": "page" } },
-    })
-    .to_string()
+/// The call `id` of `method` on the Run `run`, with `params` beside its
+/// Run ID.
+fn on_run(id: &str, method: &str, run: &str, mut params: Value) -> String {
+    params["run_id"] = json!(run);
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string()
 }
 
-/// `run.records` of `pages`, once the Run ended: it answers once every
-/// Record is sent.
-const RECORDS: &str = r#"{"jsonrpc":"2.0","id":"records","method":"run.records","params":{"run_id":"pages","dataset":"pages"}}"#;
+/// `run.finish` of `run`, which answers once the crawl's work items are
+/// done.
+fn finish(run: &str) -> String {
+    on_run("finish", "run.finish", run, json!({}))
+}
+
+/// `key_value_store.set` of `run`, outside any handler: a call no page
+/// will make again.
+fn set(run: &str) -> String {
+    on_run(
+        "set",
+        "key_value_store.set",
+        run,
+        json!({ "key": "cursor", "value": 3 }),
+    )
+}
+
+/// `run.add_seed` of the site's index to `run`, outside any attempt: a
+/// duplicate of its first seed, which adds no page.
+fn add_seed(run: &str) -> String {
+    on_run(
+        "add",
+        "run.add_seed",
+        run,
+        json!({ "seed": { "url": format!("http://{HOST}/"), "label": "page" } }),
+    )
+}
+
+/// `run.records` of `run`'s Dataset `pages`, once the Run ended: it answers
+/// once every Record is sent.
+fn records_of(run: &str) -> String {
+    on_run("records", "run.records", run, json!({ "dataset": "pages" }))
+}
 
 /// Enough credits for every Record of B1's site.
 const CREDITS: u64 = 1000;
@@ -980,7 +1106,7 @@ fn crawl_start(
         serde_json::Map<String, Value>,
         serde_json::Map<String, Value>,
     ),
-    handler: bool,
+    handler: Option<Handler>,
     frontier: Option<Frontier>,
     linked: usize,
 ) -> Value {
@@ -989,9 +1115,12 @@ fn crawl_start(
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
             "network".to_owned(),
-            json!({ "resolve": { HOST: ["127.0.0.1"] } }),
+            json!({ "resolve": { HOST: ["127.0.0.1"], BESIDE_HOST: ["127.0.0.1"] } }),
         ),
-        ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
+        (
+            "egress".to_owned(),
+            json!({ "private_ranges": [HOST, BESIDE_HOST] }),
+        ),
     ]);
     settings.extend(cell);
     let mut seeds = Vec::new();
@@ -1012,15 +1141,17 @@ fn crawl_start(
         if frontier.items_on(linked) > 0 {
             seeds.push(json!({ "url": format!("http://{HOST}{ITEM}?id=0"), "label": "page" }));
         }
-        if frontier.schema {
-            labels = json!({ "typed": { "payload": {
+        labels = if frontier.schema {
+            json!({ "typed": { "payload": {
                 "type": "object",
                 "required": ["isbn"],
                 "properties": { "isbn": { "type": "string" } },
-            } } });
-        }
+            } } })
+        } else {
+            json!({ "typed": {} })
+        };
     }
-    if handler {
+    if let Some(handler) = handler {
         settings.insert(
             "crawl".to_owned(),
             json!({ "handler": { "concurrency": 1 } }),
@@ -1031,16 +1162,22 @@ fn crawl_start(
             .collect();
         seeds.splice(0..0, pages);
         labels["page"] = json!({});
+        let mut params = json!({
+            "run_id": "pages",
+            "seeds": seeds,
+            "labels": labels,
+            "settings": settings,
+        });
+        // The reference handler pushes what it read into a Dataset of its
+        // own.
+        if handler == Handler::Reference {
+            params["datasets"] = json!([{ "name": "pages" }]);
+        }
         return json!({
             "jsonrpc": "2.0",
             "id": "start",
             "method": "crawl.start",
-            "params": {
-                "run_id": "pages",
-                "seeds": seeds,
-                "labels": labels,
-                "settings": settings,
-            },
+            "params": params,
         });
     }
     fields.insert(
@@ -1070,13 +1207,103 @@ fn crawl_start(
     })
 }
 
+/// The handler a crawl's pages are served by, and what it holds between
+/// its messages.
+enum Handled {
+    None,
+    Waits(Waits),
+    XpathRead(XpathRead),
+    Reference(Reference),
+}
+
+impl Handled {
+    fn of(handler: Option<Handler>, navigation: Navigation) -> Self {
+        match handler {
+            None => Self::None,
+            Some(Handler::Waits) => Self::Waits(Waits {
+                navigation,
+                ..Waits::default()
+            }),
+            Some(Handler::XpathRead) => Self::XpathRead(XpathRead::default()),
+            Some(Handler::Reference) => Self::Reference(Reference::default()),
+        }
+    }
+
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        match self {
+            Self::None => false,
+            Self::Waits(waits) => waits.read(message, writer).await,
+            Self::XpathRead(xpath_read) => xpath_read.read(message, writer).await,
+            Self::Reference(reference) => reference.read(message, writer).await,
+        }
+    }
+
+    /// The requests it answered.
+    fn answered(&self) -> u64 {
+        match self {
+            Self::None => 0,
+            Self::Waits(waits) => waits.answered,
+            Self::XpathRead(xpath_read) => xpath_read.answered,
+            Self::Reference(reference) => reference.answered,
+        }
+    }
+}
+
+/// The handler of [`Handler::XpathRead`]: on each `crawl_request.handle`,
+/// reads its page's heading by the `XPath` locator `//h1`, then answers no
+/// Record.
+#[derive(Default)]
+struct XpathRead {
+    /// Each request a read is out for, by its key.
+    reading: BTreeMap<String, Value>,
+    answered: u64,
+}
+
+impl XpathRead {
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        let id = message["id"].as_str().unwrap_or_default();
+        if message["method"] == "crawl_request.handle" {
+            let key = self.reading.len().to_string();
+            let fields = json!({
+                "heading": { "locator": { "kind": "xpath", "selector": "//h1" } },
+            });
+            let read = request(
+                &format!("xpath-{key}"),
+                "page.read",
+                &json!({ "page_id": message["params"]["page_id"], "fields": fields }),
+            );
+            send(writer, &encode(&read)).await;
+            self.reading.insert(key, message["id"].clone());
+        } else if let Some(key) = id.strip_prefix("xpath-") {
+            assert!(
+                message["result"]["values"]["heading"].is_string(),
+                "{message}"
+            );
+            let answer = json!({
+                "jsonrpc": "2.0",
+                "id": self.reading[key],
+                "result": { "records": [] },
+            });
+            send(writer, &encode(&answer)).await;
+            self.answered += 1;
+        } else {
+            return false;
+        }
+        true
+    }
+}
+
 /// The handler of a crawl: on each `crawl_request.handle`, waits on its page's
-/// `h1` as attached, then as visible, then answers no Record.
+/// `h1` as attached, then as visible, then, when its `navigation` goes
+/// beside, navigates the page to [`BESIDE_HOST`], then answers no Record.
 #[derive(Default)]
 struct Waits {
     /// Each request a wait is out for: its ID and its page's.
     waiting: BTreeMap<String, (Value, Value)>,
     answered: u64,
+    navigation: Navigation,
 }
 
 impl Waits {
@@ -1100,7 +1327,22 @@ impl Waits {
                 &wait_for(&format!("visible-{key}"), page, "visible"),
             )
             .await;
-        } else if let Some(key) = id.strip_prefix("visible-") {
+        } else if let Some(key) = id.strip_prefix("visible-")
+            && self.navigation == Navigation::Beside
+        {
+            assert!(message.get("result").is_some(), "{message}");
+            let (_, page) = &self.waiting[key];
+            let goto = json!({
+                "jsonrpc": "2.0",
+                "id": format!("beside-{key}"),
+                "method": "page.goto",
+                "params": { "page_id": page, "url": format!("http://{BESIDE_HOST}/") },
+            });
+            send(writer, &goto.to_string()).await;
+        } else if let Some(key) = id
+            .strip_prefix("visible-")
+            .or_else(|| id.strip_prefix("beside-"))
+        {
             assert!(message.get("result").is_some(), "{message}");
             let (request, _) = &self.waiting[key];
             let answer = json!({ "jsonrpc": "2.0", "id": request, "result": { "records": [] } });
@@ -1127,11 +1369,159 @@ fn wait_for(id: &str, page: &Value, state: &str) -> String {
     .to_string()
 }
 
+/// The fields the reference handler reads of each page in one `page.read`.
+pub(crate) const REFERENCE_FIELDS: usize = 20;
+
+/// The paragraphs of the fixture's smallest page, each of which the
+/// reference handler's fields read in turn: every page holds as many.
+const READ_PARAGRAPHS: usize = PAGES[0];
+
+/// The reference handler (#2407): on each `crawl_request.handle`, one
+/// `page.read` of [`REFERENCE_FIELDS`] fields, then one `crawl_request.push`
+/// of the values it read, then one `crawl_request.enqueue_links` of the
+/// page's links, which the crawl's seeds already hold, then an answer with
+/// no Record.
+#[derive(Default)]
+struct Reference {
+    /// Each request a step is out for: the handle's params.
+    handling: BTreeMap<String, Value>,
+    answered: u64,
+}
+
+impl Reference {
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        let id = message["id"].as_str().unwrap_or_default();
+        if message["method"] == "crawl_request.handle" {
+            let key = self.handling.len().to_string();
+            let handle = &message["params"];
+            let read = request(
+                &format!("read-{key}"),
+                "page.read",
+                &json!({ "page_id": handle["page_id"], "fields": reference_fields() }),
+            );
+            send(writer, &encode(&read)).await;
+            let mut handling = handle.clone();
+            handling["request"] = message["id"].clone();
+            self.handling.insert(key, handling);
+        } else if let Some(key) = id.strip_prefix("read-") {
+            let values = &message["result"]["values"];
+            assert_eq!(
+                values.as_object().map(serde_json::Map::len),
+                Some(REFERENCE_FIELDS),
+                "{message}"
+            );
+            let handle = &self.handling[key];
+            let push = request(
+                &format!("push-{key}"),
+                "crawl_request.push",
+                &json!({
+                    "run_id": handle["run_id"],
+                    "crawl_request_id": handle["crawl_request"]["id"],
+                    "lease_epoch": handle["lease_epoch"],
+                    "dataset": "pages",
+                    "records": [values],
+                }),
+            );
+            send(writer, &encode(&push)).await;
+        } else if let Some(key) = id.strip_prefix("push-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let handle = &self.handling[key];
+            let enqueue = request(
+                &format!("enqueue-{key}"),
+                "crawl_request.enqueue_links",
+                &json!({
+                    "run_id": handle["run_id"],
+                    "crawl_request_id": handle["crawl_request"]["id"],
+                    "lease_epoch": handle["lease_epoch"],
+                    "locator": { "page_id": handle["page_id"], "selector": "nav a" },
+                    "label": "page",
+                }),
+            );
+            send(writer, &encode(&enqueue)).await;
+        } else if let Some(key) = id.strip_prefix("enqueue-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let answer = json!({
+                "jsonrpc": "2.0",
+                "id": self.handling[key]["request"],
+                "result": { "records": [] },
+            });
+            send(writer, &encode(&answer)).await;
+            self.answered += 1;
+        } else {
+            return false;
+        }
+        true
+    }
+}
+
+/// The request `method` with `params`, sent under `id`.
+fn request(id: &str, method: &str, params: &Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
+}
+
+/// The reference handler's [`REFERENCE_FIELDS`] fields: the page's title,
+/// its heading, its first link's `href`, and its paragraphs' texts in turn
+/// for the rest.
+fn reference_fields() -> Value {
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    let mut fields = serde_json::Map::from_iter([
+        ("title".to_owned(), json!({ "locator": css("title") })),
+        ("heading".to_owned(), json!({ "locator": css("h1") })),
+        (
+            "link".to_owned(),
+            json!({ "locator": css("nav a"), "attribute": "href" }),
+        ),
+    ]);
+    for field in fields.len()..REFERENCE_FIELDS {
+        let paragraph = field % READ_PARAGRAPHS + 1;
+        fields.insert(
+            format!("paragraph_{field}"),
+            json!({ "locator": css(&format!("main > p:nth-of-type({paragraph})")) }),
+        );
+    }
+    Value::Object(fields)
+}
+
+/// The client's wire, each step in a function of its own that Callgrind
+/// names (`E1.handled_page_wire_share`): `message` encoded as its line.
+#[inline(never)]
+pub(crate) fn encode(message: &Value) -> String {
+    message.to_string()
+}
+
+/// The message `line` holds, decoded.
+#[inline(never)]
+pub(crate) fn decode(line: &str) -> Value {
+    serde_json::from_str(line).expect("invariant: the engine writes JSON")
+}
+
+/// The next line the engine wrote, `None` once it wrote its last.
+async fn next_line(lines: &mut Lines<BufReader<ConnectionReader>>) -> Option<String> {
+    Wire(pin!(lines.next_line())).await.ok().flatten()
+}
+
 /// Writes `line` and its newline.
 async fn send(writer: &mut ConnectionWriter, line: &str) {
-    writer
-        .write_all(line.as_bytes())
-        .await
-        .expect("invariant: in memory");
-    writer.write_all(b"\n").await.expect("invariant: in memory");
+    Wire(pin!(async {
+        writer
+            .write_all(line.as_bytes())
+            .await
+            .expect("invariant: in memory");
+        writer.write_all(b"\n").await.expect("invariant: in memory");
+    }))
+    .await;
+}
+
+/// The client reading or writing its Connection, `future`, each poll in a
+/// function of its own that Callgrind names (`E1.handled_page_wire_share`).
+struct Wire<'a, F>(Pin<&'a mut F>);
+
+impl<F: Future> Future for Wire<'_, F> {
+    type Output = F::Output;
+
+    #[inline(never)]
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<F::Output> {
+        self.0.as_mut().poll(context)
+    }
 }

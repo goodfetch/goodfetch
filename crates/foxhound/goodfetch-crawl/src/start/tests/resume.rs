@@ -12,8 +12,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    Client, POLICY, Reply, answer_all, configure, crawl, default_dependencies, page_of, records,
-    run_file, seeds, work_items,
+    POLICY, Reply, answer_all, configure, crawl, crawl_connected, default_dependencies, delivered,
+    page_of, paused_after_its_first_page, records, run_file, seeds, work_items,
 };
 use crate::policy::CrawlPolicy;
 
@@ -28,15 +28,6 @@ const ONE_AT_A_TIME: CrawlPolicy = CrawlPolicy {
 /// ended.
 fn at(level: &str) -> Value {
     json!({ "run_state": { "durability": level } })
-}
-
-/// Each delivered work item's page and attempt, in order.
-fn delivered(client: &Client) -> Vec<(String, u64)> {
-    client
-        .handled
-        .iter()
-        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
-        .collect()
 }
 
 /// Both machines' folders lie in memory (`TestEnv::in_memory`): on a busy
@@ -68,7 +59,7 @@ fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "moved", "seeds": seeds(3), "settings": at(level) }),
+                    json!({ "run_id": "moved", "seeds": seeds(3), "settings": at(level), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -164,31 +155,12 @@ fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once(
             default_dependencies(&env, RunStateOptions::default())
         },
         async |client| {
-            let mut first_only = |params: &Value| {
-                if page_of(params).ends_with("/1") {
-                    answer_all(params)
-                } else {
-                    Reply::Silent
-                }
-            };
-            client
-                .call(
-                    "crawl.start",
-                    json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level) }),
-                    &mut first_only,
-                )
-                .await;
-            let paused = loop {
-                let paused = client
-                    .call("run.pause", json!({ "run_id": "paused" }), &mut first_only)
-                    .await;
-                if records(&run_file(&env, "paused")).len() == 1 {
-                    break paused;
-                }
-                client
-                    .call("run.resume", json!({ "run_id": "paused" }), &mut first_only)
-                    .await;
-            };
+            let paused = paused_after_its_first_page(
+                client,
+                &env,
+                json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level), "labels": { "page": {} } }),
+            )
+            .await;
             client.handled.clear();
             client
                 .call("run.resume", json!({ "run_id": "paused" }), &mut answer_all)
@@ -234,7 +206,8 @@ fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() 
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))
         .collect();
-    let (stopped, handled, finished) = crawl(
+    let (stopped, handled, finished) = crawl_connected(
+        &json!({ "timeout": { "run": 15_000 } }),
         || {
             configure(&env, ONE_AT_A_TIME);
             default_dependencies(&env, RunStateOptions::default())
@@ -244,12 +217,10 @@ fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() 
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "timed",
                         "seeds": seeds,
-                        "settings": {
-                            "timeout": { "run": 15_000 },
-                            "admission": { "max_requests_per_minute": 6 },
-                        },
+                        "settings": { "admission": { "max_requests_per_minute": 6 } },
                     }),
                     &mut answer_all,
                 )

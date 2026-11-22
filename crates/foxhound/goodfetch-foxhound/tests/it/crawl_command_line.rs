@@ -2,7 +2,8 @@
 //! 0116; spec #611's CLI), through Foxhound's executable: `crawl start
 //! <url>…` builds the code-free crawl from its flags and prints its Run ID,
 //! under `--follow` exits by how the Run ended, checkpoints it at a first
-//! interrupt, and prints a failure once the Run ID is out on stderr alone;
+//! interrupt, holds it to its `--limit`, and prints a failure once the Run
+//! ID is out on stderr alone;
 //! `run export --out` writes the Export's file whole or not at all, and
 //! stops at a standard output that takes no more; and `config explain
 //! politeness` shows every Politeness value with its layer before a crawl
@@ -41,6 +42,7 @@ const CATALOG: &str = "catalog/1";
 const MARKDOWN_TASK: &str = "extraction/7";
 
 /// The size of the filesystem a full-filesystem case fills.
+#[cfg(target_os = "linux")]
 const SIZE: u64 = 64 * 1024;
 
 /// `crawl start` with `--format`, `--field`, `--fields`, `--links` and a
@@ -159,9 +161,10 @@ fn printed_run_id(process: &goodfetch_test_support::Process) -> Value {
 }
 
 /// A followed crawl exits by how its Run ended: `20` when another command
-/// stopped it, and `0` when another let it finish, `verified`, under
-/// `--require-verified` too. The engine gives a crawl no other Verdict yet,
-/// so `21` is `exit_codes::of_report`'s unit case.
+/// stopped it, `0` when another let it finish `verified`, with or without
+/// `--require-verified`, and `21` under `--require-verified` when it
+/// finished with another Verdict: with `fetch.block_classification` off,
+/// its Verdict is `needs_review` (ADR 0029).
 ///
 /// Covers: story:11-1132, command:crawl.start
 #[rstest]
@@ -169,6 +172,12 @@ fn printed_run_id(process: &goodfetch_test_support::Process) -> Value {
 #[case::stopped(&[], &["run", "stop"], Some(20))]
 /// Covers: command:run.finish, exit:success
 #[case::finished_verified(&["--require-verified"], &["run", "finish"], Some(0))]
+/// Covers: exit:verdict_not_verified
+#[case::finished_needing_review(
+    &["--require-verified", "--set", "fetch.block_classification=false"],
+    &["run", "finish"],
+    Some(21)
+)]
 fn a_followed_crawl_exits_by_how_its_run_ended(
     #[case] more: &[&str],
     #[case] ended_by: &[&str],
@@ -193,6 +202,61 @@ fn a_followed_crawl_exits_by_how_its_run_ended(
         (run_id, status.code()),
         (json!("followed"), exit),
         "{ended}"
+    );
+}
+
+/// `crawl start --limit` holds the crawl to its Limit: the followed crawl
+/// stops once the Limit is used up and exits `20`, and a start that names
+/// the Run again while the Limit is still used up fails `limit_reached`,
+/// exit `16`, naming the Run's own Limit.
+///
+/// Covers: story:11-1132, command:crawl.start, exit:run_stopped, exit:limit_reached
+#[test]
+fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = settings_file(&env, &proving_ground);
+    let start = |more: &[&str]| {
+        cli(&env, FOXHOUND)
+            .args([
+                "crawl",
+                "start",
+                &proving_ground.start_url(CATALOG).unwrap(),
+            ])
+            .args([
+                "--run-id",
+                "capped",
+                "--links",
+                "scope",
+                "--limit",
+                "requests=1",
+            ])
+            .args(["--settings", settings.to_str().unwrap(), "--json"])
+            .args(more)
+            .run()
+            .unwrap()
+    };
+
+    let followed = start(&["--follow"]);
+    let restarted = start(&[]);
+    let refused: Value = serde_json::from_str(&restarted.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            followed.exit,
+            restarted.exit,
+            refused["error"]["code"].clone(),
+            refused["error"]["scope"].clone(),
+        ),
+        (
+            Some(20),
+            Some(16),
+            json!("limit_reached"),
+            json!({ "kind": "run", "id": "capped" }),
+        ),
+        "{followed}\n{restarted}"
     );
 }
 
@@ -285,6 +349,7 @@ fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
 /// How long a command may take to exit after a second interrupt: far
 /// less than it would wait for the unanswered `run.stop`, which is for
 /// ever.
+#[cfg(unix)]
 const SECOND_INTERRUPT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Without `--follow`, `run records` prints each Record as it arrives,

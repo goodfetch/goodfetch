@@ -13,6 +13,7 @@
 //! Effect's body with `effect_staging_refused`.
 
 use goodfetch_dataset::Refused;
+use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::dataset::{

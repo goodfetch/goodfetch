@@ -28,8 +28,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let scratch = tempfile::tempdir()?;
+    let home = Home::new(scratch.path().to_owned());
     let store = KnownCertificates::of(
-        &Home::new(scratch.path().to_owned()),
+        &home,
         None,
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
     );
@@ -73,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         Ok::<_, Box<dyn std::error::Error>>(())
     })?;
-    let connection = rusqlite::Connection::open(store.path())?;
+    let connection = rusqlite::Connection::open(home.known_certificates())?;
     std::fs::create_dir_all(&output)?;
     std::fs::write(
         output.join("known-certificates.sql"),

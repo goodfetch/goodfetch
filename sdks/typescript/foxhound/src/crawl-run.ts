@@ -12,14 +12,21 @@ import {
   type CallOptions,
   type Page,
 } from "@goodfetch/collie-client";
-import type { Caller, RunStarted } from "@goodfetch/collie-client/generated";
+import { collieOperations, type Caller, type RunStarted } from "@goodfetch/collie-client/generated";
 import {
+  alsoInNamespace,
   ensureRunOpen,
+  idOfLocator,
   pageOf,
+  Sequence,
   type ClientConnection,
+  fromWire,
   type RunHost,
+  warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import {
+  declaredLabel,
+  enqueueLinksOptions,
   handlerOf,
   payloadOf,
   requestOptions,
@@ -29,12 +36,14 @@ import {
   type Dataset,
 } from "./crawl.ts";
 import { HandlerFailedError, ResponseNotDocumentError } from "./generated/errors.ts";
-import type {
-  CrawlRequestHandleParams,
-  CrawlRequestHandled,
-  DatasetRecord,
-  FoxhoundOperationTypes,
+import {
+  foxhoundOperations,
+  type CrawlRequestHandleParams,
+  type CrawlRequestHandled,
+  type DatasetRecord,
+  type FoxhoundOperationTypes,
 } from "./generated/index.ts";
+import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
 /** How many Records `records()` lets the engine send before the program has read any. */
 const RECORD_CREDITS = 64;
@@ -79,6 +88,8 @@ export class CrawlRun extends Run {
   /** @internal `Foxhound.startCrawl` opens a crawl's Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted, crawl: Crawl, crawlHost: CrawlHost) {
     super(host, started);
+    // A crawl's Run takes the `crawl` operations beside a Run's (ADR 0099).
+    alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
     this.#crawlHost = crawlHost;
   }
@@ -87,69 +98,25 @@ export class CrawlRun extends Run {
    * Reads `dataset`'s committed Records in number order (ADR 0103), each
    * as the engine streams it: while the Run is live it follows the Run,
    * and once the Run has ended and every Record is read, the iteration
-   * ends. Leaving the loop early cancels the stream. On a closed Run it
-   * fails with `closed`.
+   * ends. Its stream is sent when it is called (ADR 0081), and `break`,
+   * `return()`, `close()`, `using` or releasing it unread cancel it at
+   * once. On a closed Run it throws `closed`, sending nothing.
    */
-  async *records<I extends object>(
+  records<I extends object>(
     dataset: Dataset<I>,
     options: RecordsOptions = {},
-  ): AsyncGenerator<DatasetRecord, void, undefined> {
+  ): Sequence<DatasetRecord> {
+    warnEntry(foxhoundOperations, "run.records");
     ensureRunOpen(this, "run.records");
-    const stop = new AbortController();
-    const signal =
-      options.signal === undefined ? stop.signal : AbortSignal.any([options.signal, stop.signal]);
-    const received: DatasetRecord[] = [];
-    let wake: (() => void) | undefined;
-    let ended = false;
-    const stream = this.#crawlHost.connection.stream(
-      "run.records",
-      { run_id: this.id(), dataset: dataset.name },
-      {
-        signal,
-        notified: (method, params) => {
-          const record = recordOf(method, params);
-          if (record !== undefined) {
-            received.push(record);
-            wake?.();
-          }
-        },
-      },
-    );
-    const settled = (): void => {
-      ended = true;
-      wake?.();
-    };
-    void stream.result.then(settled, settled);
-    stream.grant(RECORD_CREDITS);
-    let read = 0;
-    try {
-      for (;;) {
-        // Records already received are not read once the program stops reading.
-        options.signal?.throwIfAborted();
-        const record = received.shift();
-        if (record !== undefined) {
-          yield record;
-          read += 1;
-          if (read >= RECORD_REGRANT && !ended) {
-            stream.grant(read);
-            read = 0;
-          }
-        } else if (ended) {
-          // Answers the stream's end, or fails with its error.
-          await stream.result;
-          return;
-        } else {
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-          });
-          wake = undefined;
-        }
-      }
-    } finally {
-      if (!ended) {
-        stop.abort(new ClosedError("the program stopped reading the Records", {}));
-      }
-    }
+    const connection = this.#crawlHost.connection;
+    const params = { run_id: this.id(), dataset: dataset.name };
+    return new Sequence({
+      open: (opened) => connection.stream("run.records", params, opened),
+      itemOf: recordOf,
+      credits: RECORD_CREDITS,
+      regrant: RECORD_REGRANT,
+      signal: options.signal,
+    });
   }
 
   /**
@@ -159,6 +126,7 @@ export class CrawlRun extends Run {
    * stops any Run.
    */
   override close(): Promise<void> {
+    warnEntry(collieOperations, "run.abort");
     if (this.#closed) return super.close();
     this.#closed = true;
     for (const attempt of this.#attempts) {
@@ -177,7 +145,7 @@ export class CrawlRun extends Run {
     request: CrawlRequestHandleParams,
     served: AbortSignal,
   ): Promise<CrawlRequestHandled> {
-    const { label } = request.crawl_request;
+    const { label } = request.crawlRequest;
     const handler = handlerOf(this.#crawl, label);
     if (handler === undefined) {
       throw new HandlerFailedError(`the Crawl attaches no handler to the Label ${label}`, {
@@ -192,12 +160,7 @@ export class CrawlRun extends Run {
       return {};
     } catch (error) {
       if (error instanceof GoodfetchError) throw error;
-      throw new HandlerFailedError(
-        `the handler of the Label ${label} failed: ${messageOf(error)}`,
-        {
-          cause: error,
-        },
-      );
+      throw handlerFailed(label, error);
     } finally {
       this.#attempts.delete(attempt);
     }
@@ -205,43 +168,69 @@ export class CrawlRun extends Run {
 
   #contextOf(request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
     const attempt = {
-      run_id: this.id(),
-      crawl_request_id: request.crawl_request.id,
-      lease_epoch: request.lease_epoch,
+      runId: this.id(),
+      crawlRequestId: request.crawlRequest.id,
+      leaseEpoch: request.leaseEpoch,
     };
     const calls = this.#crawlHost.calls;
+    const crawl = this.#crawl;
     const options: CallOptions = { signal };
-    const pageId = request.page_id ?? undefined;
+    const pageId = request.pageId ?? undefined;
     const page = pageId === undefined ? undefined : pageOf(this, pageId, signal);
     return {
       get page(): Page {
         if (page === undefined) {
           throw new ResponseNotDocumentError(
-            `the crawl request ${request.crawl_request.id}'s response is not a document, so its handler has no page`,
+            `the crawl request ${request.crawlRequest.id}'s response is not a document, so its handler has no page`,
             {},
           );
         }
         return page;
       },
       async enqueue(url, label, payload, requestOptionsGiven = {}) {
+        warnEntry(foxhoundOperations, "crawl_request.enqueue");
         signal.throwIfAborted();
         return calls.call(
           "crawl_request.enqueue",
           {
             ...attempt,
             url,
-            label: label.name,
+            label: declaredLabel(crawl, label),
             ...payloadOf(payload),
             ...requestOptions(requestOptionsGiven),
           },
           options,
         );
       },
-      async push(dataset, record) {
+      async enqueueLinks(locator, label, payload, optionsGiven = {}) {
+        warnEntry(foxhoundOperations, "crawl_request.enqueue_links");
         signal.throwIfAborted();
+        return calls.call(
+          "crawl_request.enqueue_links",
+          {
+            ...attempt,
+            locator: idOfLocator(locator),
+            label: declaredLabel(crawl, label),
+            ...payloadOf(payload),
+            ...enqueueLinksOptions(optionsGiven),
+          },
+          options,
+        );
+      },
+      async push(dataset, records) {
+        warnEntry(foxhoundOperations, "crawl_request.push");
+        signal.throwIfAborted();
+        // A Record is a JSON object, never a list, so a list is the Records of one push.
+        const [first, ...rest] = Array.isArray(records) ? records : [records];
+        // An empty list pushes no Record, so it sends nothing.
+        if (first === undefined) return;
         await calls.call(
           "crawl_request.push",
-          { ...attempt, dataset: dataset.name, records: [wireObject(record)] },
+          {
+            ...attempt,
+            dataset: dataset.name,
+            records: [wireObject(first), ...rest.map(wireObject)],
+          },
           options,
         );
       },
@@ -262,11 +251,42 @@ export function handleRequest(
 function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record.
-  return params.record as DatasetRecord;
+  const record = fromWire(
+    params.record,
+    { type: "DatasetRecord" satisfies FoxhoundWireType },
+    foxhoundWire.types,
+  );
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its declared fields in camelCase and its points in time read as `Date`s.
+  return record as DatasetRecord;
 }
 
-/** The message of a thrown value, whatever was thrown. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/**
+ * The `handler_failed` of a handler that threw `thrown`, its own exception
+ * (ADRs 0079 and 0109): the message always names the exception's type and
+ * message, and the details carry them with the frames of its stack, the
+ * stack's text past the line that repeats them.
+ */
+function handlerFailed(label: string, thrown: unknown): HandlerFailedError {
+  const type = thrown instanceof Error ? thrown.name : thrown === null ? "null" : typeof thrown;
+  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const stack = thrown instanceof Error ? (thrown.stack ?? "") : "";
+  // V8's header line: the type alone when the message is empty.
+  const header = message === "" ? type : `${type}: ${message}`;
+  const frames =
+    stack === header
+      ? ""
+      : stack.startsWith(`${header}\n`)
+        ? stack.slice(header.length + 1)
+        : stack;
+  return new HandlerFailedError(
+    `the handler of the Label ${label} failed with ${type}: ${message}`,
+    {
+      cause: thrown,
+      details: {
+        exception_type: type,
+        exception_message: message,
+        exception_stack: frames,
+      },
+    },
+  );
 }

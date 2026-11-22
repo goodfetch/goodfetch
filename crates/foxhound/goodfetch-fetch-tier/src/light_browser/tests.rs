@@ -1,9 +1,37 @@
 //! Covers: story:5-120
 
 use goodfetch_engine::browser_cache::BuildPlatform;
+use goodfetch_protocol::foxhound::crawl::CrawlRequest;
+use goodfetch_protocol::foxhound::frontier::{HttpBody, HttpMethod};
+use rstest::rstest;
 
 use super::bridge::Head;
-use super::{Rendered, arguments, pins, rendered};
+use super::{Rendered, arguments, pins, rendered, unsent};
+
+/// What of a crawl request Lightpanda cannot send: its method when it
+/// is no `GET`, else a body with bytes; an empty body is no body, as the
+/// Frontier reads it (issue 2471).
+#[rstest]
+#[case::bodiless_get("GET", None, None)]
+#[case::get_with_an_empty_body("GET", Some(""), None)]
+#[case::get_with_a_body("GET", Some("q=1"), Some("crawl_request.body"))]
+#[case::post("POST", Some("q=1"), Some("crawl_request.method"))]
+#[case::bodiless_head("HEAD", None, Some("crawl_request.method"))]
+fn lightpanda_sends_only_a_get_with_no_body(
+    #[case] method: &str,
+    #[case] body: Option<&str>,
+    #[case] unsendable: Option<&str>,
+) {
+    let request = CrawlRequest {
+        id: "1".to_owned(),
+        url: "https://shop.test/".to_owned(),
+        label: "page".to_owned(),
+        payload: None,
+        method: HttpMethod::parse(method).unwrap(),
+        body: body.map(|body| HttpBody::new(body.as_bytes().to_vec())),
+    };
+    assert_eq!(unsent(&request), unsendable);
+}
 
 /// Each pinned build downloads its release's own executable for its
 /// platform, from GitHub over HTTPS, never from Goodfetch's distribution;
@@ -86,13 +114,20 @@ fn a_report_reads_as_the_document_its_scripts_left() {
     );
 }
 
-/// A report naming an error, or one that does not read, is no document.
-#[rstest::rstest]
-#[case::its_error(br#"{"url":"http://a.test/","http_status":null,"headers":[],"content":null,"error":"ConnectionRefused"}"#.as_slice(), "ConnectionRefused")]
-#[case::no_report(b"".as_slice(), "its report does not read")]
-fn a_failed_report_names_why(#[case] report: &[u8], #[case] starts: &str) {
-    let error = rendered(report).unwrap_err();
-    assert!(error.starts_with(starts), "{error}");
+/// A report naming an error is no document, and names Lightpanda's error.
+#[test]
+fn a_failed_report_names_its_error() {
+    let error = rendered(
+        br#"{"url":"http://a.test/","http_status":null,"headers":[],"content":null,"error":"ConnectionRefused"}"#,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("ConnectionRefused"), "{error}");
+}
+
+/// A report that does not read is no document.
+#[test]
+fn a_report_that_does_not_read_is_no_document() {
+    assert!(rendered(b"").is_err());
 }
 
 /// Lightpanda reaches the network only through the bridge, and waits for

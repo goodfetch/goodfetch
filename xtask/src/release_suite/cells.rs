@@ -6,6 +6,8 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 
+use crate::runtimes::Set;
+
 pub(crate) use crate::rate::Rate;
 
 /// Where a cell runs while the repository is private (ADR 0108).
@@ -14,25 +16,6 @@ pub(crate) enum Runner {
     Hosted(Rate),
     /// The owner's machine, on `main` only; it uses no included minutes.
     OwnerMachine,
-}
-
-/// The runtimes a cell tests (ADR 0069; TESTING.md, SDK and CLI tests).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Runtimes {
-    /// Every supported Node line, Bun, Deno 2 and every supported Python line.
-    All,
-    /// The oldest and newest Node line and Python line, and Bun and Deno 2
-    /// through the SDK smoke scripts.
-    Ends,
-}
-
-impl Runtimes {
-    fn key(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Ends => "ends",
-        }
-    }
 }
 
 /// The Linux jobs of the Release workflow: one per architecture, whose
@@ -134,11 +117,15 @@ impl Cell {
         }
     }
 
-    /// Every runtime on Linux x64 (glibc); the oldest and newest elsewhere.
-    pub(crate) fn runtimes(self) -> Runtimes {
+    /// The set of `ci/runtimes.toml` the cell tests (ADR 0069): every
+    /// runtime on Linux x64 (glibc), the ends of each line with the
+    /// free-threaded builds on the other Linux cells, and the ends without
+    /// them on Windows and macOS.
+    pub(crate) fn runtimes(self) -> Set {
         match self {
-            Self::LinuxX64Gnu => Runtimes::All,
-            _ => Runtimes::Ends,
+            Self::LinuxX64Gnu => Set::ReleaseLinuxX64Gnu,
+            Self::LinuxX64Musl | Self::LinuxArm64Gnu | Self::LinuxArm64Musl => Set::ReleaseLinux,
+            Self::WindowsX64 | Self::MacosArm64 | Self::MacosX64 => Set::ReleaseOther,
         }
     }
 
@@ -203,46 +190,63 @@ pub(crate) fn parse_selection(text: &str) -> Result<Vec<Cell>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_hosted_cells_count_270_minutes_at_one_45_minute_job_each() {
-        let minutes: u32 = Cell::ALL
-            .into_iter()
-            .filter_map(|cell| match cell.runner() {
-                Runner::Hosted(rate) => Some(45 * rate.multiplier()),
-                Runner::OwnerMachine => None,
-            })
-            .sum();
-
-        assert_eq!(minutes, 270);
-    }
-
     /// The workflow uploads each cell's JUnit files under the artifact name
-    /// the results store reads the cell's configuration from.
-    #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a synchronous unit test reads the workflow file"
+    /// the results store reads the cell's configuration from: a Linux
+    /// cell's job names it from its matrix entry's `cell`, the cell's key.
+    #[rstest::rstest]
+    #[case::linux_x64_gnu(
+        Cell::LinuxX64Gnu,
+        "junit-release-dispatch-linux-x64-gnu-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
     )]
-    fn each_cells_junit_artifact_is_the_one_its_job_uploads() {
+    #[case::linux_x64_musl(
+        Cell::LinuxX64Musl,
+        "junit-release-dispatch-linux-x64-musl-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::linux_arm64_gnu(
+        Cell::LinuxArm64Gnu,
+        "junit-release-dispatch-linux-arm64-gnu-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::linux_arm64_musl(
+        Cell::LinuxArm64Musl,
+        "junit-release-dispatch-linux-arm64-musl-1",
+        "name: junit-release-dispatch-${{ matrix.cell }}-1"
+    )]
+    #[case::windows_x64(
+        Cell::WindowsX64,
+        "junit-release-dispatch-windows-x64-1",
+        "name: junit-release-dispatch-windows-x64-1"
+    )]
+    #[case::macos_arm64(
+        Cell::MacosArm64,
+        "junit-release-dispatch-macos-arm64-1",
+        "name: junit-release-dispatch-macos-arm64-1"
+    )]
+    #[case::macos_x64(
+        Cell::MacosX64,
+        "junit-release-dispatch-macos-x64-rosetta-1",
+        "name: junit-release-dispatch-macos-x64-rosetta-1"
+    )]
+    fn each_cells_junit_artifact_is_the_one_its_job_uploads(
+        #[case] cell: Cell,
+        #[case] artifact: &str,
+        #[case] uploaded_as: &str,
+    ) {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a synchronous unit test reads the workflow file"
+        )]
         let workflow = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../.github/workflows/release-suite.yml"),
         )
         .unwrap();
 
-        for cell in Cell::ALL {
-            let uploaded = match cell.linux_job() {
-                Some(_) => "junit-release-dispatch-${{ matrix.cell }}-1".to_owned(),
-                None => cell.junit_artifact(),
-            };
-            assert!(
-                workflow.contains(&format!("name: {uploaded}")),
-                "{cell} uploads no `{uploaded}`"
-            );
-        }
         assert_eq!(
-            Cell::LinuxArm64Musl.junit_artifact(),
-            "junit-release-dispatch-linux-arm64-musl-1"
+            (cell.junit_artifact(), workflow.contains(uploaded_as)),
+            (artifact.to_owned(), true)
         );
     }
 

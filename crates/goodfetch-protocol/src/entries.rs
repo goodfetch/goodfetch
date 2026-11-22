@@ -4,14 +4,14 @@
 
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, egress, engine,
-    events, executables, foxhound, governor, hostile_input, key_value_store, log, needs_you, ops,
-    page, politeness, response_limits, run, sample, secrets, security, settings, site_preferences,
-    storage, tls, usage, versions,
+    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
+    engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
+    needs_you, ops, page, plugin, politeness, response_limits, run, sample, secrets, security,
+    settings, site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 49] = [
+pub const MODULES: [&Entries; 56] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -29,11 +29,15 @@ pub const MODULES: [&Entries; 49] = [
     &needs_you::ENTRIES,
     &page::ENTRIES,
     &page::proxy::ENTRIES,
+    &page::access_mode::ENTRIES,
+    &page::signing_key::ENTRIES,
+    &page::cdp_url::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
+    &effect::ENTRIES,
     &download::ENTRIES,
     &audit::ENTRIES,
     &secrets::ENTRIES,
@@ -46,10 +50,13 @@ pub const MODULES: [&Entries; 49] = [
     &politeness::ENTRIES,
     &site_preferences::ENTRIES,
     &block::ENTRIES,
+    &hook::ENTRIES,
+    &plugin::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
+    &foxhound::hook::ENTRIES,
     &foxhound::dataset::ENTRIES,
     &foxhound::dataset_view::ENTRIES,
     &foxhound::export::ENTRIES,
@@ -65,7 +72,18 @@ pub const MODULES: [&Entries; 49] = [
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 1] = [&foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN];
+pub const YIELDING: [&Yielding; 10] = [
+    &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[2],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[3],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[0],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[1],
+];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
 /// operation for Foxhound, which contains Collie.
@@ -103,8 +121,10 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::Path;
 
+    use schemars::SchemaGenerator;
+
     use super::{MODULES, operations_of};
-    use crate::catalog::Product;
+    use crate::catalog::{Product, ValueKind};
 
     /// Adds to `found` the path of each module under `folder`, the module
     /// `module`, that defines `pub const ENTRIES`, as `module_path!()`
@@ -162,8 +182,60 @@ mod tests {
         );
     }
 
+    /// A call's own `timeout` sets one Duration setting for that call alone,
+    /// which its `setting` keyword names: the setting the engine's refusal
+    /// of `0` and an SDK's refusal before sending name in their `limit`
+    /// (ADR 0080).
+    ///
+    /// Covers: story:11-42
+    #[test]
+    fn each_calls_own_timeout_names_the_duration_setting_it_sets() {
+        let durations: BTreeSet<&str> = MODULES
+            .iter()
+            .flat_map(|entries| entries.settings)
+            .filter(|setting| setting.kind == ValueKind::Duration)
+            .map(|setting| setting.name)
+            .collect();
+        let mut generator = SchemaGenerator::default();
+        let mut named = Vec::new();
+        for operation in MODULES.iter().flat_map(|entries| entries.operations) {
+            let reference = (operation.params)(&mut generator);
+            let params = reference
+                .get("$ref")
+                .and_then(|reference| reference.as_str())
+                .and_then(|reference| reference.rsplit('/').next())
+                .and_then(|name| generator.definitions().get(name))
+                .cloned()
+                .unwrap_or_else(|| reference.to_value());
+            if let Some(timeout) = params.pointer("/properties/timeout") {
+                named.push((
+                    operation.name,
+                    timeout["setting"]
+                        .as_str()
+                        .filter(|setting| durations.contains(setting))
+                        .map(str::to_owned),
+                ));
+            }
+        }
+
+        assert_eq!(
+            named
+                .iter()
+                .find(|(name, _)| *name == "page.goto")
+                .map(|(_, setting)| setting.as_deref()),
+            Some(Some("timeout.navigation"))
+        );
+        assert_eq!(
+            named
+                .iter()
+                .filter(|(_, setting)| setting.is_none())
+                .collect::<Vec<_>>(),
+            Vec::<&(&str, Option<String>)>::new()
+        );
+    }
+
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 87] = [
+    const COLLIE: [&str; 92] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -220,7 +292,10 @@ mod tests {
         "locator.wait_for_function",
         "locator.wait_for",
         "locator.wait_for_count",
+        "signing_key.create",
+        "signing_key.directory",
         "run.start",
+        "run.started_as",
         "run.finish",
         "run.stop",
         "run.abort",
@@ -240,6 +315,8 @@ mod tests {
         "key_value_store.set_bytes",
         "key_value_store.delete",
         "key_value_store.keys",
+        "effect.open",
+        "effect.close",
         "download.save_as",
         "audit.export",
         "audit.verify",

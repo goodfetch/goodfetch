@@ -3,21 +3,26 @@
 # jobs (ADR 0064). Every download happens here, before ADR 0043's deny:
 # the Rust toolchain of rust-toolchain.toml and the target, just, cargo-nextest,
 # cargo-insta, uv and gitleaks at the versions the CI image pins
-# (ci/tool-versions.sh checks they agree), pnpm, the runtimes,
+# (ci/tool-versions.sh checks they agree), pnpm, the set's runtimes,
 # then `just fetch`. A job calls it right after actions/checkout. Linux jobs
 # link with mold and Windows jobs build on a Dev Drive (spec #325).
 #
-# Runtimes (ADR 0069; TESTING.md, SDK and CLI tests):
-#   one   the newest Node LTS line and CPython, as the Pre-merge suite runs;
-#   ends  the oldest and newest Node line and CPython, and Bun and Deno 2;
-#   all   every supported Node line and CPython, and Bun and Deno 2.
-# On Linux, the free-threaded CPython builds from 3.14t join every set.
-# Supported lines: Node 24 and 26 (package.json's `engines`), CPython 3.11 to
-# 3.14 (pyproject.toml's `requires-python`; 3.15 joins once uv ships it).
-# Each runtime is pinned to its exact version in ci/host/runtimes.env.
+# Runtimes (ADR 0069; TESTING.md, SDK and CLI tests): the job names a set of
+# ci/runtimes.toml, the runtime matrix `xtask runtimes` holds to the ADR, and
+# gets each of its runtimes at the exact version pinned there:
+#   pre-merge              the newest Node LTS and CPython, as the Pre-merge
+#                          suite runs (the default);
+#   release-linux-x64-gnu  every runtime;
+#   release-linux          the oldest and newest Node line and CPython, Bun,
+#                          Deno 2 and the free-threaded CPython builds;
+#   release-other          the same without the free-threaded builds;
+#   nightly                the free-threaded CPython builds.
+# workerd and Vercel's Edge Runtime, in release-linux-x64-gnu, have no
+# installer here yet.
 #
-# Later steps read GOODFETCH_NODE_LINES (`<line>=<bin folder>` pairs) and
-# GOODFETCH_PYTHONS (uv's Python requests) from the job's environment.
+# Later steps read GOODFETCH_RUNTIME_SET (the set), GOODFETCH_NODE_LINES
+# (`<line>=<bin folder>` pairs) and GOODFETCH_PYTHONS (uv's Python requests)
+# from the job's environment.
 name: Host tools
 description: Installs the toolchains, tools and runtimes of a job that runs on its runner's own system.
 
@@ -26,9 +31,9 @@ inputs:
     description: The Rust target triple the job builds for.
     required: true
   runtimes:
-    description: "`one`, `ends` or `all`."
+    description: "A set of ci/runtimes.toml: `pre-merge`, `release-linux-x64-gnu`, `release-linux`, `release-other` or `nightly`."
     required: false
-    default: one
+    default: pre-merge
   architecture:
     description: "`x64` on Apple silicon runs the toolchains and runtimes as x86-64 under Rosetta 2 (the `macos-x64 (Rosetta 2)` cell); otherwise the runner's own."
     required: false
@@ -83,10 +88,19 @@ runs:
       shell: bash
       run: ci/musl/install.sh
 
-    - name: Read the pinned runtimes
+    # Each runtime of the set becomes an output, `<id>=<version>`; an install
+    # step below runs when its runtime has one. The set's name then reaches
+    # the job's later steps, the smoke-script runner's among them, as
+    # GOODFETCH_RUNTIME_SET. Only a set of ci/runtimes.toml gets there:
+    # runtimes.sh fails the step on any other value before the write.
+    - name: Read the set's pinned runtimes
       id: runtimes
       shell: bash
-      run: grep -E '^[A-Z0-9_]+=' ci/host/runtimes.env >>"$GITHUB_OUTPUT"
+      env:
+        SET: ${{ inputs.runtimes }}
+      run: | # zizmor: ignore[github-env] only a set name of ci/runtimes.toml is written
+        ci/host/runtimes.sh outputs "$SET" >>"$GITHUB_OUTPUT"
+        echo "GOODFETCH_RUNTIME_SET=$SET" >>"$GITHUB_ENV"
 
     - name: Install just, cargo-nextest, cargo-insta and uv
       uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
@@ -98,39 +112,43 @@ runs:
       shell: bash
       run: ci/host/gitleaks.sh
 
-    # The newest line first, so the oldest, the default `node`, wins PATH.
+    # The newest line first, so the oldest the set holds, the default
+    # `node`, wins PATH.
     - name: Install Node 26
-      if: inputs.runtimes != 'one'
+      if: steps.runtimes.outputs.node-26 != ''
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
-        node-version: ${{ steps.runtimes.outputs.NODE_26 }}
+        node-version: ${{ steps.runtimes.outputs.node-26 }}
         architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
     - name: Record Node 26
-      if: inputs.runtimes != 'one'
+      if: steps.runtimes.outputs.node-26 != ''
       shell: bash
       run: ci/host/record-node.sh 26
 
     - name: Install Node 24
+      if: steps.runtimes.outputs.node-24 != ''
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
-        node-version: ${{ steps.runtimes.outputs.NODE_24 }}
+        node-version: ${{ steps.runtimes.outputs.node-24 }}
         architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
     - name: Record Node 24
+      if: steps.runtimes.outputs.node-24 != ''
       shell: bash
       run: ci/host/record-node.sh 24
 
     - name: Install Bun
-      if: inputs.runtimes != 'one'
+      if: steps.runtimes.outputs.bun-1 != ''
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
-        bun-version: ${{ steps.runtimes.outputs.BUN }}
+        bun-version: ${{ steps.runtimes.outputs.bun-1 }}
 
     - name: Install Deno 2
-      if: inputs.runtimes != 'one'
+      if: steps.runtimes.outputs.deno-2 != ''
       uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
       with:
-        deno-version: ${{ steps.runtimes.outputs.DENO }}
+        deno-version: ${{ steps.runtimes.outputs.deno-2 }}
 
+    # A set with no Node line (nightly) still runs pnpm on the runner's own.
     - name: Install pnpm and the CPython lines, then fetch the workspace's dependencies
       shell: bash
       env:

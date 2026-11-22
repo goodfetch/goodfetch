@@ -22,7 +22,7 @@ use goodfetch_test_client::HomeLayout;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, page_check};
+use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
@@ -352,6 +352,34 @@ fn a_session_counts_each_intercepted_requests_work() {
         ]
         .map(|row| work.read(row)),
         [2 * paused + 1, paused, requests, refused, refused, 0, 0]
+    );
+}
+
+/// An `identified` Session signs each request it continues (#1551): its key
+/// was resolved as it opened, so signing compiles nothing and each pause is
+/// still answered once (C5). A Session that is not identified signs none.
+/// Covers: setting:identified.signing_key
+#[test]
+fn an_identified_session_signs_each_request_with_one_answer_and_nothing_compiled() {
+    let standard = run_in(Browsers::Pool, Map::new(), None);
+
+    let Counted {
+        requests,
+        paused,
+        signed,
+        work,
+        ..
+    } = run_in(Browsers::Pool, identified(), None);
+
+    assert!(requests > 0, "the Session paused no request");
+    assert_eq!(
+        (
+            standard.signed,
+            signed,
+            work.read(Row::InterceptedAnswers),
+            work.read(Row::InterceptedCompilations),
+        ),
+        (0, requests, paused, 0)
     );
 }
 

@@ -8,7 +8,9 @@
 //! Steps 3 to 8, for what the last route sends on, are [`steps`]'s.
 //!
 //! 1. A crawl request's own document fetch has its Hooks applied already
-//!    (ADR 0104); nothing here runs a Hook.
+//!    (ADR 0104); nothing here runs a Hook. Its method and body, when it
+//!    is no bodiless `GET`, replace the browser's on the main-frame
+//!    request for its URL, so every route sees the request it is.
 //! 2. Page routes, later first, then Session routes; `fulfill` and `abort`
 //!    end here.
 //! 3. The egress check and the domain policy, on what the last route sends
@@ -89,6 +91,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use data_encoding::BASE64;
 use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
@@ -97,6 +100,7 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
+use goodfetch_engine::request_signing::RequestSigner;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -115,9 +119,6 @@ use tokio_util::sync::CancellationToken;
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
-pub(crate) use self::clean_up::SESSION_KEYS;
-#[cfg(test)]
-pub(crate) use self::clean_up::run_needs_lists;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
@@ -127,6 +128,7 @@ use self::routes::{Route, RouteTable};
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
+use crate::page_value::OwnFetch;
 use crate::url_pattern::UrlPattern;
 
 /// `browser.service_workers`'s value that keeps every service worker from
@@ -255,6 +257,9 @@ struct Tables {
     /// with none, each with the lookups its requests' hosts are resolved
     /// through.
     interception_only: BTreeMap<SessionId, Arc<Lookups>>,
+    /// The `identified` Sessions, each with the signer its requests are
+    /// signed with (ADR 0045; #1551).
+    signing: BTreeMap<SessionId, Arc<RequestSigner>>,
     /// Each Session's own failure slot: where a Session route's handler
     /// that failed on a service worker's request leaves its failure, for
     /// the next call on any page of the Session.
@@ -290,6 +295,9 @@ pub(super) struct PageState {
     /// Who asked for the navigation call going on, while it may load a
     /// `file:` URL.
     files: Mutex<Option<Navigator>>,
+    /// The method and body of the crawl request whose own document the
+    /// navigation call going on fetches, when it is no bodiless `GET`.
+    own: Mutex<Option<OwnSent>>,
     /// Whether its Session turns any Filter list on.
     lists_on: bool,
     /// Whether it is loading once more with blocking off.
@@ -301,6 +309,28 @@ pub(super) struct PageState {
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
+}
+
+/// What a crawl request's own document fetch sends in place of the
+/// browser's bodiless `GET` (issue 2471).
+struct OwnSent {
+    /// Its URL, without the fragment no request carries.
+    url: url::Url,
+    /// Its method and its body.
+    overrides: Overrides,
+}
+
+impl PageState {
+    /// The overrides of the crawl request's own document fetch for the
+    /// main-frame request to `url` that no redirect sent, when the
+    /// navigation call going on fetches that document.
+    fn own(&self, url: &str) -> Option<Overrides> {
+        let own = lock(&self.own);
+        let own = own.as_ref()?;
+        let mut url = url::Url::parse(url).ok()?;
+        url.set_fragment(None);
+        (url == own.url).then(|| own.overrides.clone())
+    }
 }
 
 /// What a page a program opened does with each document its main frame
@@ -322,6 +352,8 @@ pub(crate) trait OnDocument: Send + Sync {
 pub(crate) struct EngineRequests {
     policy: Policy,
     blocking: steps::Blocking,
+    /// An `identified` Session's signer, step 7's last addition.
+    signing: Option<Arc<RequestSigner>>,
 }
 
 impl EngineRequests {
@@ -349,11 +381,18 @@ impl EngineRequests {
                 .as_deref()
                 .unwrap_or(&paused.request.method),
             overrides,
+            headers: &paused.request.headers,
             kind: ResourceKind::Xhr,
             source_url: url,
             egress: RequestKind::Page,
         };
-        match steps::send_on(&request, &self.policy, &self.blocking, true) {
+        match steps::send_on(
+            &request,
+            &self.policy,
+            &self.blocking,
+            self.signing.as_deref(),
+            true,
+        ) {
             Ok(steps::Sent::Continue(command)) => Ok(command),
             Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked { .. }) => {
                 Err(CallError::new(
@@ -499,6 +538,15 @@ impl Interception {
             .insert(session.clone(), Arc::new(lookups));
     }
 
+    /// Signs each request of the `identified` Session `session` with
+    /// `signer`, its pages', their frames' and its workers', and the
+    /// engine's own from it, as step 7's last addition (ADR 0045; #1551).
+    pub(crate) fn sign_with(&self, session: &SessionId, signer: Arc<RequestSigner>) {
+        lock(&self.shared.tables)
+            .signing
+            .insert(session.clone(), signer);
+    }
+
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
@@ -545,6 +593,7 @@ impl Interception {
         let (state, lookups) = {
             let mut tables = lock(&self.shared.tables);
             let lookups = tables.interception_only.get(session).cloned();
+            let signing = tables.signing.get(session).cloned();
             let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
             let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
@@ -559,6 +608,7 @@ impl Interception {
                 failure: LeftFailure::default(),
                 session_failure,
                 files: Mutex::new(None),
+                own: Mutex::new(None),
                 lists_on: blocking.lists.is_some(),
                 retrying: AtomicBool::new(false),
                 lists_blocked: AtomicU64::new(0),
@@ -567,6 +617,7 @@ impl Interception {
                 engine_requests: EngineRequests {
                     policy: policy.clone(),
                     blocking: blocking.clone(),
+                    signing,
                 },
                 on_document,
             });
@@ -734,7 +785,7 @@ impl Interception {
             );
             let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
-                let (routes, pending, session_failure) = {
+                let (routes, pending, session_failure, signing) = {
                     let mut tables = lock(&shared.tables);
                     let Some(routes) = tables.sessions.get(&session).cloned() else {
                         return false;
@@ -743,6 +794,7 @@ impl Interception {
                         routes,
                         tables.pending.get(&session).cloned().unwrap_or_default(),
                         Arc::clone(tables.failures.entry(session.clone()).or_default()),
+                        tables.signing.get(&session).cloned(),
                     )
                 };
                 let log = Arc::new(RequestLog::new(run_trace(&run)));
@@ -762,6 +814,7 @@ impl Interception {
                     failure: Arc::clone(&session_failure),
                     session_failure,
                     files: Mutex::new(None),
+                    own: Mutex::new(None),
                     lists_on: blocking.lists.is_some(),
                     retrying: AtomicBool::new(false),
                     lists_blocked: AtomicU64::new(0),
@@ -770,6 +823,7 @@ impl Interception {
                     engine_requests: EngineRequests {
                         policy: policy.clone(),
                         blocking: blocking.clone(),
+                        signing,
                     },
                     on_document: None,
                 });
@@ -961,23 +1015,30 @@ impl Interception {
         self.shared.answers.deliver(route_id, answer)
     }
 
-    /// Steps 3 to 8 for the engine's own requests from a Session of `run`
-    /// whose own settings are `own`, as its pages' would be: its domain
-    /// policy, and the Filter lists and `browser.block_resources` it
-    /// chose, for a request no page of the Session sends.
+    /// Steps 3 to 8 for the engine's own requests from the Session
+    /// `session` of `run`, whose own settings are `own`, as its pages'
+    /// would be: its domain policy, the Filter lists and
+    /// `browser.block_resources` it chose, and its signer when it is
+    /// `identified`, for a request no page of the Session sends.
     ///
     /// # Errors
     ///
     /// `setting_invalid` for a domain list of the Run's that holds no host.
     pub(crate) async fn engine_requests_of(
         &self,
+        session: &SessionId,
         run: &Run,
         own: &Values,
     ) -> Result<EngineRequests, CallError> {
         let policy = policy_of(run)?;
         let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
         let (blocking, _) = self.shared.clean_up.blocking(choices, run).await;
-        Ok(EngineRequests { policy, blocking })
+        let signing = lock(&self.shared.tables).signing.get(session).cloned();
+        Ok(EngineRequests {
+            policy,
+            blocking,
+            signing,
+        })
     }
 
     /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
@@ -1004,6 +1065,33 @@ impl Interception {
             *lock(&state.files) = Some(navigator);
         }
         FilesAllowed(state)
+    }
+
+    /// Has the main frame of the page `page_id` fetch `own`'s document
+    /// with its method and body, until the [`OwnFetchSent`] answered goes:
+    /// each request for its URL that no redirect sent, the load once more
+    /// with blocking off included. A bodiless `GET` changes nothing.
+    pub(crate) fn send_own(&self, page_id: &PageId, own: OwnFetch<'_>) -> OwnFetchSent {
+        if own.is_bodiless_get() {
+            return OwnFetchSent(None);
+        }
+        let Ok(mut url) = url::Url::parse(own.url) else {
+            // Its navigation fails on the URL, sending nothing.
+            return OwnFetchSent(None);
+        };
+        url.set_fragment(None);
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+        if let Some(state) = &state {
+            *lock(&state.own) = Some(OwnSent {
+                url,
+                overrides: Overrides {
+                    method: Some(own.method.to_owned()),
+                    post_data: own.body.map(|body| BASE64.encode(body)),
+                    ..Overrides::default()
+                },
+            });
+        }
+        OwnFetchSent(state)
     }
 
     /// Judges whether the `javascript:` URL `url` may run in the main frame
@@ -1071,6 +1159,7 @@ impl Interception {
         tables.pending.remove(session);
         tables.failures.remove(session);
         tables.interception_only.remove(session);
+        tables.signing.remove(session);
     }
 }
 
@@ -1082,6 +1171,18 @@ impl Drop for FilesAllowed {
     fn drop(&mut self) {
         if let Some(state) = &self.0 {
             *lock(&state.files) = None;
+        }
+    }
+}
+
+/// The main frame of a page fetching a crawl request's own document with
+/// its method and body, until it goes.
+pub(crate) struct OwnFetchSent(Option<Arc<PageState>>);
+
+impl Drop for OwnFetchSent {
+    fn drop(&mut self) {
+        if let Some(state) = &self.0 {
+            *lock(&state.own) = None;
         }
     }
 }
@@ -1144,6 +1245,8 @@ fn policy_of(run: &Run) -> Result<Policy, CallError> {
                 key: invalid.setting.to_owned(),
                 layer: None,
                 reason: format!("`{}` is no host", invalid.entry),
+                limit: None,
+                fix: None,
             },
         )
     })

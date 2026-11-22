@@ -1,9 +1,12 @@
 // A program that imports `@goodfetch/collie`, connects to the Attached
 // engine its environment names, runs the tracer and closes, recording what
 // the SDK changed in its process at each stage into the file its argument
-// names. It writes nothing to stdout or stderr itself, so anything there is
-// the SDK's. Run by Node alone, from the package's own source.
+// names, with each process warning and the stage it came at: import, connect,
+// or the Run after them. It writes nothing to stdout or stderr itself, so
+// anything there is the SDK's. Run by Node alone, from the package's own
+// source.
 import { writeFileSync } from "node:fs";
+import { setImmediate } from "node:timers/promises";
 import { startAndFinish } from "../programs/tracer.ts";
 
 const out = process.argv[2];
@@ -44,6 +47,27 @@ process.env = new Proxy(process.env, {
   },
 });
 
+/** A process warning the guest heard, and the stage it came at. */
+interface Heard {
+  readonly stage: Stage;
+  readonly name: string;
+  readonly code: unknown;
+  readonly message: string;
+}
+type Stage = "import" | "connect" | "run";
+let stage: Stage = "import";
+const warnings: Heard[] = [];
+// The host's channel (ADR 0078), heard before the first stage, so each
+// stage's listener count is the same. Node still prints each warning.
+process.on("warning", (warning) => {
+  warnings.push({
+    stage,
+    name: warning.name,
+    code: "code" in warning ? warning.code : null,
+    message: warning.message,
+  });
+});
+
 // Node's module loader reads variables of its own on every import.
 await import("./probe.ts");
 const loaderReads = new Set(reads);
@@ -53,10 +77,15 @@ const beforeImport = state();
 const { Collie } = await import("@goodfetch/collie");
 const afterImport = state();
 const readAtImport = [...new Set(reads)].filter((key) => !loaderReads.has(key));
+stage = "connect";
 // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
 const collie = await Collie.connect({ env });
+// A warning comes on the next tick of the call that emits it.
+await setImmediate();
+stage = "run";
 const traced = await startAndFinish(collie);
 const afterClose = state();
+await setImmediate();
 
 writeFileSync(
   out,
@@ -65,6 +94,8 @@ writeFileSync(
     afterImport,
     afterClose,
     readAtImport,
+    pid: process.pid,
+    warnings,
     lifecycle: traced.report.lifecycle,
   }),
 );

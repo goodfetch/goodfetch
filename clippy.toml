@@ -4,7 +4,7 @@
 allow-unwrap-in-tests = true
 # Clippy's own list (`..`) plus the registry names and the words in prose the
 # docs spell as written.
-doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", "AppArmor", "DuckDB", "OpenSpider", ".."]
+doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", "AppArmor", "DuckDB", "OpenSpider", "CPython", "XPath", "WebKit", "TDMRep", ".."]
 
 disallowed-methods = [
   # Tasks start only through their owner's tracker, in the `tasks` module.
@@ -20,10 +20,11 @@ disallowed-methods = [
   { path = "std::thread::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
   { path = "std::thread::Builder::spawn", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
   { path = "std::thread::scope", reason = "spawn through the owner's TaskTracker (STYLE.md)" },
-  # Runtimes are built only by `main`, test helpers and bench targets (ADR 0060).
-  { path = "tokio::runtime::Runtime::new", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
-  { path = "tokio::runtime::Builder::new_current_thread", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
-  { path = "tokio::runtime::Builder::new_multi_thread", reason = "only main, test helpers and bench targets build a runtime (ADR 0060)", allow-invalid = true },
+  # Runtimes are built only in goodfetch-runtime, for `main`, test helpers,
+  # bench targets and the Rust Connection (ADRs 0060 and 0081).
+  { path = "tokio::runtime::Runtime::new", reason = "build a runtime through goodfetch-runtime (ADRs 0060 and 0081)", allow-invalid = true },
+  { path = "tokio::runtime::Builder::new_current_thread", reason = "build a runtime through goodfetch-runtime (ADRs 0060 and 0081)", allow-invalid = true },
+  { path = "tokio::runtime::Builder::new_multi_thread", reason = "build a runtime through goodfetch-runtime (ADRs 0060 and 0081)", allow-invalid = true },
   { path = "tokio::task::block_in_place", reason = "never block an async worker (ADR 0060)", allow-invalid = true },
   # Only the three writers touch stdout and stderr; stdin only through the transport.
   { path = "std::io::stdout", reason = "only the protocol transport, the CLI's output writer and the tracing writer touch stdout (STYLE.md)" },
@@ -44,6 +45,7 @@ disallowed-methods = [
   { path = "jiff::Zoned::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
   { path = "rustls::pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
   { path = "rustls_pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
+  { path = "web_bot_auth::message_signatures::MessageSigner::generate_signature_headers_content", reason = "it dates the signature by the wall clock itself: only an `identified` Session's signer calls it (ADRs 0045 and 0059)", allow-invalid = true },
   { path = "ulid::Ulid::new", reason = "make IDs through the Clock and Entropy handles (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::clock::Clock::paused", reason = "the Clock's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::entropy::Entropy::seeded", reason = "the Entropy's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },
@@ -159,7 +161,8 @@ disallowed-types = [
   { path = "tokio::fs::DirBuilder", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
   { path = "tokio::fs::ReadDir", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
   { path = "tokio::fs::DirEntry", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
-  # Sockets are opened only in goodfetch-engine's transport module (ADR 0060).
+  # Sockets are opened only in the transport modules of goodfetch-engine and,
+  # on the client side, goodfetch-collie-client (ADR 0060).
   { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::UdpSocket", reason = "sockets are opened only in the transport module (ADR 0060)" },

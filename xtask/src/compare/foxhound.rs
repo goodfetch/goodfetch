@@ -16,16 +16,18 @@ use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::events::CREDIT;
-use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
 use goodfetch_protocol::foxhound::dataset::RECORD;
 use serde_json::{Value, json};
 
 use crate::rss::crawl::Site;
 
-use super::matrix::{Cell, Scenario};
+use super::matrix::{AtDefaults, Cell, Scenario};
 
 /// The Run every trial crawls in.
-const RUN: &str = "crawl";
+pub(crate) const RUN: &str = "crawl";
+
+/// The Dataset Foxhound's program pushes each page's Record to (#2317).
+pub(crate) const PROGRAM_DATASET: &str = "pages";
 
 /// A JSON-RPC connection to an Attached engine, its output read by a
 /// thread of its own so the engine never waits on a full pipe while the
@@ -165,13 +167,13 @@ impl Engine {
         Ok(())
     }
 
-    /// Each Record of the crawl's Dataset.
-    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<Record>> {
+    /// Each Record of the crawl's Dataset `dataset`.
+    pub(crate) fn records(&mut self, site: &Site<'_>, dataset: &str) -> Result<Vec<Record>> {
         let id = "records";
         let mut records = Vec::new();
         self.send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "run.records",
-            "params": { "run_id": RUN, "dataset": CODE_FREE_DATASET },
+            "params": { "run_id": RUN, "dataset": dataset },
         }))?;
         // Credit for every Record at once: a crawl with duplicates after
         // a kill still commits one Record a page.
@@ -199,6 +201,7 @@ impl Engine {
                     id: text(&record["value"]["id"]),
                     name: text(&record["value"]["name"]),
                     tier: text(&record["provenance"]["tier"]["tier"]),
+                    value: record["value"].clone(),
                 });
             }
         }
@@ -233,6 +236,8 @@ pub(crate) struct Record {
     pub(crate) name: Option<String>,
     /// The tier its page was served on, as its Provenance names it.
     pub(crate) tier: Option<String>,
+    /// Its value whole: the handled crawl's twenty fields (#2317).
+    pub(crate) value: Value,
 }
 
 /// What each page's Record holds: in the extraction scenario, the text of
@@ -264,7 +269,8 @@ fn extraction(scenario: Scenario) -> Value {
         | Scenario::Raw256
         | Scenario::Hostile
         | Scenario::Hostile16
-        | Scenario::CrawlLike => json!({ "formats": {}, "follow": "scope" }),
+        | Scenario::CrawlLike
+        | Scenario::Handled => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -278,7 +284,7 @@ fn extraction(scenario: Scenario) -> Value {
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
     matches!(
         scenario.settings(),
-        Scenario::Durable | Scenario::Extraction | Scenario::Auto
+        Scenario::Durable | Scenario::Extraction | Scenario::Auto | Scenario::Handled
     )
 }
 
@@ -290,13 +296,16 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// and a scope of every host; in the auto cell (#2411), `fetch.tier` at
 /// `auto`, its default, with `fetch.http_from: learned`, its Records kept,
 /// and its own Politeness at the crawl's concurrency, no delay and
-/// robots.txt not obeyed, every other setting the catalog's default;
-/// otherwise its own Politeness at the crawl's concurrency, no delay,
-/// robots.txt not obeyed and the maximum-throughput combination's switches
-/// off, at `durability`, on the `browser` tier in the headless browser
+/// robots.txt not obeyed, every other setting the catalog's default; in
+/// the cell at the catalog's defaults (#2175), nothing else but the
+/// scenario's pace, no delay and the crawl's concurrency per domain, and on
+/// its second row `fetch.http_from: learned`; otherwise the default shared
+/// Politeness at the crawl's concurrency, no delay, robots.txt not obeyed
+/// and the maximum-throughput combination's switches off, at `durability`,
+/// on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise; on the extraction scenario's row
 /// that says so (#2136), the ads, trackers and annoyances Filter lists off.
-fn settings(
+pub(crate) fn settings(
     site: &Site<'_>,
     cell: &Cell,
     (durability, commit_interval): (&str, Option<u64>),
@@ -313,6 +322,17 @@ fn settings(
         "egress": { "private_ranges": hosts },
     });
     let concurrency = site.concurrency;
+    let pace = json!({ "domain": { "delay": 0, "concurrency": concurrency } });
+    // The catalog's defaults (#2175): the crawl's site and the scenario's
+    // pace alone, and on the second row the other way of
+    // `fetch.http_from`.
+    if let Some(row) = cell.at_defaults() {
+        settings["politeness"] = pace;
+        if row == AtDefaults::Learned {
+            settings["fetch"] = json!({ "http_from": "learned" });
+        }
+        return settings;
+    }
     let added = match scenario {
         Scenario::Hostile => return settings,
         // ADR 0086's 1 s and 1 in flight per domain, which the catalog
@@ -346,7 +366,8 @@ fn settings(
         | Scenario::Raw64
         | Scenario::Raw256
         | Scenario::Hostile16
-        | Scenario::CrawlLike => json!({
+        | Scenario::CrawlLike
+        | Scenario::Handled => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,
@@ -354,12 +375,9 @@ fn settings(
             "frontier": { "learning": false },
             "provenance": { "log": false },
             "dataset": { "records": keeps_records(scenario) },
-            // Its own Politeness, so no other run on the machine shares its
-            // domain's count, at the crawl's concurrency.
-            "politeness": {
-                "sharing": "run",
-                "domain": { "delay": 0, "concurrency": concurrency },
-            },
+            // The default shared Politeness, with Delegations, at the
+            // crawl's concurrency (#2175).
+            "politeness": pace,
             "crawl": { "handler": { "concurrency": concurrency } },
             "site_preferences": { "respect_robots_txt": false },
         }),

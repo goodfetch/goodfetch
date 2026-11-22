@@ -21,7 +21,10 @@ members = [
 # `rs-trafilatura` and the two crates rs-trafilatura reads trees with, which
 # `[patch.crates-io]` below carries: crates of their own, not members. The
 # Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
+# The library Foxhound's tests use stays outside the workspace, as a library
+# serving both Products is (story 11-180).
 exclude = [
+  "crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library",
   "kennel",
   "vendor/dom_smoothie",
   "vendor/html-cleaning",
@@ -162,9 +165,16 @@ glob = { version = "0.3.4", default-features = false }
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
+# Collie's client crate, no engine (spec #606, ADR 0095): the Connection,
+# its transports and `Call<T>`; it depends on neither SDK crate nor any
+# Foxhound crate.
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
+# The Encoding a document's own bytes declare, read as Chrome reads it (ADR
+# 0119), which the fetch tiers and Collie's client crate both read.
+goodfetch-encoding = { path = "crates/goodfetch-encoding" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -183,6 +193,9 @@ goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).
 goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
+# The one place a Tokio runtime is built (ADR 0081, spec #606): `main`, the
+# SDK crates' Connections, test helpers and bench targets take it.
+goodfetch-runtime = { path = "crates/goodfetch-runtime" }
 # The built-in external Secret providers, which each Product's composition registers (spec #564).
 goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -283,14 +296,19 @@ tokio-rustls = { version = "0.26.4", default-features = false }
 # The Proving ground's identity site verifies Web Bot Auth signatures with
 # Cloudflare's own verifier, as the lab's did with its npm package (#162).
 web-bot-auth = { version = "0.7.0", default-features = false }
-# The identity site's tests sign as an agent would: web-bot-auth's signer
-# takes its covered components as an `IndexMap` and its keys as Ed25519.
+# An identified Session signs each request it sends, and the identity
+# site's tests sign as an agent would: web-bot-auth's signer takes its
+# covered components as an `IndexMap` and its keys as Ed25519.
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
 # The Frontier holds each visited identity memory keeps as a slot number,
 # found by its identity's hash (#2169): `HashTable` keeps 4 bytes a
 # bucket where std's `HashMap` would keep the key and value.
 hashbrown = { version = "0.17.1", default-features = false }
+# The engine's operations, found by their name on every message (issue
+# 2790): a fixed seed, so a lookup does the same work in every process
+# (ADR 0059).
+foldhash = { version = "0.2.0", default-features = false }
 insta = { version = "1.49.0", default-features = false }
 # The engine's own DNS resolver (ADRs 0024, 0044): the static musl
 # executables have no libc resolver to call, and Sessions with a local
@@ -373,16 +391,26 @@ tower-layer = { version = "0.3.3", default-features = false }
 tower-service = { version = "0.3.3", default-features = false }
 # The protocol over WebSocket, an Exposed Daemon's carriage for edge and
 # serverless Clients (ADR 0049): tungstenite's handshake and framing, on
-# Tokio in the engine, and blocking in the endpoint table's runner.
+# Tokio in the engine and the Rust SDK's client, and blocking in the
+# endpoint table's runner.
 # futures-util drives its stream of messages and its sink.
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
+# The Rust SDK's EventStream implements its Stream trait, so a program
+# combines it with any async library (ADR 0081).
+futures-core = { version = "0.3.34", default-features = false }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 # The settings files, which a rewrite keeps byte for byte but for the
 # value it writes (ADRs 0028, 0098).
 toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+# The compile-fail tests of what a generated member refuses to take
+# (ADR 0099): a boolean as a positional argument, a timeout on a query.
+trybuild = { version = "1.0.125", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+# The callsites the client crate re-emits an engine's `$/log` events
+# through, whose target is known only when the event arrives (ADR 0078).
+tracing-core = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
@@ -446,7 +474,10 @@ zip = { version = "9.0.5", default-features = false }
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+# `goodfetch_callgrind_names` is set by `xtask counts` alone, on the build it
+# reads `E1.handled_page_wire_share` in, where the wire's functions are never
+# inlined so that Callgrind names them.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -609,8 +640,9 @@ opt-level = 3
 debug-assertions = false
 
 # And for the work a crawl does on each page: HTML parsing and its DOM,
-# clean-up's selector matching and Filter-list engine, readability, JSON and
-# JSON Schema validation, and the C sources `cc` builds at the profile's
+# streaming selector matching, clean-up's selector matching and Filter-list
+# engine, readability, content decoding, JSON and JSON Schema validation,
+# Base64, and the C sources `cc` builds at the profile's
 # opt-level, the allocator's, SQLite's and zstd's. Unoptimized, they took
 # most of the Foxhound Daemon soak's CPU, about 33 ms a page, so its time
 # followed the host's load up to its five-minute kill (#2050). Like those
@@ -644,10 +676,19 @@ opt-level = 3
 [profile.dev.package.dom_smoothie]
 opt-level = 3
 
+[profile.dev.package.lol_html]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 [profile.dev.package.serde_json]
 opt-level = 3
 
 [profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.data-encoding]
 opt-level = 3
 
 [profile.dev.package.libmimalloc-sys]

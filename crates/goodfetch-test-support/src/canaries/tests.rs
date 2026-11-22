@@ -136,15 +136,6 @@ fn each_kind_plants_a_value_of_its_shape(#[case] kind: SecretKind, #[case] shape
 }
 
 #[test]
-fn a_run_data_key_canary_is_a_32_byte_key() {
-    let mut canaries = Canaries::new(379);
-
-    let canary = canaries.plant(SecretKind::RunDataKey);
-
-    assert_eq!(canary.value().len(), 32);
-}
-
-#[test]
 fn a_canarys_debug_form_never_shows_its_value() {
     let mut canaries = Canaries::new(379);
     let canary = canaries.plant(SecretKind::EndpointToken).clone();

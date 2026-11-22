@@ -126,14 +126,16 @@ fn the_sites_answer_to_the_document_backs_its_domain_off(
 ///
 /// Covers: story:5-132
 #[rstest]
-#[case::in_seconds(429, &[("retry-after", "60")])]
+#[case::in_seconds(429, &[("retry-after", "60")], Ended::TooManyRequests)]
 #[case::as_a_date_against_its_date(
     503,
-    &[("retry-after", "Mon, 05 Jan 2026 08:01:00 GMT"), ("date", "Mon, 05 Jan 2026 08:00:00 GMT")]
+    &[("retry-after", "Mon, 05 Jan 2026 08:01:00 GMT"), ("date", "Mon, 05 Jan 2026 08:00:00 GMT")],
+    Ended::BackOff
 )]
 fn the_sites_retry_after_holds_its_domain_until_the_time_it_names(
     #[case] status: u16,
     #[case] headers: &[(&str, &str)],
+    #[case] ended: fn(Option<Instant>) -> Ended,
 ) {
     // The site's clock runs an hour behind the wall time.
     let now = Instant::now();
@@ -142,11 +144,7 @@ fn the_sites_retry_after_holds_its_domain_until_the_time_it_names(
 
     assert_eq!(
         domain_ending(&handled(), Some(&response), false, now, wall()),
-        if status == 429 {
-            Ended::TooManyRequests(until)
-        } else {
-            Ended::BackOff(until)
-        }
+        ended(until)
     );
 }
 

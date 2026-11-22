@@ -64,9 +64,7 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::settings::{
-    Resolved, SettingsError, SettingsFiles, deployment_variable, get_or_default,
-};
+use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, get_or_default};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
@@ -75,14 +73,17 @@ use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::HUGE_PAGES;
-use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use identity::{Refused, identity, refuse};
 use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
 
+use crate::linked::home;
+use crate::runtime;
+
 mod allocator;
+mod attached_ops;
 mod audit;
 mod audit_events;
 mod browsers;
@@ -95,6 +96,7 @@ mod daemon_command;
 pub mod engine_choice;
 pub mod exit_codes;
 mod identity;
+mod limit_flags;
 mod log_file;
 mod logs;
 mod metrics;
@@ -103,7 +105,6 @@ mod other_product;
 mod otlp;
 pub mod output;
 mod runs;
-mod runtime;
 mod service;
 mod settings_flags;
 mod upgrade;
@@ -310,9 +311,14 @@ enum ConfigCommand {
 
 #[derive(Subcommand)]
 enum BrowserCommand {
-    /// Downloads every build this version pins into the Browser cache
-    /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images.
+    /// Downloads the builds this version pins into the Browser cache
+    /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images:
+    /// those named, else every one a Run launches by default, all but
+    /// `chrome-headless-shell` (`browser.headless_shell`).
     Install {
+        /// The builds to download, by the name they are pinned under.
+        #[arg(value_parser = clap::builder::PossibleValuesParser::new(browsers::INSTALLABLE))]
+        names: Vec<String>,
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
@@ -684,9 +690,9 @@ fn run(
         Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product, own),
         Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
         Command::Browser {
-            command: BrowserCommand::Install { json },
+            command: BrowserCommand::Install { names, json },
             ..
-        } => browsers::install(&machine, json, human),
+        } => browsers::install(&machine, (&names, json), human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..
@@ -814,18 +820,6 @@ fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, cloc
     }
 }
 
-/// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
-/// folder of the OS's usual data folder otherwise.
-fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
-    let home = match deployment_variable(environment, HOME_VARIABLE) {
-        Some(home) => Home::new(home.into()),
-        None => Home::new(dirs::data_dir()?.join(goodfetch_protocol::home::HOME_FOLDER)),
-    };
-    Some(home.with_browsers_path(
-        deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),
-    ))
-}
-
 /// The command line of `product`'s executable, whose own commands are
 /// `own`, without its version: its commands, flags and help, from which the
 /// Feature inventory generates its `command:` Features (ADR 0072). Every
@@ -888,6 +882,17 @@ fn run_attached(
     } else {
         None
     };
+    // An Attached engine that runs its Runs itself serves the ops listener
+    // `ops.attached_address` asks for; one that hands them to the Daemon
+    // opens none.
+    let ops = if daemon.is_none() {
+        match attached_ops::AttachedOps::asked(settings, machine) {
+            Ok(ops) => ops,
+            Err(exit) => return exit,
+        }
+    } else {
+        None
+    };
     let runtime = runtime::multi_thread(runtime::Threads::of(settings));
     let served = runtime.block_on(async {
         if let Some((endpoint, token)) = daemon {
@@ -900,10 +905,16 @@ fn run_attached(
                 Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
             };
         }
-        engine
-            .run_attached(Network::Os, dependencies)
-            .await
-            .map_err(|error| error.to_string())
+        match &ops {
+            Some(ops) => {
+                let listening = ops.listen().await?;
+                ops.engine(engine)
+                    .run_attached_with_ops(Network::Os, dependencies, listening)
+                    .await
+            }
+            None => engine.run_attached(Network::Os, dependencies).await,
+        }
+        .map_err(|error| error.to_string())
     });
     // Tokio's stdin reads on a blocking thread that only new input wakes, so
     // the runtime is not waited for once the Connection has closed.

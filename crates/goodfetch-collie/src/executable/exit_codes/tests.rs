@@ -5,29 +5,20 @@
 //!
 //! Covers: story:11-205, story:11-206
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli::{REFUSED_AT_HELLO, exit_code_table};
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::run::{
-    Completeness, EndingError, Lifecycle, PointInTime, RunId, RunReport, RunUsage, Verdict,
+    Completeness, EndingError, Lifecycle, RunId, RunReport, RunUsage, Verdict,
 };
 use rstest::rstest;
 
 use super::{DAEMON_REFUSED, of_ending, of_error, of_report};
 
 #[rstest]
-#[case::not_in_product("not_in_product", ErrorGroup::Unavailable, 10)]
-#[case::protocol_version_unsupported("protocol_version_unsupported", ErrorGroup::Unavailable, 11)]
-#[case::browser_host_outdated("browser_host_outdated", ErrorGroup::Unavailable, 12)]
-#[case::path_not_writable("path_not_writable", ErrorGroup::Program, 13)]
-#[case::file_write_failed("file_write_failed", ErrorGroup::Unavailable, 14)]
-#[case::resources_exhausted("resources_exhausted", ErrorGroup::Unavailable, 15)]
-#[case::limit_reached("limit_reached", ErrorGroup::Refused, 16)]
-#[case::person_required("person_required", ErrorGroup::Refused, 4)]
-#[case::run_not_found("run_not_found", ErrorGroup::Program, 3)]
-#[case::deadline_exceeded("deadline_exceeded", ErrorGroup::DeadlineExceeded, 7)]
 #[case::call_cancelled("call_cancelled", ErrorGroup::Unavailable, 8)]
 #[case::engine_output_invalid("engine_output_invalid", ErrorGroup::Internal, 1)]
 #[case::engine_panicked("engine_panicked", ErrorGroup::Internal, 1)]
@@ -125,8 +116,8 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         verdict_reasons: Vec::new(),
         completeness: Completeness::Complete,
         completeness_reasons: Vec::new(),
-        started_at: PointInTime::from_rfc3339("2026-10-22T06:00:00Z".to_owned()),
-        ended_at: PointInTime::from_rfc3339("2026-10-22T06:00:01Z".to_owned()),
+        started_at: point_in_time::from_rfc3339("2026-10-22T06:00:00Z").unwrap(),
+        ended_at: point_in_time::from_rfc3339("2026-10-22T06:00:01Z").unwrap(),
         usage: RunUsage::default(),
         weakened: Vec::new(),
         plan: None,

@@ -10,7 +10,9 @@
 //! neither a retry nor a failure, and fails with `browser_required` under a
 //! forced tier, so a script-rendered page never ends as an empty success
 //! (pitfall H22). `page.read` answers a page's fields alike on a Label
-//! forced to `http` and on one forced to `browser` (ADR 0147). The Page
+//! forced to `http` and on one forced to `browser` (ADR 0147). A raw call
+//! naming a page a document tier serves is a line of its Run trace (ADR
+//! 0099). The Page
 //! formats cases read every Markdown page of the
 //! Proving ground's `extraction/7` on `http` and on `browser`, each judged
 //! by the oracle (ADR 0094).
@@ -19,13 +21,15 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_client::Attached;
+use goodfetch_protocol::home::RUN_TRACE_CALLS;
+use goodfetch_test_client::{Attached, HomeLayout};
 use goodfetch_test_support::ToolStatus;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, raw_call_lines};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, provenance, settings, tiers};
-use crate::frontier::{Inside, crawl_declaring};
+use crate::frontier::{Inside, crawl, crawl_declaring};
+use crate::site::Site;
 
 /// The Proving ground's seed.
 const SEED: u64 = 931;
@@ -305,7 +309,10 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
         "table-auto",
         &[json!({ "url": proving_ground.url(HOST, "/states"), "label": "page" })],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "auto", "http_from": "browser" } }),
+        ),
         &mut the_tables_calls(&mut runs),
     );
     let ended = ended(&mut engine, "table-auto");
@@ -333,7 +340,8 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
 /// listing, and the browser's run, in the same attempt, answers the three
 /// entries; under a forced `http` the wait fails with `browser_required`,
 /// and the request ends `failed`, never `succeeded` with nothing (pitfall
-/// H22). Neither counts a retry.
+/// H22). Neither counts a retry. Under `auto`, its HTTP leaves from the
+/// browser (`fetch.http_from: browser`).
 ///
 /// Covers: story:6-260, story:6-259, operation:locator.wait_for_count
 #[rstest::rstest]
@@ -357,7 +365,10 @@ fn a_script_rendered_page_never_ends_as_an_empty_success_on_http(
         &run_id,
         &[json!({ "url": proving_ground.url(HOST, "/blog/1"), "label": "blog" })],
         &json!({ "blog": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": tier } })),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": tier, "http_from": "browser" } }),
+        ),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             let waited = inside.call(
                 "locator.wait_for_count",
@@ -876,5 +887,42 @@ fn a_pages_fields_read_the_same_on_a_label_forced_to_http_and_on_one_forced_to_b
         (leads[0], leads[1..].iter().any(|lead| *lead)),
         (true, false),
         "{listed}"
+    );
+}
+
+/// A raw call that names only a page the `http` tier serves is a line of
+/// that page's Run trace, marked raw, as one naming a browser page is
+/// (ADR 0099).
+///
+/// Covers: story:11-181, operation:page.formats
+#[test]
+fn a_raw_call_naming_a_served_page_is_a_line_of_its_runs_trace() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let seeds = [json!({ "url": site.page("/a"), "label": "page" })];
+    let mut engine = site.engine(&env);
+
+    let mut formats = Value::Null;
+    crawl(&mut engine, "served", &seeds, &mut |inside, handle| {
+        formats = inside.call(
+            "page.formats",
+            &json!({
+                "page_id": handle["page_id"],
+                "formats": { "markdown": true },
+                "_meta": { "raw": true },
+            }),
+        );
+        json!({ "result": { "records": [] } })
+    });
+    assert!(engine.finished());
+
+    let lines = raw_call_lines(&HomeLayout::of(env.home()).run_trace("served", RUN_TRACE_CALLS));
+    assert_eq!(
+        (formats["result"]["markdown"].is_string(), lines),
+        (
+            true,
+            vec![json!({ "operation": "page.formats", "raw": true, "ended": "answered" })],
+        ),
+        "{formats}"
     );
 }

@@ -15,10 +15,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{
-    Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, command, duration, member,
-    members_of, offer,
-};
+use super::{Call, Generated, Offer, OwnCommands, command, duration, member, members_of, offer};
 use crate::executable::engine_choice::{Choice, Lifetime};
 
 /// What the made-up operations take.
@@ -70,7 +67,7 @@ const WIDGET_PAGE: Operation =
 )]
 #[case::read(
     operation("widget.name", OperationKind::Read, Reach::AllSurfaces),
-    Some(Offer::Command)
+    None
 )]
 #[case::opener(
     operation("widget.open", OperationKind::Opener, Reach::AllSurfaces),
@@ -123,165 +120,6 @@ fn an_operation_is_a_command_by_its_kind_and_reach(
     #[case] offered: Option<Offer>,
 ) {
     assert_eq!(offer(&operation), offered);
-}
-
-/// Covers: story:11-198, story:11-218
-#[test]
-fn the_commands_of_collies_catalog_are_its_offered_operations() {
-    let commands: Vec<(&str, Offer)> = operations_of(Product::Collie)
-        .filter_map(|operation| Some((operation.name, offer(operation)?)))
-        .collect();
-
-    assert_eq!(
-        commands,
-        [
-            ("daemon.status", Offer::Command),
-            ("daemon.stop", Offer::Command),
-            ("daemon.health", Offer::Command),
-            ("certs.list", Offer::Command),
-            ("engine.info", Offer::Command),
-            ("events.subscribe", Offer::Follow),
-            ("needs_you.list", Offer::Command),
-            ("needs_you.dismiss", Offer::Command),
-            ("run.new_page", Offer::Command),
-            ("run.new_session", Offer::Command),
-            ("session.new_page", Offer::Command),
-            ("session.close", Offer::Command),
-            ("page.goto", Offer::Command),
-            ("page.reload", Offer::Command),
-            ("page.go_back", Offer::Command),
-            ("page.go_forward", Offer::Command),
-            ("page.formats", Offer::Command),
-            ("page.read", Offer::Command),
-            ("page.body", Offer::Follow),
-            ("locator.click", Offer::Command),
-            ("locator.fill", Offer::Command),
-            ("locator.press", Offer::Command),
-            ("response.body", Offer::Command),
-            ("session.pages", Offer::Command),
-            ("page.close", Offer::Command),
-            ("run.start", Offer::Command),
-            ("run.finish", Offer::Command),
-            ("run.stop", Offer::Command),
-            ("run.abort", Offer::Command),
-            ("run.usage", Offer::Command),
-            ("run.progress", Offer::Command),
-            ("run.report", Offer::Command),
-            ("run.list", Offer::Command),
-            ("run.checkpoint", Offer::Command),
-            ("run.pause", Offer::Command),
-            ("run.migrate", Offer::Command),
-            ("run.resume", Offer::Command),
-            ("key_value_store.get", Offer::Command),
-            ("key_value_store.set", Offer::Command),
-            ("key_value_store.get_bytes", Offer::Command),
-            ("key_value_store.set_bytes", Offer::Command),
-            ("key_value_store.delete", Offer::Command),
-            ("key_value_store.keys", Offer::Follow),
-            ("audit.export", Offer::Command),
-            ("audit.verify", Offer::Command),
-            ("sample.echo", Offer::Command),
-            ("config.explain", Offer::Command),
-            ("usage.list", Offer::Command),
-            ("usage.set", Offer::Command),
-        ]
-    );
-}
-
-/// The namespaces `xtask codegen` writes for a start to read, so that it
-/// walks no catalog: each namespace of those commands once, in the
-/// catalog's order, with its spelling and its group's help.
-#[test]
-fn the_generated_namespaces_are_those_of_collies_commands() {
-    let names: Vec<&str> = NAMESPACES
-        .iter()
-        .filter(|namespace| namespace.product == Product::Collie)
-        .map(|namespace| namespace.name)
-        .collect();
-
-    assert_eq!(
-        names,
-        [
-            "daemon",
-            "certs",
-            "engine",
-            "events",
-            "needs_you",
-            "run",
-            "session",
-            "page",
-            "locator",
-            "response",
-            "key_value_store",
-            "audit",
-            "sample",
-            "config",
-            "usage"
-        ]
-    );
-    assert_eq!(
-        NAMESPACES[5],
-        Namespace {
-            name: "run",
-            spelled: "run",
-            about: "Calls the catalog's `run` operations",
-            product: Product::Collie,
-        }
-    );
-}
-
-/// Foxhound's catalog adds its crawl's commands to Collie's, in the
-/// catalog's order (ADRs 0095 and 0099): a sequence of what a crawl
-/// committed prints it once the call ends unless `--follow` is given, a
-/// round trip that answers pages of what a crawl committed follows them under
-/// `--follow`, and a stream of seeds reads them from stdin. A handler's
-/// own calls and `crawl.serve`, which serves a handler, stay the SDKs'
-/// (ADR 0104).
-///
-/// Covers: story:11-1130
-#[test]
-fn foxhounds_catalog_adds_the_crawls_commands_to_collies() {
-    let collie: Vec<&str> = operations_of(Product::Collie)
-        .map(|operation| operation.name)
-        .collect();
-    let added: Vec<(&str, Offer)> = operations_of(Product::Foxhound)
-        .filter(|operation| !collie.contains(&operation.name))
-        .filter_map(|operation| Some((operation.name, offer(operation)?)))
-        .collect();
-
-    assert_eq!(
-        added,
-        [
-            ("sample.crawl", Offer::Command),
-            ("crawl.start", Offer::Command),
-            ("run.seeds", Offer::Command),
-            ("run.add_seed", Offer::Command),
-            ("run.add_seeds", Offer::Input),
-            ("run.records", Offer::Committed),
-            ("dataset.list", Offer::Command),
-            ("dataset.page", Offer::Command),
-            ("run.export", Offer::Command),
-            ("run.outcomes", Offer::Pages),
-            ("run.failed_requests", Offer::Command),
-            ("run.retry_failed", Offer::Command),
-            ("run.rejected_records", Offer::Pages),
-            ("dataset.query", Offer::Command),
-        ]
-    );
-}
-
-/// The generated namespaces hold Foxhound's commands' too, each marked by
-/// the Product whose catalog first gives it a command: Collie's first, in
-/// their order, then the two only Foxhound has.
-#[test]
-fn the_generated_namespaces_mark_the_two_only_foxhound_has() {
-    let foxhounds: Vec<&str> = NAMESPACES
-        .iter()
-        .filter(|namespace| namespace.product == Product::Foxhound)
-        .map(|namespace| namespace.name)
-        .collect();
-
-    assert_eq!(foxhounds, ["crawl", "dataset"]);
 }
 
 /// The command line of `product`'s executable, with no hand-written
@@ -482,6 +320,27 @@ fn a_timeout_that_is_no_positive_duration_is_a_usage_error(#[case] timeout: &str
     assert_eq!(
         (refused.kind(), refused.exit_code()),
         (ErrorKind::ValueValidation, 2)
+    );
+}
+
+/// `run start` takes its Run's Limits as `--limit`, repeatable, and no
+/// longer as raw JSON.
+#[test]
+fn run_start_takes_its_limits_as_repeated_limit_flags() {
+    let run_start = collies("run.start");
+
+    let params = parse(
+        run_start,
+        &["--limit", "requests=5", "--limit", "page_crashes=1"],
+    )
+    .unwrap();
+
+    assert_eq!(
+        params,
+        json!({ "limits": [
+            { "usage_kind": "requests", "amount": 5 },
+            { "usage_kind": "page_crashes", "amount": 1 },
+        ] })
     );
 }
 

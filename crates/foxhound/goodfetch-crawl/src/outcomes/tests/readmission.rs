@@ -16,9 +16,10 @@ use goodfetch_protocol::foxhound::outcomes::{
     CrawlRequestOutcome, Ending, OutcomeKind, SkipReason,
 };
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time;
 use proptest::prelude::*;
 use rusqlite::Connection;
+use std::time::SystemTime;
 
 use super::super::{Filter, latest_of_readmitted, page};
 use crate::invariants::fixture;
@@ -44,8 +45,8 @@ fn first() -> impl Strategy<Value = First> {
     ]
 }
 
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn crawl_of(count: usize) -> Connection {
@@ -60,6 +61,7 @@ fn crawl_of(count: usize) -> Connection {
         .chain(goodfetch_frontier::BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(crate::invariants::fixture::PAGE_DECLARED.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
         .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
@@ -164,7 +166,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 connection,
                 id,
                 epoch,
-                Unsuccessful::Blocked(goodfetch_protocol::block::BlockCause::RateLimit),
+                Unsuccessful::Blocked(goodfetch_protocol::foxhound::block::BlockCause::RateLimit),
                 &ended_at(),
                 &mut Changed::default(),
             ),
@@ -338,6 +340,7 @@ fn decoded(connection: &Connection) -> RequestCounts {
                 counts.blocked += 1;
                 by(&mut counts.by_block_cause, cause.as_str().to_owned());
             }
+            unknown => panic!("this engine ends no request as {unknown:?}"),
         }
     }
     counts

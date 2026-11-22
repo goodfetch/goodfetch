@@ -19,7 +19,8 @@ mod charset;
 )]
 mod sniffing;
 
-use charset::{Kind, content_type, decode, read};
+use charset::{decode, read};
+use goodfetch_encoding::{Kind, content_type};
 
 /// `line` repeated past the first 1,024 bytes of a document.
 fn past_1024(line: &str) -> String {

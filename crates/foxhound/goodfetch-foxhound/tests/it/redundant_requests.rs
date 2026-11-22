@@ -79,7 +79,7 @@ fn crawl_together(
     for crawl in crawls {
         engine.send(&json!({
             "jsonrpc": "2.0", "id": format!("start {}", crawl.run_id), "method": "crawl.start",
-            "params": { "run_id": crawl.run_id, "seeds": crawl.seeds, "settings": crawl.settings },
+            "params": { "run_id": crawl.run_id, "seeds": crawl.seeds, "settings": crawl.settings, "labels": { "article": {} } },
         }));
     }
     let mut finished = vec![Value::Null; crawls.len()];
@@ -151,6 +151,7 @@ fn a_crawl_that_hedges_while_a_domain_admits_one_request_at_a_time_is_refused() 
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "hedged",
             "seeds": [{ "url": "http://pacing.test/", "label": "page" }],
             "settings": {

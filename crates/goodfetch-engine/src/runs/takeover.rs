@@ -111,10 +111,10 @@ impl TakeOver {
             needs: recorded.needs,
             tags: recorded.tags,
             lifecycle: report.lifecycle,
-            verdict: Some(report.verdict),
+            verdict: Some(report.verdict.clone()),
             completeness: Some(report.completeness),
-            started_at: report.started_at.clone(),
-            ended_at: Some(report.ended_at.clone()),
+            started_at: report.started_at,
+            ended_at: Some(report.ended_at),
             owner: None,
             presence: Presence::Present,
             progress_message: recorded.progress_message.clone(),
@@ -129,7 +129,7 @@ impl TakeOver {
             .publish_axes(RunAxes {
                 run_id: self.run_id,
                 lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
+                verdict: Some(report.verdict.clone()),
                 completeness: Some(report.completeness),
             })
             .await;
@@ -240,7 +240,7 @@ impl TakeOver {
             run_id: self.run_id.clone(),
             lifecycle,
             stop_reason: Some(StopReason::Abort { by: self.by }),
-            started_at: recorded.started_at.clone(),
+            started_at: recorded.started_at,
             ended_at: self.clock.point_in_time(),
             policy_version: recorded.policy_version.clone(),
             weakened: recorded.weakened.clone(),

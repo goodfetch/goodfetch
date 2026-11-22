@@ -26,6 +26,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
     Launch {
         data_folder: Path::new("/runs/r/browser-data/1"),
         headless,
+        headless_shell: false,
         resolve: Box::leak(Box::default()),
         shared_memory,
         proxy_script: None,
@@ -296,6 +297,35 @@ fn a_policy_script_reaches_the_browser_as_its_proxy_configuration() {
             has(&open, webrtc)
         ),
         (vec![script.to_owned()], Vec::new(), true, true)
+    );
+}
+
+/// The headless shell reads WebRTC's policy from the content layer's
+/// switch alone, and the full build from its own alone, so each launch
+/// passes its build's (#3224): without it the shell sent UDP around the
+/// egress relay (ADR 0044).
+#[test]
+fn the_headless_shell_holds_webrtc_to_proxied_udp_by_its_own_switch() {
+    let full = arguments(&launch(true, None));
+    let shell = arguments(&Launch {
+        headless_shell: true,
+        ..launch(true, None)
+    });
+    let policy = |built: &Arguments| {
+        built
+            .command_line
+            .iter()
+            .filter(|argument| argument.contains("webrtc"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        (policy(&full), policy(&shell)),
+        (
+            vec!["--webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned()],
+            vec!["--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned()]
+        )
     );
 }
 

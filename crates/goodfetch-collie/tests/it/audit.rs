@@ -384,9 +384,10 @@ fn an_exported_log_verifies_intact_and_an_edit_to_it_shows() {
     );
 }
 
-/// `config explain audit` shows both of the Audit log's keys with the
-/// layer that set each: `audit.retention` from the user configuration, and
-/// `audit.otlp`'s default, off.
+/// `config explain audit` shows each of the Audit log's keys with the
+/// layer that set it: `audit.retention` from the user configuration, and
+/// the defaults of `audit.otlp`, off, and `audit.refusals_per_minute`, 10
+/// (#2324).
 /// Covers: story:4-72, command:config.explain, setting:audit.retention, setting:audit.otlp
 #[test]
 fn config_explain_audit_shows_its_retention_and_otlp_keys_with_their_layer() {
@@ -409,6 +410,7 @@ fn config_explain_audit_shows_its_retention_and_otlp_keys_with_their_layer() {
         keys,
         [
             json!(["audit.otlp", false, "default"]),
+            json!(["audit.refusals_per_minute", 10, "default"]),
             json!(["audit.retention", 15_552_000_000_u64, "user_configuration"]),
         ]
     );

@@ -46,6 +46,7 @@ use std::sync::Arc;
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{CountedWork, ParsedHtml};
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::governor;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
@@ -68,6 +69,29 @@ use crate::url_pattern::UrlPattern;
 /// A boxed future of [`BrowserPages`]'s.
 pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// A crawl request's own document fetch, which the first navigation of
+/// its browser page sends (ADR 0093): its URL, and the method and body its
+/// main-frame request carries in place of the browser's bodiless `GET`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnFetch<'a> {
+    /// Its URL.
+    pub url: &'a str,
+    /// Its method, as the Frontier admitted it: one of the six standard
+    /// methods upper-case, any other as written.
+    pub method: &'a str,
+    /// Its body, if it has one.
+    pub body: Option<&'a [u8]>,
+}
+
+impl OwnFetch<'_> {
+    /// Whether it is a `GET` with no body, or an empty one, as the
+    /// browser's own navigation sends it.
+    #[must_use]
+    pub fn is_bodiless_get(&self) -> bool {
+        self.method == "GET" && self.body.is_none_or(<[u8]>::is_empty)
+    }
+}
+
 /// The browser pages a Product opens for its handlers itself (ADR 0093's
 /// browser tier), which [`HandlerPages::opened`] hands it once.
 pub trait BrowserPages: Send + Sync {
@@ -76,9 +100,14 @@ pub trait BrowserPages: Send + Sync {
     /// opened at its first page from `pooled.source` (ADRs 0088 and 0093),
     /// for the call `context`, whose Connection's Client then reaches it,
     /// taking the value [`HandlerPages::value`] gives as it opens, and
-    /// navigates it to `url` as `page.goto` does, through its navigation
-    /// gate; answers its ID and the navigation's answer. A page whose
-    /// navigation failed is closed again.
+    /// navigates it to `own`'s URL as `page.goto` does, through its
+    /// navigation gate; answers its ID and the navigation's answer. A page
+    /// whose navigation failed is closed again.
+    ///
+    /// Each main-frame request for that URL the navigation sends, the
+    /// load once more with blocking off included, carries `own`'s method
+    /// and body, which every route then sees; a redirect's hop is sent as
+    /// the browser sends it, as HTTP says.
     ///
     /// # Errors
     ///
@@ -93,7 +122,7 @@ pub trait BrowserPages: Send + Sync {
         &'a self,
         run_id: &'a RunId,
         pooled: &'a PooledSession,
-        url: &'a str,
+        own: OwnFetch<'a>,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>>;
 
@@ -871,6 +900,24 @@ pub trait HandlerPages: Send + Sync {
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.
     fn document(&self, page_id: &PageId) -> Option<Arc<ServedDocument>> {
+        let _ = page_id;
+        None
+    }
+
+    /// Whether a call may enclose the calls on its pages, such as a crawl
+    /// handler's (ADR 0080): only then does a cancellable page call look
+    /// for an enclosing call's end, so a Product whose pages no call
+    /// encloses, as Collie's, pays nothing for it. False by default.
+    fn encloses_calls(&self) -> bool {
+        false
+    }
+
+    /// The end of the call enclosing the calls on the page `page_id`, when
+    /// a fetch tier serves that page from a document and a call encloses
+    /// its handler, such as a crawl handler under `timeout.handler` (ADR
+    /// 0080); none by default. A browser page's is its value's lease's
+    /// ([`LeaseCheck::enclosing`]).
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
         let _ = page_id;
         None
     }

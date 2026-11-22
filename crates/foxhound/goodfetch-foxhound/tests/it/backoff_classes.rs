@@ -7,44 +7,64 @@
 //! domain until the time it asks, and a request admitted meanwhile is never
 //! sent; and through a forward proxy, the site's 429 backs its domain off
 //! and lowers no proxy ceiling.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )
 )]
-#![expect(
-    clippy::disallowed_types,
-    reason = "a test binds the refused case's address, outside the engine, only to see that no other program can take it (ADR 0060)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::disallowed_types,
+        reason = "a test binds the refused case's address, outside the engine, only to see that no other program can take it (ADR 0060)"
+    )
 )]
 #![expect(
     clippy::disallowed_methods,
     reason = "the test reads the times the Politeness file holds a domain until against the wall clock, and bounds its own wait for them; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
-use std::collections::BTreeSet;
-use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use goodfetch_test_client::Attached;
-use goodfetch_test_support::ObservedRequest;
-use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
-};
-use rstest::rstest;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
+
+// The cases themselves run on Unix; `held_for` serves every OS's tests.
+#[cfg(unix)]
+use std::collections::BTreeSet;
+#[cfg(unix)]
+use std::net::{SocketAddr, TcpListener};
+
+#[cfg(unix)]
+use goodfetch_test_client::Attached;
+#[cfg(unix)]
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ObservedRequest, ProvingGround, ReceivedRequests, TestEnv,
+    browser_cache,
+};
+#[cfg(unix)]
+use rstest::rstest;
+#[cfg(unix)]
 use serde_json::{Value, json};
 
+#[cfg(unix)]
 use crate::attached_with;
+#[cfg(unix)]
 use crate::fetch_tiers::settings;
 
 /// The Proving ground's seed.
+#[cfg(unix)]
 const SEED: u64 = 766;
 
 /// The first wait of a domain's backoff, long past any crawl here, so the
 /// domain is still held when its Run has finished.
+#[cfg(unix)]
 const BACKOFF_INITIAL_MS: u64 = 120_000;
 
 /// The tier a crawl fetches its documents on.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
 enum Tier {
     Http,
@@ -54,6 +74,7 @@ enum Tier {
     Browser,
 }
 
+#[cfg(unix)]
 impl Tier {
     fn name(self) -> &'static str {
         match self {
@@ -65,6 +86,7 @@ impl Tier {
 }
 
 /// What a crawl's single page meets.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
 enum Page {
     /// `scope.test`'s quiet page answering this status.
@@ -81,6 +103,7 @@ enum Page {
 
 /// A home whose configuration trusts the Proving ground's authority for
 /// `fetch-edge.test`, which only configuration may.
+#[cfg(unix)]
 fn home(proving_ground: &ProvingGround, env: &TestEnv) {
     env.user_configuration(&format!(
         "tls.trusted_cas.\"fetch-edge.test\" = ['{}']\n",
@@ -90,6 +113,7 @@ fn home(proving_ground: &ProvingGround, env: &TestEnv) {
 
 /// An Attached engine under `env`, its pages launched from Chrome for
 /// Testing.
+#[cfg(unix)]
 fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     attached_with(env, Some(Duration::from_secs(90)), |command| {
@@ -101,6 +125,7 @@ fn engine(env: &TestEnv) -> Attached {
 /// unread, no delay between a domain's starts, no retry, a backoff whose
 /// first wait outlasts the crawl, and the hosts named `extra` resolved to
 /// their addresses beside the Proving ground's.
+#[cfg(unix)]
 fn crawl_settings(
     proving_ground: &ProvingGround,
     tier: Tier,
@@ -143,6 +168,7 @@ fn crawl_settings(
 /// `down` address, where nothing listens and which no other program can
 /// take while the Proving ground runs. A port bound and let go could be
 /// taken, and answered, by any program before the engine connects.
+#[cfg(unix)]
 fn refused_address(proving_ground: &ProvingGround) -> SocketAddr {
     proving_ground.description().fixtures.proxies["down"]
         .parse()
@@ -151,6 +177,7 @@ fn refused_address(proving_ground: &ProvingGround) -> SocketAddr {
 
 /// The URL `page` is met at, its domain key, and the hosts it needs
 /// resolved beside the Proving ground's.
+#[cfg(unix)]
 fn url_of(
     proving_ground: &ProvingGround,
     page: Page,
@@ -220,6 +247,7 @@ pub(crate) fn held_for(file: &Path, key: &str, at_least: Duration) -> bool {
 }
 
 /// The ceiling the Politeness file learned for each proxy key, by key.
+#[cfg(unix)]
 fn ceilings(file: &Path) -> BTreeSet<(String, Option<i64>)> {
     let connection = Connection::open(file).unwrap();
     let mut statement = connection
@@ -235,6 +263,7 @@ fn ceilings(file: &Path) -> BTreeSet<(String, Option<i64>)> {
 /// Crawls as `crawl.start`'s `params` say until the Run finished, the
 /// handler handling every page and committing nothing: the answer of
 /// `run.finish`.
+#[cfg(unix)]
 fn crawled(engine: &mut Attached, params: &Value) -> Value {
     let run_id = params["run_id"].clone();
     engine.send(&json!({
@@ -329,6 +358,7 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     let finished = crawled(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "classes",
             "seeds": [{ "url": url, "label": "page" }],
             "settings": crawl_settings(&proving_ground, tier, &extra, &more),
@@ -390,6 +420,7 @@ fn the_sites_retry_after_holds_its_domain_and_nothing_is_sent_before_it(
     let finished = crawled(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "retry-after",
             "seeds": [
                 { "url": proving_ground.url("fetch-edge.test", "/retry-after/503/long"), "label": "page", "priority": 1 },
@@ -424,6 +455,7 @@ fn the_sites_retry_after_holds_its_domain_and_nothing_is_sent_before_it(
 /// minute. (A site's 429 retires its Session and escalates its request a
 /// proxy tier up, ADR 0021, which a Run with one `proxy.server` never
 /// serves: the request waits, so the Run is aborted, not finished.)
+#[cfg(unix)]
 fn crawled_until_held(engine: &mut Attached, params: &Value, file: &Path, key: &str) -> bool {
     let run_id = params["run_id"].clone();
     engine.send(&json!({
@@ -486,6 +518,7 @@ fn a_sites_429_through_a_proxy_backs_its_domain_off_and_lowers_no_ceiling() {
     let held = crawled_until_held(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "through-open",
             "seeds": [{
                 "url": proving_ground.url("scope.test", "/quiet?mark=site&status=429"),

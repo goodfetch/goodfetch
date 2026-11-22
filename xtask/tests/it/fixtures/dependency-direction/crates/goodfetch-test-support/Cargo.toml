@@ -5,4 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
+goodfetch-runtime = { path = "../goodfetch-runtime" }
 goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }

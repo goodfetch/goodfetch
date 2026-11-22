@@ -32,8 +32,11 @@
 //! `crawl.max_segment_repeats` refuses, so it finishes at once; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
-//! row and an archive over 1 MiB as a kept file, and whose run
-//! state holds its data key wrapped, which `run.abort` stops; and a Run
+//! row and an archive over 1 MiB as a kept file, whose run
+//! state holds its data key wrapped, and whose Effect journal holds an
+//! Effect its program declared and closed, beside one left uncertain and
+//! one a person reconciled, which the writer's own contribution records
+//! since no window marks a send here, which `run.abort` stops; and a Run
 //! bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
@@ -137,6 +140,8 @@ fn scenario() -> Vec<Value> {
                 "labels": {
                     "home": { "payload": { "type": ["object", "null"] } },
                     "product": {},
+                    "guarded": {},
+                    "listed": {},
                 },
                 "datasets": [
                     {
@@ -213,6 +218,20 @@ fn scenario() -> Vec<Value> {
             json!({ "run_id": "aborted", "key": "archive", "content": "A".repeat(1_398_104), "content_type": "application/octet-stream" }),
         ),
         call(12, "compat.keyed", json!({ "run_id": "aborted" })),
+        // The Effect journal's Run secret, fixed, and an Effect left
+        // uncertain and one a person reconciled, then an Effect its program
+        // declares and closes, entry 3 since the journal holds two.
+        call(18, "compat.effects", json!({ "run_id": "aborted" })),
+        call(
+            19,
+            "effect.open",
+            json!({ "run_id": "aborted", "key": "receipt", "repeatable": true }),
+        ),
+        call(
+            20,
+            "effect.close",
+            json!({ "run_id": "aborted", "entry": "3", "outcome": { "ended": "returned", "output": { "order": "A-1" } } }),
+        ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(
             16,
@@ -288,6 +307,42 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
         .await
         .expect("the wrapped data key is kept");
     Ok(json!({ "keyed": true }))
+}
+
+/// Stores the Effect journal's Run secret in a live Run's run state, fixed,
+/// since a real one is random and the set must be the same at each write,
+/// and two entries no call of a Client's leaves yet, since no window marks
+/// a command sent here and no operation answers about an uncertain Effect:
+/// one left uncertain after its first command went out, and one a person
+/// answered "it happened" about (ADR 0106).
+const EFFECTS: Operation = Operation {
+    name: "compat.effects",
+    description: "Stores a fixed Effect secret and an uncertain and a reconciled Effect.",
+    ..BOUND
+};
+
+async fn effects(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
+    let run = context.runs().live(run_id).await.expect("the Run is live");
+    let secret: Vec<u8> = (0..32).map(|byte: u8| byte.wrapping_mul(53)).collect();
+    run.state()
+        .write(move |connection| {
+            connection.execute("INSERT INTO effect_secret (id, secret) VALUES (1, ?1)", [secret])?;
+            connection.execute(
+                "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since) \
+                 VALUES ('', 'refund', 0, 'uncertain', 'interrupted', 'Input.dispatchMouseEvent', '2026-01-05T09:00:01Z')",
+                [],
+            )?;
+            connection.execute(
+                "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since, reconciled_by, reconciled_at) \
+                 VALUES ('', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("the Effect journal's entries are kept");
+    Ok(json!({ "journaled": true }))
 }
 
 /// Hands the Frontier of a live crawl the pages of its `list.test/items`
@@ -612,117 +667,119 @@ impl goodfetch_frontier::EndMerged for Ending {
 fn bound() -> Contribution {
     Contribution::new("compat-run-state")
         .with_handler(Handler::new(&KEYED, keyed))
+        .with_handler(Handler::new(&EFFECTS, effects))
         .with_handler(Handler::new(&LEARNED, learned))
-        .with_handler(Handler::new(
-        &BOUND,
-        |_: Value, context: CallContext| async move {
-            let started = context
-                .runs()
-                .start(Start {
-                    run_id: Some(RunId::parse("paused").expect("a Run ID")),
-                    tags: Tags::default(),
-                    kind: RunKind::Collie,
-                    needs: Product::Collie,
-                    inputs: BTreeMap::new(),
-                    ended_by: EndedBy::Finish,
-                    initialize: None,
-                    policy_version: None,
-                    weakened: Vec::new(),
-                    binding: Some(RunBinding::BrowserHost {
-                        browser_host: "laptop".to_owned(),
-                    }),
-                    clean_up_digest: Some(CLEAN_UP_DIGEST.to_owned()),
-                    checkpoint_interval: None,
-                    timeout: None,
-                    settings: None,
-                })
+        .with_handler(Handler::new(&BOUND, bind))
+}
+
+/// Starts the Run `paused` as [`BOUND`] says, with what its owners and its
+/// program left in it.
+async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse("paused").expect("a Run ID")),
+            tags: Tags::default(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: BTreeMap::new(),
+            ended_by: EndedBy::Finish,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: Some(RunBinding::BrowserHost {
+                browser_host: "laptop".to_owned(),
+            }),
+            clean_up_digest: Some(CLEAN_UP_DIGEST.to_owned()),
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await
+        .map_err(goodfetch_engine::run::start_error)?;
+    if let Started::New(run) = started {
+        let warning = RunWarning {
+            code: "storage_low".to_owned(),
+            message: "The run folder's filesystem met the `low` storage level.".to_owned(),
+            sessions: vec!["laptop".to_owned()],
+            folder: Some("runs/paused".to_owned()),
+        };
+        run.warn(warning).await.expect("the warning is kept");
+        run.nothing_done(NothingDone::NothingPending)
+            .await
+            .expect("`nothingDone` is kept");
+        run.charge_part("proxy_bytes", "datacenter", 4_096, None)
+            .await
+            .expect("the proxy bytes are counted");
+        // Its program's own navigation read two origins' robots.txt
+        // into the Run's own copies (ADR 0098): one the site
+        // answered, one it never did.
+        for (location, answer) in [
+            (
+                "https://shop.test/robots.txt",
+                Answer::Response {
+                    status: 200,
+                    body: b"User-agent: *\nDisallow: /cart/\n".to_vec(),
+                },
+            ),
+            (
+                "https://down.test/robots.txt",
+                Answer::Unreachable(
+                    "the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED"
+                        .to_owned(),
+                ),
+            ),
+        ] {
+            let location = url::Url::parse(location).expect("a robots.txt URL");
+            run.own_robots_txt(&location, async { Ok(answer) })
                 .await
-                .map_err(goodfetch_engine::run::start_error)?;
-            if let Started::New(run) = started {
-                let warning = RunWarning {
-                    code: "storage_low".to_owned(),
-                    message: "The run folder's filesystem met the `low` storage level.".to_owned(),
-                    sessions: vec!["laptop".to_owned()],
-                    folder: Some("runs/paused".to_owned()),
-                };
-                run.warn(warning).await.expect("the warning is kept");
-                run.nothing_done(NothingDone::NothingPending)
-                    .await
-                    .expect("`nothingDone` is kept");
-                run.charge_part("proxy_bytes", "datacenter", 4_096, None)
-                    .await
-                    .expect("the proxy bytes are counted");
-                // Its program's own navigation read two origins' robots.txt
-                // into the Run's own copies (ADR 0098): one the site
-                // answered, one it never did.
-                for (location, answer) in [
-                    (
-                        "https://shop.test/robots.txt",
-                        Answer::Response {
-                            status: 200,
-                            body: b"User-agent: *\nDisallow: /cart/\n".to_vec(),
-                        },
-                    ),
-                    (
-                        "https://down.test/robots.txt",
-                        Answer::Unreachable(
-                            "the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED"
-                                .to_owned(),
-                        ),
-                    ),
-                ] {
-                    let location = url::Url::parse(location).expect("a robots.txt URL");
-                    run.own_robots_txt(&location, async { Ok(answer) })
-                        .await
-                        .expect("the copy is read");
-                }
-                run.keep_file(
-                    FileKind::Download,
-                    "books.csv".to_owned(),
-                    std::io::Cursor::new(b"title,price\nDune,9.99\n".to_vec()),
+                .expect("the copy is read");
+        }
+        run.keep_file(
+            FileKind::Download,
+            "books.csv".to_owned(),
+            std::io::Cursor::new(b"title,price\nDune,9.99\n".to_vec()),
+        )
+        .await
+        .expect("the Download's file is kept");
+        // The Borrowed browser's Session holds its source sealed
+        // under the Run's data key: one of the layout's shape
+        // (version, nonce, the 90 bytes of its `cdp_url` record and
+        // their tag), fixed, since a real one is random and the set
+        // must be the same at each write. The Session is closed, so
+        // no resume opens it.
+        let sealed_source: Vec<u8> = std::iter::once(1_u8)
+            .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
+            .collect();
+        run.state()
+            .write(move |connection| {
+                connection
+                    .execute(
+                        r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
+                        [sealed_source],
+                    )
+                    .map(drop)?;
+                // What a Label learned on a domain (#926): a split
+                // Label, one segment on `http`, one still sampled.
+                connection
+                    .execute(
+                        r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
+                        [],
+                    )
+                    .map(drop)?;
+                // A request added through a link its served
+                // document's markup hides (#1153).
+                goodfetch_frontier::trap_links::suspect(
+                    connection,
+                    None,
+                    "2",
+                    goodfetch_frontier::trap_links::Mark::Hidden,
                 )
-                .await
-                .expect("the Download's file is kept");
-                // The Borrowed browser's Session holds its source sealed
-                // under the Run's data key: one of the layout's shape
-                // (version, nonce, the 90 bytes of its `cdp_url` record and
-                // their tag), fixed, since a real one is random and the set
-                // must be the same at each write. The Session is closed, so
-                // no resume opens it.
-                let sealed_source: Vec<u8> = std::iter::once(1_u8)
-                    .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
-                    .collect();
-                run.state()
-                    .write(move |connection| {
-                        connection
-                            .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
-                                [sealed_source],
-                            )
-                            .map(drop)?;
-                        // What a Label learned on a domain (#926): a split
-                        // Label, one segment on `http`, one still sampled.
-                        connection
-                            .execute(
-                                r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
-                                [],
-                            )
-                            .map(drop)?;
-                        // A request added through a link its served
-                        // document's markup hides (#1153).
-                        goodfetch_frontier::trap_links::suspect(
-                            connection,
-                            None,
-                            "2",
-                            goodfetch_frontier::trap_links::Mark::Hidden,
-                        )
-                    })
-                    .await
-                    .expect("the Sessions, a tier choice and a suspected trap link are kept");
-            }
-            Ok::<Value, CallError>(json!({ "run_id": "paused" }))
-        },
-    ))
+            })
+            .await
+            .expect("the Sessions, a tier choice and a suspected trap link are kept");
+    }
+    Ok(json!({ "run_id": "paused" }))
 }
 
 /// The handler's enqueue, from the home page's attempt, of a request that
@@ -898,7 +955,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine_folder.join(OPERATOR_POLICY_FILE),
         "version = \"0.1\"\n",
     )?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .build()?;

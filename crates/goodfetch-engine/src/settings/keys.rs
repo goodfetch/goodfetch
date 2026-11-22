@@ -3,7 +3,7 @@
 //! telling a prefix of keys from an unknown name, and the closest key to a
 //! misspelt one, and each key's catalog default.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use goodfetch_protocol::catalog::{Product, Setting};
@@ -47,19 +47,23 @@ pub(crate) fn unbuilt() -> impl Iterator<Item = (&'static Setting, &'static str)
     UNBUILT.iter().copied()
 }
 
-/// The names of the keys fixed for a Run's life (`Setting::fixed_for_run`),
-/// read once.
-static FIXED_FOR_RUN: LazyLock<BTreeSet<&'static str>> = LazyLock::new(|| {
+/// The keys fixed for a Run's life (`Setting::fixed_for_run`), read once.
+static FIXED_FOR_RUN: LazyLock<Vec<&'static Setting>> = LazyLock::new(|| {
     all()
         .filter(|key| key.setting.fixed_for_run)
-        .map(|key| key.setting.name)
+        .map(|key| key.setting)
         .collect()
 });
 
 /// Whether the key named `name` is fixed for a Run's life (ADRs 0102 and
 /// 0120).
 pub(crate) fn fixed_for_run(name: &str) -> bool {
-    FIXED_FOR_RUN.contains(name)
+    FIXED_FOR_RUN.iter().any(|setting| setting.name == name)
+}
+
+/// Every key fixed for a Run's life, in declaration order.
+pub(crate) fn fixed_keys() -> impl Iterator<Item = &'static Setting> {
+    FIXED_FOR_RUN.iter().copied()
 }
 
 /// Every key's catalog default, built once: a pure function of the

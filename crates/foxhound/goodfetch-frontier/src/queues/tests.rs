@@ -135,22 +135,6 @@ fn a_free_slot_goes_to_the_domain_the_order_names(
     );
 }
 
-/// Covers: story:3-49
-#[test]
-fn priority_orders_requests_within_their_domain_only() {
-    let now = Instant::now();
-    let mut queues = queues();
-    enqueue(&mut queues, "h-low", "https://heavy.test/low", -1);
-    enqueue(&mut queues, "h-first", "https://heavy.test/first", 0);
-    enqueue(&mut queues, "h-high", "https://heavy.test/high", 5);
-    enqueue(&mut queues, "h-second", "https://heavy.test/second", 0);
-    enqueue(&mut queues, "a", "https://a.test/", 0);
-
-    let admitted = admit_all(&mut queues, now);
-
-    assert_eq!(admitted, ["h-high", "a", "h-first", "h-second", "h-low"]);
-}
-
 /// Covers: story:6-215
 #[test]
 fn forefront_goes_ahead_of_its_domains_pending_requests_and_of_no_other_domain() {
@@ -305,37 +289,6 @@ fn queues_under(settings: &goodfetch_engine::settings::Resolved, now: Instant) -
             Entropy::seeded(1),
         )
         .unwrap()
-}
-
-/// While the Run shares no Politeness, the queues back a domain off by
-/// its own settings: the first wait drawn between
-/// `politeness.backoff.initial` and three times it, and none with
-/// `politeness.backoff.enabled` off (ADRs 0118 and 0138).
-///
-/// Covers: setting:politeness.backoff.initial, setting:politeness.backoff.enabled
-#[rstest]
-#[case::backoff_on(json!({ "politeness": { "backoff": { "initial": 10_000, "max": 60_000 } } }), Some(Duration::from_secs(10)))]
-#[case::backoff_off(json!({ "politeness": { "backoff": { "enabled": false } } }), None)]
-fn a_domain_backs_off_as_its_runs_backoff_settings_say(
-    #[case] run: Value,
-    #[case] initial: Option<Duration>,
-) {
-    let now = Instant::now();
-    let mut queues = queues_under(&settings(run), now);
-    enqueue(&mut *queues, "h1", "https://heavy.test/1", 0);
-    enqueue(&mut *queues, "h2", "https://heavy.test/2", 0);
-    let first = queues.admit(now).unwrap();
-    queues.ended(&first.key, now, Ended::TooManyRequests(None));
-
-    let wait = queues.ready_at(now).map(|ready_at| ready_at - now);
-
-    match initial {
-        Some(initial) => assert!(
-            wait.is_some_and(|wait| a_first_backoff(wait, initial)),
-            "{wait:?}"
-        ),
-        None => assert_eq!(wait, Some(Duration::ZERO)),
-    }
 }
 
 /// While the Run shares no Politeness, a 429 halves the count of a

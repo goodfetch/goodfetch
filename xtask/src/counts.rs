@@ -18,7 +18,9 @@
 //! `--valgrind` runs the rows read under Valgrind in place of the counted ones
 //! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
 //! figure per unit is the difference between a scenario and the run of its
-//! benchmark that sends nothing, so no start-up cost hides a change.
+//! benchmark that sends nothing, so no start-up cost hides a change, and
+//! B1's example in the benchmarks' profile, which runs its handled cell
+//! under Callgrind for `E1.handled_page_wire_share`.
 //!
 //! Size: one concern, the command's one register of counted rows (`ROWS`, a
 //! row per counted work of every family) and the run, verdict and proof that
@@ -32,6 +34,7 @@ mod register;
 mod strace;
 
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
@@ -39,7 +42,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
-use crate::environment::Environment;
+use crate::environment::{CALLGRIND_AT_ONCE_VARIABLE, Environment};
 use crate::output;
 use crate::perf::{self, Figure, Measured};
 use crate::products;
@@ -128,6 +131,12 @@ const VALGRIND_OUT: &str = "target/counts";
 /// benchmark, under its family's name.
 const EXECUTABLES_OUT: &str = "target/counts/executables";
 
+/// The `cfg` of the build a row is read in under Callgrind, and the name of
+/// that build's folder in the workspace's target folder: the wire's
+/// functions are never inlined there, so that Callgrind names them in
+/// `E1.handled_page_wire_share` (ADR 0140).
+const CALLGRIND_NAMES: &str = "goodfetch_callgrind_names";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -148,7 +157,17 @@ struct Row {
     /// 0 says no; its plant still proves its counter.
     happens: bool,
     /// Where a row read under Valgrind gets its figure.
-    valgrind: Option<ValgrindFigure>,
+    valgrind: Option<UnderValgrind>,
+}
+
+/// Where a row read under Valgrind gets its figure.
+#[derive(Clone, Copy)]
+enum UnderValgrind {
+    /// A scenario of its family's benchmark under Valgrind.
+    Benchmark(ValgrindFigure),
+    /// Its family's example, run as `<target> --valgrind`, which runs itself
+    /// under Callgrind and prints its cells as `xtask counts` reads them.
+    Example,
 }
 
 /// A figure read under Valgrind, of one scenario of its family's benchmark.
@@ -173,11 +192,11 @@ const fn message_row(
         family: "B3",
         unit: "messages",
         happens: true,
-        valgrind: Some(ValgrindFigure {
+        valgrind: Some(UnderValgrind::Benchmark(ValgrindFigure {
             target,
             figure,
             scenario,
-        }),
+        })),
     }
 }
 
@@ -187,7 +206,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 131] = [
+const ROWS: [Row; 140] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -419,6 +438,18 @@ const ROWS: [Row; 131] = [
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
+    // A second copy's take of its Permit, a round trip to the actor that
+    // holds its Run's Politeness (#2171): at most one per second copy. Its
+    // unit is the cell whose handler sends each page's navigation to
+    // another domain key, none elsewhere, where its count is 0.
+    b1("F3.second_copy_round_trips", SECOND_COPIES, false),
+    // A message whose answer a crawl's task waits for from the task that
+    // holds its Run's own Politeness, held in memory (#2171, the owner's
+    // option A): a paced key's start after its robots.txt, a proxy's
+    // Permit. A robots.txt copy's read counts on `E6.robots_reads` and a
+    // second copy's take on the row above instead; on the file it counts
+    // none, nor where no key is paced and no proxy is set.
+    b1("F3.politeness_read_round_trips", ATTEMPTS_ENDED, false),
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
@@ -640,6 +671,17 @@ const ROWS: [Row; 131] = [
         Figure::TotalBytes,
         LARGE,
     ),
+    // The wire's share of a handled page (#2407): B1's example runs its
+    // handled cell's crawl under Callgrind, with the reference handler, and
+    // prints the instructions spent on messages, both sides, over a
+    // hundredth of the page's, so the figure reads as a percent.
+    Row {
+        name: "E1.handled_page_wire_share",
+        family: "B1",
+        unit: HANDLED_PAGE_HUNDREDTHS,
+        happens: true,
+        valgrind: Some(UnderValgrind::Example),
+    },
     Row {
         name: "E3.statements",
         family: "B3",
@@ -754,11 +796,14 @@ const ROWS: [Row; 131] = [
         happens: true,
         valgrind: None,
     },
+    // The default cell's Run serves each Permit from its engine's
+    // Delegation and takes none in a transaction (ADR 0142, #2172): its
+    // figure is 0, and `E6.undelegated_transactions` counts the work.
     Row {
         name: "E6.transactions",
         family: "B1",
         unit: "attempts",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {
@@ -800,6 +845,66 @@ const ROWS: [Row; 131] = [
         family: "B1",
         unit: "off_attempts",
         happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell whose Run keeps its Politeness
+    // to itself (`politeness.sharing: run`), in memory: none in any other
+    // cell, where its count is 0 (#2171).
+    Row {
+        name: "E6.private_transactions",
+        family: "B1",
+        unit: "private_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell whose Run takes each Permit in
+    // the Politeness file (`politeness.delegation: false`): none in any
+    // other cell, where `E6.transactions` counts the rest (#2172).
+    Row {
+        name: "E6.undelegated_transactions",
+        family: "B1",
+        unit: "undelegated_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell where two engines crawl the
+    // site, each its own Run, and its count every transaction on the
+    // Politeness file they share: none in any other cell, where its count
+    // is 0 (#2173).
+    Row {
+        name: "E6.shared_transactions",
+        family: "B1",
+        unit: "shared_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // The Delegations a Run's engine takes, per Run: one for the site's
+    // key, given back at the Run's end (ADR 0142, #2172).
+    Row {
+        name: "E6.delegations",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    // The transactions that take Delegations, per Delegation taken: at most
+    // one, fewer when a group asks for several keys.
+    Row {
+        name: "E6.delegation_transactions",
+        family: "B1",
+        unit: "delegations",
+        happens: true,
+        valgrind: None,
+    },
+    // The file's other transactions, per attempt, as ADR 0140's E6 counts
+    // the file's work: a Run's open, its robots.txt copy, a site's ask, a
+    // Delegation given back and the Run's end, which a Run of more attempts
+    // spreads thinner.
+    Row {
+        name: "E6.other_transactions",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -1117,6 +1222,9 @@ const PAYLOADS: &str = "payloads";
 
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
+/// The second copies of requests its Run admitted that it sent: a
+/// handler's navigations to another domain key.
+const SECOND_COPIES: &str = "second_copies";
 
 /// The leases of a cell at a level that batches attempts whose memory
 /// budget holds its pending work items, a page's and a sitemap's: none in
@@ -1147,6 +1255,10 @@ const CRAWLS: &str = "crawls";
 const CALLGRIND_PAGES: &str = "callgrind_pages";
 /// The one crawl of that cell its run under Callgrind counts.
 const CALLGRIND_CRAWLS: &str = "callgrind_crawls";
+
+/// A hundredth of the instructions the pages B1's handled cell adds take,
+/// the unit of `E1.handled_page_wire_share`, which reads as a percent.
+const HANDLED_PAGE_HUNDREDTHS: &str = "handled_page_hundredths";
 
 /// The clean-up's instructions per page, which B4's benchmark reads under
 /// Callgrind in its own run: a figure that varies, so held within the
@@ -1208,6 +1320,11 @@ pub(crate) struct Arguments {
     /// (`open`, `directory`, `sync`) beside its counted function.
     #[arg(long, requires = "strace", conflicts_with = "prove")]
     bypass: Option<String>,
+    /// Lets each benchmark run at most this many Callgrind processes at
+    /// once, below its own bound of half the cores, at most eight; without
+    /// it, `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` sets it.
+    #[arg(long, value_name = "N")]
+    callgrind_at_once: Option<NonZeroUsize>,
 }
 
 /// The cell that runs with every default feature on.
@@ -1235,6 +1352,8 @@ struct Cell {
 }
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    // A cap that is no whole number of 1 or more fails before anything runs.
+    callgrind_at_once(arguments, environment)?;
     if arguments.strace {
         return strace::run(arguments, environment);
     }
@@ -1290,11 +1409,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             row.name, row.builder
         ));
     }
-    let executables = if arguments.valgrind {
-        BTreeMap::new()
-    } else {
-        executables(arguments, environment, &rows)?
-    };
+    let executables = executables(arguments, environment, &rows)?;
     if arguments.prove {
         return prove(&rows, &executables, &limits, arguments, environment);
     }
@@ -1432,10 +1547,13 @@ fn family_cells(
     arguments: &Arguments,
     environment: &Environment,
 ) -> Result<Vec<Cell>> {
-    if arguments.valgrind {
-        valgrind_cells(family, rows, plant, environment)
+    let at_once = callgrind_at_once(arguments, environment)?;
+    if !arguments.valgrind {
+        cells(&executables[family], plant, false, at_once)
+    } else if let Some(executable) = executables.get(family) {
+        cells(executable, plant, true, at_once)
     } else {
-        cells(&executables[family], plant)
+        valgrind_cells(family, rows, plant, environment)
     }
 }
 
@@ -1456,7 +1574,10 @@ fn valgrind_cells(
     let figures: Vec<(&Row, ValgrindFigure)> = rows
         .iter()
         .filter(|row| row.family == family)
-        .filter_map(|row| row.valgrind.map(|figure| (*row, figure)))
+        .filter_map(|row| match row.valgrind {
+            Some(UnderValgrind::Benchmark(figure)) => Some((*row, figure)),
+            Some(UnderValgrind::Example) | None => None,
+        })
         .collect();
     let mut targets: Vec<&str> = figures.iter().map(|(_, figure)| figure.target).collect();
     targets.sort_unstable();
@@ -1582,8 +1703,9 @@ fn done_though_not_run(row: &NotRunYet, cells: &[Cell]) -> Option<Finding> {
     ))
 }
 
-/// Each family's executable: the one `--executable` names, else its built
-/// target.
+/// Each family's executable that this run runs: the one `--executable`
+/// names, else its built target. Under `--valgrind`, only a family whose
+/// example reads a row, in the benchmarks' optimized build.
 fn executables(
     arguments: &Arguments,
     environment: &Environment,
@@ -1596,23 +1718,47 @@ fn executables(
         .collect();
     let mut executables = BTreeMap::new();
     for family in FAMILIES {
-        if !rows.iter().any(|row| row.family == family.name) {
+        if !rows.iter().any(|row| {
+            row.family == family.name
+                && (!arguments.valgrind || matches!(row.valgrind, Some(UnderValgrind::Example)))
+        }) {
             continue;
         }
         let executable = match named.get(family.name) {
             Some(path) => environment.path(Path::new(path)),
-            None => build(&family, environment)?,
+            None => build(&family, arguments.valgrind, environment)?,
         };
         executables.insert(family.name, executable);
     }
     Ok(executables)
 }
 
-/// Builds `family`'s target and answers its executable.
-fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
-    let output = crate::child_cargo::command(&environment.cargo)
+/// Builds `family`'s target and answers its executable: in the benchmarks'
+/// profile when it runs `optimized`, as what it reads under Valgrind is
+/// read in the build `just perf` measures, else in the dev profile.
+///
+/// The optimized build also sets [`CALLGRIND_NAMES`], under which the wire's
+/// functions are never inlined so that Callgrind names them, in a build
+/// folder of its own: the product, and every other benchmark, keep them
+/// inlined. A `RUSTFLAGS` in the environment would replace the setting, and
+/// the run would then fail on a wire function it never saw entered.
+fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<PathBuf> {
+    let mut command = crate::child_cargo::command(&environment.cargo);
+    command
         .args(["build", "--message-format", "json-render-diagnostics"])
-        .args(["-p", family.package, "--example", family.target])
+        .args(["-p", family.package, "--example", family.target]);
+    if optimized {
+        let folder = crate::metadata::target_directory(&environment.cargo, &environment.root)?
+            .join(CALLGRIND_NAMES);
+        command
+            .args(["--profile", "bench", "--target-dir"])
+            .arg(folder)
+            .args([
+                "--config",
+                &format!("build.rustflags = [\"--cfg\", \"{CALLGRIND_NAMES}\"]"),
+            ]);
+    }
+    let output = command
         .current_dir(&environment.root)
         .stderr(Stdio::inherit())
         .output()
@@ -1626,10 +1772,12 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
         .with_context(|| format!("cargo build reported no executable for {}", family.name))?;
     // Every family's example is `counts`, which Cargo leaves at one path, so
     // the next family's build would replace this one before it runs.
-    let own = environment
-        .root
-        .join(EXECUTABLES_OUT)
-        .join(format!("{}-{}", family.name, family.target));
+    let own = environment.root.join(EXECUTABLES_OUT).join(format!(
+        "{}-{}{}",
+        family.name,
+        family.target,
+        if optimized { "-bench" } else { "" }
+    ));
     if let Some(folder) = own.parent() {
         std::fs::create_dir_all(folder)
             .with_context(|| format!("creating {}", folder.display()))?;
@@ -1639,17 +1787,57 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     Ok(own)
 }
 
-/// What `executable` counted, each extra unit of `plant` done.
-fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
+/// What `executable` counted, each extra unit of `plant` done: its rows
+/// read under Valgrind when `valgrind`, its counted rows else.
+fn cells(
+    executable: &Path,
+    plant: Option<&str>,
+    valgrind: bool,
+    at_once: Option<NonZeroUsize>,
+) -> Result<Vec<Cell>> {
     let mut command = Command::new(executable);
+    if valgrind {
+        command.arg("--valgrind");
+    }
     if let Some(plant) = plant {
         command.args(["--plant", plant]);
     }
-    printed_cells(command, executable)
+    printed_cells(command, executable, at_once)
 }
 
-/// What `command`, which runs `executable`, printed of each cell.
-fn printed_cells(mut command: Command, executable: &Path) -> Result<Vec<Cell>> {
+/// The cap on the Callgrind processes a benchmark runs at once:
+/// `--callgrind-at-once`, else `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, else
+/// none. Read before anything runs, so a value that is no whole number of 1
+/// or more fails the run before it starts.
+fn callgrind_at_once(
+    arguments: &Arguments,
+    environment: &Environment,
+) -> Result<Option<NonZeroUsize>> {
+    if arguments.callgrind_at_once.is_some() {
+        return Ok(arguments.callgrind_at_once);
+    }
+    let Some(value) = &environment.callgrind_at_once else {
+        return Ok(None);
+    };
+    match value.to_str().and_then(|text| text.parse().ok()) {
+        Some(cap) => Ok(Some(cap)),
+        None => bail!(
+            "{CALLGRIND_AT_ONCE_VARIABLE} is `{}`, not a whole number of 1 or more",
+            value.to_string_lossy()
+        ),
+    }
+}
+
+/// What `command`, which runs `executable` with at most `at_once` Callgrind
+/// processes at once, printed of each cell.
+fn printed_cells(
+    mut command: Command,
+    executable: &Path,
+    at_once: Option<NonZeroUsize>,
+) -> Result<Vec<Cell>> {
+    if let Some(at_once) = at_once {
+        command.env(CALLGRIND_AT_ONCE_VARIABLE, at_once.to_string());
+    }
     let output = command
         .stderr(Stdio::inherit())
         .output()
@@ -1680,6 +1868,8 @@ fn one_of(unit: &str) -> &str {
         ATTEMPTS_ENDED => "attempt",
         BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
+        HANDLED_PAGE_HUNDREDTHS => "hundredth of a handled page",
+        SECOND_COPIES => "second copy",
         unit => unit.trim_end_matches('s'),
     }
 }

@@ -19,8 +19,7 @@ fn loading_the_embedded_lists_keeps_resident_memory_under_adr_0057s_figure() {
     let grown = after.saturating_sub(before);
     assert!(
         grown < ADR_0057_SERIALIZED,
-        "loading grew resident memory by {grown} bytes, over {ADR_0057_SERIALIZED}; the lists' serialized size is {}",
-        FilterLists::serialized_size()
+        "loading grew resident memory by {grown} bytes, over {ADR_0057_SERIALIZED}"
     );
     drop(lists);
 }

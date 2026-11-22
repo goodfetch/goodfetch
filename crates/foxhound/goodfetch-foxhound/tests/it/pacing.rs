@@ -6,7 +6,9 @@
 //! slow, never below `politeness.domain.delay` and never past
 //! `politeness.backoff.max`; and `politeness.domain.rate` holds two runs
 //! sharing the domain key, each in an engine of its own under one
-//! Goodfetch home, to the rate together. Eight handlers and eight HTTP
+//! Goodfetch home, to the rate together. A Run whose Politeness is its own
+//! (`politeness.sharing: run`), held in memory, keeps the same delay and
+//! rate (#2171). Eight handlers and eight HTTP
 //! fetches run at once, and eight requests may be in flight on the domain,
 //! so only the pacing under test spaces the pages, not their answers.
 #![expect(
@@ -18,6 +20,7 @@ use std::time::Duration;
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
@@ -41,8 +44,14 @@ fn home() -> TestEnv {
 
 /// A crawl of `pacing.test` under `fetch.tier: http`, eight handlers at
 /// once and eight requests in flight on the domain at most, with `domain`
-/// and `backoff` merged into `politeness`.
-fn settings(proving_ground: &ProvingGround, domain: &Value, backoff: &Value) -> Value {
+/// and `backoff` merged into `politeness`, whose Politeness is shared with
+/// the user's other Runs or, under `sharing: run`, the Run's own.
+fn settings(
+    proving_ground: &ProvingGround,
+    sharing: &str,
+    domain: &Value,
+    backoff: &Value,
+) -> Value {
     let mut politeness_domain = json!({ "concurrency": 8 });
     if let (Some(into), Some(more)) = (politeness_domain.as_object_mut(), domain.as_object()) {
         into.extend(more.clone());
@@ -52,7 +61,7 @@ fn settings(proving_ground: &ProvingGround, domain: &Value, backoff: &Value) -> 
         "network": { "resolve": { HOST: [proving_ground.address().ip().to_string()] } },
         "egress": { "private_ranges": [HOST] },
         "crawl": { "handler": { "concurrency": 8 } },
-        "politeness": { "domain": politeness_domain, "backoff": backoff },
+        "politeness": { "sharing": sharing, "domain": politeness_domain, "backoff": backoff },
     })
 }
 
@@ -75,7 +84,7 @@ fn crawl_at_once(env: &TestEnv, runs: &[(&str, Vec<Value>, Value)], handled: &mu
             let mut engine = attached(env);
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": run, "seeds": seeds, "settings": settings },
+                "params": { "run_id": run, "seeds": seeds, "settings": settings, "labels": { "page": {} } },
             }));
             (engine, *run, seeds.len(), false)
         })
@@ -140,11 +149,19 @@ fn gaps(proving_ground: &ProvingGround) -> Vec<u64> {
 /// connection while the earlier ones are held, and there a page reached
 /// the Proving ground up to about 180 ms after its engine recorded the
 /// send, fix-queue item 79. Under that load a gap also came up to 850 ms
-/// past the delay in force, from a send that left late.)
+/// past the delay in force, from a send that left late.) A Run whose
+/// Politeness is its own, held in memory, paces its pages alike: its grant
+/// reserves each send, and each send and latency it notes hold the next
+/// (#2171).
 ///
 /// Covers: story:6-247, setting:politeness.domain.adaptive_delay, setting:politeness.backoff.max, format:politeness-file
-#[test]
-fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backoff_max() {
+#[rstest]
+#[case::shared("shared")]
+/// Covers: setting:politeness.sharing
+#[case::the_runs_own("run")]
+fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backoff_max(
+    #[case] sharing: &str,
+) {
     let env = home();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut handled = 0;
@@ -156,6 +173,7 @@ fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backo
             articles(&proving_ground, 1..=12),
             settings(
                 &proving_ground,
+                sharing,
                 &json!({ "delay": 2_000, "adaptive_delay": true }),
                 &json!({ "max": 3_000 }),
             ),
@@ -195,6 +213,7 @@ fn a_domain_rate_holds_two_runs_sharing_its_key_to_it() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let rated = settings(
         &proving_ground,
+        "shared",
         &json!({ "rate": 30, "burst": 1 }),
         &json!({}),
     );
@@ -205,6 +224,38 @@ fn a_domain_rate_holds_two_runs_sharing_its_key_to_it() {
             ("first", articles(&proving_ground, 1..=3), rated.clone()),
             ("second", articles(&proving_ground, 4..=6), rated),
         ],
+        &mut || {},
+    );
+    let gaps = gaps(&proving_ground);
+
+    assert!(
+        gaps.len() == 5 && gaps.iter().all(|gap| *gap >= 1_800_000),
+        "{gaps:?}"
+    );
+}
+
+/// A Run whose Politeness is its own (`politeness.sharing: run`), held in
+/// memory, crawling six articles of one domain key at 30 requests a minute
+/// with a burst of 1 and no delay: the host receives its pages no closer
+/// than 2 s apart, within the tenth the shared case allows, as each grant
+/// reserves its send at the token the rate allows and the send waits for
+/// it without a second round trip to the store (#2171).
+///
+/// Covers: story:6-248, setting:politeness.domain.rate, setting:politeness.sharing
+#[test]
+fn a_domain_rate_holds_a_run_whose_politeness_is_its_own_to_it() {
+    let env = home();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let rated = settings(
+        &proving_ground,
+        "run",
+        &json!({ "rate": 30, "burst": 1 }),
+        &json!({}),
+    );
+
+    crawl_at_once(
+        &env,
+        &[("own", articles(&proving_ground, 1..=6), rated)],
         &mut || {},
     );
     let gaps = gaps(&proving_ground);

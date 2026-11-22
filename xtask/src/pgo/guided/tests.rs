@@ -60,6 +60,27 @@ fn a_build_no_refresh_recorded_is_refused() {
     );
 }
 
+#[test]
+fn a_guided_build_outside_the_work_folder_is_not_recorded() {
+    let built = Built::new();
+    // A release build's own target folder, which `just targets` and every
+    // other release build of the checkout write their Foxhound to.
+    let elsewhere = tempfile::tempdir().expect("another target folder");
+    let foxhound = elsewhere.path().join("goodfetch-foxhound");
+    std::fs::write(&foxhound, "executable").expect("the executable");
+
+    let refused = record(built.work.path(), &foxhound).expect_err("another build may overwrite it");
+
+    assert!(
+        format!("{refused:#}").contains("outside the work folder"),
+        "{refused:#}"
+    );
+    assert!(
+        built.hot().is_err(),
+        "no record is left for --order-only to accept"
+    );
+}
+
 #[rstest::rstest]
 #[case::the_profile("guided/merged.profdata", "the merged profile")]
 #[case::the_order("guided/order.txt", "the hot order")]

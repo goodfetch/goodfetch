@@ -14,7 +14,8 @@
 # owner's machine is diagnosed there
 # and counts nothing. Failures of the Release suite's Linux arm64 and Windows
 # cells get no diagnostic job yet, and a hosted rerun takes the host-tools
-# action's default runtimes, not a musl cell's or each Node.js line's.
+# action's default runtimes, ci/runtimes.toml's pre-merge set, not a musl
+# cell's or each Node.js line's.
 name: diagnostic
 
 # `workflow_run` is what follows a finished run. The runs it follows start only

@@ -25,6 +25,8 @@ export type TestSupportErrorCode =
   | "oracle_refused"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
+  /** The Scripted engine played as a Daemon ended without saying where it listens. */
+  | "scripted_daemon_failed"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
   | "storage_state_refused"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
@@ -63,6 +65,12 @@ export type TestSupportErrorCode =
   | "client_case_unknown"
   /** A test took `clientCase` without carrying a `client_case/` tag (ADR 0069). */
   | "client_case_untagged"
+  /** A smoke script declares no Client conformance case on a `// cases:` line (ADR 0069). */
+  | "smoke_cases_missing"
+  /** `GOODFETCH_RUNTIME_SET` names no set of `ci/runtimes.toml`, or the file cannot be read (ADR 0069). */
+  | "runtime_set_unknown"
+  /** A runtime of the smoke scripts' set is not on `PATH` (ADR 0069). */
+  | "runtime_missing"
   /** A Playwright test's `covers` annotation names a Feature the inventory does not list (ADR 0072). */
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
@@ -92,7 +100,25 @@ export type TestSupportErrorCode =
   /** The Client closed its end, or the script ended, with a step of the Scripted engine's script unused (ADR 0069). */
   | "unused_step"
   /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
-  | "nothing_to_answer";
+  | "nothing_to_answer"
+  /** A Journey file cannot be read (ADR 0063). */
+  | "journey_unreadable"
+  /** A Journey file is not TOML, or fails `journeys/journey.schema.json` (ADR 0063). */
+  | "journey_invalid"
+  /** `journeys/<id>.toml` holds another Journey's ID (ADR 0063). */
+  | "journey_other"
+  /** A Journey variant is started on a surface its Journey does not list (ADR 0063). */
+  | "surface_unlisted"
+  /** A Journey's executable does not report its Product and version through `--version` (ADR 0063). */
+  | "engine_version"
+  /** A Journey variant run's document is not `proved`, or the run recorded a failure (ADR 0063). */
+  | "variant_not_proved"
+  /** A package manager the install harness runs is not installed, or `pnpm` is not the one running the tests (ADR 0069). */
+  | "manager_missing"
+  /** `docs/release-age-exclusions.toml` cannot be read, or lacks a manager's `file` or `text` (ADRs 0030 and 0069). */
+  | "exclusions_invalid"
+  /** The install harness could not start its registry, or pack or publish a package to it (ADR 0069). */
+  | "publish_failed";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

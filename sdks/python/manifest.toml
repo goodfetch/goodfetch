@@ -1,0 +1,1527 @@
+# The manifest of the Python SDK's hand-written public names (ADR 0099;
+# STYLE.md, Protocol and SDKs). Each `[[member]]` line names a public
+# hand-written member that an entry, a package's module by its import name,
+# exports: the catalog entry it serves, or `entry = "none"` with its reason,
+# and the canonical words and form it is spelled from, the forms
+# `sdks/typescript/manifest.toml`'s header describes. A method, field or
+# function is spelled in snake_case, a keyword with a trailing `_`, and a
+# type or class in PascalCase. Everything `xtask codegen` writes is
+# generated, never listed. An entry is a module outside `generated` and the
+# private modules that declares a literal `__all__`; `xtask sdk-exports`
+# reads the packages' sources without importing them and refuses a public
+# hand-written member an entry exports that no line lists, and a line
+# naming no such member. A dunder, such as `__enter__`, is the language's:
+# no line has to list it. `xtask sdk-manifests` checks each line's entry,
+# spelling and receiver.
+#
+# Its `[[logger]]` lines list the SDK's logger names (ADR 0078), which are
+# SDK API under semver as names, checked as such by `griffe check` once
+# #148 adds it, through the constants of
+# `goodfetch_collie_client.host_logging`. Message text is not. A logger
+# line's `package` is the distribution that ships it, not an import name,
+# and neither check reads these lines.
+#
+# Each logger sits under `goodfetch`, which alone carries a handler, a
+# `NullHandler`; `<area>` is an engine log event's target as a dotted path,
+# without a leading `goodfetch` segment (`goodfetch::rpc::dispatch` gives
+# `goodfetch.engine.rpc.dispatch`), and the areas are Experimental as the
+# targets are (ADR 0132).
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Collie"
+entry = "none"
+reason = "The sync API's Connection to Collie's engine (ADR 0090), which `Collie.connect()` opens."
+words = ["collie"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "connect"
+entry = "none"
+reason = "The one factory of ADR 0078: it reaches the engine `engine` chooses and finishes `hello`, the Connection's own message, which no catalog entry carries, then sends each of its `limits` as a `usage.set` (ADR 0080)."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, for an operation acting on no value that the SDK does not generate (ADR 0099): any catalog operation, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "close"
+entry = "none"
+reason = "Closes the Connection's Runs, then lets its engine go: an Attached engine's input ends and it is waited for (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncCollie"
+entry = "none"
+reason = "The async API's Connection to Collie's engine (ADR 0090), which `AsyncCollie.connect()` opens."
+words = ["async", "collie"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "connect"
+entry = "none"
+reason = "`Collie.connect`'s factory in the async API, which answers a `Connecting` to await or open with `async with`."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "close"
+entry = "none"
+reason = "`Collie.close` in the async API (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Connecting"
+entry = "none"
+reason = "An `AsyncCollie` being opened, which `AsyncCollie.connect()` answers: awaited, or opened with `async with`."
+words = ["connecting"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Connection"
+entry = "none"
+reason = "The sync interface every Product's Connection type extends (ADR 0095)."
+words = ["connection"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "engine"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.engine`'s line holds."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "call"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.call`'s line holds."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "close"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.close`'s line holds."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncConnection"
+entry = "none"
+reason = "The async interface every Product's Connection type extends (ADR 0095)."
+words = ["async", "connection"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "engine"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.engine`'s line holds."
+words = ["engine"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "call"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.call`'s line holds."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "close"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.close`'s line holds."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Run"
+entry = "none"
+reason = "A Run of the sync API, which `start` opens and any number of threads may share (ADR 0102)."
+words = ["run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
+member = "id"
+entry = "none"
+reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store (ADR 0103), opened with the Run, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on a value, for an operation of its namespace the SDK does not generate, the value's ID filling its parameter (ADR 0099): any operation of that namespace, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Run"
+member = "close"
+entry = "run.abort"
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncRun"
+entry = "none"
+reason = "A Run of the async API, which `start` opens (ADR 0102)."
+words = ["async", "run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "id"
+entry = "none"
+reason = "The Run ID the start answered, read without a round trip (ADR 0102)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store (ADR 0103), opened with the Run, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on a value, as `Run.call` is (ADR 0099)."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncRun"
+member = "close"
+entry = "run.abort"
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "KeyValueStore"
+entry = "none"
+reason = "A Run's Key-value store in the sync API: `run.key_value_store`, whose methods serve the `key_value_store` operations (ADR 0103)."
+words = ["key", "value", "store"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncKeyValueStore"
+entry = "none"
+reason = "A Run's Key-value store in the async API, as `KeyValueStore` is (ADR 0103)."
+words = ["async", "key", "value", "store"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Sequence"
+entry = "none"
+reason = "A sequence read to its end with `for`, in the sync API, which a method such as `keys` returns."
+words = ["sequence"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Sequence"
+member = "close"
+entry = "none"
+reason = "Stops reading before the sequence's end; idempotent, and called whenever its `for` stops."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSequence"
+entry = "none"
+reason = "A sequence read to its end with `async for`, as `Sequence` is in the sync API."
+words = ["async", "sequence"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncSequence"
+member = "close"
+entry = "none"
+reason = "Stops reading before the sequence's end; idempotent, and called whenever its `async for` stops."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncSequence"
+member = "aclose"
+entry = "none"
+reason = "`close()` under the name Python's async iterators close by, which `contextlib.aclosing` calls."
+words = ["aclose"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Subscription"
+entry = "none"
+reason = "A listener registered with `on`, which `close()` removes (ADR 0081)."
+words = ["subscription"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Subscription"
+member = "close"
+entry = "none"
+reason = "Removes the listener at once by cancelling its `on` call with `$/cancel` (ADR 0081), whose line serves the `on` the generator writes."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "GoodfetchError"
+entry = "none"
+reason = "The base of every error a Goodfetch SDK raises (ADR 0079), whose generated subclasses each carry one Error code."
+words = ["goodfetch", "error"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "code"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its Error code."
+words = ["code"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "group"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its code's group."
+words = ["group"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "retryable"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: whether the call may be retried."
+words = ["retryable"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "operation"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the operation the call made."
+words = ["operation"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "call_id"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the call's ID in the Run trace."
+words = ["call", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "run_id"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the Run the call belonged to."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "target"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what the call acted on."
+words = ["target"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "url"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the page's URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "observed"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what was there instead."
+words = ["observed"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "limit"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the setting that decided the outcome."
+words = ["limit"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "fix"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what to do about it."
+words = ["fix"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "call_log"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the engine's steps for the call."
+words = ["call", "log"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "usage"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: the usage of the model calls the call made (ADR 0101)."
+words = ["usage"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "agent_task"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: what `page.agent`'s task did before it failed (ADR 0100)."
+words = ["agent", "task"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "details"
+entry = "none"
+reason = "A field every error carries (ADR 0079), read without a round trip: its code's details, in wire names."
+words = ["details"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "GoodfetchError"
+member = "name"
+entry = "none"
+reason = "The error's class name, such as `SettingInvalidError`, read without a round trip, as an `Error`'s `name` is in TypeScript."
+words = ["name"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "EngineChoice"
+entry = "none"
+reason = "Which engine `connect()` reaches (ADRs 0024, 0078): `auto`, `attached`, `daemon` or a `RemoteDaemon`."
+words = ["engine", "choice"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "RemoteDaemon"
+entry = "none"
+reason = "A remote Daemon, Exposed or Goodfetch Cloud, and the token its `hello` takes (ADR 0024)."
+words = ["remote", "daemon"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "EngineInfo"
+entry = "none"
+reason = "The engine a Connection reached, from its reply to `hello` (ADR 0095)."
+words = ["engine", "info"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "EngineFallback"
+entry = "none"
+reason = "Why `auto` ran another engine than the Daemon it found, and what to do (ADR 0024)."
+words = ["engine", "fallback"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Limits"
+entry = "none"
+reason = "The Limits a program sets on its Connection or on a Run (ADR 0080), which `connect` and `start` send as `usage.set`."
+words = ["limits"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Money"
+entry = "none"
+reason = "A price of `Limits`: an exact `Decimal` amount and its currency (ADR 0080)."
+words = ["money"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Prices"
+entry = "none"
+reason = "What each Usage kind may cost, as `Money` (ADR 0080)."
+words = ["prices"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "JSONValue"
+entry = "none"
+reason = "A JSON value, as `json.loads` gives it (ADR 0082)."
+words = ["json", "value"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "JSONObject"
+entry = "none"
+reason = "A JSON object (ADR 0082)."
+words = ["json", "object"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "JSONSchema"
+entry = "none"
+reason = "A JSON Schema document written by hand, the way down (ADR 0082)."
+words = ["json", "schema"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AIWorkResult"
+entry = "none"
+reason = "AI work's result (ADR 0079): how it ended, its Verdict and the model's claim, read apart; the calls that answer one land with `page.agent`."
+words = ["ai", "work", "result"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "ended"
+entry = "none"
+reason = "How the work ended, its answer inside (ADR 0117), read without a round trip."
+words = ["ended"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "verdict"
+entry = "none"
+reason = "Whether the program's checks prove the work (ADR 0079), read without a round trip."
+words = ["verdict"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "verdict_reasons"
+entry = "none"
+reason = "Why the Verdict is not `verified` (ADR 0102), read without a round trip."
+words = ["verdict", "reasons"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "reported"
+entry = "none"
+reason = "What the model claimed, a signal and never proof (ADR 0100), read without a round trip."
+words = ["reported"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AIWorkResult"
+member = "require_verified"
+entry = "none"
+reason = "Hands over the output only when the work finished and its Verdict is `verified`, and raises `not_verified` otherwise (ADR 0079), with no round trip."
+words = ["require", "verified"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Claim"
+entry = "none"
+reason = "What a model said of its work, `done` or `gave_up`, open to an unknown claim (ADR 0079)."
+words = ["claim"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Ended"
+entry = "none"
+reason = "How AI work ended (ADR 0117): `Finished` or `Stopped`."
+words = ["ended"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Finished"
+entry = "none"
+reason = "AI work that finished, with its complete output (ADR 0117), matched by class."
+words = ["finished"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Stopped"
+entry = "none"
+reason = "AI work that stopped before it finished, with its reason and what it had gathered (ADRs 0100 and 0117), matched by class."
+words = ["stopped"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Reported"
+entry = "none"
+reason = "The model's claim and its message (ADR 0100): a signal, never proof."
+words = ["reported"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "connect_over"
+entry = "none"
+reason = "Opens a sync `Collie` over a transport a test holds, such as the Scripted engine's in-memory player, with no process behind it (ADR 0069)."
+words = ["connect", "over"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "async_connect_over"
+entry = "none"
+reason = "Opens an `AsyncCollie` over a transport a test holds, as `connect_over` opens a `Collie` (ADR 0069)."
+words = ["async", "connect", "over"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.caller"
+receiver = "(module)"
+member = "AsyncCaller"
+entry = "none"
+reason = "What a Product's generated async operations send their calls through (ADR 0038), which the common Connection is."
+words = ["async", "caller"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.caller"
+receiver = "AsyncCaller"
+member = "call"
+entry = "none"
+reason = "Sends one call and returns its result as the engine sent it, which a generated operation reads into its model."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.caller"
+receiver = "(module)"
+member = "Caller"
+entry = "none"
+reason = "What a Product's generated sync operations send their calls through, as `AsyncCaller` is for the async ones."
+words = ["caller"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.caller"
+receiver = "Caller"
+member = "call"
+entry = "none"
+reason = "Sends one call and waits for its result, as `AsyncCaller.call` does."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.caller"
+receiver = "(module)"
+member = "result_of"
+entry = "none"
+reason = "Builds a result's model from the JSON object the engine sent, which a Product's generated operations and handles call (ADR 0099)."
+words = ["result", "of"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "(module)"
+member = "ClientConnection"
+entry = "none"
+reason = "The common Connection under each Product's Connection type (ADR 0095), which `open_engine` and `open_over` answer."
+words = ["client", "connection"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "open"
+entry = "none"
+reason = "Opens the common Connection over a transport and finishes `hello` and its Limits, which `open_engine` and `open_over` call."
+words = ["open"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "engine"
+entry = "none"
+reason = "The engine reached, from its reply to `hello` (ADR 0095), which a Product's `engine` reads."
+words = ["engine"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "call"
+entry = "none"
+reason = "The common Connection's catalog call, which a Product's generated operations send through (ADR 0099)."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "raw"
+entry = "none"
+reason = "The common Connection's raw catalog call, which each Product's Connection type's `call` is (ADR 0099)."
+words = ["raw"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "stream"
+entry = "none"
+reason = "Sends a call the engine answers once it has streamed its notifications, granting them credits, such as a sequence's (ADR 0103)."
+words = ["stream"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "notify"
+entry = "none"
+reason = "Sends the engine a notification, such as a stream's `$/credit`, with no answer."
+words = ["notify"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "explain_settings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "notified"
+entry = "none"
+reason = "Takes each notification the engine sends outside a call, logging its `$/log` events under `goodfetch.engine` (ADR 0078)."
+words = ["notified"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "reachable"
+entry = "none"
+reason = "Whether the common Connection can still reach the engine: not once the engine's side of the transport ended."
+words = ["reachable"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "forget"
+entry = "none"
+reason = "Forgets a closed Run, so the Connection's close no longer stops it (ADR 0078)."
+words = ["forget"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "published"
+entry = "none"
+reason = "The Connection's own Subscription, which the listeners of published events share (ADR 0081)."
+words = ["published"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "close"
+entry = "none"
+reason = "Closes the common Connection's Runs, cancels its calls, then ends its Attached engine (ADR 0078); a Product's `close()` is it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "ended"
+entry = "none"
+reason = "The error each waiting call and every later one fails with once the engine's side of the transport ended."
+words = ["ended"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "ensure_open"
+entry = "none"
+reason = "Raises `closed` once the Connection's close has begun, before a Run or a handle sends a call."
+words = ["ensure", "open"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "(module)"
+member = "closed_error"
+entry = "none"
+reason = "The `closed` error a call on a closed Connection fails with, which a Product's Connection raises too."
+words = ["closed", "error"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.goodfetch_error"
+receiver = "(module)"
+member = "BaseGoodfetchError"
+entry = "none"
+reason = "What every error a Goodfetch SDK raises carries (ADR 0079), `AttemptEndedError`'s included, which derives from `BaseException`."
+words = ["base", "goodfetch", "error"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.goodfetch_error"
+receiver = "(module)"
+member = "ErrorClass"
+entry = "none"
+reason = "The class of one Error code, which a Product's generated error table maps each code to (ADR 0099)."
+words = ["error", "class"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.goodfetch_error"
+receiver = "(module)"
+member = "ErrorFields"
+entry = "none"
+reason = "What an error carries beyond its code, group and retryable flag (ADR 0079), which a generated error class takes."
+words = ["error", "fields"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.goodfetch_error"
+receiver = "(module)"
+member = "retry_after_of"
+entry = "none"
+reason = "Reads the `retry_after` an error's details name as a point in time in UTC, which the generated `BlockedError` calls (ADRs 0092 and 0118)."
+words = ["retry", "after", "of"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "AsyncHandleHost"
+entry = "none"
+reason = "What a Product's generated async handle reaches its engine through: its ID, its calls, its listeners and its close (ADR 0078)."
+words = ["async", "handle", "host"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "id"
+entry = "none"
+reason = "The ID each of the handle's calls carries."
+words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "call"
+entry = "none"
+reason = "Sends one of the handle's calls and returns its result as the engine sent it, which a generated method reads into its model."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "raw"
+entry = "none"
+reason = "Sends the raw call on the handle's value unless it is closed, which the handle's own `call` is (ADR 0099)."
+words = ["raw"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "child"
+entry = "none"
+reason = "The host of a handle this one opens or builds, whose calls carry its ID."
+words = ["child"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "close"
+entry = "none"
+reason = "Closes the handle through its own `close` operation, which a generated handle's `close` is (ADR 0078)."
+words = ["close"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "listen"
+entry = "none"
+reason = "Sends a listener's call, its listener getting each event's payload, which a generated `on_<event>` is (ADR 0081)."
+words = ["listen"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
+member = "listen_published"
+entry = "none"
+reason = "Registers a listener of an event the engine publishes on the Connection's own Subscription (ADR 0081)."
+words = ["listen", "published"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "AsyncListener"
+entry = "none"
+reason = "A listener of the async API, which gets each event's payload, one at a time (ADR 0081)."
+words = ["async", "listener"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "HandleHost"
+entry = "none"
+reason = "What a Product's generated sync handle reaches its engine through, as `AsyncHandleHost` is for the async ones."
+words = ["handle", "host"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "id"
+entry = "none"
+reason = "The ID each of the handle's calls carries."
+words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "call"
+entry = "none"
+reason = "Sends one of the handle's calls and waits for its result, as `AsyncHandleHost.call` does."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "raw"
+entry = "none"
+reason = "Sends the raw call on the handle's value, as `AsyncHandleHost.raw` does."
+words = ["raw"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "child"
+entry = "none"
+reason = "The host of a handle this one opens or builds, whose calls carry its ID."
+words = ["child"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "close"
+entry = "none"
+reason = "Closes the handle, as `AsyncHandleHost.close` does."
+words = ["close"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "listen"
+entry = "none"
+reason = "Sends a listener's call, as `AsyncHandleHost.listen` does."
+words = ["listen"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "listen_published"
+entry = "none"
+reason = "Registers a listener of a published event, as `AsyncHandleHost.listen_published` does."
+words = ["listen", "published"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "Listener"
+entry = "none"
+reason = "A listener of the sync API, which gets each event's payload, one at a time (ADR 0081)."
+words = ["listener"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "NotGiven"
+entry = "none"
+reason = "What an optional parameter left out holds, apart from `None` (ADR 0080's three states)."
+words = ["not", "given"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "not_given"
+entry = "none"
+reason = "The default of each optional parameter of a generated handle, which leaves it off the wire (ADR 0080)."
+words = ["not", "given"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "(module)"
+member = "timeout_of"
+entry = "none"
+reason = "A call's own `timeout` as sent, null or whole milliseconds (ADR 0080), which a generated handle calls."
+words = ["timeout", "of"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.host_logging"
+receiver = "(module)"
+member = "CLIENT_LOGGER"
+entry = "none"
+reason = "The name of the SDK runtime's logger, `goodfetch.client` (ADR 0078), which its `[[logger]]` line describes."
+words = ["client", "logger"]
+form = "constant"
+
+[[member]]
+package = "goodfetch_collie_client.host_logging"
+receiver = "(module)"
+member = "ENGINE_LOGGER"
+entry = "none"
+reason = "The name of the engine's logger, `goodfetch.engine` (ADR 0078), which its `[[logger]]` line describes."
+words = ["engine", "logger"]
+form = "constant"
+
+[[member]]
+package = "goodfetch_collie_client.host_logging"
+receiver = "(module)"
+member = "RUN_LOGGER"
+entry = "none"
+reason = "The name of the Runs' logger, `goodfetch.client.run` (ADR 0078), which its `[[logger]]` line describes."
+words = ["run", "logger"]
+form = "constant"
+
+[[member]]
+package = "goodfetch_collie_client.host_logging"
+receiver = "(module)"
+member = "TRACE"
+entry = "none"
+reason = "The level, 5, an engine `trace` event is logged at, below `DEBUG`, which a host sets to see them (ADR 0078)."
+words = ["trace"]
+form = "constant"
+
+[[member]]
+package = "goodfetch_collie_client.listeners"
+receiver = "(module)"
+member = "MAX_LISTENER_QUEUE"
+entry = "none"
+reason = "How many events a listener of published events holds in its own queue by default, which each Product's `connect()` takes as `max_listener_queue` (ADR 0081)."
+words = ["max", "listener", "queue"]
+form = "constant"
+
+[[member]]
+package = "goodfetch_collie_client.markers"
+receiver = "(module)"
+member = "ExperimentalWarning"
+entry = "none"
+reason = "The warning category `warn_experimental` shows for a member outside semver until it is promoted (ADR 0030)."
+words = ["experimental", "warning"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.markers"
+receiver = "(module)"
+member = "warn_deprecated"
+entry = "none"
+reason = "ADR 0030's run-time warning of a deprecated entry, once per process, which a Product's generated members call."
+words = ["warn", "deprecated"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.markers"
+receiver = "(module)"
+member = "warn_deprecated_settings"
+entry = "none"
+reason = "ADR 0030's run-time warning of each deprecated setting a call sets, once per process, which a Product's generated members call."
+words = ["warn", "deprecated", "settings"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.markers"
+receiver = "(module)"
+member = "warn_entry"
+entry = "none"
+reason = "ADR 0030's run-time warning of each marker an entry carries, once per process, which a hand-written member serving that entry calls."
+words = ["warn", "entry"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.markers"
+receiver = "(module)"
+member = "warn_experimental"
+entry = "none"
+reason = "ADR 0030's run-time warning of an Experimental entry, once per process, which a Product's generated members call."
+words = ["warn", "experimental"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.point_in_time"
+receiver = "(module)"
+member = "PointInTime"
+entry = "none"
+reason = "A point in time in UTC, built from any offset and sent as RFC 3339 in UTC (ADR 0092), which the generated models' times are."
+words = ["point", "in", "time"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "(module)"
+member = "LoopStopped"
+entry = "none"
+reason = "Raised by a sync call once the private loop has stopped, its Connection closed (ADR 0090)."
+words = ["loop", "stopped"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "(module)"
+member = "PrivateLoop"
+entry = "none"
+reason = "The event loop on a daemon thread of its own that a sync Connection runs its calls on (ADR 0090)."
+words = ["private", "loop"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "PrivateLoop"
+member = "call"
+entry = "none"
+reason = "Runs a coroutine function on the private loop and waits for its result, which each sync method is."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "PrivateLoop"
+member = "stop"
+entry = "none"
+reason = "Ends the private loop once its calls are done and joins its thread, which a sync Connection's close does last."
+words = ["stop"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.product_connection"
+receiver = "(module)"
+member = "ProductPackage"
+entry = "none"
+reason = "What tells one Product's package from the other's when it connects, which `open_engine` and `open_over` take."
+words = ["product", "package"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.product_connection"
+receiver = "(module)"
+member = "open_engine"
+entry = "none"
+reason = "What each Product's `connect()` is: it reaches the engine its options choose and finishes `hello`, naming the Product, and its Limits (ADR 0078)."
+words = ["open", "engine"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.product_connection"
+receiver = "(module)"
+member = "open_over"
+entry = "none"
+reason = "What each Product's `connect_over` is: the common Connection opened over a transport a test holds, `hello` naming the Product (ADRs 0069 and 0095)."
+words = ["open", "over"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.raw_call"
+receiver = "(module)"
+member = "AsyncHandle"
+entry = "none"
+reason = "What every async handle a program holds has: the raw call on its value (ADR 0099), which a Product's generated handles extend."
+words = ["async", "handle"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.raw_call"
+receiver = "(module)"
+member = "Handle"
+entry = "none"
+reason = "What every sync handle a program holds has: the raw call on its value (ADR 0099), which a Product's generated handles extend."
+words = ["handle"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.raw_call"
+receiver = "(module)"
+member = "raw_params"
+entry = "none"
+reason = "The params a raw call is sent with, its `timeout` and raw mark among them (ADRs 0099 and 0132), which a Product's Connection's `call` sends."
+words = ["raw", "params"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.schema"
+receiver = "(module)"
+member = "SchemaCodec"
+entry = "none"
+reason = "How values of one schema cross the wire (ADR 0082), which a typed call takes from `schema_codec`; a program never constructs one."
+words = ["schema", "codec"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schema"
+receiver = "SchemaCodec"
+member = "wire_schema"
+entry = "none"
+reason = "The JSON Schema the engine receives: the side the schema parses from (ADR 0082)."
+words = ["wire", "schema"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.schema"
+receiver = "SchemaCodec"
+member = "encode"
+entry = "none"
+reason = "A value as JSON, in the form the schema parses back, which a typed call sends (ADR 0082)."
+words = ["encode"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.schema"
+receiver = "SchemaCodec"
+member = "decode"
+entry = "none"
+reason = "An answer parsed by the schema into its output type, which a typed call returns (ADR 0082)."
+words = ["decode"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.schema"
+receiver = "(module)"
+member = "schema_codec"
+entry = "none"
+reason = "The codec of a schema: a type Pydantic adapts, typed by it, or a JSON Schema written by hand, typed `JSONValue` (ADR 0082)."
+words = ["schema", "codec"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.settings"
+receiver = "(module)"
+member = "settings_on_wire"
+entry = "none"
+reason = "Settings as the wire takes them, by segment with durations in milliseconds (ADR 0083), which a Product's generated handles send."
+words = ["settings", "on", "wire"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.unknown_member"
+receiver = "(module)"
+member = "UnknownMember"
+entry = "none"
+reason = "A member of an open tagged union this package does not know (ADR 0099), which the generated models' unions keep."
+words = ["unknown", "member"]
+form = "type"
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch"
+constant = "none"
+reason = "The root of the SDK's loggers, which the package gives its one `NullHandler`."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.client"
+constant = "CLIENT_LOGGER"
+reason = "The SDK's runtime: the engine `connect()` reached, at info; each line the engine writes on stderr, and a log level the engine refused, at warning."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.client.run"
+constant = "RUN_LOGGER"
+reason = "A start that resumed its Run, at info, or found it ended, at warning."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.engine"
+constant = "ENGINE_LOGGER"
+reason = "Its effective level is the level of the engine's logs a Connection asks for, in `hello` and `connection.set_log_level`; an engine event whose target has no area goes to it."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.engine.<area>"
+constant = "none"
+reason = "Each `$/log` event of the engine, at its level (`trace` at 5), with `target`, `fields` and `dropped` as the record's attributes."

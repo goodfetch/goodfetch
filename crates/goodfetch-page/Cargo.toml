@@ -55,6 +55,8 @@ serde_json = { workspace = true, features = ["raw_value"] }
 # its Session ID, so the provider never sees the Run's own ID.
 sha2.workspace = true
 thiserror.workspace = true
+# The release table the version check reads (ADR 0035).
+toml.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }
 tokio-btls.workspace = true
@@ -73,12 +75,17 @@ libc.workspace = true
 # The engine's ends of the browser's debugging pipe.
 tokio = { workspace = true, features = ["net"] }
 
+[target.'cfg(windows)'.dependencies]
+# The browser's debugging pipe's random name (ADR 0017).
+getrandom.workspace = true
+
 [dev-dependencies]
 # The integration tests' adapter of the page's value and response observer
 # (ADR 0125); never the unit tests', which would link two copies of this
 # crate.
 goodfetch-recording-gate.workspace = true
 goodfetch-test-client.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
@@ -98,6 +105,11 @@ harness = false
 [[bench]]
 name = "heap"
 harness = false
+
+# Its tests start the Proving ground through the test tool manifest, so a
+# change to it runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
 
 [lints]
 workspace = true

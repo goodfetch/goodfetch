@@ -276,6 +276,7 @@ fn usage() -> Result<Usage> {
 }
 
 #[cfg(not(unix))]
+#[expect(clippy::unnecessary_wraps, reason = "the Unix reading's signature")]
 fn usage() -> Result<Usage> {
     Ok(Usage::default())
 }
@@ -329,6 +330,31 @@ enum Route<'a> {
     Proxy(&'a str),
 }
 
+/// The Attached engine `child` runs, opened on its stdin and stdout; the
+/// child stopped when it does not open.
+/// `command`, Foxhound's executable, as shipped: its Attached engine, with
+/// its own data folder `home` and its default logging, which it writes to
+/// stderr, the protocol on its stdin and stdout.
+fn attached_engine(command: &mut Command, home: &Path) {
+    command
+        .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+        .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+}
+
+fn opened(child: &mut Child) -> Result<Engine> {
+    let stdin = child.stdin.take().context("the engine's stdin is piped")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("the engine's stdout is piped")?;
+    Engine::open(stdin, stdout).inspect_err(|_| {
+        let _ = child.kill();
+        let _ = child.wait();
+    })
+}
+
 /// Everything one trial needs.
 pub(crate) struct Plan<'a> {
     pub(crate) cell: &'a Cell,
@@ -350,6 +376,9 @@ pub(crate) struct Plan<'a> {
     /// The `[settings]` lines, `<key> = <TOML value>`, every Foxhound
     /// trial's user configuration holds (`--foxhound-setting`, #2200).
     pub(crate) foxhound_settings: &'a [String],
+    /// Foxhound's executable, which its program's SDK starts as its
+    /// Attached engine (`--engine`, #2317): none for another tool.
+    pub(crate) engine: Option<&'a Path>,
 }
 
 impl Plan<'_> {
@@ -369,6 +398,15 @@ impl Plan<'_> {
             "the headless browser scenario, the auto cell and Foxhound's `auto` row take Chrome \
              for Testing's folder, --browser",
         )
+    }
+
+    /// `command` without Goodfetch's variables a shell may hold, such as a
+    /// test's: no tool reads them, and Foxhound refuses one it does not
+    /// deploy with.
+    fn without_goodfetch_variables(&self, command: &mut Command) {
+        for name in self.goodfetch_variables {
+            command.env_remove(name);
+        }
     }
 
     /// Starts the tool's `process`-th process on `home`, Foxhound's
@@ -399,19 +437,34 @@ impl Plan<'_> {
         let config = output::traced(self.cell, self.config, mode, self.site.pages);
         let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
-        // No tool reads Goodfetch's variables a shell may hold, such as a
-        // test's: Foxhound refuses one it does not deploy with.
-        for name in self.goodfetch_variables {
-            command.env_remove(name);
-        }
-        if let Config::Foxhound { .. } = self.config {
-            // The executable as shipped, with its own data folder and its
-            // default logging, which it writes to stderr.
+        self.without_goodfetch_variables(&mut command);
+        if let Config::FoxhoundProgram = self.config {
+            // The program starts the crawl from its arguments and prints
+            // its count last on stdout; the SDK starts Foxhound's
+            // executable on the program's environment, its data folder
+            // `home`. Its hosts resolve to the Proving ground through its
+            // settings, as the engine's own do.
+            let settings =
+                super::foxhound::settings(&self.site, self.cell, self.durability(), true);
             command
-                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+                .args(["--url", &self.start_url()])
+                .args(["--settings", &settings.to_string()])
+                .args(["--run", super::foxhound::RUN])
+                .args(["--dataset", super::foxhound::PROGRAM_DATASET])
+                .env(
+                    goodfetch_protocol::settings::FOXHOUND_ENGINE_PATH_VARIABLE,
+                    self.engine
+                        .context("Foxhound's program takes Foxhound's executable, --engine")?,
+                )
                 .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
-                .stdin(Stdio::piped())
+                .current_dir(home)
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped());
+            if let Some(cache) = cache {
+                command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
+            }
+        } else if let Config::Foxhound { .. } = self.config {
+            attached_engine(&mut command, home);
             if let Some(cache) = cache {
                 command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
@@ -456,22 +509,9 @@ impl Plan<'_> {
         }
         let mut child = command.spawn().context("starting the tool")?;
         let engine = match self.config {
-            Config::Foxhound { .. } => {
-                let stdin = child.stdin.take().context("the engine's stdin is piped")?;
-                let stdout = child
-                    .stdout
-                    .take()
-                    .context("the engine's stdout is piped")?;
-                match Engine::open(stdin, stdout) {
-                    Ok(engine) => Some(engine),
-                    Err(error) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(error);
-                    }
-                }
-            }
-            Config::Spider { .. }
+            Config::Foxhound { .. } => Some(opened(&mut child)?),
+            Config::FoxhoundProgram
+            | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
             | Config::CrawleeRs
@@ -527,6 +567,7 @@ impl Plan<'_> {
                 commit_interval,
                 ..
             } => (durability, commit_interval),
+            Config::FoxhoundProgram => ("batch", None),
             Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
@@ -663,7 +704,9 @@ impl Plan<'_> {
     /// browser scenario.
     fn cache(&self) -> Result<Option<tempfile::TempDir>> {
         match (self.config, self.browser()?) {
-            (Config::Foxhound { .. }, Some(browser)) => Ok(Some(browser_cache(browser)?)),
+            (Config::Foxhound { .. } | Config::FoxhoundProgram, Some(browser)) => {
+                Ok(Some(browser_cache(browser)?))
+            }
             _ => Ok(None),
         }
     }
@@ -675,7 +718,9 @@ impl Plan<'_> {
     fn configure(&self, home: &Path) -> Result<()> {
         let (trusted, settings) = (self.certificate_authority, self.foxhound_settings);
         match self.config {
-            Config::Foxhound { .. } if trusted.is_some() || !settings.is_empty() => {
+            Config::Foxhound { .. } | Config::FoxhoundProgram
+                if trusted.is_some() || !settings.is_empty() =>
+            {
                 trust::in_foxhound_configuration(home, &self.kind().hosts(), trusted, settings)
             }
             _ => Ok(()),
@@ -706,6 +751,7 @@ impl Plan<'_> {
             Config::Foxhound { .. } if keeps_records || self.config.samples() => {
                 Some(self.records(home.path())?)
             }
+            Config::FoxhoundProgram => Some(self.records(home.path())?),
             Config::Foxhound { .. }
             | Config::Spider { .. }
             | Config::Crawlee
@@ -728,10 +774,10 @@ impl Plan<'_> {
                 .filter(|_| keeps_records)
                 .map(|read| &read.times),
         )?;
-        let sample_pages = read
-            .as_ref()
+        let (sample_pages, tiers) = read
             .filter(|_| self.config.samples())
-            .map(|read| read.sample_pages);
+            .map(|read| (read.sample_pages, read.tiers))
+            .unzip();
         let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
@@ -744,6 +790,7 @@ impl Plan<'_> {
         let peak_bytes = usage.peak_bytes;
         Ok(Measured {
             sample_pages,
+            tiers,
             extracted,
             ..measured(
                 seconds,
@@ -752,7 +799,7 @@ impl Plan<'_> {
                 peak_bytes,
                 tree,
                 footprint_bytes,
-                install_bytes(self.config, self.executable, self.browser()?),
+                install_bytes(self.config, self.executable, self.engine, self.browser()?),
                 observed,
             )
         })
@@ -771,8 +818,11 @@ impl Plan<'_> {
         )?;
         let work = self.observe(1.0, None)?.work;
         let records = match self.config {
-            Config::Foxhound { .. } if self.checks_output() => Some(self.records(home.path())?),
+            Config::Foxhound { .. } | Config::FoxhoundProgram if self.checks_output() => {
+                Some(self.records(home.path())?)
+            }
             Config::Foxhound { .. }
+            | Config::FoxhoundProgram
             | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
@@ -858,6 +908,7 @@ fn measured(
         latency: observed.latency,
         latency_end: observed.latency_end,
         sample_pages: None,
+        tiers: None,
         extracted: None,
     }
 }

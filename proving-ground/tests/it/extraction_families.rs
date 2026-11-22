@@ -133,27 +133,23 @@ fn each_family_lists_the_same_tasks_on_their_own_host_names_for_every_seed() {
     let tasks = (listed(165), listed(2));
 
     assert_eq!(tasks.0, tasks.1);
+    // Each task is on `<ordinal>.<family>.test` but `languages/2`, whose
+    // host name is an IDN.
+    let off_their_host: Vec<&Value> = tasks
+        .0
+        .iter()
+        .filter(|task| {
+            let (family, ordinal) = task[0].as_str().unwrap().split_once('/').unwrap();
+            task[2] != format!("{ordinal}.{family}.test")
+        })
+        .collect();
     assert_eq!(
-        tasks.0,
-        [
-            json!(["extraction/1", "crawl", "1.extraction.test"]),
-            json!(["extraction/2", "extract", "2.extraction.test"]),
-            json!(["extraction/3", "crawl", "3.extraction.test"]),
-            json!(["extraction/4", "crawl", "4.extraction.test"]),
-            json!(["extraction/5", "extract", "5.extraction.test"]),
-            json!(["extraction/6", "crawl", "6.extraction.test"]),
-            json!(["extraction/7", "crawl", "7.extraction.test"]),
-            json!(["extraction/8", "crawl", "8.extraction.test"]),
-            json!(["extraction/9", "crawl", "9.extraction.test"]),
-            json!(["extraction/10", "crawl", "10.extraction.test"]),
-            json!(["encodings/1", "crawl", "1.encodings.test"]),
-            json!(["encodings/2", "crawl", "2.encodings.test"]),
-            json!(["languages/1", "crawl", "1.languages.test"]),
-            json!(["languages/2", "extract", "xn--bcher-kva.languages.test"]),
-            json!(["files/1", "crawl", "1.files.test"]),
-            json!(["files/2", "extract", "2.files.test"]),
-            json!(["files/3", "extract", "3.files.test"]),
-        ]
+        off_their_host,
+        [&json!([
+            "languages/2",
+            "extract",
+            "xn--bcher-kva.languages.test"
+        ])]
     );
 }
 

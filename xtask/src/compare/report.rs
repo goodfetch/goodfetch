@@ -1,8 +1,9 @@
 //! The report: for each scenario, each cell's mapping and every metric of
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
-//! no figure; `foxhound.spider_instruction_ratio` and the extraction
-//! scenario's two ratios from the Callgrind cell ([`RATIOS`]); the sizes
+//! no figure; scenario 1's two ratios, `foxhound.spider_instruction_ratio`
+//! and `foxhound.spider_instruction_ratio_at_defaults`, and the extraction
+//! scenario's two from the Callgrind cell ([`RATIOS`]); the sizes
 //! cell's peak memory of Foxhound and Spider at each size and concurrency,
 //! with the bar at 16 in flight (spec #2165); and the standings of Foxhound
 //! against each competitor ([`standing`]). On the article site, a cell also
@@ -19,16 +20,15 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use serde::Serialize;
 
-use super::extracted::{Differing, Extracted};
-use super::matrix::{
-    self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Reading, Row, Scenario, Status,
-};
+use super::extracted::Extracted;
+use super::matrix::{self, CELLS, Cell, OutputCheck, Reading, Row, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    QUIET_LOAD, STRACE_QUIET_LOAD, TRIALS, Trial,
+    CURVE_PARTS, Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES,
+    Machine, QUIET_LOAD, RATIOS, SPIDER, STRACE_QUIET_LOAD, TRIALS, Trial,
 };
 
 mod auto;
@@ -44,47 +44,6 @@ use sizes::{Sizes, sizes, sizes_markdown};
 
 /// The span of one window of the core sampling.
 const CORE_WINDOW_MILLISECONDS: u64 = CORE_WINDOW_SAMPLES as u64 * INTERVAL_MILLISECONDS;
-
-/// A ratio the Callgrind cell gives: a row of the Quality register (ADR
-/// 0140), Foxhound's instructions per page on one of its main rows over
-/// Spider's main row's in the same scenario.
-struct RatioRow {
-    row: &'static str,
-    scenario: Scenario,
-    /// Foxhound's cell.
-    foxhound: &'static str,
-    described: &'static str,
-}
-
-/// The Callgrind cell's ratios: scenario 1's, and the extraction
-/// scenario's two (#2136; the owner's decision of 2026-11-10, #2252 Q7).
-/// At Foxhound's defaults Spider does not do the Clean-up rules' work, so
-/// that ratio carries no parity Contract; with Foxhound's Filter lists off
-/// both read the same Main content, and the distance between the two is
-/// the clean-up's cost (ADR 0023).
-const RATIOS: [RatioRow; 3] = [
-    RatioRow {
-        row: "foxhound.spider_instruction_ratio",
-        scenario: Scenario::Raw,
-        foxhound: "foxhound",
-        described: "scenario 1 of ADR 0138's matrix",
-    },
-    RatioRow {
-        row: "foxhound.spider_extraction_instruction_ratio",
-        scenario: Scenario::Extraction,
-        foxhound: "foxhound",
-        described: "the extraction scenario of ADR 0138's matrix, Foxhound at its defaults",
-    },
-    RatioRow {
-        row: "foxhound.spider_extraction_instruction_ratio_filter_lists_off",
-        scenario: Scenario::Extraction,
-        foxhound: FILTER_LISTS_OFF,
-        described: "the extraction scenario of ADR 0138's matrix, Foxhound's Filter lists off",
-    },
-];
-
-/// Spider's main row, in every scenario the Callgrind cell counts.
-const SPIDER: &str = "spider";
 
 /// A metric's unit, as the Markdown writes it.
 #[derive(Clone, Copy, Serialize)]
@@ -349,6 +308,10 @@ fn metrics(
     // Throughput.
     put("pages_per_second", each(&rate, Unit::PagesPerSecond));
     put(
+        "steady_pages_per_second",
+        each(&steady, Unit::PagesPerSecond),
+    );
+    put(
         "first_page_seconds",
         each(&|trial| trial.measured.first_page_seconds, Unit::Seconds),
     );
@@ -600,7 +563,65 @@ fn metrics(
             _ => not("it fetches no sample: only Foxhound's `auto` row does"),
         },
     );
+    for (name, tier) in TIERS {
+        let shares: Option<Vec<f64>> = trials
+            .iter()
+            .map(|trial| Some(tier_share(trial.measured.tiers.as_ref()?, tier)))
+            .collect();
+        put(
+            name,
+            match shares {
+                Some(shares) if !shares.is_empty() => spread(&shares, Unit::Share),
+                _ => not(
+                    "its pages' tiers are not read: only Foxhound's rows that leave \
+                          `fetch.tier` at `auto` read them from Provenance",
+                ),
+            },
+        );
+    }
     metrics
+}
+
+/// The tier shares the report gives, each with the tier its Provenance
+/// names; `None` for every other tier, a hop sent from the browser being
+/// `browser_fetch` (#2409).
+const TIERS: [(&str, Option<&str>); 4] = [
+    ("tier_http_share", Some(FetchTier::Http.as_str())),
+    (
+        "tier_browser_fetch_share",
+        Some(FetchTier::BrowserFetch.as_str()),
+    ),
+    ("tier_browser_share", Some(FetchTier::Browser.as_str())),
+    ("tier_other_share", None),
+];
+
+/// The share of a trial's pages `tier` sent, or with `None` every tier not
+/// named in [`TIERS`].
+fn tier_share(tiers: &BTreeMap<String, u64>, tier: Option<&str>) -> f64 {
+    let named = |name: &str| TIERS.iter().any(|(_, tier)| *tier == Some(name));
+    let pages: u64 = tiers.values().sum();
+    let sent: u64 = tiers
+        .iter()
+        .filter(|(name, _)| match tier {
+            Some(tier) => name.as_str() == tier,
+            None => !named(name),
+        })
+        .map(|(_, pages)| pages)
+        .sum();
+    float(sent) / float(pages)
+}
+
+/// A trial's steady rate: the mean of its curve between the first and the
+/// last tenth, which leaves out its start-up and its tail (owner,
+/// 2026-11-10, #2252 Q9).
+fn steady(trial: &Trial) -> f64 {
+    let curve = &trial.measured.curve;
+    curve
+        .get(1..CURVE_PARTS - 1)
+        .filter(|_| curve.len() == CURVE_PARTS)
+        .map_or(f64::NAN, |tenths| {
+            tenths.iter().sum::<f64>() / float((CURVE_PARTS - 2) as u64)
+        })
 }
 
 /// Why a cell of the long scenario has no strace or growth figures.
@@ -657,14 +678,6 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
     }
 }
 
-/// The pages that differ under `check`.
-fn differing(extracted: &Extracted, check: OutputCheck) -> &Differing {
-    match check {
-        OutputCheck::Whole => &extracted.whole,
-        OutputCheck::AdAllowed => &extracted.ad_allowed,
-    }
-}
-
 /// Under each check, the worst of what the output check found of some
 /// crawls: the one with the most differing pages. None when it read none.
 fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
@@ -685,7 +698,7 @@ fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
 /// The label of an output that differs under `check` on a site of
 /// `site_pages` pages; none when every page read right.
 fn output_differs(output: &Extracted, check: OutputCheck, site_pages: u64) -> Option<String> {
-    let differing = differing(output, check);
+    let differing = check.differing(output);
     (differing.pages > 0).then(|| format!("output differs: {} of {site_pages}", differing.pages))
 }
 
@@ -805,7 +818,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                         &runs_of(&trials.syscalls, cell),
                         &growth_of(&trials.growth, cell),
                     );
-                    if scenario == Scenario::Raw && cell.row == Row::Main {
+                    if scenario == Scenario::Raw && cell.counted_criteria() {
                         let peak_bytes =
                             median_bytes(ran.iter().map(|trial| peak(trial)).collect());
                         let rates: Vec<f64> = ran.iter().map(|trial| rate(trial)).collect();
@@ -933,21 +946,20 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
         );
         return;
     };
-    let allowed = match check {
-        OutputCheck::Whole => "",
-        OutputCheck::AdAllowed => ", the ad allowed",
+    let (allowed, read) = match check {
+        OutputCheck::Whole => ("", "title and Main content"),
+        OutputCheck::AdAllowed => (", the ad allowed", "title and Main content"),
+        OutputCheck::Fields => ("", "twenty fields"),
     };
     let Some(label) = output_differs(output, check, *site_pages) else {
-        let _ = writeln!(
-            text,
-            "  - output: every page's title and Main content read right{allowed}."
-        );
+        let _ = writeln!(text, "  - output: every page's {read} read right{allowed}.");
         return;
     };
     let _ = write!(
         text,
         "  - {label}{allowed}; the first: {}.",
-        differing(output, check)
+        check
+            .differing(output)
             .first
             .as_deref()
             .unwrap_or("not named")
@@ -980,6 +992,10 @@ fn column(cell: &CellReport) -> String {
 /// `MORE_IS_BETTER`; the standings read every other as a cost.
 const ROWS: &[(&str, &str)] = &[
     ("pages_per_second", "Throughput: pages per second"),
+    (
+        "steady_pages_per_second",
+        "Throughput: steady rate, between the first and the last tenth",
+    ),
     ("first_page_seconds", "Throughput: time to the first page"),
     (
         "first_record_seconds",
@@ -1033,6 +1049,22 @@ const ROWS: &[(&str, &str)] = &[
     (
         "sample_share",
         "Tiers: share of the pages that were samples",
+    ),
+    (
+        "tier_http_share",
+        "Tiers: share of the pages sent on `http`",
+    ),
+    (
+        "tier_browser_fetch_share",
+        "Tiers: share of the pages sent from the browser (`browser_fetch`)",
+    ),
+    (
+        "tier_browser_share",
+        "Tiers: share of the pages rendered in the browser",
+    ),
+    (
+        "tier_other_share",
+        "Tiers: share of the pages on another tier",
     ),
 ];
 
@@ -1252,15 +1284,15 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             Ok(InstructionRatio {
                 row,
                 scenario,
+                foxhound,
                 foxhound_per_page,
                 spider_per_page,
                 ratio,
                 spider_output_differs,
-                ..
             }) => {
                 let _ = write!(
                     text,
-                    "\n`{row}`: {ratio:.3}, Foxhound's {foxhound_per_page:.0} instructions per page over Spider's {spider_per_page:.0}, under Callgrind on {scenario}, the median of each tool's runs, all of the same pages and bytes."
+                    "\n`{row}`: {ratio:.3}, Foxhound's `{foxhound}` cell's {foxhound_per_page:.0} instructions per page over Spider's `{SPIDER}` cell's {spider_per_page:.0}, under Callgrind on {scenario}, the median of each cell's runs, all of the same pages and bytes."
                 );
                 if let Some(label) = spider_output_differs {
                     let _ = write!(

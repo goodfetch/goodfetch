@@ -128,7 +128,7 @@ fn a_kill_between_an_attempts_staging_and_its_commit_leaves_the_frontier_consist
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "killed", "seeds": seeds(1) }),
+                    json!({ "run_id": "killed", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut stage_then_hang,
                 )
                 .await;

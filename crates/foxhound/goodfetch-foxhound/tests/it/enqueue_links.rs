@@ -18,7 +18,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::frontier::{Inside, crawl_with};
+use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
 const SEED: u64 = 863;
@@ -107,10 +107,11 @@ fn enqueue_links_reports_each_matched_element_and_gives_each_link_its_payload() 
 
     let mut read = Value::Null;
     let mut answered = Value::Null;
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "answers",
         &seeds,
+        &json!({ "index": {}, "page": {} }),
         &served(&proving_ground, &["links.test"]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "page" {
@@ -218,10 +219,11 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
 
     let mut refused = Vec::new();
     let mut answered = Value::Null;
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "one-payload",
         &seeds,
+        &json!({ "index": {}, "page": {} }),
         &served(&proving_ground, &["links.test"]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "page" {
@@ -307,10 +309,11 @@ fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
     let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Vec::new();
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "limit",
         &seeds,
+        &json!({ "index": {}, "page": {} }),
         &served(&proving_ground, &["links.test"]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "index" {
@@ -381,10 +384,11 @@ fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
     let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Value::Null;
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "shift-jis",
         &seeds,
+        &json!({ "index": {}, "page": {} }),
         &served(&proving_ground, &["links.test"]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "index" {
@@ -433,10 +437,11 @@ fn enqueue_links_resolves_against_the_documents_base_url(
     let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Value::Null;
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "base-url",
         &seeds,
+        &json!({ "shelf": {}, "book": {} }),
         &served(&proving_ground, &[host]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "shelf" {

@@ -19,9 +19,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{LoadState, Reached};
-use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_WAIT};
+use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
@@ -390,7 +389,8 @@ impl PageEvents {
     ///
     /// # Errors
     ///
-    /// `invalid_params` for a `timeout` of 0.
+    /// `setting_invalid` for a `timeout` of 0, as `Deadline::argument`
+    /// says.
     #[expect(
         clippy::option_option,
         reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
@@ -402,13 +402,7 @@ impl PageEvents {
         let deadline = match timeout {
             None => Some(self.shared.wait.clone()),
             Some(None) => None,
-            Some(Some(0)) => {
-                return Err(CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    "the wait's timeout is 0 ms, which would end it at once: give at least 1, or null for none",
-                ));
-            }
-            Some(Some(millis)) => Some(Deadline::given(&TIMEOUT_WAIT, millis, SettingsLayer::Run)),
+            Some(Some(millis)) => Some(Deadline::argument(&TIMEOUT_WAIT, millis)?),
         };
         Ok(WaitDeadline {
             deadline,

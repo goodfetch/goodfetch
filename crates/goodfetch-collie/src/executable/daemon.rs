@@ -49,7 +49,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{self, CacheLocation, HOME_FOLDER, MaxUnusedAge};
@@ -658,12 +658,9 @@ impl Machine<'_> {
                 path: path.display().to_string(),
                 size,
                 modified_at,
-                pins: crate::pinned_artifacts()
-                    .into_iter()
-                    .map(|artifact| artifact.id)
-                    .collect(),
+                pins: crate::pins::pinned_artifact_ids(),
                 copy: None,
-                last_seen: self.now(),
+                last_seen: SystemTime::from(self.now()),
             })
         });
         if let Err(error) = recorded {
@@ -1076,7 +1073,7 @@ pub(super) fn now_of(clock: Clock) -> jiff::Timestamp {
 }
 
 fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its thread")

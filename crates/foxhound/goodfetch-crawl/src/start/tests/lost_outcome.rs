@@ -47,7 +47,7 @@ fn an_attempt_whose_outcome_was_not_written_is_retried_and_the_run_finishes_comp
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "lost", "seeds": seeds(1) }),
+                    json!({ "run_id": "lost", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

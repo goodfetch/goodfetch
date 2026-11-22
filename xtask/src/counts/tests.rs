@@ -4,21 +4,27 @@
 
 use std::collections::BTreeSet;
 
-use super::{NOT_RUN_YET, ROWS};
+use super::{NOT_RUN_YET, ROWS, UnderValgrind};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
 /// instructions beneath the clean-up's removal, beneath a selector's
 /// compilation and beneath the generic set's build, a counting VFS's syncs,
-/// E6's sum over its off cell, the evidence rows' sum over the cell with
-/// learning off, the page waits at `full`, which `F2.page_waits`' counter
-/// counts in the cells at that level, and the lease reads past the memory
-/// budget, which `F3.lease_reads`' counter counts in the cell at budget 0.
-const READ_ELSEWHERE: [&str; 16] = [
+/// E6's sums over its off cell and over its cell of a Run's own Politeness,
+/// its transactions in the cell at `politeness.delegation: false` and in
+/// the cell of two engines crawling one site,
+/// the evidence rows' sum over the cell with learning off, the page waits at
+/// `full`, which `F2.page_waits`' counter counts in the cells at that level,
+/// and the lease reads past the memory budget, which `F3.lease_reads`'
+/// counter counts in the cell at budget 0.
+const READ_ELSEWHERE: [&str; 19] = [
     "E2.log_prepares",
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
+    "E6.private_transactions",
+    "E6.shared_transactions",
+    "E6.undelegated_transactions",
     "F1.clean_up_instructions",
     "F1.generic_set_instructions",
     "F1.selector_compilation_instructions",
@@ -66,4 +72,25 @@ fn the_commands_rows_are_the_counters_and_the_figures_read_elsewhere() {
         read_elsewhere,
         "counted rows with no counter, against those read under Valgrind or elsewhere"
     );
+}
+
+/// Under Valgrind a family's cells come from its example or from its
+/// benchmark, never both, so no row of the other goes unread.
+#[test]
+fn a_family_reads_its_rows_under_valgrind_from_one_place() {
+    let families = |example: bool| -> BTreeSet<&str> {
+        ROWS.iter()
+            .filter(|row| match row.valgrind {
+                Some(UnderValgrind::Example) => example,
+                Some(UnderValgrind::Benchmark(_)) => !example,
+                None => false,
+            })
+            .map(|row| row.family)
+            .collect()
+    };
+    let both: Vec<_> = families(true)
+        .intersection(&families(false))
+        .copied()
+        .collect();
+    assert!(both.is_empty(), "families read from both: {both:?}");
 }

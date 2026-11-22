@@ -42,6 +42,7 @@ fn leased() -> Connection {
         .chain(BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(crate::invariants::fixture::PAGE_DECLARED.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
         .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
@@ -205,7 +206,7 @@ fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refuse
         value: json!(1),
     };
 
-    assert!(staging.begin_effect("1", 1));
+    assert!(staging.begin_effect("1", 1).is_ok());
     let enqueued = staging
         .admit(&connection, "1", 1, enqueue("https://shop.test/b"))
         .unwrap()
@@ -232,7 +233,7 @@ fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refuse
             written.details.contains_key("fix"),
             after,
             ended.code.name,
-            staging.begin_effect("1", 1),
+            staging.begin_effect("1", 1).is_ok(),
         ),
         (
             "effect_staging_refused",

@@ -27,6 +27,7 @@
 //! as skipped (ADR 0061); in CI a missing `strace` fails.
 
 use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -94,15 +95,16 @@ pub(super) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     {
         bail!("no family asked for plants the bypass {bypass}");
     }
+    let at_once = super::callgrind_at_once(arguments, environment)?;
     let mut findings = Vec::new();
     for family in families {
         let executable = match named.iter().find(|(name, _)| *name == family.name) {
             Some((_, path)) => environment.path(Path::new(path)),
-            None => super::build(family, environment)?,
+            None => super::build(family, false, environment)?,
         };
         if arguments.prove {
             for bypass in family.bypasses {
-                let caught = !traced(family, &executable, Some(bypass))?
+                let caught = !traced(family, &executable, Some(bypass), at_once)?
                     .findings()
                     .is_empty();
                 output::line(&format!(
@@ -123,7 +125,7 @@ pub(super) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 .bypass
                 .as_deref()
                 .filter(|bypass| family.bypasses.contains(bypass));
-            let seen = traced(family, &executable, bypass)?;
+            let seen = traced(family, &executable, bypass, at_once)?;
             seen.print();
             findings.extend(seen.findings());
         }
@@ -214,8 +216,14 @@ impl Seen {
 }
 
 /// Runs `executable`, `family`'s benchmark, under `strace` with `bypass`
-/// planted, and answers what it saw beside what its cells counted.
-fn traced(family: &Family, executable: &Path, bypass: Option<&str>) -> Result<Seen> {
+/// planted and at most `at_once` Callgrind processes at once, and answers
+/// what it saw beside what its cells counted.
+fn traced(
+    family: &Family,
+    executable: &Path,
+    bypass: Option<&str>,
+    at_once: Option<NonZeroUsize>,
+) -> Result<Seen> {
     let folder = tempfile::tempdir().context("creating the folder of strace's output")?;
     let prefix = folder.path().join("calls");
     let mut command = Command::new("strace");
@@ -230,7 +238,7 @@ fn traced(family: &Family, executable: &Path, bypass: Option<&str>) -> Result<Se
     if let Some(bypass) = bypass {
         command.args(["--bypass", bypass]);
     }
-    let cells = super::printed_cells(command, executable)?;
+    let cells = super::printed_cells(command, executable, at_once)?;
     let files: BTreeSet<&Path> = cells
         .iter()
         .flat_map(|cell| cell.vfs_files.iter().map(PathBuf::as_path))

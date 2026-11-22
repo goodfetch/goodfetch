@@ -1,16 +1,18 @@
-//! Writes `src/pins.json`, the digests of the Chrome for Testing build
+//! Writes `src/pins.json`, the digests of the Chrome for Testing builds
 //! Collie pins (ADRs 0024 and 0098), as `goodfetch_collie::pinned_artifacts`
-//! reads them.
+//! reads them: the full browser and, under each platform's
+//! `headless_shell`, the `chrome-headless-shell` build of the same release
+//! (#3224).
 //!
-//! - `download <build>`: fetches each platform's archive from Google's
-//!   Chrome for Testing storage (about 150 MB each), and records the
-//!   archive's SHA-256 and the digest of the files it holds. This is the
-//!   one way an archive digest is known; run it when the pin moves.
+//! - `download <build>`: fetches each platform's two archives from Google's
+//!   Chrome for Testing storage (about 150 MB and 100 MB each), and records
+//!   each archive's SHA-256 and the digest of the files it holds. This is
+//!   the one way an archive digest is known; run it when the pin moves.
 //! - `tree <build> <platform> <folder>`: records the files' digest of an
-//!   already unpacked build at `<folder>` (its `chrome-<platform>` folder,
-//!   such as Playwright's copy of the same build), with no archive digest:
-//!   such a pin launches from a cache that holds the build and is never
-//!   downloaded.
+//!   already unpacked full build at `<folder>` (its `chrome-<platform>`
+//!   folder, such as Playwright's copy of the same build), with no archive
+//!   digest and no headless shell: such a pin launches from a cache that
+//!   holds the build and is never downloaded.
 //! - `alps <build> <executable>`: records the ALPS payload the build sends
 //!   (ADR 0042), launching its `executable` headless against a local TLS
 //!   server that accepts ALPS for `h2`, so the egress relay sends a site
@@ -62,7 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .into_iter()
                 .filter_map(BuildPlatform::chrome_for_testing_name)
             {
-                platforms.insert(platform.to_owned(), downloaded(build, platform)?);
+                let mut digests = downloaded(build, platform, "chrome")?;
+                digests["headless_shell"] = downloaded(build, platform, "chrome-headless-shell")?;
+                platforms.insert(platform.to_owned(), digests);
             }
             build.clone()
         }
@@ -99,9 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// The ALPS payload, in lowercase hex by ALPN protocol, that the browser
 /// at `executable` sends a local TLS server it is told to trust.
 fn captured(executable: &Path) -> Result<Value, Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let runtime = goodfetch_runtime::current_thread().enable_all().build()?;
     let profile = tempfile::tempdir()?;
     let settings = runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
@@ -151,10 +153,15 @@ fn tree_digest(platform: &str, folder: &Path) -> io::Result<Digest> {
     content_digest(scratch.path())
 }
 
-/// Downloads `platform`'s archive of `build`, and its two digests.
-fn downloaded(build: &str, platform: &str) -> Result<Value, Box<dyn std::error::Error>> {
+/// Downloads `platform`'s `archive` of `build`, `chrome` or
+/// `chrome-headless-shell`, and its two digests.
+fn downloaded(
+    build: &str,
+    platform: &str,
+    archive: &str,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let url = format!(
-        "https://storage.googleapis.com/chrome-for-testing-public/{build}/{platform}/chrome-{platform}.zip"
+        "https://storage.googleapis.com/chrome-for-testing-public/{build}/{platform}/{archive}-{platform}.zip"
     );
     println!("downloading {url}");
     let mut archive = Vec::new();

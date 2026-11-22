@@ -1303,3 +1303,59 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 166
+title = "As a developer starting a Run under an ID I used before, I want the start to begin it when no such Run exists (`new`), resume an interrupted one from its committed state (`resumed`) and answer a finished one as it ended with no handler called (`ended`), so that a retried script never gets a second Run nor restarts one by accident (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 167
+title = "As a developer, I want a start under a Run ID to fail with `run_in_use` while a writer runs that Run, with `run_conflict` listing each difference when it began with other inputs or another caller, with `limit_reached` naming the Limit while a Limit that stopped it stays used up, and with `run_state_unavailable` when the Run index lists it but its state is missing or unreadable, never starting it afresh, so that a refused start tells me why (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 168
+title = "As a developer, I want each Record my handler is about to commit, those it pushed and then those it answered, to go through the crawl's `before_record_commit` Hooks in code its Label and Dataset reach, in the order I declared them, so that one place checks or stamps every Record before it commits (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 169
+title = "As a developer, I want each Hook call bounded by `timeout.hook`, which a Label may set for its requests, and a Hook past it cancelled and its attempt failed with `deadline_exceeded` naming the setting and the stage, so that a stuck Hook never holds a request (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 170
+title = "As a developer, I want a Hook that raises to fail its attempt with `hook_failed` naming the stage, the Hook and the Label, its own exception retried only under `crawl.retry.handler_failed`, which a Label may set, and a Goodfetch Error code raised inside retried as its flag says, both drawing on `crawl.retry.max`, so that a Hook's failure is retried as a handler's is (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 171
+title = "As a developer, I want a `before_record_commit` Hook that fails to discard everything its attempt staged, its Records, enqueues and Key-value store writes, so that a refused Record never commits part of an attempt (ADRs 0003 and 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 172
+title = "As a developer, I want a start under my Run's ID or a resume that changes a key the settings schema fixes for the Run's life, such as `crawl.scope.*` or `crawl.keep_url_fragment`, refused with `setting_not_applicable` naming the key and a new Run, while a resume that leaves the key out goes on, so that a Run's committed results never mix two scopes (ADRs 0102 and 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

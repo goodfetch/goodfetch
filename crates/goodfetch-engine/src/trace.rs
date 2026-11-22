@@ -10,12 +10,15 @@
 //! Trace context is ignored and none is sent. A Run is a root of its own,
 //! linked to the request that started or resumed it. Trace and span IDs
 //! come from the [`Entropy`](crate::entropy::Entropy) ([`EntropyIds`]), so a seeded test exports
-//! the same IDs every run (ADRs 0059 and 0060).
+//! the same IDs every run (ADRs 0059 and 0060). A raw call's handler runs
+//! under the raw mark (`raw_call`, ADR 0099), exported spans or not, so
+//! a request it sends on to its Run's owner is marked raw too.
 
 mod ids;
 
 use std::borrow::Cow;
 use std::str::FromStr as _;
+use std::sync::Arc;
 
 use goodfetch_protocol::jsonrpc::{RequestId, TraceContext};
 use goodfetch_protocol::run::RunId;
@@ -26,6 +29,8 @@ use opentelemetry::trace::{
 use tracing::Span;
 use tracing::field::Empty;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+use crate::run_trace::RawCallLine;
 
 pub use ids::EntropyIds;
 
@@ -242,8 +247,9 @@ pub(crate) fn client_span(method: &'static str) -> Span {
 }
 
 /// The Trace context a request sent under `span` carries in its `_meta`:
-/// none while the process exports no spans.
-pub(crate) fn sent(span: &Span) -> Option<TraceContext> {
+/// none while the process exports no spans. The Rust SDK reads a program's
+/// current span through it too (ADR 0132).
+pub fn sent(span: &Span) -> Option<TraceContext> {
     let context = span.context();
     let sent = context.span().span_context().clone();
     sent.is_valid().then(|| {
@@ -303,6 +309,48 @@ impl Link {
             span.add_link(linked.clone());
         }
     }
+}
+
+/// A raw call's mark (ADR 0099): its line in the trace of the live Run it
+/// names, when it names one, which the Run's end writes for a call that
+/// ends that Run or waits for its end.
+#[derive(Clone, Debug)]
+pub(crate) struct RawMark(Option<Arc<RawCallLine>>);
+
+impl RawMark {
+    /// The mark of a raw call whose line is `line`, if it has one.
+    pub(crate) fn new(line: Option<Arc<RawCallLine>>) -> Self {
+        Self(line)
+    }
+
+    /// Its line, when it is one of `run_id`'s trace.
+    pub(crate) fn line_of(&self, run_id: &RunId) -> Option<&Arc<RawCallLine>> {
+        self.0.as_ref().filter(|line| line.run() == run_id)
+    }
+}
+
+tokio::task_local! {
+    /// Set while a raw call's handler runs (ADR 0099).
+    static RAW_CALL: RawMark;
+}
+
+/// Runs `handler`, a raw call's (ADR 0099), under its `mark`, so that a
+/// request it sends on to its Run's owner is marked raw too, and the end
+/// of the Run it ends writes its line. Only a raw call's handler runs
+/// under it: a generated call's pays nothing for the mark.
+pub(crate) async fn raw_call<F: Future>(mark: RawMark, handler: F) -> F::Output {
+    RAW_CALL.scope(mark, handler).await
+}
+
+/// Whether the current task runs a raw call's handler.
+pub(crate) fn in_raw_call() -> bool {
+    RAW_CALL.try_with(|_| ()).is_ok()
+}
+
+/// The mark of the raw call whose handler the current task runs, if it
+/// runs one.
+pub(crate) fn raw_mark() -> Option<RawMark> {
+    RAW_CALL.try_with(RawMark::clone).ok()
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! `browser install` and `browser clean` (ADRs 0024 and 0098), commands of
-//! both Products' executables: the first fetches every build the Product
-//! version pins into the Browser cache, for CI and images; the second
+//! both Products' executables: the first fetches the builds the Product
+//! version pins into the Browser cache, for CI and images, those it names
+//! or every one a Run launches by default (#3224); the second
 //! deletes what nothing installed pins, nothing used for
 //! `browser_cache.max_unused_age` and nothing holds, or under `--dry-run`
 //! lists it. Their `--json` output is `goodfetch-protocol`'s type. Both
@@ -15,7 +16,8 @@ use std::process::ExitCode;
 
 use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
-    BrowserCache, CacheError, CleanUp, MaxUnusedAge, Pins, Platform, kept_artifacts,
+    BrowserCache, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, CacheError, CleanUp, MaxUnusedAge,
+    Pins, Platform, kept_artifacts,
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
@@ -42,11 +44,7 @@ fn now(clock: Clock) -> jiff::Timestamp {
 }
 
 fn runtime() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "main builds the runtime (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its thread")
@@ -67,9 +65,37 @@ fn pinned_by(identity: &Identity) -> PinnedBy {
     }
 }
 
-/// `browser install`, into the Browser cache of `machine`'s Goodfetch
-/// home.
-pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
+/// The names `browser install` takes: the builds Collie pins.
+pub(super) const INSTALLABLE: [&str; 2] = [CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL];
+
+/// The builds of `pins` that `browser install` downloads: those `names`
+/// names, else every one a Run launches by default, all but the headless
+/// shell, which only `browser.headless_shell` launches (#3224).
+fn to_install(pins: &Pins, names: &[String]) -> Pins {
+    Pins {
+        pinned_by: pins.pinned_by.clone(),
+        artifacts: pins
+            .artifacts
+            .iter()
+            .filter(|artifact| {
+                if names.is_empty() {
+                    artifact.id.name != CHROME_HEADLESS_SHELL
+                } else {
+                    names.contains(&artifact.id.name)
+                }
+            })
+            .cloned()
+            .collect(),
+    }
+}
+
+/// `browser install` of the builds `names` names, every default one when
+/// it names none, into the Browser cache of `machine`'s Goodfetch home.
+pub(super) fn install(
+    machine: &Machine<'_>,
+    (names, json): (&[String], bool),
+    human: &Human,
+) -> ExitCode {
     let (identity, home, clock) = (machine.identity, machine.home, machine.clock);
     let settings = match machine.settings() {
         Ok(settings) => settings,
@@ -88,7 +114,7 @@ pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitC
     let installed = runtime().block_on(async {
         let outcomes = cache
             .install(
-                &pins,
+                &to_install(&pins, names),
                 Platform::current().build_platform(),
                 &fetching,
                 now,

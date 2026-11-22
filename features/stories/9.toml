@@ -1,0 +1,945 @@
+# Area 9's user stories (specs #601 and #602, AI and agent, Collie, parts 1
+# and 2: stories 1 to 118), the declared `story:9-<id>` Features of ADR 0072,
+# every story of spec #601's User Stories: each story is Collie's and due at
+# M4 (ADRs 0058, 0094), and a story without a Journey carries ADR 0075's
+# reason (`actor`, `part` or `reach`). The specs' issues keep the full text;
+# this copy is the one the Feature check reads. Never renumber or reuse an
+# ID: a removed story stays with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a developer, I want `page.act(\"click the love tag\")` to perform one action through the guard and return the action with its target as a locator and its `code` in my language, so that I can see and later hand-write what the model chose (AI-01, P36)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want the same three verbs on a locator, its element bounding what the model sees and may target, so that I scope an instruction without a second object (AI-01)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 3
+title = "As a developer, I want `observe(instruction)` to return candidates, each with a plain locator, the model's description and its code, and an empty list when nothing fits, so that a question never throws (AI-02)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer, I want `act` to fail with `target_not_found` when nothing fits, so that a missing control is never a silent no-op."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a developer, I want `extract(instruction, schema)` to return my schema's output type, read in compiled mode by default, so that values are copied from the page with locators the model wrote once (AI-03, P03)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer, I want `mode: \"model\"` on `extract`, or `extract.mode`, to read every page with the model, every value still held to Grounding and nothing kept in the Plan, so that per-page model extraction is an explicit choice (AI-03, ADR 0013)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a developer, I want a required field not on the page to fail with `extraction_incomplete` naming each missing path and its reason and carrying the fields found, so that a missing price never reads as an empty one (P04, pitfall D02)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a developer, I want answers that never pass my JSON Schema, my own validators or Grounding within the bounded retries to fail with `extraction_invalid`, carrying each field's issue, the model and the strategy, so that I know which field and which model failed (P19)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a developer, I want my schema's own validators (a `.refine()`, a `@field_validator`, a custom `Deserialize`) run on each candidate inside the retry loop, the errors fed back to the model, and a validator that throws stopping the call with `schema_validator_failed`, so that my rules hold too (ADR 0082)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer, I want `act(\"type %query% into the search box\", { variables })` to keep values out of the model, the Plan, logs and the Run trace, with the engine typing them at input, so that one Plan step serves every value (ADR 0091, ADR 0014)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer, I want a placeholder that no variable fills to be a Secret placeholder bound by `secrets.<name>`, and a mismatch (an unfilled placeholder, an unused variable, a name that is both) to fail with `variables_mismatch` before any request, so that a typo never sends a literal `%name%` (ADR 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a developer, I want a Secret placeholder never typed on a browser other code may read, failing with `secret_input_refused`, so that a borrowed browser never sees my password typed by Collie (ADR 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a developer, I want `model` and `timeout` on every verb, `timeout.ai` (120 s) bounding the whole call, model calls and a Repair included, so that a first compile does not time out at the guard's 30 s (ADR 0091)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a developer, I want each verb's result to carry `step.source` (`plan`, `model`, `repair` or `journal`), with the Drift on a repaired step, so that I know whether a model ran and why."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a developer, I want an `act` whose Effect was sent before a failure to raise `effect_uncertain` and never be re-sent, so that a retried booking never books twice (ADR 0010)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want an `act` the Effect journal already holds to return `journal` without acting again, so that a resumed program skips what the site already received."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a developer, I want a verb that would send a page to a model while `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses my Purpose to fail with `site_preferences_refused` (`use_signals`) before anything is sent, while a replayed step runs, so that I honour site preferences without losing replay (ADRs 0085, 0086)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a developer, I want the verbs on a Borrowed page and on a popup as on any page, the Run holding their Plan, Limits and Usage, so that I add AI to a page I did not open (V3-01, ADR 0078)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 19
+title = "As a developer, I want starting a Run with `plan: \"quotes.plan.json\"` to name a local file the SDK reads and writes next to my program, so that what my AI steps learned is a file I commit, on a local engine, a Daemon or Goodfetch Cloud alike (AI-12, V3-02, P26)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 20
+title = "As a developer, I want each verb call to be one Plan entry keyed by the verb, the instruction with its placeholders, the scope locator and, for `extract`, the schema's hash, with one variant per page layout, so that branches and loops never break replay as positional keys do."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a developer, I want a step the Plan holds to replay with no model call and say `plan`, so that a second run costs nothing (golden scenario 03)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 22
+title = "As a developer, I want each target kept as a ladder of locators (role and name, test id, CSS, XPath) judged by its Target fingerprint, never one selector, so that a renamed class does not break the step and a look-alike is never clicked (pain 20, S09)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a developer, I want a drifted step to get exactly one Repair, checked again, reported as `repair` with what drifted, and a Drift that remains to fail with `plan_drift`, so that only the drifted step goes back to the model (AI-13, pain 11)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a developer, I want `plan.frozen` to replay only, call no Model provider (Decision providers included) and write nothing, a missing entry failing with `plan_step_missing` and `extract` in model mode with `setting_not_applicable`, so that CI and production runs make no model call (P03)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a developer, I want two calls for the same entry and layout at once to compile it once, the second replaying the first's result, so that concurrent handlers never pay twice (golden scenario 08)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a developer, I want a first compile and a Repair to be promoted only after the Run finishes `verified`, and otherwise kept pending for a person, so that a plausible wrong step is never kept for good (scenario 03's first failure point)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a developer, I want a Plan with Effects to produce a reviewable diff before promotion unless the Recipe opts into auto-approval, so that an unreviewed new step never acts on the wrong control (ADR 0009)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a developer, I want promotion to merge by entry, an entry two Runs both changed kept pending and never overwritten, so that parallel runs of one program do not lose each other's steps."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer, I want the Run report's `PlanReport` to name the file, the version used, its status (`unchanged`, `promoted`, `pending_review`, `frozen`) and the steps changed, so that I see what became of my Plan (ADR 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a developer, I want a Plan file that cannot be read or does not match its format to fail with `plan_invalid` naming the file and the problem, and a Plan from a newer format to be refused with the upgrade message, so that an old library never misreads it (ADRs 0030, 0066)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a developer, I want the Plan file written in JSON, snake_case, in a stable order, so that its diffs stay small and reviewable (P36)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a developer, I want a write of the Plan file that fails to raise `path_not_writable` or `file_write_failed` from the call during which it happens (the Run's own error instead when the Run failed, the write then a warning) and leave the file as it was, its versions staying pending, so that a full disk never truncates my Plan (ADR 0116)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a person reviewing, I want pending Plan versions listed in \"Needs you\" with their diff, accepted or rejected in the Console or an interactive CLI prompt, and an accepted version written by the next Run that names the file, so that a review reaches the file without my editing it (ADR 0091, ADR 0031)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 34
+title = "As a developer, I want Plans never to hold steps for Consent prompts a rule recognises, and a target hidden by newer Clean-up rules to be lifted before its check rather than read as Drift, so that cookie banners never make replay fail (ADRs 0047, 0048)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a developer, I want a Decision provider, when I configure one whose threshold a campaign has measured, to sit between the Target fingerprint check and the model, choosing or abstaining, journaled and counted, so that cheap choices skip the large model (ADR 0009)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a person, I want the recorder to turn what I do in the Console's Live view into a Plan in this format, preferring a discovered API route with the browser as fallback, together with the matching TypeScript or Python code, so that I can start an automation by showing it (ADR 0009, pain 9)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 37
+title = "As a developer, I want `expect(page).toHaveURL(…)`, `expect(locator).toContainText(…)` and the rest of Playwright's matchers, `not` included, evaluated live by the engine and recorded in the Run trace, so that my Success check reads like Playwright and counts in the Verdict (pain 10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a developer, I want `expect` to wait up to `timeout.wait` (30 s) and then fail with `success_check_failed` naming the check in my language, what was observed and the timeout's setting, so that a slow success is not a rejection (G1)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a developer, I want a Run whose program called `act` or `observe` to be `verified` only when a Success check evaluated after the last such call passed, and `needs-review` otherwise, so that an earlier check never vouches for a later action."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a developer, I want a Run whose only AI steps are `extract` to be judged by Grounding, so that a pure extraction can be `verified` without a Success check."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer, I want no model ever to judge a Success check, so that \"done\" is never proof (ADR 0013)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a developer, I want a Run with Success checks, Grounding or the Target fingerprint check before the first Effect switched off (ADR 0023), or with an Effect left uncertain, to read `needs-review`, never success, so that a switched-off control is visible (ADR 0029)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a developer, I want \"1.099,98 €\" read as 1099.98 and `EUR` under `de-DE`, and \"1,099.98\" as 1099.98 under `en-US`, by the engine's `number` and `currency` transforms, so that the model never writes a parsed value (D05, pain 14)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a developer, I want `date`, `date_time` and `relative_time` read under a stated locale and time zone, never the machine's, and a relative time anchored at the document's fetch time, so that \"3 hours ago\" means the same on every replay."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a developer, I want `extract.locale` and `extract.timezone_id` to fix the locale and zone for a scope, a tag with no CLDR data failing with `setting_invalid` naming the closest, so that I can pin a site's conventions."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a developer, I want a field to take one transform optionally preceded by a `match`, so that \"Price: 1.099,98 € incl. VAT\" reads its amount and its currency as two fields."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a developer, I want machine-readable values (`<time datetime>`, `<data value>`, `content`) preferred and read in invariant forms, so that a page's own machine form wins over its printed one."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a developer, I want strict parsing (grouping where the locale puts it, no reordered impossible dates, ICU's two-digit-year rule, any space character matching a space separator), so that a wrong guess never becomes a value."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a developer, I want a replayed transform whose text no longer parses to be Drift, repaired once then `plan_drift` naming the field, the text and the transform, so that a format change is caught."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a developer, I want a Plan variant per document language, Session locale and zone and `extract.*` values, and a field read from an element in another language to be Drift, so that an `/en/` and a `/de/` page each replay their own parse."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a developer, I want a `map` table (\"Three\" → 3) offered only in compiled mode and kept pending for a person even after a `verified` Run, so that the one value a model writes is checked by a person."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want a `number` never to pass through a float, writing a JSON number or the exact decimal text as my schema asks, so that `51.77` stays `51.77`."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a developer, I want Provenance to keep each field's text as read, its transform with resolved locale, zone, pattern and anchor, and where it was read, while my output stays my schema's type, so that I can audit a value without wrapping it."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want `await page.agent(task, { schema, successCheck, maxSteps, domains })` to run one objective to its end on my page and return `ended`, `verdict` and `reported`, so that one instruction reaches a goal with limits and a verdict (AI-05, V3-04, golden scenario 11)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 55
+title = "As a developer, I want my Success check, stated with `expect` in a function, run each time the model reports done, a failure going back to the model, so that the task is `verified` only when my condition held."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a developer, I want a task without a Success check to end `needs-review`, never `verified`, so that \"done\" alone proves nothing."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a developer, I want `ended` to be `finished` with a complete output, or `stopped` with its reason (`max_steps`, `no_progress`, `timeout`, `limit`, `model_allowance`, `abort` with who, `gave_up`) and a Grounded `partial`, so that I cannot read an answer without meeting the stopped case (ADR 0117)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a developer, I want `agent.max_steps` (20) and `agent.max_stalled_steps` (3) to stop only the task, while a Limit stops the Run, so that a runaway loop is bounded without ending my program."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a developer, I want `timeout.agent` (10 minutes) to stop the task `stopped` with `timeout`, an enclosing handler's timeout raising `deadline_exceeded` naming that call, and time in a Human pause not counting, so that every early end is a value I read in one place."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a developer, I want the output's values held to Grounding (a page the task observed, one of my Agent tools' results, or a Value transform), an ungrounded value fed back once and then leaving `needs-review` naming the field, so that a made-up price is never `verified`."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want `partial` to hold only the fields the built-in `note` action recorded that are valid against their part of the schema and Grounded, so that a stopped task returns what it truly found."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want `steps()` to read every step losslessly from step 1 whenever I call it, each with its origin, the model's message, its actions with their `code` and outcome, the URL, whether it stalled and its `ModelUsage`, so that I can log or show the loop as it runs."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want `agent.domains` (by default the registrable domain of the start page; `[\"*\"]` to lift it) enforced by the engine on every navigation of the task and its tabs, a refusal given back to the model, so that a page cannot lead the Agent off site (P15)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a developer, I want my own Agent tools (`agentTool`, `@agent_tool`, `AgentTool::new`), their input checked against their schema, run where my code runs, an Effect unless `readOnly`, so that the Agent can call my database lookup safely."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want a tool's `category` to ask a person for confirmation under story 93's rules, a decline ending the task with `effect_not_confirmed`, so that the model never tries another way around a refusal."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a developer, I want a tool that raises a `GoodfetchError` to end the task with its code, any other exception with `agent_tool_failed` naming its type and message (in Rust a tool returns `Result<_, BoxError>`, a box holding the SDK's own `Error` keeping its code and any other, `anyhow` included, being the program's own, ADR 0109), and two tools with one name or a built-in's name refused with `agent_tool_invalid` before the task starts, so that my bug never reads as the model's problem."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a developer, I want a `repeatable` tool's raise to leave no uncertain Effect and its call to carry a stable `idempotencyKey`, so that a replay may call it again safely (ADR 0106)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a developer, I want my Success check function raising a `PageError` to count as the condition's answer, another `GoodfetchError` to end the task with its code, and any other exception to raise `success_check_threw`, so that a bug in my check is never a rejection."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a developer, I want the task kept as one Plan entry keyed by the task, the schema's hash and my tools' names, replayed whole with no model call, checking before each Effect the targets the recorded run saw before it, so that a cross-page task replays safely (P03, ADR 0009 as amended)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a developer, I want a replay that drifts, or whose Success check fails, to hand over to the live loop from that step, with no Repair, so that the task still finishes when the site changed."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 71
+title = "As a developer, I want, under `plan.frozen` or with no model, a replayed task to end `finished` with `reported` absent and no model call, a Drift to raise `plan_drift`, a missing entry `plan_step_missing` or `model_not_configured`, and a failed Success check after replay to end the task `rejected` (ADR 0105), so that a frozen run never calls a model."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 72
+title = "As a developer, I want `agent.human_pause` (off by default) to let the model ask a person through a Human pause, the answer, a decline or the pause running out going back to the model, while a page closed in the browser stops the task with `abort` by `browser` (ADR 0113), so that an attended task can ask, and an unattended one never waits 24 hours."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a developer, I want an error raised after steps were taken to carry the task's `usage` and `agentTask` (the steps, the partial answer as JSON and any tool left uncertain), so that a failure never hides what was done."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a developer, I want the tabs a task opened closed when it ends, except the page it ended on, which the result returns, and on a Borrowed browser only released, so that a task never leaks tabs or closes what it did not open."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a developer, I want a model that gives up to stop the task with `gave_up`, its message in `reported`, so that `finished` always holds an answer."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want to pick a model with one Model reference, `anthropic/claude-sonnet-4-5`, `vercel/anthropic/claude-sonnet-4.5` or `ollama/qwen3:8b`, set as `ai.model` or per call, so that a local model is as easy as a hosted one (AI-10, K08)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 77
+title = "As a developer, I want built-in providers for OpenAI, Anthropic, Gemini, the Vercel AI Gateway, OpenRouter and four local servers at their default loopback addresses, each cloud built-in reading its conventional key variable sent only to its own address, so that no key travels to a place I did not name (AI-11)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a developer, I want to declare any OpenAI-compatible, Anthropic or Gemini endpoint under `ai.providers.<name>` with its base URL, a Secret reference key and headers, so that Azure, Bedrock behind a gateway or my lab's server work without code."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a developer, I want an unknown provider to fail where the scope opens with `setting_invalid` naming the closest, its `fix` naming both ways to supply one, a Plugin or a registered handler (ADR 0104), and an unknown model ID to fail at its first call with `model_not_found`, so that a typo is caught early and new models need no release."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a developer, I want my program's own provider (`connect({ modelProviders })`, Rust's `model_requests`) to answer model calls with Goodfetch's `ModelRequest` and `ModelResponse`, journaled, counted, capped and timed out by the engine, so that a custom model client still obeys my Limits (V3-03)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a developer, I want capabilities declared (context window, maximum output tokens, image input, tool calls, strategies), shipped for tested models and declarable for others, never sniffed from a name, and an operation needing a missing capability to fail with `model_capability_missing` naming the key, so that renamed and fine-tuned models behave predictably."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a developer, I want `ai.structured_output: auto` to step down from native schema to a forced tool call to the schema in the prompt only when the provider rejects a strategy, and always validate against my schema, so that structured output works on every provider (P19)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a developer, I want one Error code per remedy for provider failures (`model_unauthorized`, `model_funds_exhausted`, `model_unavailable` with `retryAfter`, `model_declined`, `model_context_exceeded`, `model_request_rejected`, `model_output_invalid`), classified by the provider's error type and message, a rejected key or an empty account never retried, so that I fix the right thing fast."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a developer, I want `timeout.model` (60 s) to bound one attempt of one model request, retried under the bounded retries inside the enclosing call's time, so that a hung provider never hangs my program."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a developer, I want `ModelUsage` on every AI result and on every error from a call that made model calls (calls, tokens with cache and reasoning parts, a price, `byModel`), always on, so that I see what each call spent (AI-14, P42)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a developer, I want prices from the shipped price table, changed only in configuration, a model it cannot price reported `null` (never a partial sum) and refused under a currency Limit with `model_price_unknown`, so that a proxy in front of a paid model never counts as free."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a developer, I want a Run whose `ai.model` has no price refused at its start under a currency Limit or a price allowance, unless `plan.frozen`, so that I meet the problem before the first page (ADR 0117)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a developer, I want `ai.allowance.price`, `tokens` or `calls` to refuse every later model call of the Run with `model_allowance_reached` once a call's worst case does not fit, while replayed steps go on and the Run continues, so that model use stops at my figure without stopping my work (ADR 0107)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a developer, I want the Agent's task to end `stopped` with `model_allowance` instead of raising, and an AI verb needing a model to raise `model_allowance_reached`, so that each reads the refusal the way it reads every early end."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a developer, I want model calls run as OpenTelemetry GenAI spans with their model, strategy, tokens and price in the Run trace, so that my tracing shows AI work (RT-18)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a user, I want the domain policy enforced by the engine on every request an AI step, an Agent or Code mode causes, refused like `goto`, so that an AI action never bypasses it (P15)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a user, I want page text marked untrusted in every observation handed to a model, so that an injected instruction reads as page content."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 93
+title = "As a user, I want Effects an AI decides in the categories payment, account creation, accepting terms, sending messages and deletion to ask a person with the member role for confirmation (step-up on a Daemon with accounts, never a Live view grant holder, ADR 0031) unless the run allows them; a payment outside `pay_domains` never made, whoever decides it, so a Collie Run, which does not carry `pay_domains` (ADR 0088), makes none; accepting a Consent prompt allowed only by `consent_domains`, a person's explicit `*` included (ADRs 0048, 0052); and an Effect redone after a person's \"it did not happen\" asking again (ADR 0029), so that a model never pays or agrees on its own (ADRs 0014, 0045)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want a Consent prompt answer the consent runner or the Decision provider chose recorded in Provenance and the Run trace rather than the Effect journal, while an `act` or an Agent's click on \"accept\" is the AI's own Effect, journaled and confirmed outside `consent_domains`, so that no consent a model gives is silent (ADR 0048)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user, I want vendor safety signals journaled, and an opt-in injection check on pages, so that a risky page is visible."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a user, I want a logged-in Session's cookies and storage never to reach a model or an observation, and secret values masked by value in everything a call returns, so that a model never sees my credentials (ADR 0014 as amended by ADR 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a developer on a page other code drives, I want an AI verb whose document a navigation it did not start replaces to fail with `page_navigated_during_call` naming both addresses, no Plan entry written and no Repair run, and the Agent to get it as a step's outcome, so that my Playwright code and Collie take turns safely (ADR 0114, golden scenario 09)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a developer, I want vision opt-in and on the last rung of the ladder, and a coordinate action bound to its screenshot and refused if the page changed since, so that a canvas can be acted on without acting on a stale picture (AI-04, pitfall B14)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 99
+title = "As an agent author, I want `ariaSnapshot({ mode: \"ai\" })` with element references, bounded by `observation.max_size` (40,000 characters), the deepest subtrees collapsing into one line keeping their reference and count, so that observations fit a model (AI-08, P25, K10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As an agent author, I want `getByRef(ref)` to act on a reference that lasts as long as its element, failing with `target_not_found` at once when the element is gone, so that references depend on no hidden \"latest snapshot\" state."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As an agent author, I want a list whose `aria-rowcount` or `aria-setsize` declares more rows than it renders to carry one line with both counts in `ai` mode, and no read ever to scroll, so that a virtualized list is never mistaken for a short one (pitfall B10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+# Built by area 11's MCP server (spec #604), which keeps sending diffs
+# within its own session; area 9's spec holds the story.
+[[story]]
+id = 102
+title = "As an MCP user, I want the MCP server to keep sending diffs within its own session while the SDKs send none, so that each surface keeps its own token economy (ADR 0011 as amended by ADR 0091)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 103
+title = "As an agent author, I want one web search operation over interchangeable providers (Brave, Exa, Tavily, Perplexity, Mojeek, Kagi, SearXNG) with my key or URL, each result flagged for whether it may be kept in the run, so that my agent searches without a vendor lock-in (AI-15)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 104
+title = "As an agent author, I want browser search opt-in, DuckDuckGo by default, stopping at the first challenge and never masking itself, so that search works without a key and stays honest."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 105
+title = "As an agent author, I want a Model provider's built-in search offered only as an option of AI operations, never as a source of links, so that its terms are respected."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 106
+title = "As an agent author, I want a site's WebMCP tools listed, invoked and cancelled as catalog operations, classed Effects unless marked read-only, with their add and remove events, so that a site's own tools are as safe as any action (AI-09)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 107
+title = "As an agent author, I want Code mode: a short model-written program run in the Script sandbox with only catalog calls, journaled, one Effect at a time, so that an agent saves round trips without running code next to my secrets (AI-18, RT-23, P16)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 108
+title = "As an agent author, I want a corrected or resumed Code mode program replayed against the Effect journal by position, a diverging program stopped with `effect_diverged`, so that a retried program never repeats an order (ADR 0051)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As an agent author, I want Code mode's declarations generated from the catalog, named as in the TypeScript SDK and trimmed to the MCP profile, so that the model writes calls that exist."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a researcher, I want a research task that searches, reads pages and answers with citations, each cited passage Grounded on its page, so that a synthesis can be checked (AI-17)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As a developer, I want a custom system prompt on every AI operation, added after Goodfetch's own instructions, so that I can steer tone and domain without weakening the safety framing (AI-19)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 112
+title = "As a contributor, I want the Scripted model to stand in for any model in-process, failing on a call beyond its script and on unused replies, so that AI logic is tested in the Quick suite with no network."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 113
+title = "As a contributor, I want every AI operation's whole request snapshotted per format, so that a prompt or tool-description change is a reviewed diff."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 114
+title = "As a contributor, I want each adapter's wire format replayed from Model recordings at its base URL, `via gateway` while there is no revenue, so that the real adapter code runs with no client patching."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 115
+title = "As a contributor, I want AI end-to-end tests and Journeys to use the Proving ground's Fake model, which counts tokens itself and serves faults on request, so that Usage is checked against an independent count."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 116
+title = "As a contributor, I want llama.cpp server and Ollama, pinned with a pinned small model, run in the Release suite's Linux cell, so that the local-model path is tested for real."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 117
+title = "As a maintainer, I want the provider check, the recorder and the Evaluations to reach live models only through the Vercel AI Gateway's free tier, a `429` or an exhausted credit making a run inconclusive, so that tests never spend money (ADR 0076)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 118
+title = "As a maintainer, I want Evaluations graded only by the Proving ground's oracle, reporting the verified rate, pass^3, false successes and safety violations, a false success failing at any size, so that AI quality is measured, never judged by a model."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"

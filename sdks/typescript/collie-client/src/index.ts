@@ -13,37 +13,77 @@
 export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
 export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts";
+export type { EngineChoice, RemoteDaemon } from "./engine-choice.ts";
+export type { Limits, Money } from "./limits.ts";
+export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
-export { Locator, Page, Session } from "./generated/handles.ts";
 export {
-  KeyValueStore,
-  type JsonValue,
-  type StoredBytes,
-  type StoredValue,
-} from "./key-value-store.ts";
+  Locator,
+  Page,
+  Session,
+  WebSocket,
+  type PageEvents,
+  type WebSocketEvents,
+} from "./generated/handles.ts";
+export type { Listener, Subscription } from "./handle.ts";
+export type { Handle, RawCallOptions, RawParams } from "./raw-call.ts";
+export type { Sequence } from "./sequence.ts";
+export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
+export type { JSONObject, JSONValue } from "./json.ts";
+export type {
+  JSONSchema,
+  Schema,
+  SchemaInput,
+  SchemaOutput,
+  StandardJSONSchemaV1,
+  StandardSchemaV1,
+  TypedSchema,
+} from "./schema.ts";
 export * from "./generated/errors.ts";
+export {
+  AIWorkResult,
+  type AIWorkFields,
+  type Claim,
+  type Ended,
+  type PartialOf,
+  type Reported,
+} from "./ai-work.ts";
 export type { FieldValue, FieldValues } from "./field-values.ts";
 export type {
   Acted,
   BlockCause,
   CallOptions,
   Completeness,
+  ConsoleMessage,
+  ExplainedSetting,
   FormatsRequest,
   Lifecycle,
   Navigated,
   PageClosed,
+  PageExchange,
   PageField,
+  PageFired,
   PageFormats,
+  PagePopup,
   PageRead,
+  PageRequest,
   PageResponse,
+  PageWebSocket,
   Product,
+  RunOrigin,
   RunReport,
   SessionClosed,
+  SettingsExplanation,
+  SettingsFile,
+  SettingsLayer,
   StartedAs,
   StopReason,
   StoppedBy,
   UnreadField,
   UnreadReason,
   Verdict,
+  WebError,
+  WebSocketClosed,
+  WebSocketFrame,
 } from "./generated/index.ts";

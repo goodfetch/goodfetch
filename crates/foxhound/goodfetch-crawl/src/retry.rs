@@ -15,7 +15,9 @@
 //! again with the calling Connection as its server; with nothing to retry
 //! the Run stays as it is and the answer is 0.
 
-use goodfetch_engine::run::{checkpoint_interval, run_error, settings_error, through_owner};
+use goodfetch_engine::run::{
+    checkpoint_interval, run_error, run_layer, settings_error, through_owner,
+};
 use goodfetch_engine::runs::{Resume, Resumed, Run, RunError};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -97,7 +99,7 @@ async fn reopened(
             run: None,
             project,
             recipe: None,
-            settings,
+            settings: run_layer(&settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
@@ -123,12 +125,14 @@ async fn reopened(
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }
-        Resumed::Existing(existing) if existing.lifecycle == Lifecycle::Running => {
-            Err(interrupted(&run_id))
-        }
+        Resumed::Live { .. }
+        | Resumed::Unchanged {
+            lifecycle: Lifecycle::Running,
+            ..
+        } => Err(interrupted(&run_id)),
         // Never, as the Run's table reopens every ended Run: nothing to
         // retry in a Run that stays as it is.
-        Resumed::Existing(_) => Ok(RetriedFailed { readmitted: 0 }),
+        Resumed::Unchanged { .. } => Ok(RetriedFailed { readmitted: 0 }),
     }
 }
 

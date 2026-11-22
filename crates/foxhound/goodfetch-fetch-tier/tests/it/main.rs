@@ -15,8 +15,11 @@ mod conformance_gate;
 mod extra_loopback;
 mod fetch_edge;
 mod fingerprint;
+// Lightpanda pins no Windows build, so Windows cannot take the tier.
+#[cfg(not(windows))]
 mod light_browser;
 mod lookups;
+#[cfg(target_os = "linux")]
 mod race;
 mod transport_failures;
 mod tunnels;
@@ -33,11 +36,7 @@ use url::Url;
 /// A runtime whose clock runs: the transport waits on real sockets, which
 /// a paused clock would race with every deadline.
 fn running_clock_runtime() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "test helpers build the tests' runtime (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .unwrap()

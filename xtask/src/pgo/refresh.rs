@@ -59,6 +59,11 @@ const PRODUCTS: [&str; 4] = ["--tool", "collie", "--tool", "foxhound"];
 /// The instrumented build's target folder in the work folder.
 const INSTRUMENTED_TARGET: &str = "instrumented-target";
 
+/// The guided build's target folder in the work folder, which keeps it for
+/// `--order-only` whatever release builds of the checkout follow: those use
+/// the committed files, which the refresh rewrites.
+const GUIDED_TARGET: &str = "guided-target";
+
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn refresh(_arguments: &Arguments, _environment: &Environment) -> Result<ExitCode> {
     bail!("`xtask pgo refresh` runs on Linux, whose musl build is profile-guided")
@@ -157,10 +162,13 @@ fn build_guided(
         environment,
         guided_tools,
         &PRODUCTS,
-        &[(
-            "GOODFETCH_PGO",
-            format!("use={}", guided.display()).as_ref(),
-        )],
+        &[
+            ("CARGO_TARGET_DIR", work.join(GUIDED_TARGET).as_os_str()),
+            (
+                "GOODFETCH_PGO",
+                format!("use={}", guided.display()).as_ref(),
+            ),
+        ],
     )?;
     guided::record(
         work,

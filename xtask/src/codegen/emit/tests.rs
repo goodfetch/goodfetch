@@ -197,6 +197,48 @@ fn the_bundle_holds_the_schemas_of_the_result_document_and_the_case_log_entry() 
     );
 }
 
+#[test]
+fn the_bundle_holds_the_schemas_of_a_model_call() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["model_provider"],
+        json!({
+            "request": { "$ref": "#/$defs/ModelRequest" },
+            "response_part": { "$ref": "#/$defs/ModelResponsePart" },
+        })
+    );
+}
+
+/// A Run's model Usage is one object on the wire, its counts beside
+/// `by_model`, as ADR 0101 names them, so every SDK reads `usage.calls`.
+#[test]
+fn a_model_usages_counts_are_its_own_properties() {
+    let emitted = emit();
+
+    let mut properties: Vec<&String> = emitted.bundle["$defs"]["ModelUsage"]["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    properties.sort_unstable();
+
+    assert_eq!(
+        properties,
+        [
+            "by_model",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "calls",
+            "input_tokens",
+            "output_tokens",
+            "price",
+            "reasoning_tokens",
+            "tokens",
+        ]
+    );
+}
+
 /// Covers: story:3-86, story:3-142, setting:network.resolve
 #[rstest]
 #[case::a_key_collie_carries("network.resolve", json!(["collie", "foxhound"]), "every")]
@@ -348,6 +390,27 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
     );
 }
 
+/// An Error code whose details the SDKs read typed names its details type
+/// (ADR 0079); a code whose details they still read as a map names none.
+#[rstest]
+#[case::typed("call_cancelled", Some(json!({ "$ref": "#/$defs/CallCancelledDetails" })))]
+#[case::read_as_a_map("deadline_exceeded", None)]
+fn an_error_code_names_the_details_type_the_sdks_read_typed(
+    #[case] code: &str,
+    #[case] details: Option<serde_json::Value>,
+) {
+    let emitted = emit();
+
+    let entry = emitted.catalog["error_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == code)
+        .unwrap();
+
+    assert_eq!(entry.get("details").cloned(), details);
+}
+
 #[rstest]
 #[case::success("success", 0)]
 #[case::a_groups_row("refused", 4)]
@@ -394,31 +457,31 @@ fn request_params(emitted: &super::Emitted) -> Vec<String> {
 
 /// Covers: story:3-146
 #[test]
-fn every_requests_params_may_hold_its_trace_context_in_meta() {
+fn every_requests_params_may_hold_its_trace_context_and_raw_mark_in_meta() {
     let emitted = emit();
     let definitions = &emitted.bundle["$defs"];
 
     for params in request_params(&emitted) {
         assert_eq!(
             definitions[&params]["properties"]["_meta"],
-            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+            json!({ "$ref": "#/$defs/RequestMeta", "arrived_in": "0.1" }),
             "{params}"
         );
     }
     assert_eq!(
         emitted.bundle["connection"]["meta"],
-        json!({ "$ref": "#/$defs/TraceContext" })
+        json!({ "$ref": "#/$defs/RequestMeta" })
     );
-    let trace_context = &definitions["TraceContext"];
-    assert_eq!(trace_context["additionalProperties"], json!(false));
-    let mut keys: Vec<&String> = trace_context["properties"]
+    let request_meta = &definitions["RequestMeta"];
+    assert_eq!(request_meta["additionalProperties"], json!(false));
+    let mut keys: Vec<&String> = request_meta["properties"]
         .as_object()
         .unwrap()
         .keys()
         .collect();
     keys.sort();
-    assert_eq!(keys, ["traceparent", "tracestate"]);
-    assert_eq!(trace_context.get("required"), None);
+    assert_eq!(keys, ["raw", "traceparent", "tracestate"]);
+    assert_eq!(request_meta.get("required"), None);
 }
 
 /// `_meta` joins a request's params type in place, so no params type may

@@ -13,11 +13,14 @@
 //! operations, their Error codes and the run-state formats they write change
 //! together (ADR 0066).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use std::borrow::Cow;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
@@ -25,6 +28,7 @@ use crate::catalog::{
     schema_of,
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
+use crate::open_value::{UnknownMember, UnknownValue};
 use crate::settings::{ProjectSettings, SettingLimit};
 
 pub mod completeness;
@@ -51,9 +55,9 @@ pub use self::progress::{
 };
 
 pub use self::report::{
-    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelUsage,
-    NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport,
-    RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelCounts,
+    ModelUsage, NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport,
+    RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -166,17 +170,18 @@ impl Tag {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn parse(text: String) -> Result<Self, TagsInvalid> {
+        if text.chars().count() > MAX_TAG_CHARACTERS {
+            return Err(TagsInvalid::TooLong);
+        }
+        Ok(Self(text))
+    }
 }
 
 impl<'de> Deserialize<'de> for Tag {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        if text.chars().count() > MAX_TAG_CHARACTERS {
-            return Err(serde::de::Error::custom(format!(
-                "a tag holds at most {MAX_TAG_CHARACTERS} characters"
-            )));
-        }
-        Ok(Self(text))
+        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 
@@ -199,7 +204,41 @@ impl JsonSchema for Tag {
 #[serde(transparent)]
 pub struct Tags(Vec<Tag>);
 
+/// Why texts are no Run's tags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum TagsInvalid {
+    /// There are more than [`MAX_TAGS`].
+    #[error("a Run carries at most {MAX_TAGS} tags")]
+    TooMany,
+    /// One holds more than [`MAX_TAG_CHARACTERS`] characters.
+    #[error("a tag holds at most {MAX_TAG_CHARACTERS} characters")]
+    TooLong,
+}
+
 impl Tags {
+    /// Reads `tags` as a Run's tags, in the order given.
+    ///
+    /// # Errors
+    ///
+    /// [`TagsInvalid::TooMany`] past [`MAX_TAGS`] tags, and
+    /// [`TagsInvalid::TooLong`] for a tag past [`MAX_TAG_CHARACTERS`]
+    /// characters.
+    pub fn parse<S: Into<String>>(tags: impl IntoIterator<Item = S>) -> Result<Self, TagsInvalid> {
+        Self::of(
+            tags.into_iter()
+                .map(|tag| Tag::parse(tag.into()))
+                .collect::<Result<_, _>>()?,
+        )
+    }
+
+    fn of(tags: Vec<Tag>) -> Result<Self, TagsInvalid> {
+        if tags.len() > MAX_TAGS {
+            return Err(TagsInvalid::TooMany);
+        }
+        Ok(Self(tags))
+    }
+
     /// Each tag, in order.
     pub fn iter(&self) -> impl Iterator<Item = &Tag> {
         self.0.iter()
@@ -213,13 +252,7 @@ impl Tags {
 
 impl<'de> Deserialize<'de> for Tags {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let tags = Vec::<Tag>::deserialize(deserializer)?;
-        if tags.len() > MAX_TAGS {
-            return Err(serde::de::Error::custom(format!(
-                "a Run carries at most {MAX_TAGS} tags"
-            )));
-        }
-        Ok(Self(tags))
+        Self::of(Vec::<Tag>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 
@@ -286,37 +319,6 @@ impl JsonSchema for ProgressMessage {
     }
 }
 
-/// A point in time, in UTC, written as RFC 3339 (ADR 0092).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PointInTime(String);
-
-impl PointInTime {
-    /// The point that `rfc3339` writes, which its writer formats.
-    pub fn from_rfc3339(rfc3339: String) -> Self {
-        Self(rfc3339)
-    }
-
-    /// Its RFC 3339 text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl JsonSchema for PointInTime {
-    fn schema_name() -> Cow<'static, str> {
-        "PointInTime".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "description": "A point in time in UTC, as RFC 3339.",
-            "type": "string",
-            "format": "date-time",
-        })
-    }
-}
-
 /// Where a Run is (ADR 0029).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -343,8 +345,10 @@ impl Lifecycle {
 }
 
 /// Whether a Run's own checks prove what it committed (ADR 0029).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum Verdict {
     /// Every check the Run relies on passed, none was switched off, and no
     /// Effect is left uncertain.
@@ -353,6 +357,11 @@ pub enum Verdict {
     Rejected,
     /// Everything else: a person reviews it.
     NeedsReview,
+    /// A Verdict a newer engine gives that this reader does not know, kept
+    /// as received (ADR 0079): never `verified`.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 /// The code of the Verdict reason a Run that left an Effect uncertain is
@@ -364,8 +373,11 @@ impl Verdict {
     pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];
 
     /// Its name on the wire and in run state.
-    pub fn as_str(self) -> &'static str {
-        crate::wire_name::of(&self)
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
     }
 }
 
@@ -395,6 +407,8 @@ impl Completeness {
 /// Why a Run stopped (ADRs 0029, 0080 and 0102).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum StopReason {
     /// Its program, a person or a Client aborted it, a Connection's close
     /// included (ADR 0078).
@@ -442,6 +456,33 @@ pub enum StopReason {
         #[schemars(extend("arrived_in" = "0.1"))]
         folder: Option<String>,
     },
+    /// A reason a newer engine gives that this reader does not know, kept
+    /// as received with its tag (ADR 0079).
+    #[serde(untagged, deserialize_with = "StopReason::read_unknown")]
+    #[schemars(skip)]
+    Unknown(UnknownMember),
+}
+
+impl StopReason {
+    /// The tags of the reasons this reader knows, in declaration order.
+    const KNOWN_TAGS: [&str; 10] = [
+        "abort",
+        "pause",
+        "migrate",
+        "timeout",
+        "drain",
+        "limit",
+        "limit_not_understood",
+        "engine_lost",
+        "engine_panicked",
+        "resources",
+    ];
+
+    /// Reads a reason this reader does not know, refusing a known one whose
+    /// fields do not read.
+    fn read_unknown<'de, D: Deserializer<'de>>(deserializer: D) -> Result<UnknownMember, D::Error> {
+        UnknownMember::read_unknown(deserializer, &Self::KNOWN_TAGS)
+    }
 }
 
 /// A resource the governor can run out of (ADR 0122).
@@ -546,9 +587,13 @@ pub struct ReachedLimit {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub period: Option<Period>,
     /// When its period starts again; none for a Limit without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub resets_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<SystemTime>,
 }
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl
@@ -574,13 +619,34 @@ impl RunKind {
     }
 }
 
+/// A Limit a program gives a Run at its start (`run.start`'s `limits`):
+/// the Run's own, with no period, set by its Client. A start that names
+/// the Run again lowers it and never raises it (ADR 0102).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunLimit {
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code; none for a
+    /// count of the Usage kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// How much the Run may use: a count of the Usage kind, or millionths
+    /// of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
 /// What `run.start` takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunStartParams {
     /// The Run's ID; the engine generates a lowercase ULID when it is
-    /// absent. An existing ID returns that Run when the caller and the
-    /// inputs match, and fails with `run_conflict` otherwise.
+    /// absent. An existing ID reaches that Run when the caller and the
+    /// inputs match, as `run.start` says, and fails with `run_conflict`
+    /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1", "pattern" = RUN_ID_PATTERN))]
     pub run_id: Option<String>,
@@ -596,21 +662,28 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
+    /// kind and currency. A start that names the Run again lowers them and
+    /// never raises them (ADR 0102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<RunLimit>,
 }
 
-/// Whether a start began its Run or found it.
+/// What a start did with its Run: began it, resumed it, or found it ended
+/// (ADR 0102).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StartedAs {
     /// The start began it.
     New,
-    /// Its Run ID named a Run started before with the same inputs, which is
-    /// returned as it is.
-    Existing,
     /// It was interrupted and goes on from its committed state, its run
     /// file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
     /// 0102).
     Resumed,
+    /// Its Run ID named a Run that finished, returned as it ended with no
+    /// handler called.
+    Ended,
 }
 
 /// What a start answers once its Run is started, never at its end.
@@ -631,13 +704,23 @@ pub struct RunStarted {
     pub needs: Product,
 }
 
-/// What `run.usage`, `run.pause` and `run.migrate` take: the Run.
+/// What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
+/// the Run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+}
+
+/// What `run.started_as` answers: how the start that opened the Run's
+/// handle reached it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunStartedAs {
+    /// Whether the start began it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub started_as: StartedAs,
 }
 
 /// What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
@@ -648,21 +731,46 @@ pub struct RunDiscarded {
     pub run_id: RunId,
 }
 
-/// What `run.finish` and `run.stop` take: the Run, and how long the call
-/// waits for its end.
+/// What `run.finish` takes: the Run, and how long the call waits for its
+/// end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct RunWaitParams {
+pub struct RunFinishParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
-    /// How long the call waits for the Run's end, in milliseconds; past it,
-    /// it fails with `deadline_exceeded` and only the wait ends. None by
-    /// default for `run.finish`, which the Run's own `timeout.run` bounds;
-    /// `timeout.close` by default for `run.stop`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How long the call waits for the Run's end, in milliseconds, at least
+    /// 1, as `timeout.run` for this call alone: absent or `null` for none,
+    /// since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+    /// call fails with `deadline_exceeded` and only the wait ends.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.run"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `run.stop` takes: the Run, and how long the call waits for its
+/// safe point.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunStopParams {
+    /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub timeout: Option<u64>,
+    pub run_id: RunId,
+    /// How long the call waits for the Run's safe point, in milliseconds,
+    /// at least 1: absent for the Run's `timeout.close`, `null` for none
+    /// (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+    /// Run still stops at its next safe point.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.close"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `run.abort` takes: the Run, and whether the abort was forwarded.
@@ -707,8 +815,9 @@ pub struct Checkpoint {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub journal_position: u64,
     /// When it was taken.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub time: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub time: SystemTime,
 }
 
 /// A Run's three axes as they are now (ADR 0029): what
@@ -775,12 +884,30 @@ pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
 /// `run.start`.
 pub const RUN_START: Operation = Operation {
     name: "run.start",
-    description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
+    description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
     params: schema_of::<RunStartParams>,
     result: schema_of::<RunStarted>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.started_as`.
+pub const RUN_STARTED_AS: Operation = Operation {
+    name: "run.started_as",
+    description: "Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.",
+    class: OperationClass::Read,
+    kind: OperationKind::Read,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunStartedAs>,
     events: &[],
     cancellable: false,
     input: None,
@@ -797,7 +924,7 @@ pub const RUN_FINISH: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunFinishParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
@@ -815,7 +942,7 @@ pub const RUN_STOP: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunStopParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
@@ -1076,6 +1203,7 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1100,6 +1228,7 @@ pub const RUN_STATE_LAYOUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1127,9 +1256,13 @@ pub struct RunStateRow {
     /// Its Completeness, once it ended.
     pub completeness: Option<Completeness>,
     /// When it started.
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime")]
+    pub started_at: SystemTime,
     /// When it ended.
-    pub ended_at: Option<PointInTime>,
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<PointInTime>")]
+    pub ended_at: Option<SystemTime>,
     /// The version of the Operator policy it ran under (ADR 0028).
     pub policy_version: Option<String>,
     /// The settings it ran with that weaken a guarantee or switch off a
@@ -1201,9 +1334,13 @@ pub struct RunIndexRow {
     /// Its Completeness, once it ended.
     pub completeness: Option<Completeness>,
     /// When it started.
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime")]
+    pub started_at: SystemTime,
     /// When it ended.
-    pub ended_at: Option<PointInTime>,
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<PointInTime>")]
+    pub ended_at: Option<SystemTime>,
     /// While it is live, where the engine that owns it is reached: a
     /// Daemon's endpoint, or an Attached engine's private endpoint. An
     /// engine that cannot take the Run's writer lock forwards live actions
@@ -1266,6 +1403,7 @@ pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[
         RUN_START,
+        RUN_STARTED_AS,
         RUN_FINISH,
         RUN_STOP,
         RUN_ABORT,

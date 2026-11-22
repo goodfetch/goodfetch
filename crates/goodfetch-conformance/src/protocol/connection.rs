@@ -359,6 +359,12 @@ impl Connection {
         std::mem::take(&mut self.exchanged)
     }
 
+    /// Kills the target's process at once, as a crash would; false when
+    /// the Connection has no process of its own.
+    pub(crate) fn kill(self) -> bool {
+        self.started.kill()
+    }
+
     /// Closes the Connection and waits for the target to exit.
     pub(crate) fn close(self) {
         self.started.close();

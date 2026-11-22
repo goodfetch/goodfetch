@@ -272,24 +272,18 @@ fn weakened_lists_off_and_a_sync_other_than_each(
 /// Covers: setting:run_state.batch.pages, setting:run_state.batch.interval,
 /// setting:run_state.batch.bytes
 #[rstest]
-#[case::pages_above("run_state.batch.pages", json!(1_001), true)]
-#[case::pages_none("run_state.batch.pages", json!("none"), true)]
-#[case::pages_below("run_state.batch.pages", json!(10), false)]
-#[case::interval_above("run_state.batch.interval", json!(2_000), true)]
-#[case::interval_at("run_state.batch.interval", json!(1_000), false)]
-#[case::bytes_none("run_state.batch.bytes", json!("none"), true)]
-#[case::bytes_below("run_state.batch.bytes", json!(1_024), false)]
+#[case::pages_above("run_state.batch.pages", json!(1_001), vec![("run_state.batch.pages".to_owned(), json!(1_001))])]
+#[case::pages_none("run_state.batch.pages", json!("none"), vec![("run_state.batch.pages".to_owned(), json!("none"))])]
+#[case::pages_below("run_state.batch.pages", json!(10), vec![])]
+#[case::interval_above("run_state.batch.interval", json!(2_000), vec![("run_state.batch.interval".to_owned(), json!(2_000))])]
+#[case::interval_at("run_state.batch.interval", json!(1_000), vec![])]
+#[case::bytes_none("run_state.batch.bytes", json!("none"), vec![("run_state.batch.bytes".to_owned(), json!("none"))])]
+#[case::bytes_below("run_state.batch.bytes", json!(1_024), vec![])]
 fn weakened_lists_a_threshold_above_its_default_or_none(
     #[case] key: &str,
     #[case] value: Value,
-    #[case] listed: bool,
+    #[case] expected: Vec<(String, Value)>,
 ) {
-    let expected = if listed {
-        vec![(key.to_owned(), value.clone())]
-    } else {
-        Vec::new()
-    };
-
     assert_eq!(weakened(&only(SettingsLayer::Run, key, &value)), expected);
 }
 

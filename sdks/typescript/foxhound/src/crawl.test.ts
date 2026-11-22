@@ -6,7 +6,17 @@
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
-import { ClosedError, Crawl, seed, type DatasetRecord } from "./index.ts";
+import {
+  ClosedError,
+  Crawl,
+  LabelDuplicateError,
+  LabelUnknownError,
+  RecordInvalidError,
+  seed,
+  type CrawlRun,
+  type DatasetRecord,
+  type EnqueuedLinks,
+} from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a Crawl", () => {
@@ -93,6 +103,65 @@ describe("a Crawl", () => {
   );
 
   test(
+    "enqueues the links a locator matches with one Payload in one call, after a read and a push: four exchanges a page",
+    { tags: ["operation:crawl_request.enqueue_links"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-enqueue-links.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label<{ readonly from: string } | undefined>("page");
+      const titles = pages.dataset<{ readonly title: unknown }>("pages");
+      let enqueued: EnqueuedLinks | undefined;
+      pages.handle(page, async (context) => {
+        const { values } = await context.page.read({
+          title: { locator: { kind: "css", selector: "h1" } },
+        });
+        await context.push(titles, { title: values["title"] });
+        enqueued = await context.enqueueLinks(
+          context.page.locator("ul.pages a"),
+          page,
+          { from: "listing" },
+          { exclude: ["*/logout"], limit: 2 },
+        );
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(enqueued?.links).toEqual([
+        { kind: "added", id: "2", url: "https://shop.test/b" },
+        { kind: "not_added", reason: "duplicate", url: "https://shop.test/a" },
+        { kind: "no_link" },
+      ]);
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 6,
+          "events": 0,
+          "replies": 1,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "page.read",
+            "crawl_request.push",
+            "crawl_request.enqueue_links",
+            "run.abort",
+          ],
+          "served": [
+            "crawl_request.handle",
+          ],
+        }
+      `);
+    },
+  );
+
+  test(
     "stops a handler's pending call when its Run is closed, and answers its attempt with that error",
     { tags: ["story:11-1025", "error:closed"] },
     async () => {
@@ -126,7 +195,34 @@ describe("a Crawl", () => {
   );
 
   test(
-    "fails a records() read with closed once its Run is closed, sending nothing",
+    "answers a handler's own exception with handler_failed, naming its type and message and carrying its stack",
+    { tags: ["error:handler_failed"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-handler-threw.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => {
+        const thrown = new TypeError("the price is missing");
+        thrown.stack = "TypeError: the price is missing\n    at handler (shop.ts:3:11)";
+        throw thrown;
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "throws closed from records() once its Run is closed, sending nothing",
     { tags: ["story:11-1015", "error:closed"] },
     async () => {
       const played = playScript("run/foxhound-crawl-records-after-close.json");
@@ -137,9 +233,7 @@ describe("a Crawl", () => {
         runId: "nightly",
       });
       await run.close();
-      const read = run.records(products).next();
-
-      await expect(read).rejects.toBeInstanceOf(ClosedError);
+      expect(() => run.records(products)).toThrow(ClosedError);
       await foxhound.close();
       expect(played.done()).toEqual({ kind: "finished" });
     },
@@ -179,13 +273,15 @@ describe("a Crawl", () => {
       const pages = new Crawl();
       const page = pages.label("page");
       const options = { seeds: [seed("https://shop.test/a", page)] as const, runId: "nightly" };
-      const first = await foxhound.startCrawl(pages, options);
+      let first: CrawlRun | undefined;
       // The first handler call closes the first Run value again before the
-      // engine sends the second.
+      // engine sends the second; the engine leases nothing before the Run
+      // is started again.
       pages.handle(page, async (context) => {
-        await first.close();
+        await first?.close();
         return context.enqueue("/next", page);
       });
+      first = await foxhound.startCrawl(pages, options);
 
       await first.close();
       await foxhound.startCrawl(pages, options);
@@ -198,6 +294,146 @@ describe("a Crawl", () => {
     },
   );
 
+  test(
+    "pushes a list of fifty Records with one request",
+    { tags: ["operation:crawl_request.push"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      const fifty = Array.from({ length: 50 }, (_, index) => ({
+        id: `P-${String(index + 1).padStart(4, "0")}`,
+      }));
+      pages.handle(page, async (context) => {
+        await context.push(ids, fifty);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 1,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "crawl_request.push",
+            "run.abort",
+          ],
+          "served": [
+            "crawl_request.handle",
+          ],
+        }
+      `);
+    },
+  );
+
+  test(
+    "keeps the Records a handler pushed when it catches a list's record_invalid, naming the failing Record by its position",
+    { tags: ["story:6-267", "story:11-35", "error:record_invalid"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-list-record-invalid.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const kettles = pages.dataset<{ readonly id?: string; readonly name: string }>("products", {
+        key: ["id"],
+      });
+      let failure: unknown;
+      pages.handle(page, async (context) => {
+        await context.push(kettles, { id: "P-0001", name: "Blue kettle" });
+        try {
+          await context.push(kettles, [
+            { id: "P-0002", name: "Red kettle" },
+            { name: "Kettle lid" },
+            { id: "P-0003", name: "Green kettle" },
+          ]);
+        } catch (error) {
+          failure = error;
+        }
+      });
+
+      const run = await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await run.finish();
+      const records: DatasetRecord[] = [];
+      for await (const record of run.records(kettles)) records.push(record);
+      await foxhound.close();
+
+      expect(failure).toBeInstanceOf(RecordInvalidError);
+      expect(failure).toMatchObject({
+        code: "record_invalid",
+        details: {
+          dataset: "products",
+          records: [{ position: 1, issues: [{ path: "/id" }] }],
+        },
+      });
+      expect(records.map((record) => record.value)).toEqual([
+        { id: "P-0001", name: "Blue kettle" },
+        { id: "P-0002", name: "Red kettle" },
+        { id: "P-0003", name: "Green kettle" },
+      ]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "sends nothing for an empty list, which pushes no Record",
+    { tags: ["operation:crawl_request.push"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-empty-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      pages.handle(page, async (context) => {
+        await context.push(ids, []);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test("types each Record of a pushed list from its Dataset alone", () => {
+    const pages = new Crawl();
+    const kettles = pages.dataset<{ readonly id: string }>("products");
+
+    // Compiles only while `push` takes a list of the Dataset's Records,
+    // and refuses one whose Record is not of the Dataset's type.
+    pages.handle(pages.label("page"), async (context) => {
+      await context.push(kettles, [{ id: "P-0001" }, { id: "P-0002" }]);
+      // @ts-expect-error -- the second Record lacks the Dataset's `id`.
+      await context.push(kettles, [{ id: "P-0001" }, { name: "Kettle lid" }]);
+      // @ts-expect-error -- a Record's type is the Dataset's, never inferred from the Record.
+      await context.push(kettles, { id: 1 });
+    });
+  });
+
   test("takes a handler whose expression body enqueues to its own Label", () => {
     const pages = new Crawl();
     const page = pages.label("page");
@@ -205,4 +441,136 @@ describe("a Crawl", () => {
     // Compiles only while a handler may return its context's promise.
     pages.handle(page, (context) => context.enqueue("/next", page));
   });
+});
+
+// Wiring mistakes fail at once (ADRs 0093 and 0104): a Label declared or
+// handled twice at declaration, a Label left without a handler when the
+// Run starts, and a Label the crawl does not declare where it is named,
+// each before anything is sent.
+describe("a Crawl's wiring mistakes", () => {
+  test(
+    "refuses a second Label of one name and a second handler for one Label with label_duplicate, with no connection",
+    { tags: ["error:label_duplicate"] },
+    () => {
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => undefined);
+
+      expect(() => pages.label("page")).toThrow(
+        expect.objectContaining({ code: "label_duplicate", details: { label: "page" } }),
+      );
+      expect(() => {
+        pages.handle(page, () => undefined);
+      }).toThrow(LabelDuplicateError);
+    },
+  );
+
+  test(
+    "refuses a handler for another crawl's Label of the same name with label_unknown",
+    { tags: ["error:label_unknown"] },
+    () => {
+      const pages = new Crawl();
+      pages.label("page");
+      const otherPage = new Crawl().label("page");
+
+      expect(() => {
+        pages.handle(otherPage, () => undefined);
+      }).toThrow(
+        expect.objectContaining({
+          code: "label_unknown",
+          details: { label: "page", declared: ["page"] },
+        }),
+      );
+    },
+  );
+
+  test(
+    "refuses to start a crawl with a Label left without a handler with label_unhandled, sending nothing",
+    { tags: ["error:label_unhandled"] },
+    async () => {
+      const played = playScript("connect/foxhound-accepted.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.label("detail");
+      pages.handle(page, () => undefined);
+
+      const starting = foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+      });
+
+      await expect(starting).rejects.toThrow(
+        expect.objectContaining({ code: "label_unhandled", details: { label: "detail" } }),
+      );
+      await foxhound.close();
+      expect(protocolCounts(played.messages).requests).toEqual(["hello"]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses to start a crawl from a seed of a Label it does not declare with label_unknown, sending nothing",
+    { tags: ["error:label_unknown"] },
+    async () => {
+      const played = playScript("connect/foxhound-accepted.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      pages.handle(pages.label("page"), () => undefined);
+      const otherDetail = new Crawl().label("detail");
+
+      const starting = foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", otherDetail)],
+      });
+
+      await expect(starting).rejects.toThrow(
+        expect.objectContaining({
+          code: "label_unknown",
+          details: { label: "detail", declared: ["page"] },
+        }),
+      );
+      await foxhound.close();
+      expect(protocolCounts(played.messages).requests).toEqual(["hello"]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses enqueue and enqueueLinks to another crawl's Label with label_unknown, sending nothing",
+    {
+      tags: [
+        "error:label_unknown",
+        "operation:crawl_request.enqueue",
+        "operation:crawl_request.enqueue_links",
+      ],
+    },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-empty-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      const otherPage = new Crawl().label("page");
+      const refused: unknown[] = [];
+      pages.handle(page, async (context) => {
+        await context.enqueue("/next", otherPage).catch((error: unknown) => refused.push(error));
+        await context
+          .enqueueLinks(context.page.locator("a"), otherPage)
+          .catch((error: unknown) => refused.push(error));
+        await context.push(ids, []);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(refused).toEqual([expect.any(LabelUnknownError), expect.any(LabelUnknownError)]);
+      expect(refused[0]).toMatchObject({ details: { label: "page", declared: ["page"] } });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
 });

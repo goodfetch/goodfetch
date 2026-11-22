@@ -1,0 +1,52 @@
+{
+  "description": "A Collie Client with no logger sends `off` in `hello`; the engine still sends two `$/log` events, as one in flight when the level changed would arrive, and the SDK writes them nowhere (ADR 0078).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "error",
+            "target": "goodfetch::rpc::dispatch",
+            "message": "A call failed."
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "info",
+            "target": "goodfetch::run",
+            "message": "A Run started."
+          }
+        }
+      }
+    }
+  ]
+}

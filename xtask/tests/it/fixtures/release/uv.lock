@@ -1,0 +1,48 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = [
+    "goodfetch-collie",
+    "goodfetch-collie-client",
+    "goodfetch-foxhound",
+    "goodfetch-workspace",
+]
+
+[[package]]
+name = "goodfetch-collie"
+version = "0.0.0"
+source = { editable = "sdks/python/collie" }
+dependencies = [
+    { name = "goodfetch-collie-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "goodfetch-collie-client", editable = "sdks/python/collie-client" }]
+
+[[package]]
+name = "goodfetch-collie-client"
+version = "0.0.0"
+source = { editable = "sdks/python/collie-client" }
+
+[[package]]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+source = { editable = "sdks/python/foxhound" }
+dependencies = [
+    { name = "goodfetch-collie-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "goodfetch-collie-client", editable = "sdks/python/collie-client" }]
+
+[[package]]
+name = "goodfetch-workspace"
+version = "0.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "goodfetch-collie" },
+    { name = "goodfetch-collie-client" },
+    { name = "goodfetch-foxhound" },
+]

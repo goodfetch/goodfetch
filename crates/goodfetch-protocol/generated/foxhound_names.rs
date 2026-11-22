@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &["crawl.start", "dataset.list", "dataset.page", "dataset.query", "run.add-seed", "run.add-seeds", "run.export", "run.failed-requests", "run.outcomes", "run.records", "run.rejected-records", "run.retry-failed", "run.seeds", "sample.crawl"];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused", "staging_full"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused", "staging_full"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -17,7 +17,7 @@ pub const EVENTS: &[&str] = &["sample.crawled"];
 pub const EXIT_CODES: &[&str] = &[];
 
 /// The handler requests only Foxhound carries.
-pub const HANDLER_REQUESTS: &[&str] = &["crawl_request.handle"];
+pub const HANDLER_REQUESTS: &[&str] = &["crawl_hook.handle", "crawl_request.handle"];
 
 /// The hook stages only Foxhound carries.
 pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
@@ -30,6 +30,9 @@ pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.e
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];
+
+/// The protocol failures only Foxhound carries.
+pub const PROTOCOL_FAILURES: &[&str] = &[];
 
 /// The settings only Foxhound carries.
 pub const SETTINGS: &[&str] = &["crawl.content_types", "crawl.domain_keys", "crawl.domain_order", "crawl.handle_statuses", "crawl.handler.concurrency", "crawl.keep_alive", "crawl.keep_url_fragment", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_sitemap_nesting", "crawl.max_staged_enqueues", "crawl.max_url_length", "crawl.path_budgets", "crawl.payload.max_size", "crawl.retry.engine_panicked", "crawl.retry.handler_failed", "crawl.retry.max", "crawl.sample_pages", "crawl.scope.exclude", "crawl.scope.include", "crawl.scope.strategy", "dataset.query.max_rows", "dataset.query.memory_limit", "dataset.records", "delivery.report_guarantee_class", "delivery.write_ids_and_epochs", "export.csv.bom", "export.csv.delimiter", "export.csv.nested", "export.feed.link", "export.feed.published", "export.feed.summary", "export.feed.title", "export.json.indent", "export.parquet.compression", "export.xlsx.sheet", "export.xml.record", "export.xml.root", "fetch.block_classification", "fetch.coalesce", "fetch.encoding", "fetch.hedge.enabled", "fetch.hedge.max_percent", "fetch.http_from", "fetch.kept_responses.urls", "fetch.light_browser", "fetch.redirect.max", "fetch.refresh.max_delay", "fetch.sample.count", "fetch.sample.refresh_after", "fetch.tier", "fetch.tier_race", "frontier.learning", "paid_fetch.chain_rpc_endpoints", "paid_fetch.domains", "paid_fetch.exchange_rates", "paid_fetch.max_price_per_page", "politeness.backoff.enabled", "politeness.backoff.initial", "politeness.backoff.max", "politeness.domain.adaptive_delay", "politeness.domain.burst", "politeness.domain.concurrency", "politeness.domain.delay", "politeness.domain.rate", "politeness.retry_after.max", "provenance.log", "session.pool.affinity", "session.pool.growth", "session.pool.max_age", "session.pool.max_error_score", "session.pool.max_size", "session.pool.max_uses", "session.pool.session_concurrency", "site_preferences.mark_robots_txt_ignored", "site_preferences.max_crawl_delay", "site_preferences.respect_robots_txt", "site_preferences.robots_txt_user_agent", "timeout.dataset_query", "timeout.handler"];

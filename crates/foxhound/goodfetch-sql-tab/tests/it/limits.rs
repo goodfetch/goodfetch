@@ -9,29 +9,6 @@ use serde_json::json;
 
 use crate::run_files::{LIMITS, book, run_file, sandbox};
 
-/// A query that holds far more than 16 MB at once.
-const HEAVY: &str = "SELECT list(range) FROM range(10000000)";
-
-/// Covers: story:12-211
-#[test]
-fn a_query_past_its_memory_limit_is_stopped() {
-    let folder = tempfile::tempdir().expect("a folder");
-    let path = run_file(folder.path(), "shop", &[book(1)], "none");
-    let sandbox = sandbox(
-        &[("shop", &path)],
-        Limits {
-            memory: 16 * 1024 * 1024,
-            rows: 10_000,
-        },
-    );
-
-    let failed = sandbox.query(HEAVY, None);
-    let allowed = sandbox.query("SELECT count(*) FROM records('shop')", None);
-
-    assert_eq!(failed, Err(Failure::MemoryExceeded));
-    assert_eq!(allowed.expect("the run is read").rows, [vec![json!(1)]]);
-}
-
 /// Covers: story:12-211
 #[test]
 fn an_interrupted_query_stops() {

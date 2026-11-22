@@ -11,7 +11,7 @@
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{CompletenessReason, ReportPart};
 use goodfetch_frontier::{completeness_reasons, learned_completeness_reasons};
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::foxhound::report::{CountOf, FAILED_REQUESTS, MODEL_ALLOWANCE};
 use goodfetch_protocol::run::completeness::STOPPED;

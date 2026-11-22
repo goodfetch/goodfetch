@@ -85,6 +85,14 @@ pub(crate) fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     settings
 }
 
+/// The fetch settings of a case on the browser-fetch path: `auto`, each
+/// sample's `http` run sent from the Session's browser and recorded as
+/// `browser_fetch` (`fetch.http_from: browser`; the default is `learned`
+/// since issue 3106).
+pub(crate) fn on_auto_from_the_browser() -> Value {
+    json!({ "fetch": { "tier": "auto", "http_from": "browser" } })
+}
+
 /// One handler request as the handler saw it: the URL, the attempt, the
 /// tier, and what its wait for the items answered.
 #[derive(Debug, PartialEq)]
@@ -201,11 +209,12 @@ pub(crate) fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Valu
 ///
 /// A Run that sets no `fetch.tier` is served the same way: `auto` is the
 /// built-in default, and no handler is given its request alone (issue 1602).
+/// Both send their HTTP from the browser (`fetch.http_from: browser`).
 ///
 /// Covers: story:5-115, story:5-118, story:6-257, operation:locator.wait_for_count, error:attempt_ended
 #[rstest::rstest]
-#[case::set(json!({ "fetch": { "tier": "auto" } }))]
-#[case::the_built_in_default(json!({}))]
+#[case::set(on_auto_from_the_browser())]
+#[case::the_built_in_default(json!({ "fetch": { "http_from": "browser" } }))]
 fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto(
     #[case] tier: Value,
 ) {
@@ -368,7 +377,7 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
             "list": { "settings": { "fetch": { "tier": "http" } } },
             "page": {},
         }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-label");
@@ -488,7 +497,11 @@ const EDGE_HOST: &str = "fetch-edge.test";
 const EDGE_OTHER_HOST: &str = "h1.fetch-edge.test";
 
 /// The requests `proving_ground` received for `path` on `host`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<ObservedRequest> {
+pub(crate) fn requests_for(
+    proving_ground: &ProvingGround,
+    host: &str,
+    path: &str,
+) -> Vec<ObservedRequest> {
     proving_ground
         .received_requests()
         .unwrap()
@@ -649,6 +662,167 @@ fn a_served_pages_request_waiting_for_its_permit_holds_its_attempts_lease() {
     );
 }
 
+/// The catalog's order endpoint: a `POST` whose form body names a product
+/// answers a page naming it in `span.id`, and any other method a 404.
+pub(crate) const ORDER_PATH: &str = "/orders";
+
+/// `product=P-0001`, in Base64 as a crawl request carries its body.
+pub(crate) const ORDER_BODY: &str = "cHJvZHVjdD1QLTAwMDE=";
+
+/// The product an order's body names.
+pub(crate) const ORDERED: &str = "P-0001";
+
+/// A crawl request `POST /orders` with [`ORDER_BODY`] under the Label
+/// `order`.
+pub(crate) fn order(proving_ground: &ProvingGround) -> Value {
+    json!({
+        "url": proving_ground.url(STATIC_HOST, ORDER_PATH),
+        "label": "order",
+        "method": "POST",
+        "body": ORDER_BODY,
+    })
+}
+
+/// The methods `proving_ground` received `/orders` with.
+pub(crate) fn order_methods(proving_ground: &ProvingGround) -> Vec<String> {
+    requests_for(proving_ground, STATIC_HOST, ORDER_PATH)
+        .into_iter()
+        .map(|request| request.method)
+        .collect()
+}
+
+/// A handler that reads the product the page names by script, which only
+/// a browser serves: each run's tier with that product, or with the code
+/// of the error the call raised, which ends the run.
+pub(crate) fn ordering(
+    seen: &mut Vec<(Value, Value)>,
+) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |inside, handle| {
+        let reply = inside.call(
+            "page.evaluate",
+            &json!({
+                "page_id": handle["page_id"],
+                "function": "() => document.querySelector('span.id')?.textContent ?? null",
+            }),
+        );
+        if let Some(error) = reply.get("error") {
+            seen.push((handle["tier"].clone(), error["data"]["code"].clone()));
+            return json!({ "error": error });
+        }
+        seen.push((handle["tier"].clone(), reply["result"]["value"].clone()));
+        json!({ "result": { "records": [] } })
+    }
+}
+
+/// A crawl request `POST /orders` with a body, on a forced `browser`
+/// tier, reaches the site as that `POST` with that body: the browser's
+/// own navigation carries the crawl request's method and body, as
+/// Crawlee's and scrapy-playwright's do, and the page it opens is the
+/// one that body orders (issue 2471).
+///
+/// Covers: story:6-212, story:5-118, operation:page.evaluate
+#[test]
+fn a_post_crawl_request_with_a_body_reaches_the_site_as_that_post_on_a_forced_browser_tier() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "tiers-post-browser",
+        &[order(&proving_ground)],
+        &json!({ "order": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut ordering(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "tiers-post-browser");
+    assert!(engine.finished());
+
+    assert_eq!(
+        (order_methods(&proving_ground), seen, ended),
+        (
+            vec!["POST".to_owned()],
+            vec![(json!("browser"), json!(ORDERED))],
+            vec![(
+                proving_ground.url(STATIC_HOST, ORDER_PATH),
+                json!("succeeded"),
+                Value::Null
+            )],
+        )
+    );
+}
+
+/// Under `auto`, the same crawl request, a sample, is sent as that `POST`
+/// on `http`, from the browser under `fetch.http_from: browser` or from
+/// the Run's transport under `transport`, where the handler's script call
+/// escalates it, and again as that `POST` by the browser it escalates to,
+/// where the page names the ordered product; Provenance records the
+/// browser run with the call that escalated it (issue 2471).
+///
+/// Covers: story:6-212, story:6-257, story:6-259, setting:fetch.http_from, operation:page.evaluate, error:attempt_ended
+#[rstest::rstest]
+#[case::from_the_browser("browser", "browser_fetch")]
+#[case::from_the_transport("transport", "http")]
+fn a_post_crawl_request_auto_escalates_to_the_browser_reaches_the_site_as_that_post_on_both_tiers(
+    #[case] http_from: &str,
+    #[case] first_tier: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let fetch = json!({ "tier": "auto", "http_from": http_from });
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "tiers-post-auto",
+        &[order(&proving_ground)],
+        &json!({ "order": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": fetch,
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut ordering(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "tiers-post-auto");
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            order_methods(&proving_ground),
+            seen,
+            ended,
+            tiers(&env, "tiers-post-auto"),
+        ),
+        (
+            vec!["POST".to_owned(), "POST".to_owned()],
+            vec![
+                (json!("http"), json!("attempt_ended")),
+                (json!("browser"), json!(ORDERED)),
+            ],
+            vec![(
+                proving_ground.url(STATIC_HOST, ORDER_PATH),
+                json!("succeeded"),
+                Value::Null
+            )],
+            vec![
+                json!(["order", first_tier, "sample", null, null]),
+                json!(["order", "browser", "sample", null, "page.evaluate"]),
+            ],
+        )
+    );
+}
+
 /// The `tiers` family's host: static listings at `/products/<n>`,
 /// script-rendered ones at `/blog/<n>`, and `/mixed/<n>` one or the other
 /// by the parity of `n`.
@@ -758,7 +932,7 @@ fn a_label_of_static_pages_is_learned_onto_http_and_one_of_scripted_pages_onto_b
             ],
         ),
         &json!({ "static": {}, "scripted": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut counting(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-learned");
@@ -839,7 +1013,7 @@ fn a_sample_compares_the_records_each_run_pushed() {
             ],
         ),
         &json!({ "static": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut |inside, handle| {
             let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
             seen.push((path_of(&url), handle["tier"].clone()));
@@ -922,7 +1096,7 @@ fn a_label_whose_segments_disagree_is_split_by_first_segment_and_a_segment_that_
             ],
         ),
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut counting(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-split");
@@ -1004,7 +1178,7 @@ fn the_tier_a_label_learned_survives_a_resume() {
             ("/products/5", "static"),
         ],
     );
-    let mut settings = settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } }));
+    let mut settings = settings(&proving_ground, &on_auto_from_the_browser());
     settings["crawl"]["handler"] = json!({ "concurrency": 1 });
     // At `full`, each sample's outcome is in the file before the next
     // request: at `batch` the kill takes the open batch, and the resumed
@@ -1152,7 +1326,7 @@ fn a_page_failing_its_labels_expected_page_over_http_escalates_under_auto_and_pa
             "list": expecting("li.product", &json!({})),
             "app": expecting("#app h1.title", &json!({})),
         }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut recording(&mut seen),
     );
     let ended = outcomes(&mut engine, "expected-auto");
@@ -1212,7 +1386,7 @@ fn a_page_failing_its_expected_page_fails_with_page_check_failed_under_a_forced_
             "http": expecting("#app h1.title", &json!({ "fetch": { "tier": "http" } })),
             "browser": expecting("#app h2.missing", &json!({ "fetch": { "tier": "browser" } })),
         }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &on_auto_from_the_browser()),
         &mut recording(&mut seen),
     );
     let ended = outcomes(&mut engine, "expected-forced");

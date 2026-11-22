@@ -3,12 +3,22 @@ name = "goodfetch-foxhound"
 version = "0.0.0"
 description = "Foxhound's Python SDK, built on the Collie client package (ADR 0095)."
 requires-python = ">=3.11"
-dependencies = ["goodfetch-collie-client"]
+# One Product version: the package takes the client package of its own
+# version (ADRs 0090 and 0095).
+dependencies = ["goodfetch-collie-client==0.0.0"]
 # Nothing is published before the first release (AGENTS.md, Release status).
 classifiers = ["Private :: Do Not Upload"]
 
 [tool.uv.sources]
 goodfetch-collie-client = { workspace = true }
+
+# mutmut's full run, as in `../collie-client/pyproject.toml`; `tests/types`
+# holds type checkers' files, not tests.
+[tool.mutmut]
+source_paths = ["src"]
+do_not_mutate = ["src/goodfetch_foxhound/generated/*"]
+pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args_test_selection = ["tests/unit"]
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10"]

@@ -1,0 +1,40 @@
+# The start table's crawl rows (#1544, ADR 0102): a start under the ID of
+# a finished crawl answers it as it ended, `ended`, calling no handler; a
+# start under the ID of a crawl that differs from it fails with
+# `run_conflict` listing each input that differs, other seeds as `seeds`,
+# a Collie Run's start, which has none, as `product`, `kind` and `seeds`;
+# and a start under the ID of a crawl its Limit stopped fails with
+# `limit_reached` naming that Limit while no person raised it. Only Foxhound's crawls take seeds and charge Usage before a
+# browser, so the suite announces Foxhound and runs on its executable
+# (ADR 0094), against the Proving ground's plain host, answering each
+# handler request with no Record. A Run's caller differs only between
+# accounts of one Daemon, which no target has yet, so `caller` has no
+# case. `goodfetch-conformance` runs it as it runs the protocol suite
+# (`conformance/protocol/cases.toml`): every case in order over one
+# Connection it opens with `hello`. Bump the version whenever a case
+# changes.
+
+product = "foxhound"
+
+[suite]
+name = "run-start-crawl"
+version = "1"
+
+[[capability]]
+name = "crawl.start"
+
+[[capability.case]]
+id = "a-crawl-start-under-a-finished-crawls-id-answers-it-calling-no-handler"
+covers = ["story:3-166", "operation:crawl.start"]
+
+[[capability.case]]
+id = "a-crawl-start-under-a-crawls-id-with-other-seeds-is-run-conflict-naming-seeds"
+covers = ["story:3-167", "error:run_conflict"]
+
+[[capability.case]]
+id = "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-kind-and-seeds"
+covers = ["story:3-167", "error:run_conflict"]
+
+[[capability.case]]
+id = "a-start-under-the-id-of-a-crawl-its-limit-stopped-is-limit-reached"
+covers = ["story:3-167", "error:limit_reached"]

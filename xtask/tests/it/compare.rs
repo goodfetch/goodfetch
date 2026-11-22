@@ -25,8 +25,9 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
-/// sensitivity rows and Foxhound's `auto` row.
-const CELLS: [(&str, &str, &str); 42] = [
+/// sensitivity rows, Foxhound's `auto` row and the second row of its cell
+/// at the catalog's defaults.
+const CELLS: [(&str, &str, &str); 45] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -36,8 +37,10 @@ const CELLS: [(&str, &str, &str); 42] = [
     ("raw", "openspider", "openspider"),
     ("raw", "fastcrw", "fastcrw"),
     ("raw", "crawlberg", "crawlberg"),
+    ("raw", "foxhound defaults", "foxhound"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
+    ("durable", "foxhound batch", "foxhound"),
     ("durable", "crawlee-rs", "crawlee-rs"),
     ("durable", "pagesift", "pagesift"),
     ("polite", "foxhound", "foxhound"),
@@ -69,6 +72,7 @@ const CELLS: [(&str, &str, &str); 42] = [
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
     ("polite", "foxhound auto", "foxhound"),
+    ("raw", "foxhound defaults learned", "foxhound"),
 ];
 
 /// The runs of `cell` in a pass that asks for `asked`: pagesift's polite
@@ -300,9 +304,10 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
     run
 }
 
-/// A Callgrind cell of three runs of each tool over the 1,000-page site.
-/// In scenario 1, Foxhound's a median of 32,000 instructions a page and
-/// Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
+/// A Callgrind cell of three runs of each cell its ratios read over the
+/// 1,000-page site. In scenario 1, Foxhound's a median of 32,000
+/// instructions a page, 48,000 in its cell at the catalog's defaults'
+/// learned row, and Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
 /// defaults and 45,000 with its Filter lists off, and Spider's 50,000, its
 /// pages holding the ad, which it does not remove.
 fn callgrind() -> Value {
@@ -316,6 +321,9 @@ fn callgrind() -> Value {
             run("raw", "spider", "spider", 1, 1_000_000, 0),
             run("raw", "spider", "spider", 2, 900_000, 0),
             run("raw", "spider", "spider", 3, 1_100_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 1, 47_000_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 2, 48_000_000, 0),
+            run("raw", "foxhound defaults learned", "foxhound", 3, 49_000_000, 0),
             run("extraction", "foxhound", "foxhound", 1, 59_000_000, 0),
             run("extraction", "foxhound", "foxhound", 2, 60_000_000, 0),
             run("extraction", "foxhound", "foxhound", 3, 70_000_000, 0),
@@ -613,6 +621,8 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
+         foxhound defaults, 1000 of the site's 1000 pages | foxhound defaults learned \
+         (sensitivity), 1000 of the site's 1000 pages | \
          crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
          openspider, 1000 of the site's 1000 pages | fastcrw, 1000 of the site's 1000 pages | \
          crawlberg, 1000 of the site's 1000 pages | spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
@@ -815,7 +825,7 @@ fn the_report_writes_each_scenarios_mapping() {
     for expected in [
         "## 1. Raw fetch and follow",
         "## 2. Durable and resumable",
-        "`run_state.durability: off`",
+        "`run_state.durability: batch`",
         "`dataset.records: false`",
         "`run_state.durability: periodic` and `run_state.commit_interval: 60s`",
         "- **spider**: none",
@@ -829,260 +839,72 @@ fn the_report_writes_each_scenarios_mapping() {
     }
 }
 
-/// Crawlee, Scrapy and crawlee-rs join scenario 1, each cell with every
-/// metric and the settings its tool ran with; Crawlee's and Scrapy's
-/// scenario 2 cells say why neither resumes all the site's pages after a
-/// kill, where crawlee-rs's is measured, and the report names the pinned
-/// version or commit of each tool.
+/// Every cell of the report writes its mapping in its scenario's section,
+/// and gives every metric or why it gives none: each cell the trials file
+/// measured Foxhound's metrics, each other the reason the matrix gives, as
+/// Crawlee's and Scrapy's durable cells, and OpenSpider's, fastCRW's and
+/// crawlberg's durable and polite cells (#2215, #2216, #2217, #2218), or
+/// the issue a pending cell waits on. The report names the pinned version
+/// or commit of each tool.
 #[test]
-fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
+fn each_cell_writes_its_mapping_and_every_metric_or_why_it_has_none() {
     let workspace = Workspace::from_fixture("empty");
 
     let outcome = report(&workspace, &trials());
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let report = written(&workspace);
+    let markdown = workspace.read_text(MARKDOWN);
     let names = |cell: &Value| {
         cell["metrics"]
             .as_object()
             .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
     };
     let foxhound = names(cell(&report, 0, "foxhound"));
-    for (scenario, name) in [
-        (0, "crawlee"),
-        (0, "scrapy"),
-        (0, "crawlee-rs"),
-        (1, "crawlee-rs"),
-    ] {
-        let cell = cell(&report, scenario, name);
-        assert_eq!(
-            (&cell["status"], names(cell)),
-            (&json!("measured"), foxhound.clone()),
-            "scenario {scenario}'s {name}"
-        );
+    let mut wrong = Vec::new();
+    for scenario in report["scenarios"].as_array().unwrap() {
+        let scenario_name = scenario["scenario"].as_str().unwrap();
+        for cell in scenario["cells"].as_array().unwrap() {
+            let name = cell["cell"].as_str().unwrap();
+            let row = if cell["row"] == "sensitivity" {
+                " (sensitivity row)"
+            } else {
+                ""
+            };
+            let mapping = format!("- **{name}**{row}: {}.", cell["mapping"].as_str().unwrap());
+            let measured = CELLS
+                .iter()
+                .any(|(scenario, cell, _)| *scenario == scenario_name && *cell == name);
+            let figures = if measured {
+                cell["status"] == "measured" && names(cell) == foxhound
+            } else {
+                let said = match cell["status"].as_str() {
+                    Some("not_supported") => "not supported",
+                    Some("not_measured") => "not measured",
+                    _ => "no reason",
+                };
+                markdown.contains(&format!(
+                    "  - {said}: {}.",
+                    cell["reason"].as_str().unwrap_or_default()
+                ))
+            };
+            if !markdown.contains(&mapping) || !figures {
+                wrong.push(format!("{scenario_name}/{name}: {}", cell["status"]));
+            }
+        }
     }
-    assert_eq!(
-        (
-            &cell(&report, 1, "crawlee")["status"],
-            &cell(&report, 1, "scrapy")["status"]
+
+    assert_eq!(wrong, Vec::<String>::new(), "{markdown}");
+    assert!(
+        markdown.contains(
+            "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
+             Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
+             crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, pagesift 1.3.0, \
+             OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`, fastCRW 0.44.2 and \
+             crawlberg 1.13.0, every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4"
         ),
-        (&json!("not_supported"), &json!("not_supported"))
+        "{markdown}"
     );
-    let markdown = workspace.read_text(MARKDOWN);
-    for expected in [
-        "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
-         Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
-         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, pagesift 1.3.0, \
-         OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`, fastCRW 0.44.2 and \
-         crawlberg 1.13.0, every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
-        "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
-         `maxConcurrency: 16`",
-        "- **scrapy**: a default `scrapy.Spider`",
-        "`ROBOTSTXT_OBEY: False`, `CONCURRENT_REQUESTS: 16`, `CONCURRENT_REQUESTS_PER_DOMAIN: 16`, \
-         `DOWNLOAD_DELAY: 0`",
-        "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
-        "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
-    ] {
-        assert!(
-            markdown.contains(expected),
-            "{expected} missing:\n{markdown}"
-        );
-    }
-}
-
-/// pagesift joins the matrix's five scenarios (#2215): each of its cells
-/// is measured with every metric, and the report names its pinned version
-/// and its settings.
-#[test]
-fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
-    let workspace = Workspace::from_fixture("empty");
-
-    let outcome = report(&workspace, &trials());
-
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let report = written(&workspace);
-    let names = |cell: &Value| {
-        cell["metrics"]
-            .as_object()
-            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
-    };
-    let foxhound = names(cell(&report, 0, "foxhound"));
-    for scenario in 0..5 {
-        let cell = cell(&report, scenario, "pagesift");
-        assert_eq!(
-            (&cell["status"], names(cell)),
-            (&json!("measured"), foxhound.clone()),
-            "scenario {scenario}'s pagesift"
-        );
-    }
-    let markdown = workspace.read_text(MARKDOWN);
-    for expected in [
-        "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, pagesift 1.3.0,",
-        "- **pagesift**: its library's `Scraper::crawl`, the entry point its own crawl benchmark uses",
-        "- **pagesift**: scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`)",
-        "- **pagesift**: scenario 1's crawl on its browser engine (`engine: browser`)",
-    ] {
-        assert!(
-            markdown.contains(expected),
-            "{expected} missing:\n{markdown}"
-        );
-    }
-}
-
-/// OpenSpider joins the matrix (#2216): its raw, extraction and browser
-/// cells are measured with every metric, its durable and polite cells are
-/// not supported with the reasons, and the report names its pinned commit
-/// and its settings.
-#[test]
-fn openspiders_cells_report_every_metric_with_their_mapping_and_its_pin() {
-    let workspace = Workspace::from_fixture("empty");
-
-    let outcome = report(&workspace, &trials());
-
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let report = written(&workspace);
-    let names = |cell: &Value| {
-        cell["metrics"]
-            .as_object()
-            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
-    };
-    let foxhound = names(cell(&report, 0, "foxhound"));
-    for scenario in [0, 3, 4] {
-        let cell = cell(&report, scenario, "openspider");
-        assert_eq!(
-            (&cell["status"], names(cell)),
-            (&json!("measured"), foxhound.clone()),
-            "scenario {scenario}'s openspider"
-        );
-    }
-    assert_eq!(
-        (
-            &cell(&report, 1, "openspider")["status"],
-            &cell(&report, 2, "openspider")["status"]
-        ),
-        (&json!("not_supported"), &json!("not_supported"))
-    );
-    let markdown = workspace.read_text(MARKDOWN);
-    for expected in [
-        "OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`,",
-        "- **openspider**: its engine's spider crawl (`os_engine::start_crawl`)",
-        "  - not supported: OpenSpider's writer commits its crawl file in groups",
-        "- **openspider**: scenario 1's crawl with one custom extractor",
-        "- **openspider**: scenario 1's crawl with each page rendered",
-        "  - not supported: OpenSpider spaces its fetches with one rate for its whole crawl",
-    ] {
-        assert!(
-            markdown.contains(expected),
-            "{expected} missing:\n{markdown}"
-        );
-    }
-}
-
-/// fastCRW joins the matrix (#2217): its raw, extraction and browser cells
-/// are measured with every metric, its durable and polite cells are not
-/// supported with the reasons, and the report names its pinned release and
-/// its settings.
-#[test]
-fn fastcrws_cells_report_every_metric_with_their_mapping_and_its_pin() {
-    let workspace = Workspace::from_fixture("empty");
-
-    let outcome = report(&workspace, &trials());
-
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let report = written(&workspace);
-    let names = |cell: &Value| {
-        cell["metrics"]
-            .as_object()
-            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
-    };
-    let foxhound = names(cell(&report, 0, "foxhound"));
-    let measured = [0, 3, 4].map(|scenario| {
-        let cell = cell(&report, scenario, "fastcrw");
-        (cell["status"].clone(), names(cell))
-    });
-    assert_eq!(
-        measured,
-        [
-            (json!("measured"), foxhound.clone()),
-            (json!("measured"), foxhound.clone()),
-            (json!("measured"), foxhound),
-        ]
-    );
-    assert_eq!(
-        (
-            &cell(&report, 1, "fastcrw")["status"],
-            &cell(&report, 2, "fastcrw")["status"]
-        ),
-        (&json!("not_supported"), &json!("not_supported"))
-    );
-    let markdown = workspace.read_text(MARKDOWN);
-    for expected in [
-        "fastCRW 0.44.2 and",
-        "- **fastcrw**: its server, `crw-server`, run as its own process by its side",
-        "  - not supported: fastCRW keeps its crawl jobs in its server's memory",
-        "  - not supported: fastCRW follows a link only on its first page's origin",
-        "- **fastcrw**: scenario 1's crawl job with each page's main content in Markdown",
-        "- **fastcrw**: scenario 1's crawl job with each page rendered",
-    ] {
-        assert!(
-            markdown.contains(expected),
-            "{expected} missing:\n{markdown}"
-        );
-    }
-}
-
-/// crawlberg joins the matrix (#2218): its raw, extraction and browser
-/// cells are measured with every metric, its durable and polite cells are
-/// not supported with the reasons, and the report names its pinned release
-/// and its settings.
-#[test]
-fn crawlbergs_cells_report_every_metric_with_their_mapping_and_its_pin() {
-    let workspace = Workspace::from_fixture("empty");
-
-    let outcome = report(&workspace, &trials());
-
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let report = written(&workspace);
-    let names = |cell: &Value| {
-        cell["metrics"]
-            .as_object()
-            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
-    };
-    let foxhound = names(cell(&report, 0, "foxhound"));
-    let measured = [0, 3, 4].map(|scenario| {
-        let cell = cell(&report, scenario, "crawlberg");
-        (cell["status"].clone(), names(cell))
-    });
-    assert_eq!(
-        measured,
-        [
-            (json!("measured"), foxhound.clone()),
-            (json!("measured"), foxhound.clone()),
-            (json!("measured"), foxhound),
-        ]
-    );
-    assert_eq!(
-        (
-            &cell(&report, 1, "crawlberg")["status"],
-            &cell(&report, 2, "crawlberg")["status"]
-        ),
-        (&json!("not_supported"), &json!("not_supported"))
-    );
-    let markdown = workspace.read_text(MARKDOWN);
-    for expected in [
-        "and crawlberg 1.13.0, every tool",
-        "- **crawlberg**: its engine's streaming crawl (`CrawlEngineHandle::crawl_stream`)",
-        "  - not supported: crawlberg keeps its frontier in memory",
-        "  - not supported: crawlberg follows a link only on its first page's host",
-        "- **crawlberg**: scenario 1's crawl with each page's URL, title (`metadata.title`) and \
-         Markdown (`markdown.content`)",
-        "- **crawlberg**: scenario 1's crawl with each page rendered",
-    ] {
-        assert!(
-            markdown.contains(expected),
-            "{expected} missing:\n{markdown}"
-        );
-    }
 }
 
 /// Scenarios 3 to 5 (#1903): the polite crawl of the multi-domain site,
@@ -1528,6 +1350,9 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     );
 }
 
+/// In scenario 1, the Callgrind cell gives two ratios over Spider's: the
+/// maximum-throughput cell's and, at the catalog's defaults, the learned
+/// row's (#2175).
 #[test]
 fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
     let workspace = Workspace::from_fixture("empty");
@@ -1543,15 +1368,27 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
         outcome.stderr
     );
     assert_eq!(
-        written(&workspace)["instructions"]["ratios"][0],
-        json!({
-            "row": "foxhound.spider_instruction_ratio",
-            "scenario": "scenario 1 of ADR 0138's matrix",
-            "foxhound": "foxhound",
-            "foxhound_per_page": 32_000.0,
-            "spider_per_page": 1_000.0,
-            "ratio": 32.0,
-        })
+        written(&workspace)["instructions"]["ratios"]
+            .as_array()
+            .unwrap()[..2],
+        [
+            json!({
+                "row": "foxhound.spider_instruction_ratio",
+                "scenario": "scenario 1 of ADR 0138's matrix",
+                "foxhound": "foxhound",
+                "foxhound_per_page": 32_000.0,
+                "spider_per_page": 1_000.0,
+                "ratio": 32.0,
+            }),
+            json!({
+                "row": "foxhound.spider_instruction_ratio_at_defaults",
+                "scenario": "scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace",
+                "foxhound": "foxhound defaults learned",
+                "foxhound_per_page": 48_000.0,
+                "spider_per_page": 1_000.0,
+                "ratio": 48.0,
+            }),
+        ]
     );
     let markdown = workspace.read_text(MARKDOWN);
     assert!(
@@ -1583,7 +1420,7 @@ fn the_callgrind_cell_reports_the_extraction_scenarios_two_ratios() {
     assert_eq!(
         written(&workspace)["instructions"]["ratios"]
             .as_array()
-            .unwrap()[1..],
+            .unwrap()[2..],
         [
             json!({
                 "row": "foxhound.spider_extraction_instruction_ratio",
@@ -1606,9 +1443,9 @@ fn the_callgrind_cell_reports_the_extraction_scenarios_two_ratios() {
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "`foxhound.spider_extraction_instruction_ratio`: 1.200, Foxhound's 60000 instructions per page over Spider's 50000",
+        "`foxhound.spider_extraction_instruction_ratio`: 1.200, Foxhound's `foxhound` cell's 60000 instructions per page over Spider's `spider` cell's 50000",
         "Spider's output differs under this row's check (output differs: 1000 of 1000)",
-        "`foxhound.spider_extraction_instruction_ratio_filter_lists_off`: 0.900, Foxhound's 45000 instructions per page over Spider's 50000",
+        "`foxhound.spider_extraction_instruction_ratio_filter_lists_off`: 0.900, Foxhound's `foxhound filter lists off` cell's 45000 instructions per page over Spider's `spider` cell's 50000",
     ] {
         assert!(
             markdown.contains(expected),

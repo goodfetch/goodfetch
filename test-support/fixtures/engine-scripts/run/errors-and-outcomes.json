@@ -1,0 +1,353 @@
+{
+  "description": "A Collie Client's hello accepted at the debug level, a Run started and a page opened in it (ADR 0079): a navigation to a missing page answers its 404 response, an outcome, not an error; then one call fails in each group, each error carrying its code, whether it is retryable, the operation, call and Run IDs, the fields that apply and its details: a fill whose Secret placeholder no scope binds (`secret_unbound`, program), a fill whose placeholder's host was reached through an invalid-certificate exception (`secret_input_refused`, refused, naming the Secret's reference, never its value), a click whose locator matches two elements (`target_not_unique`, page, with its call log), a fill of a value the program holds, the Secret canary, that outlives its timeout (`deadline_exceeded`, retryable, whose `limit` names `timeout.action` and the argument that set it), a fill whose Secret's provider has no value (`secret_unavailable`, unavailable), a click failed with a model code no catalog has, as an engine newer than the SDK sends one (`model_output_invalid`, which raises the model group's class with the code kept; written raw, with the request's ID, since the corpus check refuses a code off the catalog and Collie's catalog has no model code) and a click the engine panicked on (`engine_panicked`, internal); the Run then finishes. No error the engine sends holds the canary. The `errors-and-outcomes` client conformance case.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "debug"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/missing"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "response": {
+            "url": "https://shop.test/missing",
+            "status": 404,
+            "status_text": "Not Found",
+            "headers": {
+              "content-type": "text/html; charset=utf-8"
+            },
+            "request_id": "request-1",
+            "from_service_worker": false,
+            "encoding": "UTF-8"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.fill",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#user"
+          },
+          "value": "%shop_user%"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "no scope binds the Secret placeholder `%shop_user%`",
+          "data": {
+            "code": "secret_unbound",
+            "retryable": false,
+            "operation": "locator.fill",
+            "call_id": "call-1",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#user",
+            "url": "https://shop.test/login",
+            "placeholder": "shop_user",
+            "bound": ["shop_password", "shop_otp"],
+            "fix": "Bind `shop_user` to a Secret reference in the Run's `secrets`, or use a placeholder it binds"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.fill",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#password"
+          },
+          "value": "%shop_password%"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "the Secret `shop_password` was not typed: shop.test was reached through an invalid-certificate exception",
+          "data": {
+            "code": "secret_input_refused",
+            "retryable": false,
+            "operation": "locator.fill",
+            "call_id": "call-2",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#password",
+            "url": "https://shop.test/login",
+            "placeholder": "shop_password",
+            "reference": "env:SHOP_PASSWORD",
+            "domain": "shop.test",
+            "reason": "invalid_certificate_exception",
+            "fix": "Fix shop.test's certificate, or lift its invalid-certificate exception, before typing a Secret there"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#buy"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the locator #buy matched 2 elements, where the click needs one",
+          "data": {
+            "code": "target_not_unique",
+            "retryable": false,
+            "operation": "locator.click",
+            "call_id": "call-3",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#buy",
+            "url": "https://shop.test/cart",
+            "matches": [
+              {
+                "element": "<button id=\"buy\">Buy now</button>",
+                "locator": "getByRole('button', { name: 'Buy now' })"
+              },
+              {
+                "element": "<button id=\"buy\">Buy later</button>",
+                "locator": "getByRole('button', { name: 'Buy later' })"
+              }
+            ],
+            "limit": {
+              "key": "timeout.action",
+              "value": 5000,
+              "layer": "run",
+              "origin": "argument"
+            },
+            "elapsed": 5000,
+            "call_log": ["waiting for #buy", "#buy matched 2 elements"],
+            "fix": "Narrow the locator to one element, such as with one of the locators `matches` names"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.fill",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#card"
+          },
+          "value": "typed-password-canary-3f9b2d71c8e0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32005,
+          "message": "the fill of #card did not finish within `timeout.action`'s 5000 ms: the field stayed disabled",
+          "data": {
+            "code": "deadline_exceeded",
+            "retryable": true,
+            "operation": "locator.fill",
+            "call_id": "call-4",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#card",
+            "url": "https://shop.test/checkout",
+            "observed": "the field stayed disabled",
+            "limit": {
+              "key": "timeout.action",
+              "value": 5000,
+              "layer": "run",
+              "origin": "argument"
+            },
+            "elapsed": 5000,
+            "waited_for": "target_editable",
+            "call_log": ["waiting for #card to be editable", "#card is disabled"],
+            "fix": "Wait for #card to be enabled first, or raise the call's timeout"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.fill",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#otp"
+          },
+          "value": "%shop_otp%"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "the Secret reference env:SHOP_OTP has no value: the environment variable SHOP_OTP is not set",
+          "data": {
+            "code": "secret_unavailable",
+            "retryable": false,
+            "operation": "locator.fill",
+            "call_id": "call-5",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#otp",
+            "url": "https://shop.test/login",
+            "placeholder": "shop_otp",
+            "reference": "env:SHOP_OTP",
+            "provider": "env",
+            "failure": "missing",
+            "fix": "Set SHOP_OTP in the engine's environment"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#next"
+          }
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":9,\"error\":{\"code\":-32004,\"message\":\"the model's answer did not fit the output schema after 2 attempts\",\"data\":{\"code\":\"model_output_invalid\",\"retryable\":true,\"operation\":\"locator.click\",\"call_id\":\"call-6\",\"run_id\":\"01ke6p4ym0j8x3v5wq2rtbn7hc\",\"target\":\"#next\",\"attempts\":2}}}\n"
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#done"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32007,
+          "message": "the engine panicked during the call; the call ended, and the engine goes on",
+          "data": {
+            "code": "engine_panicked",
+            "retryable": false,
+            "operation": "locator.click",
+            "call_id": "call-7",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "ended": "call",
+            "id": "panic-1",
+            "crash_report": "/srv/goodfetch/crashes/panic-1.json"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

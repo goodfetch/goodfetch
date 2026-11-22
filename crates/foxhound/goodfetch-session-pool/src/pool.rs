@@ -56,7 +56,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::local_addresses::{
     BlockSizes, Host, Rotation, SessionAddresses, Unavailable, block_of,
 };
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rusqlite::Connection;
@@ -66,7 +66,7 @@ use crate::settings::{Affinity, Growth, PoolSettings};
 use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
 
 /// What an attempt's ending says of the Session that served it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Its page succeeded.
     Success,
@@ -649,6 +649,9 @@ impl SessionPool {
                 BlockCause::PaymentRequired | BlockCause::ConsentRequired | BlockCause::Decoy => {
                     None
                 }
+                // A cause this engine does not know says nothing of the
+                // Session: its classification never gives one.
+                _ => None,
             },
         };
         if let Some(retirement) = retirement {

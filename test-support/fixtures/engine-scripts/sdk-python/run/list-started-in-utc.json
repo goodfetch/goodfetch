@@ -1,0 +1,45 @@
+{
+  "description": "A Collie Client's hello accepted, then `run.list` with `started.from` sent as RFC 3339 in UTC, `2026-11-19T08:00:00Z`, for a `datetime` of 10:00 at +02:00 (ADR 0092); the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.list",
+        "params": {
+          "started": {
+            "from": "2026-11-19T08:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "runs": []
+        }
+      }
+    }
+  ]
+}

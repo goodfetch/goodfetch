@@ -1,7 +1,7 @@
 //! `escalation`'s decisions (spec #600's seam: a pure function of the
 //! cause and where its Session met it).
 
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rstest::rstest;
 
@@ -93,7 +93,7 @@ fn a_block_moves_its_request_to_the_browser_only_for_a_challenge_on_a_tier_short
     #[case] met: Met,
     #[case] action: Action,
 ) {
-    assert_eq!(on_block(cause, met), action);
+    assert_eq!(on_block(&cause, met), action);
 }
 
 /// A refusal of a Label's transport is answered on the fetch tier first:
@@ -139,5 +139,5 @@ fn a_refusal_of_the_transport_samples_its_label_again(
     #[case] met: Met,
     #[case] action: Action,
 ) {
-    assert_eq!(on_block(cause, met), action);
+    assert_eq!(on_block(&cause, met), action);
 }

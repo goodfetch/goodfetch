@@ -1,10 +1,11 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::auto::Judged;
-use crate::compare::extracted::Extracted;
-use crate::compare::matrix::{self, Row, Scenario};
+use crate::compare::extracted::{Differing, Extracted};
+use crate::compare::matrix::{self, Scenario};
+use crate::compare::trials;
 use crate::compare::trials::{
-    AutoRun, Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
-    Measured, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
+    AutoRun, Comparison, CountedCell, CountedRun, Measured, Redone, SIZE_CONCURRENCIES, SIZE_TOOLS,
+    SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -107,7 +108,7 @@ fn an_auto_run_that_left_a_page_of_the_manifest_unrequested_did_other_work() {
 #[test]
 fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
     let mut trials = comparison(|_, _| work(0));
-    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
+    trials.syscalls = counted(|_| true, |_, _, _| work(0));
     let one = named(&trials);
     let mut again = trials
         .trials
@@ -121,6 +122,70 @@ fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
     assert_eq!(
         (one, named(&trials)),
         (vec![], vec![("trial_count", "polite pagesift".to_owned())])
+    );
+}
+
+/// The trials of `trials` of the cells `cells` names alone, each
+/// `<scenario>/<cell>`: what a run that named them measured.
+fn of_cells(trials: &mut Comparison, cells: &[&str]) {
+    trials.trials.retain(|trial| {
+        cells.contains(&format!("{}/{}", trial.scenario.name(), trial.cell).as_str())
+    });
+}
+
+/// A run that names cells measures them alone (#2200), so the check counts
+/// the trials of those alone: a cell it did not name ran none and is short
+/// of nothing, while a named cell a trial short is still named (#2742).
+#[test]
+fn a_run_that_names_one_cell_counts_the_trials_of_that_cell_alone() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.declared.cells = vec!["raw/foxhound".to_owned()];
+    of_cells(&mut trials, &["raw/foxhound"]);
+    let whole = named(&trials);
+    trials.trials.pop();
+
+    assert_eq!(
+        (whole, named(&trials)),
+        (vec![], vec![("trial_count", "raw foxhound".to_owned())])
+    );
+}
+
+/// A run that names no cell measures every cell of its scenarios, and the
+/// check counts every one: each cell with no trial is short of its
+/// declared trials.
+#[test]
+fn a_run_that_names_no_cell_counts_every_measured_cell() {
+    let mut trials = comparison(|_, _| work(0));
+    of_cells(&mut trials, &["raw/foxhound"]);
+
+    let findings = named(&trials);
+
+    assert_eq!(
+        (
+            findings.len(),
+            findings.iter().all(|(kind, _)| *kind == "trial_count")
+        ),
+        (matrix::measured().count() - 1, true)
+    );
+}
+
+/// A redo of a run that named cells may measure others too: the check then
+/// counts the cells the run named and those the redo measured again.
+#[test]
+fn a_redo_of_a_run_that_named_cells_counts_the_cells_it_measured_again() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.declared.cells = vec!["raw/foxhound".to_owned()];
+    trials.redone = vec![Redone {
+        cells: vec!["raw/spider".to_owned()],
+        order_seed: 11,
+    }];
+    of_cells(&mut trials, &["raw/foxhound", "raw/spider"]);
+    let whole = named(&trials);
+    trials.trials.pop();
+
+    assert_eq!(
+        (whole, named(&trials)),
+        (vec![], vec![("trial_count", "raw spider".to_owned())])
     );
 }
 
@@ -300,6 +365,10 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
+            (
+                "different_bytes",
+                "durable foxhound batch trial 3".to_owned()
+            ),
             ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
             ("different_bytes", "durable pagesift trial 3".to_owned()),
         ]
@@ -383,18 +452,41 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
     );
 }
 
+/// The handled crawl holds every tool to its pages' fields (#2317): a
+/// competitor's trial whose Records differ from the answers is refused as
+/// Foxhound's is, where the extraction scenario only labels it.
+#[test]
+fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
+    let mut trials = comparison(|_, _| work(0));
+    for trial in &mut trials.trials {
+        if trial.scenario == Scenario::Handled && trial.number == 2 {
+            trial.measured.extracted = Some(Extracted {
+                whole: Differing {
+                    pages: 1,
+                    first: Some("/sites/4/3: name null, not \"Page 3\"".to_owned()),
+                },
+                ..Extracted::default()
+            });
+        }
+    }
+
+    assert_eq!(
+        named(&trials),
+        ["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"]
+            .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
+    );
+}
+
 /// Three runs of each cell `counts` keeps, one of a cell that runs one
 /// ([`matrix::Cell::one_trial`]), each of the work `work` gives
 /// its scenario, cell and number: a counted cell over the 4-page site,
 /// which a scenario that runs only its timed trials has no run in.
 fn counted(
-    counts: impl Fn(Scenario, Row, Tool) -> bool,
+    counts: impl Fn(&matrix::Cell) -> bool,
     work: impl Fn(Scenario, &str, u32) -> Work,
 ) -> CountedCell {
     let runs = matrix::measured()
-        .filter(|(cell, config)| {
-            !cell.scenario.timed_only() && counts(cell.scenario, cell.row, config.tool())
-        })
+        .filter(|(cell, _)| !cell.scenario.timed_only() && counts(cell))
         .flat_map(|(cell, config)| {
             let work = &work;
             (1..=cell.runs(3)).map(move |number| CountedRun {
@@ -464,7 +556,7 @@ fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<Stopped<'_>>) {
 fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
     trials.syscalls = counted(
-        |_, _, _| true,
+        |_| true,
         |scenario, cell, number| {
             if (scenario, cell, number) == (Scenario::Browser, "spider", 2) {
                 short()
@@ -497,7 +589,7 @@ fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
 fn a_strace_run_served_other_bytes_leaves_its_cells_system_calls_not_measured() {
     let mut trials = comparison(|_, _| work(0));
     trials.syscalls = counted(
-        |_, _, _| true,
+        |_| true,
         |scenario, cell, number| {
             work(u64::from(
                 (scenario, cell, number) == (Scenario::Raw, "crawlee", 1),
@@ -532,21 +624,14 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             work(0)
         }
     });
-    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
-    trials.instructions = counted(
-        |scenario, row, tool| {
-            INSTRUCTION_SCENARIOS.contains(&scenario)
-                && row == Row::Main
-                && INSTRUCTION_TOOLS.contains(&tool)
-        },
-        |scenario, cell, number| {
-            if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
-                short()
-            } else {
-                work(0)
-            }
-        },
-    );
+    trials.syscalls = counted(|_| true, |_, _, _| work(0));
+    trials.instructions = counted(trials::instruction_counted, |scenario, cell, number| {
+        if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
+            short()
+        } else {
+            work(0)
+        }
+    });
 
     strace_runs_of_other_work_set_aside(&mut trials);
 
@@ -574,7 +659,7 @@ fn sizes() -> SizesCell {
     let trials_run = matrix::measured()
         .filter(|(cell, config)| {
             cell.scenario == Scenario::Raw
-                && cell.row == Row::Main
+                && cell.counted_criteria()
                 && SIZE_TOOLS.contains(&config.tool())
         })
         .flat_map(|(cell, config)| {

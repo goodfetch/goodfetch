@@ -4,7 +4,7 @@
 //! counted as one JSON line, which `xtask counts` divides and holds to the
 //! Quality register's limits. An example and not a `[[bench]]`, as `xtask
 //! perf` runs every bench target under gungraun: counts need no optimized
-//! build.
+//! build, but for `E1.handled_page_wire_share`.
 //!
 //! `F3.prepares` is what no wrapper sees (the spec's "What wrappers cannot
 //! see"): each outcome's is Callgrind's call count of SQLite's prepare inside
@@ -47,6 +47,19 @@
 //! build its own, or the constructor's name has changed. It goes unprinted
 //! without Valgrind too.
 //!
+//! `E1.handled_page_wire_share` (#2407) is the wire's share of a handled
+//! page: `--valgrind` runs the handled cell, its pages served by the
+//! reference handler, under Callgrind as `--wire-share`, on the whole site
+//! and on [`SHORTER`] of its pages, and prints what the added pages take
+//! beneath [`WIRE`] over a hundredth of what they take beneath
+//! [`WHOLE_RUN`]. `xtask counts --valgrind` builds this example in the
+//! benchmarks' profile for it: unoptimized, the decoding and encoding code
+//! would weigh several times what the product's does. It builds it with
+//! `--cfg goodfetch_callgrind_names`, in a build folder of its own, under
+//! which the engine's wire functions are never inlined, so that Callgrind
+//! names them; the product keeps them inlined. The line's read is an `async`
+//! function, whose body Callgrind names as its closure.
+//!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`, `durability_full`,
 //! `durability_off`) and the handler's cell crawl without the Frontier's
@@ -85,6 +98,33 @@
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
 //!
+//! `F3.second_copy_round_trips` divides by the second copies a cell sent,
+//! the unit `second_copies`: in the cell `document_tier_handler_beside`,
+//! whose handler navigates each page to another domain key once its `h1`
+//! is visible, each a Permit taken beside the Run's own; none elsewhere.
+//! That cell's Run keeps its Politeness to itself, the case #2171 builds,
+//! and its pages and origins count those navigations and their host: each
+//! is a page the document tier fetched, parsed and classified.
+//!
+//! `F3.politeness_read_round_trips` divides by the attempts that ended, the
+//! unit `attempts_ended`: a message whose answer a crawl's task waits for
+//! from the task that holds its Run's own Politeness, held in memory, in the
+//! cells `politeness_sharing_run` and `document_tier_handler_beside`; on
+//! the file, in every other cell, it counts none (#2171).
+//!
+//! `E6.transactions` counts, in every cell but `politeness_delegation_off`
+//! and `concurrency_1_delegation_off`,
+//! the Politeness file's transactions outside a Delegation: 0, as the Run
+//! is the one that uses the site's key, which its engine then serves from
+//! memory (ADR 0142, #2172). Those two cells run at `politeness.delegation:
+//! false`, the second at `concurrency_1`'s settings too, and take each
+//! Permit in the file: their transactions count on
+//! `E6.undelegated_transactions` alone, over their attempts, the unit
+//! `undelegated_attempts`. `E6.delegation_transactions`
+//! divides by the Delegations taken, the unit `delegations`,
+//! `E6.delegations` by the cell's one Run, and `E6.other_transactions` by
+//! its attempts.
+//!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site
 //! served a page to and the one that read each sitemap, which is a Work
@@ -115,7 +155,9 @@
 //! beneath its functions in the `--callgrind` run, its opening's left out,
 //! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
 //! counters counted in the cell with Politeness and robots.txt off, over its
-//! attempts.
+//! attempts. `E6.private_transactions` is the Politeness transactions and
+//! opens counted in the cells whose Run keeps its Politeness to itself
+//! (`politeness.sharing: run`), over their attempts.
 //!
 //! `--strace` runs the cells as `xtask counts --strace` watches them, under
 //! `strace`, with nothing beside them: no run under Callgrind, so their
@@ -159,10 +201,50 @@ use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    AfterStart, BARRIER_CALLS, Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries,
-    page_analysis_plant, run_trace_plant,
+    AfterStart, BARRIER_CALLS, Frontier, Handler, Navigation, Options, PAGES, Plant, body_bytes,
+    crawl_with, entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
+
+/// The cell whose pages a handler serves, on their document tier.
+const HANDLED_CELL: &str = "document_tier_handler";
+
+/// The wire's share of a handled page, which `--valgrind` reads.
+const WIRE_SHARE: &str = "E1.handled_page_wire_share";
+
+/// Its unit: a hundredth of the instructions the pages the whole site adds
+/// take, so the figure reads as a percent.
+const HANDLED_PAGE_HUNDREDTHS: &str = "handled_page_hundredths";
+
+/// What a `--wire-share` run does once it started, as Callgrind names it:
+/// all of a handled page's work is beneath it.
+const WHOLE_RUN: &str = "counts::main";
+
+/// The wire, as Callgrind names its functions: on the engine's side, each
+/// message's line read from the connection, framed and decoded, its params
+/// read, each answer the handler gives read, and each result, answer and
+/// request encoded and written; on the client's, the reference handler's,
+/// each line encoded, written, read and decoded. A handled page sends no
+/// notification. None calls another, so Callgrind counts each instruction
+/// once, and each must be entered, or the work has moved. The engine's
+/// routing of a message to its handler and the hops between its tasks are
+/// not the wire's, nor the handler's building of the messages it sends. The
+/// writing task's poll stands for its writing, its one work, with the two
+/// small steps it takes on each line beside it: the line's receipt from the
+/// channel that hands it over, and the Connection's mask pass.
+const WIRE: [&str; 11] = [
+    "<goodfetch_engine::rpc::connection::Reading>::read::{closure#0}",
+    "goodfetch_engine::rpc::framing::decode",
+    "<goodfetch_engine::composition::params::Params>::read::<*>",
+    "goodfetch_fetch_tier::tiers::calls::encoded::<*>",
+    "goodfetch_engine::wire::success_line::<*>",
+    "goodfetch_engine::wire::request_line::<*>",
+    "<goodfetch_engine::wire::Received>::read::<*>",
+    "tokio::runtime::task::raw::poll::<*goodfetch_engine::rpc::connection::write_lines*>",
+    "counts::scenarios::encode",
+    "counts::scenarios::decode",
+    "<counts::scenarios::Wire<*> as core::future::future::Future>::poll",
+];
 
 /// The Limit of `requests` the default cell's crawl meets, far above what it
 /// charges.
@@ -209,6 +291,15 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     if name == LEASE_READS_SPILLED {
         return counting(work.clone(), Row::LeaseReads);
     }
+    if name == WIRE_SHARE {
+        // One message more a page, encoded and decoded as the reference
+        // handler's are.
+        return Arc::new(|head: &str| {
+            let message =
+                json!({ "jsonrpc": "2.0", "method": "planted", "params": { "head": head } });
+            std::hint::black_box(scenarios::decode(&scenarios::encode(&message)));
+        });
+    }
     if name == CONSTRUCTIONS {
         return Arc::new(|_: &str| {
             std::hint::black_box(CountedWork::default());
@@ -254,9 +345,17 @@ const FROM_FIRST_PAGE: [Row; 7] = [
 
 /// The field whose Value transform has the crawl build a locale's forms:
 /// the `h1`'s number, under `de-DE`, which only the pages holding one have.
+/// It is the code-free crawl's field with a locator ladder (issue 2886):
+/// its first two rungs find nothing on any page, so its last supplies the
+/// number, each rung one more lookup on the page's one tree, compiled as
+/// the Run starts, adding no parse or selector compilation to a page.
 fn number_field() -> Map<String, Value> {
     let field = json!({
-        "locator": { "kind": "css", "selector": "h1" },
+        "locator": { "kind": "css", "selector": "h2" },
+        "fallbacks": [
+            { "kind": "css", "selector": "header h1" },
+            { "kind": "css", "selector": "h1" },
+        ],
         "match": { "pattern": "[0-9]+", "group": 0 },
         "transform": { "kind": "number", "locale": "de-DE" },
     });
@@ -288,19 +387,102 @@ const CALLERS: u32 = 32;
 const OFF_WORK: &str = "E6.off_work";
 const OFF_CELL: &str = "politeness_and_robots_txt_off";
 
+/// The row of the cell whose Run keeps its Politeness to itself, and that
+/// cell.
+const PRIVATE_TRANSACTIONS: &str = "E6.private_transactions";
+const PRIVATE_CELL: &str = "politeness_sharing_run";
+
+/// The handler's cell whose handler also navigates each page to another
+/// domain key, a second copy of a request its Run admitted, which takes a
+/// Permit beside the Run's own: `F3.second_copy_round_trips` divides by
+/// those navigations, the unit `second_copies`, none in any other cell
+/// (#2171). Its Run keeps its Politeness to itself, as [`PRIVATE_CELL`]'s
+/// does, and each navigation is a page the document tier fetched and
+/// analysed, of the second origin [`BESIDE_ORIGINS`] counts.
+const BESIDE_CELL: &str = "document_tier_handler_beside";
+
+/// The handler's cell whose handler reads each page's heading by an
+/// `XPath` locator in one `page.read`, waiting on nothing: the engine
+/// parses the expression once for the crawl, so it compiles as
+/// [`HANDLED_CELL`] does, 1 over its pages (issue 2713).
+const XPATH_CELL: &str = "document_tier_xpath_read";
+
+/// The handler that serves the pages of the handler's cell `cell`.
+fn handler_of(cell: &Cell) -> Handler {
+    if cell.name == XPATH_CELL {
+        Handler::XpathRead
+    } else {
+        Handler::Waits
+    }
+}
+
+/// The row of the cells whose Run takes each Permit in the Politeness
+/// file, and those cells (#2172): at the default settings, and at
+/// `concurrency_1`'s, the cell whose transactions ADR 0140's note of #1899
+/// measured, which a delivery pass per request makes the worst.
+const UNDELEGATED_TRANSACTIONS: &str = "E6.undelegated_transactions";
+const UNDELEGATED_CELL: &str = "politeness_delegation_off";
+const UNDELEGATED_CONCURRENCY_1: &str = "concurrency_1_delegation_off";
+
+/// The row of two engines crawling B1's site on one home, each its own
+/// Run, which share its Politeness through the Politeness file (#2173),
+/// and their cell: every transaction on the file over both Runs' attempts.
+/// No other cell has a second engine, so each prints none of this row.
+const SHARED_TRANSACTIONS: &str = "E6.shared_transactions";
+const SHARED_CELL: &str = "two_engines";
+
+/// The transactions on a Politeness file: a Permit's, a Delegation's and
+/// every other.
+const FILE_TRANSACTIONS: [Row; 3] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+];
+
+/// Whether the cell named `name` takes each Permit in the Politeness file.
+fn takes_permits_in_file(name: &str) -> bool {
+    name == UNDELEGATED_CELL || name == UNDELEGATED_CONCURRENCY_1
+}
+
+/// The per-domain Politeness of the cell `concurrency_1` and of
+/// [`UNDELEGATED_CONCURRENCY_1`]: no delay, one request at a time.
+fn concurrency_1_domain() -> Value {
+    json!({ "delay": 0, "concurrency": 1 })
+}
+
+/// Whether the cell named `name` keeps its Run's Politeness to itself.
+fn private(name: &str) -> bool {
+    name == PRIVATE_CELL || name == BESIDE_CELL
+}
+
+/// The rows a Run's own Politeness, in memory, counts none of (#2171): no
+/// file's transaction, open or Delegation.
+const PRIVATE_ROWS: [Row; 5] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+    Row::PolitenessDelegations,
+    Row::PolitenessOpens,
+];
+
 /// The rows a cell with robots.txt off, and so pacing nothing under the
 /// fixture's delay of 0, counts fewer of: no robots.txt read or parsed
-/// (#1919), and no Politeness store consulted (#1920).
+/// (#1919), and no Politeness store consulted (#1920): the default cell's
+/// Run takes its Permits under a Delegation (#2172), with the file's
+/// transactions of its open, its robots.txt copy and its end.
 const OFF_REMOVES: &[Row] = &[
-    Row::PolitenessTransactions,
+    Row::PolitenessOtherTransactions,
     Row::RobotsParses,
     Row::RobotsReads,
 ];
 
 /// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
 /// is its work.
-const POLITENESS_ROWS: [Row; 5] = [
+const POLITENESS_ROWS: [Row; 8] = [
     Row::PolitenessTransactions,
+    Row::PolitenessDelegationTransactions,
+    Row::PolitenessOtherTransactions,
+    Row::PolitenessDelegations,
     Row::PolitenessOpens,
     Row::PolitenessScriptSends,
     Row::RobotsParses,
@@ -309,6 +491,10 @@ const POLITENESS_ROWS: [Row; 5] = [
 
 /// The origins the fixture's robots.txt is read for: the site's one.
 const ORIGINS: u64 = 1;
+
+/// The origins of [`BESIDE_CELL`]: the site's and the one its handler
+/// navigates to beside each page.
+const BESIDE_ORIGINS: u64 = ORIGINS + 1;
 
 /// The owner of the run file's statements: each preparation `F2.prepares`
 /// counts has one of its functions among its [`CALLERS`] nearest callers.
@@ -604,6 +790,80 @@ fn learning_off() -> Cell {
     }
 }
 
+/// The cell [`BESIDE_CELL`]: the handler's, whose Run keeps its Politeness
+/// to itself, and whose handler navigates each page beside it.
+fn beside() -> Cell {
+    Cell {
+        name: BESIDE_CELL,
+        settings: json!({ "politeness": { "sharing": "run" } }),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: true,
+        limit: false,
+    }
+}
+
+/// A handler's cell `name` at the default settings: [`HANDLED_CELL`], or
+/// [`XPATH_CELL`], whose handler reads each page's heading by an `XPath`
+/// locator.
+fn handled(name: &'static str) -> Cell {
+    Cell {
+        name,
+        settings: json!({}),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: true,
+        limit: false,
+    }
+}
+
+/// The cell [`PRIVATE_CELL`]: a Run that keeps its Politeness to itself
+/// takes its Permits and reads its robots.txt copy in memory, with no
+/// SQLite (#2171).
+fn kept_to_itself() -> Cell {
+    Cell {
+        name: PRIVATE_CELL,
+        settings: json!({ "politeness": { "sharing": "run" } }),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The cells [`takes_permits_in_file`] names: a Run at `politeness.delegation:
+/// false` takes each Permit in a transaction of the Politeness file, as
+/// ADR 0053 decided (ADR 0142's Nothing-removed row, #2172), at the default
+/// settings and at `concurrency_1`'s.
+fn undelegated() -> [Cell; 2] {
+    [
+        undelegated_at(
+            UNDELEGATED_CELL,
+            json!({ "politeness": { "delegation": false } }),
+        ),
+        undelegated_at(
+            UNDELEGATED_CONCURRENCY_1,
+            json!({ "politeness": { "delegation": false, "domain": concurrency_1_domain() } }),
+        ),
+    ]
+}
+
+/// A cell named `name` whose Run runs at `settings`.
+fn undelegated_at(name: &'static str, settings: Value) -> Cell {
+    Cell {
+        name,
+        settings,
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 /// The cells of the per-page features ADR 0138's inventory switches off,
 /// each against the default cell: the Provenance log, whose Run trace then
 /// holds no entry; the Records, none of which is then validated, serialized
@@ -673,6 +933,22 @@ fn logs_provenance(cell: &Cell) -> bool {
     cell.settings["provenance"]["log"] != json!(false)
 }
 
+/// robots.txt off reads and parses no robots.txt (#1919), and with the
+/// fixture's delay of 0 waits out no Crawl-delay, so neither this cell nor
+/// [`OFF_CELL`] paces its domains: admission consults no Politeness store
+/// and takes no Permit (#1920).
+fn robots_txt_off() -> Cell {
+    Cell {
+        name: "robots_txt_off",
+        settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
+        frontier: None,
+        removes: OFF_REMOVES,
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 fn cells() -> Vec<Cell> {
     let mut cells = vec![
         Cell {
@@ -698,15 +974,9 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
         learning_off(),
-        Cell {
-            name: "document_tier_handler",
-            settings: json!({}),
-            frontier: None,
-            removes: &[],
-            removes_syncs: false,
-            handler: true,
-            limit: false,
-        },
+        handled(HANDLED_CELL),
+        beside(),
+        handled(XPATH_CELL),
         Cell {
             name: "scope_globs_off",
             settings: json!({}),
@@ -735,7 +1005,7 @@ fn cells() -> Vec<Cell> {
         // the limit, so neither hides the other's work.
         Cell {
             name: "concurrency_1",
-            settings: json!({ "politeness": { "domain": { "delay": 0, "concurrency": 1 } } }),
+            settings: json!({ "politeness": { "domain": concurrency_1_domain() } }),
             frontier: None,
             removes: &[],
             removes_syncs: false,
@@ -764,19 +1034,7 @@ fn cells() -> Vec<Cell> {
         memory_budget(MEMORY_BUDGET_0, 0),
         bounded(),
         round_robin(),
-        // robots.txt off reads and parses no robots.txt (#1919), and with
-        // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
-        // paces its domains: admission consults no Politeness store and
-        // takes no Permit (#1920).
-        Cell {
-            name: "robots_txt_off",
-            settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
-            frontier: None,
-            removes: OFF_REMOVES,
-            removes_syncs: false,
-            handler: false,
-            limit: false,
-        },
+        robots_txt_off(),
         Cell {
             name: OFF_CELL,
             settings: json!({
@@ -789,7 +1047,9 @@ fn cells() -> Vec<Cell> {
             handler: false,
             limit: false,
         },
+        kept_to_itself(),
     ];
+    cells.extend(undelegated());
     cells.extend(switched_off().into_iter().chain([varying_parameter()]));
     cells
 }
@@ -827,6 +1087,8 @@ struct Counted {
     attempts: u64,
     /// Every request the site was sent, each under a Politeness permit.
     requests: u64,
+    /// The handler's navigations beside its pages: second copies.
+    besides: u64,
     syncs: u64,
     /// The files the counting VFS opened, whose syncs `syncs` holds.
     vfs_files: Vec<PathBuf>,
@@ -889,7 +1151,13 @@ enum Pages {
 
 /// The crawl of `cell`, on an engine and in a home of its own, with the row
 /// `planted` or the bypass `bypassed` planted.
-fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Pages) -> Crawl {
+fn crawl(
+    cell: &Cell,
+    planted: Option<&str>,
+    bypassed: Option<&str>,
+    pages: Pages,
+    handler: Handler,
+) -> Crawl {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -925,7 +1193,12 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             } else {
                 number_field()
             },
-            handler: cell.handler,
+            handler: cell.handler.then_some(handler),
+            navigation: if cell.name == BESIDE_CELL {
+                Navigation::Beside
+            } else {
+                Navigation::Stays
+            },
             frontier: cell.frontier,
             small_pages: pages == Pages::Small,
             run_state_vfs: Some(vfs.name().to_owned()),
@@ -941,6 +1214,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             } else {
                 AfterStart::Finish
             },
+            second_engine: false,
         },
     );
     Crawl {
@@ -973,6 +1247,75 @@ fn added_pages(cell: &Cell) -> usize {
     pages_of(cell, PAGES.len()) - pages_of(cell, SHORTER)
 }
 
+/// Asserts that a code-free crawl extracted each of its `pages` once, its
+/// field's last rung supplying Page 3's number, and that it built that
+/// field's forms and compiled its rungs as it started, before its first
+/// page: the compilations' unless `planted` plants one a page.
+fn extracted_once(
+    crawled: &scenarios::Crawled,
+    pages: usize,
+    started: &OnceLock<Vec<u64>>,
+    work: &CountedWork,
+    planted: Option<&str>,
+) {
+    assert_eq!(
+        crawled.records.len(),
+        pages,
+        "the crawl extracts each page once"
+    );
+    assert!(
+        crawled
+            .records
+            .iter()
+            .any(|record| record["title"] == "Page 3" && record["number"] == 3),
+        "the field's last rung supplied no number to its Value transform: {:?}",
+        crawled.records
+    );
+    let forms = FROM_FIRST_PAGE
+        .iter()
+        .position(|row| *row == Row::PageLocaleFormBuilds);
+    let built = forms.and_then(|at| started.get().map(|started| started[at]));
+    assert_eq!(
+        built,
+        Some(1),
+        "the crawl builds its field's forms once, as it starts"
+    );
+    // The register holds `F1.selector_compilations` to its worst cell's
+    // figure, a handler's own `h1` (Exception X1): a code-free cell is held
+    // to 0 here, so a rung compiled on a page fails even where one
+    // compilation stays under that figure.
+    if planted != Some(Row::PageSelectorCompilations.name()) {
+        let compilations = FROM_FIRST_PAGE
+            .iter()
+            .position(|row| *row == Row::PageSelectorCompilations)
+            .and_then(|at| started.get().map(|started| started[at]));
+        assert_eq!(
+            compilations,
+            Some(work.read(Row::PageSelectorCompilations)),
+            "a code-free crawl compiles its field's rungs as it starts, none on a page"
+        );
+    }
+}
+
+/// Asserts that the handler of `cell`'s crawl handled each of its `pages`
+/// once, and navigated beside each once in [`BESIDE_CELL`] alone.
+fn handled_once(cell: &Cell, crawled: &scenarios::Crawled, pages: usize) {
+    assert_eq!(
+        crawled.handled,
+        u64::try_from(pages).expect("invariant: a dozen pages"),
+        "the handler handles each page once"
+    );
+    let besides = if cell.name == BESIDE_CELL {
+        crawled.handled
+    } else {
+        0
+    };
+    assert_eq!(
+        crawled.besides, besides,
+        "the handler navigates beside each page once in its cell alone"
+    );
+}
+
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row
 /// and nothing traces it.
 fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
@@ -989,7 +1332,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             vfs_files,
             setup_syncs,
             entries,
-        } = crawl(cell, planted, bypassed, Pages::Whole);
+        } = crawl(cell, planted, bypassed, Pages::Whole, handler_of(cell));
         assert!(
             entries > 0 || !logs_provenance(cell),
             "the crawl wrote no Run-trace entry"
@@ -1013,34 +1356,9 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         if cell.name == RECORDS_OFF_CELL {
             assert!(crawled.records.is_empty(), "the crawl kept a Record");
         } else if cell.handler {
-            assert_eq!(
-                crawled.handled,
-                u64::try_from(pages).expect("invariant: a dozen pages"),
-                "the handler handles each page once"
-            );
+            handled_once(cell, &crawled, pages);
         } else {
-            assert_eq!(
-                crawled.records.len(),
-                pages,
-                "the crawl extracts each page once"
-            );
-            assert!(
-                crawled
-                    .records
-                    .iter()
-                    .any(|record| record["title"] == "Page 3" && record["number"] == 3),
-                "the field's Value transform read no number: {:?}",
-                crawled.records
-            );
-            let forms = FROM_FIRST_PAGE
-                .iter()
-                .position(|row| *row == Row::PageLocaleFormBuilds);
-            let built = forms.and_then(|at| started.get().map(|started| started[at]));
-            assert_eq!(
-                built,
-                Some(1),
-                "the crawl builds its field's forms once, as it starts"
-            );
+            extracted_once(&crawled, pages, &started, &work, planted);
         }
         Counted {
             name: cell.name,
@@ -1059,6 +1377,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             },
             attempts: crawled.attempts,
             requests: crawled.requests,
+            besides: crawled.besides,
             syncs,
             vfs_files,
             setup_syncs,
@@ -1316,6 +1635,135 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
     }
 }
 
+/// Prints `E1.handled_page_wire_share` (#2407), with `planted`'s plant: the
+/// handled cell's crawl, its pages served by the reference handler, runs
+/// under Callgrind on the whole site and as `--shorter`, each twice side by
+/// side, once counting beneath [`WIRE`] and once beneath [`WHOLE_RUN`]. The
+/// row is what the whole site adds beneath the first over a hundredth of
+/// what it adds beneath the second, so what the crawl does once, its start
+/// and its end, counts for no page. Without Valgrind the row goes
+/// unprinted, which `xtask counts` fails as a row not counted.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the ADR 0140 counts harness runs each run under Callgrind on a scoped thread, none waiting on another"
+)]
+fn wire_share(planted: Option<&str>) {
+    let program = std::env::current_exe().expect("invariant: this executable has a path");
+    let beneath = |functions: &[&str], shorter: bool| {
+        let mut arguments = vec!["--wire-share"];
+        if shorter {
+            arguments.push("--shorter");
+        }
+        if let Some(planted) = planted {
+            arguments.extend(["--plant", planted]);
+        }
+        match callgrind::instructions_beneath(functions, None, &program, &arguments) {
+            Ok(Some(instructions)) => Some(instructions),
+            // A function renamed or inlined would otherwise read as free.
+            Ok(None) => panic!(
+                "Callgrind never entered one of {functions:?}: the work {WIRE_SHARE} counts has moved"
+            ),
+            Err(error) => {
+                eprintln!("{WIRE_SHARE} is not read: {error}");
+                None
+            }
+        }
+    };
+    let [wire, shorter_wire, page, shorter_page] = std::thread::scope(|scope| {
+        [
+            (&WIRE[..], false),
+            (&WIRE[..], true),
+            (&[WHOLE_RUN][..], false),
+            (&[WHOLE_RUN][..], true),
+        ]
+        .map(|(functions, shorter)| scope.spawn(move || beneath(functions, shorter)))
+        .map(|run| {
+            run.join()
+                .expect("invariant: the run under Callgrind passed")
+        })
+    });
+    let (units, counts) = match (wire, shorter_wire, page, shorter_page) {
+        (Some(wire), Some(shorter_wire), Some(page), Some(shorter_page)) => (
+            json!({ HANDLED_PAGE_HUNDREDTHS: page.saturating_sub(shorter_page) / 100 }),
+            json!({ WIRE_SHARE: wire.saturating_sub(shorter_wire) }),
+        ),
+        _ => (json!({}), json!({})),
+    };
+    println!(
+        "{}",
+        json!({ "cell": HANDLED_CELL, "units": units, "counts": counts })
+    );
+}
+
+/// What [`SHARED_CELL`] counted: its two Runs' attempts and their
+/// transactions on the Politeness file.
+struct Shared {
+    attempts: u64,
+    transactions: u64,
+}
+
+/// The crawl of [`SHARED_CELL`], with the row `planted` planted: two
+/// engines on one home crawl the fixture's site, each its own Run, and
+/// each extracts each page once.
+fn two_engines(planted: Option<&str>) -> Shared {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let vfs = CountingVfs::register();
+    let crawled = crawl_with(
+        home.path(),
+        std::time::UNIX_EPOCH,
+        0,
+        Options {
+            metrics,
+            plant: planted.map(|name| plant(name, &work, vfs.name())),
+            fields: number_field(),
+            run_state_vfs: Some(vfs.name().to_owned()),
+            robots_txt: true,
+            second_engine: true,
+            ..Options::default()
+        },
+    );
+    assert_eq!(
+        crawled.body_bytes,
+        2 * body_bytes(),
+        "each engine is sent each body once"
+    );
+    assert_eq!(
+        crawled.records.len(),
+        2 * (PAGES.len() + 1),
+        "each engine extracts each page once"
+    );
+    Shared {
+        attempts: crawled.attempts,
+        transactions: FILE_TRANSACTIONS.iter().map(|row| work.read(*row)).sum(),
+    }
+}
+
+/// Every count and unit of `printed`, the default cell's line, at 0 but
+/// [`SHARED_TRANSACTIONS`] and its unit, which [`SHARED_CELL`] alone
+/// counts: no other row divides by its two Runs.
+fn shared_line(printed: &Value, shared: &Shared) -> Value {
+    let zeroed = |field: &str| -> Map<String, Value> {
+        printed[field]
+            .as_object()
+            .expect("invariant: a cell prints its counts and units")
+            .keys()
+            .map(|key| (key.clone(), json!(0)))
+            .collect()
+    };
+    let (mut units, mut counts) = (zeroed("units"), zeroed("counts"));
+    units.insert("shared_attempts".to_owned(), json!(shared.attempts));
+    counts.insert(SHARED_TRANSACTIONS.to_owned(), json!(shared.transactions));
+    json!({
+        "cell": SHARED_CELL,
+        "units": units,
+        "counts": counts,
+        "vfs_files": [],
+        "setup_syncs": 0,
+    })
+}
+
 /// The shorter site's crawl of `cell`, `ran`, served [`added_pages`] pages
 /// fewer than the whole site's, as its Records or its handler count them; a
 /// cell that keeps no Record has none to count.
@@ -1335,66 +1783,135 @@ fn assert_shorter(cell: &Cell, ran: &Crawl) {
     );
 }
 
+/// One run [`wire_share`] reads under Callgrind, as `rest` asks: the handled
+/// cell's crawl, each page served by the reference handler, on the whole site
+/// or on [`SHORTER`] of its pages.
+fn wire_share_crawl(rest: &[&str]) {
+    let (pages, planted) = match rest {
+        [] => (Pages::Callgrind, None),
+        ["--shorter"] => (Pages::CallgrindShorter, None),
+        ["--plant", row] => (Pages::Callgrind, Some(*row)),
+        ["--shorter", "--plant", row] => (Pages::CallgrindShorter, Some(*row)),
+        other => {
+            panic!("usage: counts --wire-share [--shorter] [--plant <row>], not {other:?}")
+        }
+    };
+    let cell = cells()
+        .into_iter()
+        .find(|cell| cell.name == HANDLED_CELL)
+        .expect("invariant: B1 has a handled cell");
+    let ran = crawl(&cell, planted, None, pages, Handler::Reference);
+    if pages == Pages::CallgrindShorter {
+        assert_shorter(&cell, &ran);
+    } else {
+        assert_eq!(
+            usize::try_from(ran.crawled.handled).unwrap_or(usize::MAX),
+            pages_of(&cell, PAGES.len()),
+            "the reference handler answers every page"
+        );
+    }
+}
+
+/// Asserts that `cell` counts fewer of each row it removes, and fewer syncs
+/// when it removes them, than the `default` cell.
+fn assert_removes(cell: &Counted, default: &Counted) {
+    for row in cell.removes {
+        assert!(
+            cell.count(*row) < default.count(*row),
+            "the cell {} leaves {} as it is",
+            cell.name,
+            row.name()
+        );
+    }
+    assert!(
+        !cell.removes_syncs || cell.syncs < default.syncs,
+        "the cell {} leaves {SYNCS} as it is",
+        cell.name
+    );
+}
+
+/// Runs every cell, each with `planted`'s plant and watched as `watched`
+/// asks, and [`SHARED_CELL`] beside them unless `strace` watches.
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
 )]
-fn main() {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let (pages, cell, planted, watched) = asked(&arguments);
+fn run_cells(planted: Option<&str>, watched: Watched) -> (Vec<Counted>, Option<Shared>) {
     let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
-    if let Some(name) = cell {
-        let cell = cells()
-            .into_iter()
-            .find(|cell| cell.name == name)
-            .expect("invariant: its parent named a cell");
-        let ran = crawl(&cell, planted, None, pages);
-        if pages == Pages::CallgrindShorter {
-            assert_shorter(&cell, &ran);
-        }
-        return;
-    }
     // Side by side, each on its own paused runtime: no cell waits on another,
     // so a family's rows stay within their minute. A plant runs in every
     // cell: a row's Today is its worst cell's, often not the default's
     // (`concurrency_1` for F2 and E6, the run-state cells for `F3.prepares`),
     // which a unit more per page in the default cell alone stays under, and
     // `E6.off_work` is held in its off cell alone. A bypass needs the default
-    // cell alone, the one `strace` watches.
-    let counted: Vec<Counted> = std::thread::scope(|scope| {
+    // cell alone, the one `strace` watches, and the two engines are left out
+    // under `strace`, which reads the whole process against the cells' Run
+    // traces.
+    let traced = matches!(watched, Watched::Traced { .. });
+    std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
             .filter(|cell| !bypassed || cell.name == "default")
             .map(|cell| scope.spawn(move || run(&cell, planted, watched)))
             .collect();
-        cells
+        let shared = (!traced).then(|| scope.spawn(move || two_engines(planted)));
+        (
+            cells
+                .into_iter()
+                .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
+                .collect(),
+            shared.map(|shared| {
+                shared
+                    .join()
+                    .expect("invariant: the two engines' checks passed")
+            }),
+        )
+    })
+}
+
+fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    if let ["--valgrind", rest @ ..] = arguments.as_slice() {
+        let planted = match rest {
+            [] => None,
+            ["--plant", row] => Some(*row),
+            other => panic!("usage: counts --valgrind [--plant <row>], not {other:?}"),
+        };
+        wire_share(planted);
+        return;
+    }
+    if let ["--wire-share", rest @ ..] = arguments.as_slice() {
+        wire_share_crawl(rest);
+        return;
+    }
+    let (pages, cell, planted, watched) = asked(&arguments);
+    if let Some(name) = cell {
+        let cell = cells()
             .into_iter()
-            .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
-            .collect()
-    });
+            .find(|cell| cell.name == name)
+            .expect("invariant: its parent named a cell");
+        let ran = crawl(&cell, planted, None, pages, handler_of(&cell));
+        if pages == Pages::CallgrindShorter {
+            assert_shorter(&cell, &ran);
+        }
+        return;
+    }
+    let (counted, shared) = run_cells(planted, watched);
     let default = &counted[0];
     for cell in &counted {
-        for row in cell.removes {
-            assert!(
-                cell.count(*row) < default.count(*row),
-                "the cell {} leaves {} as it is",
-                cell.name,
-                row.name()
-            );
-        }
-        assert!(
-            !cell.removes_syncs || cell.syncs < default.syncs,
-            "the cell {} leaves {SYNCS} as it is",
-            cell.name
-        );
+        assert_removes(cell, default);
         let counts = counts_of(cell);
         let off = cell.name == OFF_CELL;
+        let undelegated = takes_permits_in_file(cell.name);
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
         let full = cell.level == DURABILITY_FULL;
         let leases = cell.attempts + cell.sitemaps;
         let units = json!({
-            "pages": cell.pages,
+            // A handler's navigation beside its page is a page too: the
+            // document tier fetched and analysed it, though it keeps no
+            // Record.
+            "pages": cell.pages + cell.besides,
             "added_pages": cell.added_pages,
             "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
@@ -1406,13 +1923,18 @@ fn main() {
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,
             "attempts_ended": cell.attempts + cell.sitemaps,
+            "second_copies": cell.besides,
             "runs": RUNS,
             "effects": EFFECTS,
             "entries": cell.entries,
             "permits": cell.requests,
             "requests": cell.requests,
-            "origins": ORIGINS,
+            "origins": if cell.name == BESIDE_CELL { BESIDE_ORIGINS } else { ORIGINS },
             "off_attempts": if off { cell.attempts } else { 0 },
+            "private_attempts": if private(cell.name) { cell.attempts } else { 0 },
+            "undelegated_attempts": if undelegated { cell.attempts } else { 0 },
+            "shared_attempts": 0,
+            "delegations": cell.count(Row::PolitenessDelegations),
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
             "batched_leases": if batched && !cell.spills() { leases } else { 0 },
@@ -1424,16 +1946,17 @@ fn main() {
             },
             "full_pages": if full { cell.pages } else { 0 },
         });
-        println!(
-            "{}",
-            json!({
-                "cell": cell.name,
-                "units": units,
-                "counts": counts,
-                "vfs_files": cell.vfs_files,
-                "setup_syncs": cell.setup_syncs,
-            })
-        );
+        let printed = json!({
+            "cell": cell.name,
+            "units": units,
+            "counts": counts,
+            "vfs_files": cell.vfs_files,
+            "setup_syncs": cell.setup_syncs,
+        });
+        println!("{printed}");
+        if let Some(shared) = shared.as_ref().filter(|_| cell.name == default.name) {
+            println!("{}", shared_line(&printed, shared));
+        }
     }
 }
 
@@ -1461,6 +1984,23 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     let off = cell.name == OFF_CELL;
     let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
     counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
+    let private = private(cell.name);
+    let private_work: u64 = PRIVATE_ROWS.iter().map(|row| cell.count(*row)).sum();
+    counts.insert(
+        PRIVATE_TRANSACTIONS.to_owned(),
+        json!(if private { private_work } else { 0 }),
+    );
+    let undelegated = takes_permits_in_file(cell.name);
+    let transactions = cell.count(Row::PolitenessTransactions);
+    counts.insert(
+        Row::PolitenessTransactions.name().to_owned(),
+        json!(if undelegated { 0 } else { transactions }),
+    );
+    counts.insert(
+        UNDELEGATED_TRANSACTIONS.to_owned(),
+        json!(if undelegated { transactions } else { 0 }),
+    );
+    counts.insert(SHARED_TRANSACTIONS.to_owned(), json!(0));
     let evidence: u64 = EVIDENCE_ROWS.iter().map(|row| cell.count(*row)).sum();
     let learning_off = cell.name == LEARNING_OFF;
     counts.insert(

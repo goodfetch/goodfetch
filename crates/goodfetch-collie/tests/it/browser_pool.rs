@@ -7,9 +7,20 @@
 //! the Proving ground's record of what each request sent shows; and a
 //! browser the pool launched writes its crash dumps where the test's
 //! environment names (ADR 0074).
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )
+)]
+#![cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "off Unix only the abandoned navigation's test runs: the others count the browser processes `ps` lists"
+    )
 )]
 #![expect(
     clippy::disallowed_methods,
@@ -20,6 +31,8 @@ use std::time::{Duration, Instant};
 
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_client::{HomeLayout, robots_txt_read, robots_txt_readings};
+#[cfg(unix)]
+use goodfetch_test_support::skipped_without_gui_session;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -45,6 +58,7 @@ fn pool(pool: Value) -> Map<String, Value> {
 /// The browser processes the test's engine runs: a browser's own helpers
 /// (renderers, its GPU and network processes, Linux's zygote) each name the
 /// `--type` they are.
+#[cfg(unix)]
 fn browsers(env: &TestEnv) -> usize {
     crate::page::browser_command_lines(env)
         .iter()
@@ -55,6 +69,7 @@ fn browsers(env: &TestEnv) -> usize {
 /// The number of browser processes once it is `expected`, or after
 /// [`SETTLE`] whatever it is then: browsers start and exit on their own
 /// time.
+#[cfg(unix)]
 fn browsers_once(env: &TestEnv, expected: usize) -> usize {
     let deadline = Instant::now() + SETTLE;
     loop {
@@ -108,6 +123,11 @@ fn is_dump(file: &std::path::Path) -> bool {
 #[cfg(unix)]
 #[test]
 fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dump_folder() {
+    if skipped_without_gui_session(
+        "the headless shell writes no crash dump where the full build writes one",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -584,7 +604,10 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
 /// `timeout.navigation` broke off: Provenance records the file
 /// unreachable, never the start that arrived as the whole file. The
 /// stalled-robots host sends its robots.txt's head and the start of its
-/// body, then nothing.
+/// body, then nothing. The short timeout bounds that read, and each
+/// command of opening the Session's browser context and its page, but not
+/// the browser's launch, which `timeout.launch` bounds (issue 2813), nor
+/// the program's own navigation, which takes its own `timeout`.
 /// Covers: setting:timeout.navigation
 #[cfg(unix)]
 #[test]
@@ -602,7 +625,11 @@ fn a_robots_txt_read_that_stalls_past_the_navigation_timeout_is_unreachable() {
     let went = engine.ask(
         4,
         "page.goto",
-        &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url(STALLED, "/catalog/1"),
+            "timeout": 30_000,
+        }),
     )["result"]["response"]["status"]
         .clone();
     let deadline = Instant::now() + SETTLE;
@@ -652,9 +679,11 @@ fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
 /// A browser that does not come up within the call's deadline is closed
 /// before the call answers its failure, so no launch the call gave up on
 /// stays running beside the next one on the same data folder: with
-/// `timeout.navigation` far shorter than any browser takes to answer, each
-/// `run.new_page` raises `deadline_exceeded`, and no browser is left.
-/// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.navigation
+/// `timeout.launch` far shorter than any browser takes to answer, each
+/// `run.new_page` raises `deadline_exceeded` naming it, never
+/// `timeout.navigation`, which bounds no launch (issue 2813), and no browser
+/// is left.
+/// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.launch
 #[cfg(unix)]
 #[test]
 fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
@@ -662,10 +691,7 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut settings = Map::new();
-    settings.insert(
-        "timeout".to_owned(),
-        json!({ "navigation": 1, "close": 1_000 }),
-    );
+    settings.insert("timeout".to_owned(), json!({ "launch": 1, "close": 1_000 }));
     let mut engine = started_with(
         &env,
         &cache,
@@ -685,12 +711,14 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
     assert_eq!(
         (
             &first["error"]["data"]["code"],
+            &first["error"]["data"]["limit"]["key"],
             &second["error"]["data"]["code"],
             after_first,
             after_second,
         ),
         (
             &json!("deadline_exceeded"),
+            &json!("timeout.launch"),
             &json!("deadline_exceeded"),
             0,
             0

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::*;
 
@@ -207,4 +207,75 @@ fn only_the_first_followed_functions_are_checked() {
     text.extend([(1000, "later".to_owned()), (1001, "late".to_owned())]);
 
     assert_eq!(departure(&names, &text), None);
+}
+
+#[test]
+fn a_symbols_crate_root_is_the_crate_its_path_starts_from() {
+    // A function, a closure in it, a crate whose name starts with `_`
+    // (encoded after a `_`), and one with no disambiguator.
+    assert_eq!(
+        crate_root("_RNvCsNFsCnAuFuU_5probe4kept"),
+        Some(("probe", "NFsCnAuFuU"))
+    );
+    assert_eq!(
+        crate_root("_RNCNvCsNFsCnAuFuU_5probe4kept0B3_"),
+        Some(("probe", "NFsCnAuFuU"))
+    );
+    assert_eq!(
+        crate_root("_RNvCs4hOqLbbg9yn_4__abc3run"),
+        Some(("_abc", "4hOqLbbg9yn"))
+    );
+    assert_eq!(crate_root("_RNvC5probe4kept"), Some(("probe", "")));
+}
+
+#[test]
+fn a_symbol_with_no_plain_path_has_no_crate_root() {
+    // A method of an impl and a generic instance start from no crate; the
+    // others are no Rust symbols.
+    assert_eq!(
+        crate_root("_RNvXs3_NtNtCsevLNFiNqfJP_4core4iter5range4next"),
+        None
+    );
+    assert_eq!(crate_root("_RINvCs1_5probe3runyE"), None);
+    assert_eq!(crate_root("malloc"), None);
+    assert_eq!(crate_root(".rodata..Lanon.0a1b.3"), None);
+}
+
+fn built<'a>(names: &[&'a str]) -> HashSet<&'a str> {
+    names.iter().copied().collect()
+}
+
+#[test]
+fn a_crate_the_build_links_under_another_identity_is_stale() {
+    let order = order(&[
+        "_RNvCsOld_5probe3hot",
+        "_RNvCsSame_4kept3hot",
+        // A crate the build no longer links: the code is gone, which the
+        // match share counts.
+        "_RNvCsGone_4gone3hot",
+        "malloc",
+    ]);
+
+    let stale = stale_crates(
+        &order,
+        &built(&["_RNvCsNew_5probe3hot", "_RNvCsSame_4kept3hot", "malloc"]),
+    );
+
+    assert_eq!(stale, BTreeSet::from(["probe"]));
+}
+
+#[test]
+fn the_match_share_counts_the_order_files_symbols_the_build_holds() {
+    // Section names are left out: their counters shift with any change.
+    let order = order(&["hot", "warm", "gone", ".rodata..Lanon.0a1b.3", "TABLE"]);
+
+    let share = match_share(&order, &built(&["hot", "warm", "TABLE", "cold"]));
+
+    assert_eq!(
+        share,
+        Share {
+            matched: 3,
+            total: 4
+        }
+    );
 }

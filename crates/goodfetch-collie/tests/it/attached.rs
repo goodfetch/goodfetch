@@ -45,7 +45,12 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
             json!({
                 "jsonrpc": "2.0",
                 "id": 0,
-                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "0.0.0" },
+                "result": {
+                    "protocol_version": "0.1",
+                    "product": "collie",
+                    "product_version": "0.0.0",
+                    "max_calls_in_flight": 256,
+                },
             }),
             true,
             true

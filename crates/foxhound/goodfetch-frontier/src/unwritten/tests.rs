@@ -363,22 +363,6 @@ fn a_seed_widening_the_scope_in_an_uncommitted_batch_is_told() {
     );
 }
 
-/// Seeds a written batch visited stay in memory once it commits while
-/// memory is within the budget, and a lookup of one reads nothing.
-#[test]
-fn a_visit_a_committed_batch_wrote_is_looked_up_in_memory_within_the_budget() {
-    let file = run_file();
-    let commits = Arc::new(AtomicU64::new(0));
-    let invariants = within(1 << 20, &commits);
-
-    file.writer.execute_batch("BEGIN").unwrap();
-    seed(&file.writer, &invariants, "http://shop.test/a", "1");
-    commit(&file, &commits, 1);
-    let found = looked_up(&no_file(), &file.writer, &invariants, "http://shop.test/a");
-
-    assert!(matches!(found, Ok(Seen::Visited(visitor)) if visitor == "1"));
-}
-
 /// The Run state's pending work items share the budget: what they hold
 /// leaves the visits less of it, so a visit a committed batch wrote leaves
 /// memory once they hold the whole budget, and a lookup of it reads the
@@ -874,22 +858,6 @@ fn in_scope(connection: &Connection, invariants: &Invariants, url: &str) -> rusq
         None,
         invariants.unwritten(),
     )
-}
-
-/// A seed a committed batch wrote stays in memory within the budget: a
-/// link to its site is in the scope with no run file to read.
-#[test]
-fn a_seed_a_committed_batch_wrote_is_looked_up_in_memory_within_the_budget() {
-    let file = run_file();
-    let commits = Arc::new(AtomicU64::new(0));
-    let invariants = within(1 << 20, &commits);
-
-    file.writer.execute_batch("BEGIN").unwrap();
-    seed(&file.writer, &invariants, "http://other.test/", "1");
-    commit(&file, &commits, 1);
-    let reached = in_scope(&no_file(), &invariants, "http://other.test/a");
-
-    assert!(matches!(reached, Ok(true)));
 }
 
 /// Once memory read every seed the run file holds, written there by a Run

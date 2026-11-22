@@ -20,7 +20,9 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache_with_lightpanda};
 use serde_json::{Value, json};
 
-use crate::fetch_tiers::{engine_on, settings, tiers};
+use crate::fetch_tiers::{
+    engine_on, order, order_methods, ordering, requests_for, settings, tiers,
+};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -91,7 +93,8 @@ fn engine(env: &TestEnv) -> Attached {
     engine_on(env, &cache)
 }
 
-/// Under `auto`, a Run that allows the light-browser tier samples each
+/// Under `auto`, a Run that allows the light-browser tier and sends its
+/// HTTP from the browser (`fetch.http_from: browser`) samples each
 /// Label on `http`, which Provenance records as `browser_fetch`, its
 /// document sent from the Session's browser (issue 2409), on
 /// `light_browser` and on `browser`: a listing its script
@@ -129,7 +132,7 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
         &json!({ "listing": {}, "painted": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut |inside, handle| {
             let html = raw_html(inside, handle);
@@ -207,7 +210,8 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
 /// script of the handler's, escalates its request to the browser under
 /// `auto`, where it is served; under a forced `light_browser`, a gesture
 /// fails with `browser_required` naming `fetch.tier` and the call, and
-/// nothing escalates (ADR 0093).
+/// nothing escalates (ADR 0093). Under `auto`, its HTTP leaves from the
+/// browser (`fetch.http_from: browser`).
 ///
 /// Covers: story:5-120, story:5-115, error:browser_required, operation:page.evaluate, operation:locator.click
 #[test]
@@ -236,7 +240,7 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
         &json!({ "listing": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut |inside, handle| {
             let html = raw_html(inside, handle);
@@ -318,6 +322,163 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
                 json!("browser_required"),
                 json!("locator.click")
             )],
+        )
+    );
+}
+
+/// A crawl request `POST /orders` with a body, or a `GET` with that body,
+/// on a forced `light_browser` tier: Lightpanda's run loads a URL with a
+/// `GET` and no body, so the tier refuses the request before anything is
+/// sent, and it ends `failed` with `browser_required` naming the tier and
+/// what of the crawl request it cannot send, never as a bodiless `GET`
+/// (issue 2471).
+///
+/// Covers: story:6-212, story:5-120, setting:fetch.light_browser, error:browser_required
+#[rstest::rstest]
+#[case::a_post("POST", "crawl_request.method")]
+#[case::a_get_with_a_body("GET", "crawl_request.body")]
+fn a_crawl_request_with_a_method_or_body_on_a_forced_light_browser_fails_with_browser_required_and_sends_nothing(
+    #[case] method: &str,
+    #[case] unsendable: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut request = order(&proving_ground);
+    request["method"] = json!(method);
+
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "light-post-forced",
+        &[request],
+        &json!({ "order": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "light_browser", "light_browser": true },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut ordering(&mut seen),
+    );
+    let answer = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "light-post-forced" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    let ended: Vec<Value> = answer["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {answer}"))
+        .iter()
+        .map(|outcome| {
+            let details = &outcome["error"]["details"];
+            json!([
+                outcome["kind"],
+                outcome["error"]["code"],
+                details["key"],
+                details["tier"],
+                details["call"]
+            ])
+        })
+        .collect();
+    assert_eq!(
+        (order_methods(&proving_ground), seen, ended),
+        (
+            Vec::<String>::new(),
+            Vec::new(),
+            vec![json!([
+                "failed",
+                "browser_required",
+                "fetch.tier",
+                "light_browser",
+                unsendable
+            ])],
+        )
+    );
+}
+
+/// Under `auto`, a `POST` crawl request with a body on a Label its samples
+/// moved onto the light-browser tier escalates to the browser before
+/// Lightpanda sends anything: the site receives it only as that `POST`,
+/// from Chrome, and Provenance names the crawl request's method as what
+/// escalated it (issue 2471). Its HTTP leaves from the browser
+/// (`fetch.http_from: browser`).
+///
+/// Covers: story:6-212, story:6-259, story:5-120, setting:fetch.light_browser
+#[test]
+fn a_post_crawl_request_on_a_label_learned_onto_the_light_browser_escalates_to_the_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut sent = seeds(
+        &proving_ground,
+        &[
+            ("/blog/1", "listing"),
+            ("/blog/2", "listing"),
+            ("/blog/3", "listing"),
+        ],
+    );
+    sent.push(json!({
+        "url": proving_ground.url(HOST, "/blog/4"),
+        "label": "listing",
+        "method": "POST",
+        "body": "cmVhZA==",
+    }));
+
+    let mut handled = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "light-post-auto",
+        &sent,
+        &json!({ "listing": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |inside, handle| {
+            let html = raw_html(inside, handle);
+            handled.push((
+                path_of(handle["crawl_request"]["url"].as_str().unwrap()),
+                handle["tier"].clone(),
+            ));
+            json!({ "result": { "records": [{ "dataset": "pages", "data": { "items": texts(&html, "<li class=\"item\">") } }] } })
+        },
+    );
+    assert!(engine.finished());
+
+    let fourth: Vec<(String, bool)> = requests_for(&proving_ground, HOST, "/blog/4")
+        .iter()
+        .map(|request| {
+            (
+                request.method.clone(),
+                request
+                    .header("user-agent")
+                    .is_some_and(|agent| agent.contains("Lightpanda/")),
+            )
+        })
+        .collect();
+    let lines = chosen(&env, "light-post-auto", &["listing"]);
+    assert_eq!(
+        (
+            fourth,
+            handled
+                .iter()
+                .filter(|(path, _)| path == "/blog/4")
+                .cloned()
+                .collect::<Vec<_>>(),
+            lines[9..].to_vec(),
+        ),
+        (
+            vec![("POST".to_owned(), false)],
+            vec![("/blog/4".to_owned(), json!("browser"))],
+            vec!["listing browser escalation crawl_request.method".to_owned()],
         )
     );
 }
@@ -425,36 +586,6 @@ fn rows_handler(
     }
 }
 
-/// The rows, each with what the light-browser tier answers when it serves
-/// the call: the script-rendered listing's Markdown and its three entries,
-/// read from the document Lightpanda's run of its script left with no
-/// layout; a request; closing the page. `None` for a row it cannot serve
-/// exactly: a wait its document does not meet, a network wait, a script, a
-/// gesture and a navigation, which need a live page (#1653).
-fn on_the_light_browser() -> Vec<(&'static str, Option<Value>)> {
-    vec![
-        ("formats", Some(json!("found"))),
-        ("rendered", Some(json!(3))),
-        ("absent", None),
-        ("response", None),
-        ("script", None),
-        ("click", None),
-        ("goto", None),
-        ("request", Some(json!(200))),
-        ("close", Some(json!("served"))),
-    ]
-}
-
-/// What the browser answers for a row the light-browser tier escalated.
-fn in_the_browser(row: &str) -> Value {
-    match row {
-        "absent" | "response" => json!("deadline_exceeded"),
-        "script" => json!(3),
-        "goto" => json!(200),
-        _ => json!("served"),
-    }
-}
-
 /// Seeds `/blog/<n>` of the Label `listing` for each `n` of `numbers`, with
 /// their paths.
 fn listing(
@@ -482,7 +613,7 @@ fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused(
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
     let first = 11;
-    let (seeds, paths) = listing(&proving_ground, first..first + ROWS.len());
+    let (seeds, _) = listing(&proving_ground, first..first + ROWS.len());
 
     let mut seen = ByRow::new();
     crawl_declaring(
@@ -499,17 +630,29 @@ fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused(
     let mut ended = crate::served_calls::ended(&mut engine, "light-table-forced");
     assert!(engine.finished());
 
-    let mut expected_seen = ByRow::new();
-    let mut expected_ended = Vec::new();
-    for ((row, served), path) in on_the_light_browser().into_iter().zip(&paths) {
-        expected_ended.push(if served.is_some() {
-            json!([path, "succeeded", null, 1])
-        } else {
-            json!([path, "failed", "browser_required", 1])
-        });
-        let answer = served.unwrap_or_else(|| json!("browser_required"));
-        expected_seen.insert(row.to_owned(), vec![(json!("light_browser"), answer)]);
-    }
+    let light = |answer: Value| vec![(json!("light_browser"), answer)];
+    let expected_seen = ByRow::from([
+        ("formats".to_owned(), light(json!("found"))),
+        ("rendered".to_owned(), light(json!(3))),
+        ("absent".to_owned(), light(json!("browser_required"))),
+        ("response".to_owned(), light(json!("browser_required"))),
+        ("script".to_owned(), light(json!("browser_required"))),
+        ("click".to_owned(), light(json!("browser_required"))),
+        ("goto".to_owned(), light(json!("browser_required"))),
+        ("request".to_owned(), light(json!(200))),
+        ("close".to_owned(), light(json!("served"))),
+    ]);
+    let mut expected_ended = vec![
+        json!(["/blog/11", "succeeded", null, 1]),
+        json!(["/blog/12", "succeeded", null, 1]),
+        json!(["/blog/13", "failed", "browser_required", 1]),
+        json!(["/blog/14", "failed", "browser_required", 1]),
+        json!(["/blog/15", "failed", "browser_required", 1]),
+        json!(["/blog/16", "failed", "browser_required", 1]),
+        json!(["/blog/17", "failed", "browser_required", 1]),
+        json!(["/blog/18", "succeeded", null, 1]),
+        json!(["/blog/19", "succeeded", null, 1]),
+    ];
     ended.sort_by_key(ToString::to_string);
     expected_ended.sort_by_key(ToString::to_string);
     assert_eq!((seen, ended), (expected_seen, expected_ended));
@@ -520,7 +663,8 @@ fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused(
 /// it cannot serve exactly ends that run and runs the same handler again
 /// in the browser in the same attempt, where it is served; every request
 /// ends `succeeded` in one attempt, and Provenance names each call that
-/// escalated.
+/// escalated. Its HTTP leaves from the browser (`fetch.http_from:
+/// browser`).
 ///
 /// Covers: story:6-261, story:6-259, story:5-120, story:5-115, setting:fetch.light_browser, error:attempt_ended, operation:page.formats, operation:locator.wait_for_count, operation:locator.wait_for, operation:page.wait_for_response, operation:page.evaluate, operation:locator.click, operation:page.goto, operation:page.request, operation:page.close
 #[test]
@@ -539,29 +683,49 @@ fn under_auto_a_call_the_light_browser_cannot_serve_escalates_its_request_once()
         &json!({ "listing": {} }),
         &settings(
             &proving_ground,
-            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+            &json!({ "fetch": { "tier": "auto", "light_browser": true, "http_from": "browser" } }),
         ),
         &mut rows_handler(first, &mut seen),
     );
     let ended = crate::served_calls::ended(&mut engine, "light-table-auto");
     assert!(engine.finished());
 
-    let mut expected_seen = ByRow::new();
-    let mut expected_lines = Vec::new();
-    for (row, served) in on_the_light_browser() {
-        expected_lines.push("listing light_browser compared".to_owned());
-        let runs = if let Some(answer) = served {
-            vec![(json!("light_browser"), answer)]
-        } else {
-            let (call, _, _) = row_call(row, &Value::Null, "");
-            expected_lines.push(format!("listing browser escalation {call}"));
-            vec![
-                (json!("light_browser"), json!("attempt_ended")),
-                (json!("browser"), in_the_browser(row)),
-            ]
-        };
-        expected_seen.insert(row.to_owned(), runs);
-    }
+    let light = |answer: Value| vec![(json!("light_browser"), answer)];
+    let escalated = |answer: Value| {
+        vec![
+            (json!("light_browser"), json!("attempt_ended")),
+            (json!("browser"), answer),
+        ]
+    };
+    let expected_seen = ByRow::from([
+        ("formats".to_owned(), light(json!("found"))),
+        ("rendered".to_owned(), light(json!(3))),
+        ("absent".to_owned(), escalated(json!("deadline_exceeded"))),
+        ("response".to_owned(), escalated(json!("deadline_exceeded"))),
+        ("script".to_owned(), escalated(json!(3))),
+        ("click".to_owned(), escalated(json!("served"))),
+        ("goto".to_owned(), escalated(json!(200))),
+        ("request".to_owned(), light(json!(200))),
+        ("close".to_owned(), light(json!("served"))),
+    ]);
+    let expected_lines: Vec<String> = [
+        "listing light_browser compared",
+        "listing light_browser compared",
+        "listing light_browser compared",
+        "listing browser escalation locator.wait_for",
+        "listing light_browser compared",
+        "listing browser escalation page.wait_for_response",
+        "listing light_browser compared",
+        "listing browser escalation page.evaluate",
+        "listing light_browser compared",
+        "listing browser escalation locator.click",
+        "listing light_browser compared",
+        "listing browser escalation page.goto",
+        "listing light_browser compared",
+        "listing light_browser compared",
+    ]
+    .map(str::to_owned)
+    .to_vec();
     let lines = chosen(&env, "light-table-auto", &["listing"]);
     let not_once: Vec<&Value> = ended
         .iter()

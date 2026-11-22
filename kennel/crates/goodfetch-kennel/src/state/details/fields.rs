@@ -3,10 +3,13 @@
 //! readings, each as labelled fields made safe to show by the Text
 //! function.
 
+use std::time::SystemTime;
+
 use goodfetch_protocol::foxhound::progress::RequestProgress;
 use goodfetch_protocol::governor::{
     AllowanceSource, GovernorLevel, KindConcurrency, PressureSource, SystemInfo,
 };
+use goodfetch_protocol::point_in_time;
 use goodfetch_protocol::run::{
     Lifecycle, RunIndexRow, RunProgress, RunReport, RunUsage, StopReason,
 };
@@ -132,7 +135,14 @@ pub(super) fn run_origin(origin: RunOrigin) -> &'static str {
         RunOrigin::Settings => "a scope's settings",
         RunOrigin::Flag => "a CLI flag",
         RunOrigin::Form => "an Integration's form",
+        RunOrigin::Registered => "a registered SDK handler",
     }
+}
+
+/// A point in time the Daemon sent, as the wire writes it: RFC 3339 in UTC.
+pub(super) fn point(at: SystemTime) -> String {
+    point_in_time::to_rfc3339(at)
+        .expect("invariant: a point in time read from RFC 3339 writes back as RFC 3339")
 }
 
 /// The Resource governor's reading, as its view shows it.
@@ -282,8 +292,8 @@ pub(super) fn progress_fields(
 pub(super) fn usage_fields(usage: &RunUsage) -> Vec<Field> {
     let mut fields = vec![
         Field::new("Requests", &usage.requests.to_string()),
-        Field::new("Model calls", &usage.model.calls.to_string()),
-        Field::new("Model tokens", &usage.model.tokens.to_string()),
+        Field::new("Model calls", &usage.model.counts.calls.to_string()),
+        Field::new("Model tokens", &usage.model.counts.tokens.to_string()),
         Field::new("Browser time", &format!("{} s", usage.browser_time / 1000)),
         Field::new("Proxy bytes", &usage.proxy_bytes.to_string()),
     ];
@@ -326,8 +336,8 @@ pub(super) fn report_fields(report: &RunReport) -> Vec<Field> {
             &format!("{}: {}", reason.code, reason.message),
         ));
     }
-    fields.push(Field::new("Started", report.started_at.as_str()));
-    fields.push(Field::new("Ended", report.ended_at.as_str()));
+    fields.push(Field::new("Started", &point(report.started_at)));
+    fields.push(Field::new("Ended", &point(report.ended_at)));
     if let Some(error) = &report.error {
         fields.push(Field::new(
             "Error",

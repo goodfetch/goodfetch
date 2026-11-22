@@ -1,6 +1,6 @@
 use super::standing::Standing;
 use super::{CellStatus, Figure, Report, markdown, of};
-use crate::compare::matrix::Scenario;
+use crate::compare::matrix::{HANDLED_GETTERS_PENDING, HANDLED_RUST_PENDING, Scenario};
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
 /// The pages of the site every trial crawls.
@@ -270,8 +270,8 @@ fn a_run_given_no_name_says_machine_not_named() {
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
 /// matrix's own five says so, and the hostile pages' cells say it for
-/// #2439, the crawl-like scenario's for #2284 and the auto cells for
-/// #2411 (their own tests). The cell at the catalog's defaults says it is
+/// #2439, the crawl-like scenario's for #2284, the auto cells for #2411
+/// and the handled cell's for #2317 (their own tests). The cell at the catalog's defaults says it is
 /// pending #2175 and gives no figure.
 #[test]
 fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
@@ -327,15 +327,26 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 })
         })
         .collect();
-    let pending = "  - not measured: pending #2175, which brings the cell at the catalog's \
-                   defaults.";
+    let pending: Vec<(Scenario, &str)> = report
+        .scenarios
+        .iter()
+        .flat_map(|scenario| {
+            scenario
+                .cells
+                .iter()
+                .filter_map(move |cell| match cell.status {
+                    CellStatus::NotMeasured { .. }
+                        if cell.cell.starts_with("foxhound defaults") =>
+                    {
+                        Some((scenario.scenario, cell.cell))
+                    }
+                    _ => None,
+                })
+        })
+        .collect();
 
     assert_eq!(
-        (
-            saying,
-            unmeasured,
-            cells_saying(section(&markdown, Scenario::Raw256.title()), pending),
-        ),
+        (saying, unmeasured, pending),
         (
             Scenario::ALL
                 .into_iter()
@@ -343,8 +354,10 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                     scenario,
                     if scenario.no_bar().is_some()
                         && !scenario.hostile()
-                        && scenario != Scenario::CrawlLike
-                        && scenario != Scenario::Auto
+                        && !matches!(
+                            scenario,
+                            Scenario::CrawlLike | Scenario::Auto | Scenario::Handled
+                        )
                     {
                         every(scenario)
                     } else {
@@ -353,7 +366,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 ))
                 .collect::<Vec<_>>(),
             Vec::new(),
-            vec!["foxhound defaults"],
+            Vec::new(),
         )
     );
 }
@@ -384,6 +397,42 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
             "fastcrw",
             "crawlberg"
         ]
+    );
+}
+
+/// Each cell of the handled crawl says it carries no bar, for #2317; its
+/// Rust and getters rows say what they are pending, and Foxhound's mapping
+/// says it sets no tier, so the engine chooses one (#1602).
+#[test]
+fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
+    let trials = comparison(&[]);
+
+    let markdown = markdown(&of(&trials), &trials);
+    let handled = section(&markdown, Scenario::Handled.title());
+
+    assert_eq!(
+        (
+            cells_saying(
+                handled,
+                "  - no bar: none is set on this cell until the owner sets one (#2317)."
+            ),
+            [HANDLED_RUST_PENDING, HANDLED_GETTERS_PENDING]
+                .map(|why| { cells_saying(handled, &format!("  - not measured: pending {why}.")) }),
+            handled.contains("`fetch.tier` not set, so the engine's own tier choice"),
+        ),
+        (
+            vec![
+                "foxhound",
+                "foxhound rust",
+                "foxhound getters",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs"
+            ],
+            [vec!["foxhound rust"], vec!["foxhound getters"]],
+            true,
+        )
     );
 }
 
@@ -553,5 +602,157 @@ fn the_trials_section_says_which_strace_runs_started_loaded_and_which_cells_were
             "1 of the 3 runs under strace started above a 1-minute load of 8.",
             "Measured again by a later run at the same commit on the same machine, its trials in their own order (seed 11): browser/foxhound.",
         ]
+    );
+}
+
+/// With scenario 1's Foxhound cells counted under Callgrind, each ratio is
+/// the median of its own cell's runs, never a blend of both (#2175), and
+/// the Markdown names the cell each ratio reads.
+#[test]
+fn each_callgrind_ratio_reads_its_own_cells_runs() {
+    use super::Instructions;
+    use crate::compare::trials::{CountedCell, CountedRun, Tool};
+    let mut trials = comparison(&[]);
+    let run = |cell: &str, tool, number, per_page: u64| CountedRun {
+        scenario: Scenario::Raw,
+        cell: cell.to_owned(),
+        tool,
+        number,
+        load: None,
+        count: per_page * PAGES,
+        syncs: 0,
+        work: work(),
+        extracted: None,
+    };
+    trials.instructions = CountedCell::Measured {
+        trials: 3,
+        runs: vec![
+            run("foxhound", Tool::Foxhound, 1, 2000),
+            run("foxhound", Tool::Foxhound, 2, 2200),
+            run("foxhound", Tool::Foxhound, 3, 2100),
+            run("foxhound defaults learned", Tool::Foxhound, 1, 3000),
+            run("foxhound defaults learned", Tool::Foxhound, 2, 3000),
+            run("spider", Tool::Spider, 1, 1000),
+            run("spider", Tool::Spider, 2, 1000),
+            run("spider", Tool::Spider, 3, 1000),
+        ],
+        stopped: Vec::new(),
+    };
+
+    let report = of(&trials);
+    let markdown = markdown(&report, &trials);
+
+    let ratios: Vec<(&str, &str, f64)> = match &report.instructions {
+        Instructions::Measured { ratios } => ratios
+            .iter()
+            .map(|ratio| (ratio.row, ratio.foxhound, ratio.ratio))
+            .collect(),
+        Instructions::NotRun { reason } => panic!("the Callgrind cell ran: {reason}"),
+    };
+    let lines: Vec<&str> = markdown
+        .lines()
+        .filter(|line| line.starts_with("`foxhound.spider_instruction_ratio"))
+        .collect();
+    assert_eq!(
+        (ratios, lines),
+        (
+            vec![
+                ("foxhound.spider_instruction_ratio", "foxhound", 2.1),
+                (
+                    "foxhound.spider_instruction_ratio_at_defaults",
+                    "foxhound defaults learned",
+                    3.0
+                ),
+            ],
+            vec![
+                "`foxhound.spider_instruction_ratio`: 2.100, Foxhound's `foxhound` cell's 2100 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, the median of each cell's runs, all of the same pages and bytes.",
+                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults learned` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
+            ]
+        )
+    );
+}
+
+/// Every cell measured with `curve`, Foxhound's cell at the catalog's
+/// defaults having sent 600 pages over HTTP, 300 from the browser's
+/// context and 100 from the browser.
+fn curve_and_tiers(curve: &[f64]) -> Comparison {
+    use std::collections::BTreeMap;
+    fixture::comparison(PAGES, |cell, _| Measured {
+        seconds: 1.0,
+        work: work(),
+        curve: curve.to_vec(),
+        tiers: (cell.name == "foxhound defaults").then(|| {
+            BTreeMap::from([
+                ("http".to_owned(), 600),
+                ("browser_fetch".to_owned(), 300),
+                ("browser".to_owned(), 100),
+            ])
+        }),
+        ..Measured::default()
+    })
+}
+
+/// The figures `metrics` give scenario 1's cell `name` in `report`, to a
+/// thousandth; `None` for each it does not give.
+fn scenario_1_figures(report: &Report, name: &str, metrics: &[&str]) -> Vec<Option<f64>> {
+    let cell = report
+        .scenarios
+        .iter()
+        .find(|report| report.scenario == Scenario::Raw)
+        .and_then(|report| report.cells.iter().find(|cell| cell.cell == name))
+        .expect("scenario 1 has the cell");
+    let CellStatus::Measured { metrics: given, .. } = &cell.status else {
+        panic!("{name} is measured");
+    };
+    metrics
+        .iter()
+        .map(|metric| match given.get(metric) {
+            Some(Figure::Measured { median, .. }) => Some((median * 1000.0).round() / 1000.0),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Each cell gives its steady rate, the mean of its curve between the
+/// first and the last tenth (#2175).
+#[test]
+fn cells_give_their_steady_rate() {
+    let trials = curve_and_tiers(&[1.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 100.0]);
+
+    let report = of(&trials);
+
+    let steady = ["steady_pages_per_second"];
+    assert_eq!(
+        (
+            scenario_1_figures(&report, "foxhound defaults", &steady),
+            scenario_1_figures(&report, "foxhound", &steady),
+        ),
+        (vec![Some(5.0)], vec![Some(5.0)])
+    );
+}
+
+/// A cell gives the share of its pages each tier sent where its row reads
+/// them from Provenance, and none where it does not (#2175).
+#[test]
+fn cells_give_their_tiers_where_their_row_reads_them() {
+    let trials = curve_and_tiers(&[1.0; 10]);
+
+    let report = of(&trials);
+
+    let tiers = [
+        "tier_http_share",
+        "tier_browser_fetch_share",
+        "tier_browser_share",
+        "tier_other_share",
+    ];
+    assert_eq!(
+        (
+            scenario_1_figures(&report, "foxhound defaults", &tiers),
+            scenario_1_figures(&report, "foxhound", &tiers),
+        ),
+        (
+            vec![Some(0.6), Some(0.3), Some(0.1), Some(0.0)],
+            vec![None, None, None, None],
+        )
     );
 }

@@ -1,0 +1,69 @@
+#:schema ./journey.schema.json
+# Area 9's spec (#602), story 33, with the Console's place taken by the CLI's
+# interactive prompt (ADR 0137; spec #1937's #1101). The variants it makes
+# proved, and the tickets that make each one proved:
+# - cli (and cli@foxhound-cli): pending Plan versions and the person-only
+#   answers (#885), reviewed at the CLI's prompt (#1101), the Runs' steps on
+#   the TypeScript SDK with a Run that names a Plan file (#870).
+id = "J-038"
+title = "Accept a pending Plan version at the CLI's prompt, and the next Run writes it to the Plan file"
+goal = """
+A developer's program fills a form with an AI step in a Run that names a Plan file; the step acts, so its new Plan version waits for a person. The pending version MUST appear in "Needs you" with its diff; a person MUST be able to accept it at the CLI's interactive prompt, while a program or agent MUST NOT; and the next Run that names the file MUST write the accepted version to it, then replay the step with no model call."""
+area = 9
+product = "collie"
+status = "active"
+covers = ["story:9-33"]
+
+[proving_ground]
+seed = 38
+tasks = [
+  { id = "actionability/20", digest = "92380b4e86604cc42c65ed6bf101f929f736d54efba326bce439807b2f09ff8c" },
+]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Point the Model provider setting at the Fake model through this variant's surface: the provider's base URL at the Proving ground's `model.test`"
+
+[[steps]]
+text = "Run a program that fills the task's form with `act` in a Run started with `plan: \"form.plan.json\"`, a Plan file next to the program"
+on = "sdk-typescript"
+
+[[steps]]
+text = "Have the program answer the pending Plan version itself"
+on = "sdk-typescript"
+
+[[steps]]
+text = "Read \"Needs you\" with `needs-you list`"
+on = "cli"
+
+[[steps]]
+text = "Accept the pending Plan version at the `needs-you answer` prompt, after reading its diff"
+on = "cli"
+
+[[steps]]
+text = "Start the Proving ground again from the same seed, keeping the Plan file"
+
+[[steps]]
+text = "Run the program again, naming the same Plan file"
+on = "sdk-typescript"
+
+[[expect]]
+text = "The first Run ended with the Verdict `verified`, its `PlanReport` naming `form.plan.json` with the status `pending_review`, and the file stayed as it was"
+
+[[expect]]
+text = "\"Needs you\" listed the pending Plan version with its diff, and the program's own answer was refused with `person_required`"
+
+[[expect]]
+text = "Once a person accepted it at the prompt, the version left \"Needs you\""
+
+[[expect]]
+text = "The second Run wrote the accepted version to `form.plan.json` and replayed the step from it with no model call: the Fake model served no call during it"
+
+[[expect]]
+text = "The oracle verifies the form the second Run filled"
+task = "actionability/20"
+
+[[expect]]
+text = "Each Run's Usage equals the Fake model's own count of the calls it served during that Run (`GET /model-calls`)"

@@ -63,7 +63,6 @@ pub(crate) fn ceilings(file: &std::path::Path) -> BTreeSet<(String, Option<i64>)
 }
 
 /// Covers: story:5-90, story:5-91, setting:proxy.server, setting:proxy.username
-#[cfg(unix)]
 #[test]
 fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where_the_proxy_itself_does()
  {
@@ -154,7 +153,6 @@ fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where
 /// the proxy refusing a request, so its learned ceiling stays unset.
 ///
 /// Covers: story:5-90, setting:proxy.provider, setting:proxy.providers, error:proxy_unavailable
-#[cfg(unix)]
 #[test]
 fn a_provider_proxy_that_is_down_raises_proxy_unavailable_and_lowers_no_ceiling() {
     let env = TestEnv::new();
@@ -203,7 +201,6 @@ fn a_provider_proxy_that_is_down_raises_proxy_unavailable_and_lowers_no_ceiling(
 /// starts a request.
 ///
 /// Covers: story:5-90, setting:proxy.bypass
-#[cfg(unix)]
 #[test]
 fn a_navigation_proxy_bypass_sends_around_the_proxy_takes_none_of_its_permits() {
     let env = TestEnv::new();

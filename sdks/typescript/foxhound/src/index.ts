@@ -14,7 +14,14 @@
 // client package. Importing it reads, patches and logs nothing (ADR 0078).
 export * from "@goodfetch/collie-client";
 export * from "./generated/errors.ts";
-export { Foxhound, type StartCrawlOptions } from "./foxhound.ts";
+export {
+  Foxhound,
+  type FoxhoundConnectOptions,
+  type FoxhoundConnectOverOptions,
+  type FoxhoundLimits,
+  type FoxhoundStartOptions,
+  type StartCrawlOptions,
+} from "./foxhound.ts";
 export {
   Crawl,
   Dataset,
@@ -22,9 +29,19 @@ export {
   seed,
   type CrawlContext,
   type DatasetOptions,
+  type EnqueueLinksOptions,
   type Handler,
   type LabelOptions,
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";
-export type { DatasetRecord, Enqueued, RequestSeed } from "./generated/index.ts";
+export type {
+  CrawlSettings,
+  DatasetRecord,
+  Enqueued,
+  EnqueuedLink,
+  EnqueuedLinks,
+  FoxhoundSettings,
+  LabelSettings,
+  RequestSeed,
+} from "./generated/index.ts";

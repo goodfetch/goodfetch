@@ -1,13 +1,15 @@
-use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
+use super::{
+    AtDefaults, CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool,
+};
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
 /// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
 /// on a host (#2216), and fastCRW on the long site, past its 1,000 pages a
 /// crawl, and at 64 and 256, beyond the one page a crawl job of its fetches
-/// at a time (#2217), and the cell at the catalog's defaults (#2175) stands at each
-/// of the sweep's three points, 16, 64 and 256 in flight, pending until
-/// #2175 brings it.
+/// at a time (#2217), and the cell at the catalog's defaults (#2175) runs at each
+/// of the sweep's three points, 16, 64 and 256 in flight, its `fetch.tier`
+/// left at `auto`.
 #[test]
 fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
     let added = [
@@ -21,7 +23,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             .iter()
             .filter(|cell| {
                 cell.scenario == scenario
-                    && cell.row == Row::Main
+                    && cell.counted_criteria()
                     && matches!(cell.status, Status::Measured(_))
                     && !cell.mapping.is_empty()
             })
@@ -37,7 +39,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             (
                 cell.scenario,
                 cell.scenario.concurrency(),
-                matches!(cell.status, Status::Pending(reason) if reason.contains("#2175")),
+                matches!(cell.status, Status::Measured(config) if config.samples()),
             )
         })
         .collect();
@@ -76,9 +78,10 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
 
 /// Each scenario added to the matrix's own five runs scenario 1's settings,
 /// so the sides take it as `raw`, but the hostile pages' pass at defaults
-/// and the auto cell, which run each tool's own; each carries no bar until
-/// the owner sets one (#2252 Q11, #2439 Q3, G-04 Q11); the matrix's own
-/// five are unchanged.
+/// and the auto cell, which run each tool's own, and the handled cell,
+/// whose sides each run its handler (#2317); each carries no bar until the
+/// owner sets one (#2252 Q11, #2439 Q3, G-04 Q11); the matrix's own five
+/// are unchanged.
 #[test]
 fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
     let read = |scenario: Scenario| (scenario.settings(), scenario.no_bar().is_some());
@@ -99,6 +102,7 @@ fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
             (Scenario::Raw, true),
             (Scenario::Raw, true),
             (Scenario::Auto, true),
+            (Scenario::Handled, true),
         ]
     );
 }
@@ -378,7 +382,8 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
 /// Foxhound's row with its Filter lists off (#2136) is a main row of the
 /// extraction scenario, where nothing removes the page's ad: its pages are
 /// held to the right answer with the ad allowed, every other cell of the
-/// scenario to the whole answer, and no other scenario's cell to any.
+/// scenario to the whole answer, and no other scenario's cell to either:
+/// the handled cell's are held to their twenty fields (#2317).
 #[test]
 fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
     let checks: Vec<(&str, bool, Option<OutputCheck>)> = CELLS
@@ -390,7 +395,13 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
     let elsewhere = CELLS
         .iter()
         .filter(|cell| cell.scenario != Scenario::Extraction)
-        .filter(|cell| cell.filter_lists_off() || cell.output_check().is_some())
+        .filter(|cell| {
+            cell.filter_lists_off()
+                || matches!(
+                    cell.output_check(),
+                    Some(OutputCheck::Whole | OutputCheck::AdAllowed)
+                )
+        })
         .count();
 
     let whole = Some(OutputCheck::Whole);
@@ -426,9 +437,9 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
     );
 }
 
-/// crawlee-rs runs on its side in the four HTTP scenarios and in #2316's
-/// four, each its main row, and its headless browser cell is not supported
-/// (#2214).
+/// crawlee-rs runs on its side in the four HTTP scenarios, in #2316's
+/// four and in the handled cell (#2317), each its main row, and its
+/// headless browser cell is not supported (#2214).
 #[test]
 fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
@@ -459,30 +470,45 @@ fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
             (Scenario::Hostile, measured),
             (Scenario::Hostile16, measured),
             (Scenario::CrawlLike, measured),
+            (Scenario::Handled, measured),
         ]
         .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
     );
 }
 
-/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
+/// `just compare` builds each Rust side other than Spider's and fastCRW's,
+/// locked, at the run's profile, into the folder the run reads its
+/// executable from (`run::side_executable`); fastCRW's, which also installs
+/// its server, has its own test.
 #[test]
-fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+fn just_compare_builds_each_other_rust_side_into_its_folder() {
     let recipes = include_str!("../../../../justfile");
+    let missing: Vec<&str> = [
+        super::CRAWLEE_RS_FOLDER,
+        super::PAGESIFT_FOLDER,
+        super::OPENSPIDER_FOLDER,
+        super::CRAWLBERG_FOLDER,
+        super::CHROMIUMOXIDE_FOLDER,
+    ]
+    .into_iter()
+    .filter(|folder| {
+        !recipes.contains(&format!(
+            "cargo build --quiet --locked --manifest-path xtask/compare-{folder}/Cargo.toml \
+             --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}\n"
+        ))
+    })
+    .collect();
 
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLEE_RS_FOLDER
-    )));
+    assert_eq!(missing, Vec::<&str>::new());
 }
 
 /// Every scenario but the auto cell's, which maps Foxhound, Spider and
-/// Crawlee alone (#2411).
+/// Crawlee alone (#2411), and the handled cell's, which maps Foxhound,
+/// Spider, Crawlee, Scrapy and crawlee-rs alone (#2317).
 fn timed_and_ruled() -> impl Iterator<Item = Scenario> {
     Scenario::ALL
         .into_iter()
-        .filter(|scenario| *scenario != Scenario::Auto)
+        .filter(|scenario| !matches!(scenario, Scenario::Auto | Scenario::Handled))
 }
 
 /// pagesift runs on its side in every scenario, each its main row: the
@@ -509,19 +535,6 @@ fn pagesift_runs_every_scenario_on_its_side() {
             .map(|scenario| (scenario, "pagesift", Row::Main, Some(Config::Pagesift)))
             .collect::<Vec<_>>()
     );
-}
-
-/// `just compare` builds pagesift's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_pagesifts_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::PAGESIFT_FOLDER
-    )));
 }
 
 /// OpenSpider runs on its side in every scenario but four, each its main
@@ -559,19 +572,6 @@ fn openspider_runs_every_scenario_on_its_side_but_durable_polite_raw_64_and_raw_
             ))
             .collect::<Vec<_>>()
     );
-}
-
-/// `just compare` builds OpenSpider's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_openspiders_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::OPENSPIDER_FOLDER
-    )));
 }
 
 /// fastCRW runs on its side, which starts its server, in every scenario
@@ -682,19 +682,6 @@ fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
     );
 }
 
-/// `just compare` builds crawlberg's side, locked, at the run's profile,
-/// into the folder the run reads its executable from.
-#[test]
-fn just_compare_builds_crawlbergs_side_into_its_folder() {
-    let recipes = include_str!("../../../../justfile");
-
-    assert!(recipes.contains(&format!(
-        "cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml \
-         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
-        super::CRAWLBERG_FOLDER
-    )));
-}
-
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,
 /// where the others crawl the comparison's 1,000 (#2283) and the long one
 /// its own 100,000, and the growth cell's 100,000 there too, 100 on each
@@ -715,9 +702,10 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
         ),
         (
             [
-                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000, 1000, 1000
+                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000, 1000, 1000,
+                1000
             ],
-            [100_000; 13],
+            [100_000; 14],
             1000,
             [
                 "polite-1.localhost",
@@ -835,5 +823,209 @@ fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
             ("auto", Scenario::Auto, Site::Rungs, true),
             ("none", "https", true),
         )
+    );
+}
+
+/// The handled-crawl cell (#2317) reads a crawl whose handler reads each
+/// page's twenty fields, pushes one Record and enqueues the page's links:
+/// Foxhound as a TypeScript program on its SDK, at the default tier choice,
+/// against Spider, Crawlee, Scrapy and crawlee-rs doing the same work, each
+/// with its mapping. Foxhound's Rust arm waits on #2804 and its getters arm
+/// on #724 and #1296; every page's Record is held to the Proving ground's
+/// answers, and the cell carries no bar.
+#[test]
+fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
+    let handled = Scenario::Handled;
+    let cells: Vec<(&str, Tool, Option<Config>, Option<OutputCheck>)> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == handled && cell.row == Row::Main)
+        .map(|cell| {
+            assert!(!cell.mapping.is_empty(), "{} has no mapping", cell.name);
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.name, cell.tool, config, cell.output_check())
+        })
+        .collect();
+    let pending: Vec<&str> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == handled)
+        .filter_map(|cell| match cell.status {
+            Status::Pending(why) => Some(why),
+            Status::Measured(_) | Status::NotSupported(_) => None,
+        })
+        .collect();
+    let timed = super::measured()
+        .filter(|(cell, _)| cell.scenario == handled)
+        .count();
+
+    let fields = Some(OutputCheck::Fields);
+    assert_eq!(
+        (
+            cells,
+            pending,
+            timed,
+            (
+                handled.name(),
+                handled.settings(),
+                handled.site(),
+                handled.network(),
+                handled.no_bar(),
+            ),
+            Config::FoxhoundProgram.samples(),
+        ),
+        (
+            vec![
+                (
+                    "foxhound",
+                    Tool::Foxhound,
+                    Some(Config::FoxhoundProgram),
+                    fields
+                ),
+                ("foxhound rust", Tool::Foxhound, None, None),
+                ("foxhound getters", Tool::Foxhound, None, None),
+                (
+                    "spider",
+                    Tool::Spider,
+                    Some(Config::Spider {
+                        build: SpiderBuild::Handled,
+                        capacity: super::SPIDER_EXTRACTION_CAPACITY,
+                    }),
+                    fields,
+                ),
+                ("crawlee", Tool::Crawlee, Some(Config::Crawlee), fields),
+                ("scrapy", Tool::Scrapy, Some(Config::Scrapy), fields),
+                (
+                    "crawlee-rs",
+                    Tool::CrawleeRs,
+                    Some(Config::CrawleeRs),
+                    fields
+                ),
+            ],
+            vec![super::HANDLED_RUST_PENDING, super::HANDLED_GETTERS_PENDING],
+            5,
+            (
+                "handled",
+                Scenario::Handled,
+                Site::Article,
+                Network::Loopback,
+                Some("#2317")
+            ),
+            true,
+        )
+    );
+}
+
+/// Foxhound's rows in `scenario`: each one's name, row, run and row of the
+/// cell at the catalog's defaults.
+fn foxhound_rows(
+    scenario: Scenario,
+) -> Vec<(&'static str, Row, Option<Config>, Option<AtDefaults>)> {
+    CELLS
+        .iter()
+        .filter(|cell| cell.scenario == scenario && cell.tool == Tool::Foxhound)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.name, cell.row, config, cell.at_defaults())
+        })
+        .collect()
+}
+
+/// A Foxhound run at `durability`, its Records not read for its tiers.
+const fn durable(durability: &'static str, commit_interval: Option<u64>) -> Config {
+    Config::Foxhound {
+        durability,
+        commit_interval,
+        auto: false,
+    }
+}
+
+/// Scenario 1's first cell runs the default `batch` (#2175), and its cell
+/// at the catalog's defaults prints two labelled rows: the default
+/// `fetch.http_from` in force and `learned`.
+#[test]
+fn scenario_1_runs_batch_and_the_catalog_defaults_in_two_rows() {
+    let at_defaults = Some(Config::Foxhound {
+        durability: "batch",
+        commit_interval: None,
+        auto: true,
+    });
+
+    assert_eq!(
+        foxhound_rows(Scenario::Raw),
+        vec![
+            ("foxhound", Row::Main, Some(durable("batch", None)), None),
+            (
+                "foxhound defaults",
+                Row::Main,
+                at_defaults,
+                Some(AtDefaults::InForce)
+            ),
+            (
+                "foxhound defaults learned",
+                Row::Sensitivity,
+                at_defaults,
+                Some(AtDefaults::Learned)
+            ),
+        ]
+    );
+}
+
+/// Scenario 2 keeps its `full` and `periodic` 60 s cells and gains a
+/// `batch` one (#2175).
+#[test]
+fn scenario_2_gains_a_batch_cell() {
+    assert_eq!(
+        foxhound_rows(Scenario::Durable),
+        vec![
+            (
+                "foxhound full",
+                Row::Main,
+                Some(durable("full", None)),
+                None
+            ),
+            (
+                "foxhound periodic",
+                Row::Main,
+                Some(durable("periodic", Some(60_000))),
+                None
+            ),
+            (
+                "foxhound batch",
+                Row::Main,
+                Some(durable("batch", None)),
+                None
+            ),
+        ]
+    );
+}
+
+/// Neither row of scenario 1's cell at the catalog's defaults keeps the
+/// counted criteria, which stay with the scenario's first cell (#2175).
+#[test]
+fn the_catalog_defaults_cell_leaves_the_counted_criteria_to_the_first_cell() {
+    let criteria: Vec<&str> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == Scenario::Raw && cell.counted_criteria())
+        .map(|cell| cell.name)
+        .collect();
+
+    assert_eq!(
+        criteria,
+        vec![
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs",
+            "pagesift",
+            "openspider",
+            "fastcrw",
+            "crawlberg"
+        ]
     );
 }

@@ -6,63 +6,42 @@
 //! instructions a program runs beneath one function
 //! ([`instructions_beneath`]), such as a page's clean-up.
 
+mod at_once;
+
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::process::{Command, Stdio};
-#[expect(
-    clippy::disallowed_types,
-    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
-)]
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::OnceLock;
 
-/// The most Callgrind children [`bounded`] lets one process run at once.
-const MOST_AT_ONCE: usize = 8;
+use crate::Variables;
+use at_once::Bound;
 
-/// The Callgrind children running now, and their release.
-#[expect(
-    clippy::disallowed_types,
-    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
-)]
-static RUNNING: Mutex<usize> = Mutex::new(0);
-#[expect(
-    clippy::disallowed_types,
-    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
-)]
-static RELEASED: Condvar = Condvar::new();
+/// The Callgrind children this process runs, through [`bounded`].
+static BOUND: Bound = Bound::new();
+
+/// How many of them [`bounded`] lets run at once, read once.
+static MOST: OnceLock<usize> = OnceLock::new();
 
 /// Runs `run`, which runs one Callgrind child, once fewer than half the
-/// machine's cores, and at most [`MOST_AT_ONCE`], run in this process: a
-/// benchmark that starts one per cell and outcome side by side would
-/// otherwise start them all at once. A count Callgrind reads does not depend
+/// machine's cores, and at most eight, run in this process: a benchmark that
+/// starts one per cell and outcome side by side would otherwise start them
+/// all at once. `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, which `xtask counts
+/// --callgrind-at-once` sets, lowers that bound, never raises it, so a counts
+/// run can share a loaded machine. A count Callgrind reads does not depend
 /// on how many run beside it.
+///
+/// # Panics
+///
+/// When `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` is no whole number of 1 or more.
 pub fn bounded<T>(run: impl FnOnce() -> T) -> T {
-    let most = most_at_once();
-    let mut running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
-    while *running >= most {
-        running = RELEASED
-            .wait(running)
-            .unwrap_or_else(PoisonError::into_inner);
-    }
-    *running += 1;
-    drop(running);
-    let _release = Release;
-    run()
-}
-
-/// How many Callgrind children [`bounded`] lets run at once on this
-/// machine: half its cores, at least one and at most [`MOST_AT_ONCE`].
-fn most_at_once() -> usize {
-    std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).clamp(1, MOST_AT_ONCE))
-}
-
-/// Gives back its child's place in [`bounded`] once the child ended,
-/// whether `run` returned or panicked.
-struct Release;
-
-impl Drop for Release {
-    fn drop(&mut self) {
-        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
-        RELEASED.notify_one();
-    }
+    let most = *MOST.get_or_init(|| {
+        let cap = Variables::from_process()
+            .callgrind_at_once()
+            .unwrap_or_else(|error| panic!("{error}"));
+        let cores = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
+        at_once::most_at_once(cores, cap)
+    });
+    BOUND.run(most, run)
 }
 
 /// Why a program's calls could not be read.
@@ -86,10 +65,13 @@ pub enum CallgrindError {
 }
 
 /// How many instructions `program`, run with `arguments` under Callgrind,
-/// ran in each of `functions` and in whatever it called: Callgrind collects
-/// only while one of them, each named as Callgrind names a function, is on
-/// the stack. None when the program never entered one: a function renamed
-/// would otherwise read as free. What ran before the program entered the
+/// ran in each of `functions` and in whatever it called. Each is named as
+/// Callgrind names a function, where `*` stands for any text, and none may
+/// call another: Callgrind turns its collection on as one is entered and
+/// off as it returns, so a second one entered beneath the first turns it
+/// off for the time it runs. None when the program never entered one of
+/// them: a function renamed, or inlined into its callers, would otherwise
+/// read as free. What ran before the program entered the
 /// function `from`, when one is named, is left out: Callgrind zeroes its
 /// costs there, so a program can do first what its figure must not hold,
 /// such as work done once however many units follow. A `from` the program
@@ -113,7 +95,42 @@ pub fn instructions_beneath(
     let mut options = vec!["--collect-atstart=no"];
     options.extend(named.iter().map(String::as_str));
     let text = output(&options, program, arguments)?;
+    if !functions.iter().all(|function| entered_in(&text, function)) {
+        return Ok(None);
+    }
     Ok(total_in(&text).filter(|total| *total > 0))
+}
+
+/// Whether `text`, a Callgrind output with its strings uncompressed, holds
+/// costs of a function `pattern` names, `*` standing for any text: a
+/// function the program entered while Callgrind collected.
+fn entered_in(text: &str, pattern: &str) -> bool {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("fn="))
+        .any(|name| named_by(pattern, name))
+}
+
+/// Whether `pattern`, where `*` stands for any text, names all of `name`.
+fn named_by(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let mut parts = parts.peekable();
+    if parts.peek().is_none() {
+        return rest.is_empty();
+    }
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            return rest.ends_with(part);
+        }
+        let Some(at) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[at + part.len()..];
+    }
+    true
 }
 
 /// The events `text`, a Callgrind output, collected in all: its `totals:`

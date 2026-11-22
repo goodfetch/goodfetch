@@ -496,7 +496,16 @@ impl PageContext {
             navigation,
         };
         // Step 1: a crawl request's own document fetch has its Hooks
-        // applied already (ADR 0104); nothing here runs a Hook.
+        // applied already (ADR 0104); nothing here runs a Hook. Its method
+        // and body replace the browser's `GET` on the main frame's request
+        // for its URL, unless a redirect sent it, so the routes see the
+        // request it is (issue 2471).
+        if held.navigation
+            && held.paused.redirected_request_id.is_none()
+            && let Some(own) = self.state.own(&held.paused.request.url)
+        {
+            held.apply(own);
+        }
         // Step 2: page routes, the latest first, then Session routes.
         let routes = self
             .state
@@ -821,6 +830,7 @@ impl PageContext {
             url: held.url(),
             method: held.method(),
             overrides: &held.overrides,
+            headers: &held.paused.request.headers,
             kind: steps::kind(held.paused.resource_type, held.navigation),
             source_url: source,
             egress: self.egress_kind(held),
@@ -835,7 +845,8 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let stepped = match steps::send_on(&paused, &self.policy, blocking, fetch) {
+        let signing = self.state.engine_requests.signing.as_deref();
+        let stepped = match steps::send_on(&paused, &self.policy, blocking, signing, fetch) {
             Ok(steps::Sent::Continue(command)) => {
                 match self.judged_addresses(held.url(), paused.egress).await {
                     Ok(()) => Ok(steps::Sent::Continue(command)),
@@ -983,7 +994,7 @@ impl PageContext {
         let relay = self.driver.relay()?;
         let parsed = url::Url::parse(url).ok()?;
         let host = parsed.host_str()?.to_ascii_lowercase();
-        if !matches!(parsed.scheme(), "https" | "wss") || !relay.terminates(&host) {
+        if !matches!(parsed.scheme(), "https" | "wss") || !relay.excepts(&host) {
             return None;
         }
         let cookies = match self
@@ -997,7 +1008,7 @@ impl PageContext {
             Err(failure) => {
                 tracing::debug!(
                     ?failure,
-                    "the browser named no cookies, so the request to a terminated host is failed"
+                    "the browser named no cookies, so the request to an exception host is failed"
                 );
                 return Some(gone(url));
             }

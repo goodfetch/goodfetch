@@ -30,6 +30,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use super::checkpoint::Talk;
 use super::run::{call, run_folder};
 use super::{Client, attached_on, engine_with, hello};
 use crate::call_error::CallError;
@@ -276,7 +277,7 @@ impl ReportPart for Seeded {
             crawl_request: None,
             reason: "sent".to_owned(),
             first_command: Some("Input.dispatchMouseEvent".to_owned()),
-            since: report.started_at.clone(),
+            since: report.started_at,
         }]);
         report
             .kind_parts
@@ -311,13 +312,20 @@ fn write(env: &TestEnv, file: &str, text: &str) {
 /// Runs a Collie engine with the test's operations in `env` while the
 /// Client makes `calls`, after its `hello`, and answers each reply.
 fn replies(env: &TestEnv, calls: &[(&str, Value)]) -> Vec<Value> {
+    replies_under(env, json!({}), calls)
+}
+
+/// [`replies`] on a Connection whose `hello` sets `settings`.
+fn replies_under(env: &TestEnv, settings: Value, calls: &[(&str, Value)]) -> Vec<Value> {
     let engine = engine_with(Product::Collie, Some(reporting()));
     let calls: Vec<(String, Value)> = calls
         .iter()
         .map(|(method, params)| ((*method).to_owned(), params.clone()))
         .collect();
+    let mut hello = hello("collie", "0.1");
+    hello["params"]["settings"] = settings;
     attached_on(&engine, env, |mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
+        client.send(&[hello]).await;
         client.next().await;
         let mut replies = Vec::new();
         for (id, (method, params)) in (1..).zip(calls) {
@@ -403,7 +411,7 @@ fn stop_stops_a_run_with_a_checkpoint_as_an_abort_by_its_program() {
 /// Covers: story:3-153, setting:timeout.close, error:deadline_exceeded
 #[rstest]
 #[case::by_default(json!({ "run_id": "slow" }), json!({ "key": "timeout.close", "value": 30_000, "layer": "default" }))]
-#[case::by_the_calls_timeout(json!({ "run_id": "slow", "timeout": 1_000 }), json!({ "key": "timeout.close", "value": 1_000, "layer": "run" }))]
+#[case::by_the_calls_timeout(json!({ "run_id": "slow", "timeout": 1_000 }), json!({ "key": "timeout.close", "value": 1_000, "layer": "run", "origin": "argument" }))]
 fn a_stop_past_its_wait_fails_the_wait_and_the_run_still_stops(
     #[case] stop: Value,
     #[case] limit: Value,
@@ -596,6 +604,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
 /// Covers: story:3-154
 #[rstest]
 #[case::a_limit(
+    json!({}),
     vec![
         ("usage.set", json!({ "scope": "install", "usage_kind": "requests", "period": { "every": "month", "time_zone": "UTC" }, "amount": 1 })),
         ("run.start", json!({ "run_id": "stops" })),
@@ -604,13 +613,15 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "limit", "scope": { "kind": "install", "id": "" }, "usage_kind": "requests", "period": { "every": "month", "time_zone": "UTC" }, "resets_at": "2026-02-01T00:00:00Z" }),
 )]
 #[case::its_timeout(
+    json!({ "timeout": { "run": 1_000 } }),
     vec![
-        ("run.start", json!({ "run_id": "stops", "settings": { "timeout": { "run": 1_000 } } })),
+        ("run.start", json!({ "run_id": "stops" })),
         ("test.sleep", json!({})),
     ],
     json!({ "kind": "timeout" }),
 )]
 #[case::an_abort(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("run.abort", json!({ "run_id": "stops" })),
@@ -618,6 +629,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "abort", "by": "client" }),
 )]
 #[case::the_engines_loss(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "engine_lost" } })),
@@ -625,6 +637,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "engine_lost" }),
 )]
 #[case::storage(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "resources", "resource": "storage", "folder": "/data/runs" } })),
@@ -632,6 +645,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "resources", "resource": "storage", "folder": "/data/runs" }),
 )]
 #[case::memory(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "resources", "resource": "memory" } })),
@@ -639,13 +653,14 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "resources", "resource": "memory" }),
 )]
 fn each_stop_gives_its_stop_reason_with_its_details(
+    #[case] connection: Value,
     #[case] mut calls: Vec<(&str, Value)>,
     #[case] stop_reason: Value,
 ) {
     let env = TestEnv::new();
     calls.push(("run.finish", json!({ "run_id": "stops" })));
 
-    let replies = replies(&env, &calls);
+    let replies = replies_under(&env, connection, &calls);
 
     let report = &replies.last().unwrap()["result"];
     assert_eq!(
@@ -796,35 +811,13 @@ fn a_part_no_area_supplied_is_absent_never_zero() {
     );
 }
 
+/// A code of the warning table, and one from a newer engine, are handed
+/// over as they came.
 /// Covers: story:3-155
 #[rstest]
-fn a_warning_handed_over_appears_with_what_it_concerns(
-    #[values(
-        "fingerprint_none",
-        "fingerprint_js_injection",
-        "fingerprint_basic",
-        "fingerprint_basic_fallback",
-        "browser_build_outdated",
-        "browser_build_third_party",
-        "browser_build_firefox",
-        "browser_build_plugin",
-        "human_input_fallback",
-        "proxy_exit_may_change",
-        "filter_vendor_flagged",
-        "trap_links_off",
-        "cpu_throttled",
-        "storage_low",
-        "politeness_store_degraded",
-        "clean_up_rules_stale",
-        "path_not_writable",
-        "file_write_failed",
-        "baseline_unavailable",
-        "plugin_quantity_above_maximum",
-        "plugin_figures",
-        "a_code_from_a_newer_engine"
-    )]
-    code: &str,
-) {
+#[case::a_table_code("storage_low")]
+#[case::a_code_from_a_newer_engine("a_code_from_a_newer_engine")]
+fn a_warning_handed_over_appears_with_what_it_concerns(#[case] code: &str) {
     let env = TestEnv::new();
     let warning = json!({
         "code": code,
@@ -850,6 +843,11 @@ fn a_warning_handed_over_appears_with_what_it_concerns(
 
 /// A periodic Checkpoint whose file cannot be written, its destination a
 /// folder, warns `file_write_failed` naming the Run's folder (ADR 0122).
+/// The finish follows the first periodic Checkpoint's announcement, and
+/// waits for that Checkpoint's end as it stops the Run's tasks; the
+/// paused clock's auto-advance, which runs on while the Checkpoint's
+/// blocking work does, sets how many more are tried, never whether the
+/// test ends (#2729).
 /// Covers: story:3-155, setting:checkpoint.interval
 #[test]
 #[expect(
@@ -859,28 +857,20 @@ fn a_warning_handed_over_appears_with_what_it_concerns(
 fn a_periodic_checkpoint_that_fails_warns_naming_its_folder() {
     let env = TestEnv::new();
     let folder = run_folder(&env, "periodic");
-    let blocking = folder.join("checkpoint.sqlite");
+    std::fs::create_dir_all(folder.join("checkpoint.sqlite").join("in the way")).unwrap();
     let engine = engine_with(Product::Collie, Some(reporting()));
 
-    let finished = attached_on(&engine, &env, |mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
-        client.next().await;
-        call(
-            &mut client,
-            1,
+    let finished = attached_on(&engine, &env, |client: Client| async move {
+        let mut talk = Talk::open(client).await;
+        talk.ok(
+            2,
             "run.start",
             json!({ "run_id": "periodic", "settings": { "checkpoint": { "interval": 1_000 } } }),
         )
         .await;
-        std::fs::create_dir_all(blocking.join("in the way")).unwrap();
-        call(&mut client, 2, "test.sleep", json!({})).await;
-        call(
-            &mut client,
-            3,
-            "run.finish",
-            json!({ "run_id": "periodic" }),
-        )
-        .await
+        talk.events_until("run.checkpointing", 1).await;
+        talk.call(3, "run.finish", json!({ "run_id": "periodic" }))
+            .await
     });
 
     let warning = &finished["result"]["warnings"][0];
@@ -893,7 +883,7 @@ fn a_periodic_checkpoint_that_fails_warns_naming_its_folder() {
     );
 }
 
-/// Covers: story:3-156
+/// Covers: story:3-156, story:3-166
 #[test]
 fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
     let env = TestEnv::new();
@@ -916,7 +906,7 @@ fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
         ),
         (
             &Value::Null,
-            &json!("existing"),
+            &json!("ended"),
             &json!({ "reason": "already_ended", "ended_at": replies[1]["result"]["ended_at"] }),
         )
     );
@@ -955,36 +945,41 @@ fn run_usage_gives_what_the_run_used_and_the_limits_that_apply() {
         ],
     );
 
-    let limit = |left: u64| {
-        json!({
+    // The run's one charge of 3 requests takes a Slice of 3, held while
+    // the run is live and charged at its end: 97 are left either way.
+    let used = json!({
+        "model": {
+            "calls": 2,
+            "tokens": 300,
+            "input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "price": null,
+        },
+        "browser_time": 1_500,
+        "proxy_bytes": 4_096,
+        "requests": 3,
+        "paid_solves": [{ "currency": "USD", "amount": 20_000 }],
+        "limits": [{
             "scope": { "kind": "install", "id": "" },
             "usage_kind": "requests",
             "period": { "every": "month", "time_zone": "UTC" },
             "resets_at": "2026-02-01T00:00:00Z",
             "amount": 100,
-            "left": left,
+            "left": 97,
             "set_by": "client",
-        })
-    };
-    let used = |left: u64| {
-        json!({
-            "model": { "calls": 2, "tokens": 300 },
-            "browser_time": 1_500,
-            "proxy_bytes": 4_096,
-            "requests": 3,
-            "paid_solves": [{ "currency": "USD", "amount": 20_000 }],
-            "limits": [limit(left)],
-            "uncapped": true,
-        })
-    };
-    let live_left = replies[3]["result"]["limits"][0]["left"].as_u64().unwrap();
+        }],
+        "uncapped": true,
+    });
     assert_eq!(
         (
             &replies[3]["result"],
             &replies[4]["result"]["usage"],
             &replies[5]["result"],
         ),
-        (&used(live_left), &used(97), &used(97))
+        (&used, &used, &used)
     );
 }
 

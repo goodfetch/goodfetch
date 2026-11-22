@@ -143,6 +143,11 @@ count = 1
 how = "holds no value: the Daemon's serving and start locks, opened empty and only locked; its runtime file, tokens and service record, written through `durable::replace`, hold no Run's value either"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/effect/journal.rs"
+count = 2
+how = "masked: a body's output is masked as `Scope::Kept` before the journal keeps it (in `effect.rs`); keys, namespaces, states, the first command's name, the person who answered and points in time are the program's or the engine's own, and the Run's secret is random bytes the engine made"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/governor/system/linux.rs"
 count = 1
 how = "holds no value: it writes nothing, its one `OpenOptions` opening the `/proc` files a governor sample counts for reading only"
@@ -159,8 +164,8 @@ how = "holds no value: hosts and key hashes"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/ledger.rs"
-count = 2
-how = "holds no value: Usage counts"
+count = 3
+how = "holds no value: Usage counts, and in `run_limits` the Limits a program gave each Run when it began, a Run ID, a Usage kind, a currency code and an amount, none a resolved value"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/lowest_minor.rs"
@@ -174,8 +179,8 @@ how = "holds no value: a pinned download's bytes"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/politeness.rs"
-count = 3
-how = "holds no value: per-domain Politeness state"
+count = 4
+how = "holds no value: per-domain Politeness state, and each domain key's Delegation: the Run, its folder, its engine and wake endpoint"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"
@@ -261,6 +266,11 @@ how = "holds no value: downloaded Clean-up rules"
 path = "crates/goodfetch-page/src/launch.rs"
 count = 1
 how = "holds no value: the browser profile's starting preferences"
+
+[[writer]]
+path = "crates/goodfetch-page/src/launch/named_pipes.rs"
+count = 1
+how = "holds no value: the browser's ends of its debugging pipe on Windows, which the engine opens only to hand them to the browser and never writes through"
 
 [[writer]]
 path = "crates/goodfetch-page/src/proxy/limits.rs"

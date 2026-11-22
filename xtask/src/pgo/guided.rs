@@ -34,8 +34,17 @@ fn covered(work: &Path, foxhound: &Path) -> [(PathBuf, &'static str); 3] {
 }
 
 /// Records that `foxhound` was built from the merged profile and hot order
-/// in `<work>/guided`.
+/// in `<work>/guided`; refused for a build outside `work`, in a target
+/// folder that the checkout's other release builds, guided by the
+/// committed files, write their Foxhound to.
 pub(crate) fn record(work: &Path, foxhound: &Path) -> Result<()> {
+    if !foxhound.starts_with(work) {
+        bail!(
+            "the guided build of {} is outside the work folder {}, where another release build would overwrite it before `xtask pgo refresh --order-only` maps it",
+            foxhound.display(),
+            work.display()
+        );
+    }
     let [profile, order, foxhound] = covered(work, foxhound).map(|(path, _)| sha256(&path));
     let record = Record {
         profile: profile?,

@@ -1,0 +1,24 @@
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "PAID_FETCHES"
+entry = "none"
+reason = "A Usage kind."
+words = ["paid", "fetches"]
+form = "constant"

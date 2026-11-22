@@ -139,17 +139,33 @@ struct InputRecord {
     inputs: Vec<Input>,
 }
 
-/// One source: its path from the tree's folder, its size in bytes and its
+/// One source: its path from the tree's folder, its size in bytes (none for
+/// a folder, whose size Linux and Windows count each their own way) and its
 /// modification time in nanoseconds since the Unix epoch.
 #[derive(serde::Deserialize)]
 struct Input(PathBuf, u64, u64);
+
+/// The nanoseconds of the coarsest clock a source's time is read through:
+/// Windows keeps file times in 100 ns ticks, so Wine running a test built for
+/// it reads the time `xtask` recorded to the nanosecond on Linux in those
+/// ticks (issue 2767).
+const TICK: u64 = 100;
 
 /// The size and modification time of the file at `path`, as an [`Input`]
 /// holds them; `None` when it has none to read.
 fn stamp(path: &Path) -> Option<(u64, u64)> {
     let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
-    Some((metadata.len(), u64::try_from(modified.as_nanos()).ok()?))
+    let size = if metadata.is_dir() { 0 } else { metadata.len() };
+    Some((size, u64::try_from(modified.as_nanos()).ok()?))
+}
+
+/// Whether the file at `path` is as `input` recorded it: its size, and its
+/// modification time to the [`TICK`].
+fn unchanged(path: &Path, Input(_, size, modified): &Input) -> bool {
+    stamp(path).is_some_and(|(now_size, now_modified)| {
+        now_size == *size && now_modified / TICK == modified / TICK
+    })
 }
 
 /// Where the input record of the manifest at `manifest` is.
@@ -181,7 +197,7 @@ fn check_built_from(manifest: &Path, tree: &Path) -> Result<(), ToolsError> {
     match record
         .inputs
         .into_iter()
-        .find(|Input(path, size, modified)| stamp(&tree.join(path)) != Some((*size, *modified)))
+        .find(|input| !unchanged(&tree.join(&input.0), input))
     {
         Some(Input(input, ..)) => Err(ToolsError::Stale {
             manifest: manifest.to_owned(),

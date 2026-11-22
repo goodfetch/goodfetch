@@ -24,6 +24,7 @@ Commands:
   page             Calls the catalog's `page` operations
   locator          Calls the catalog's `locator` operations
   response         Calls the catalog's `response` operations
+  signing-key      Calls the catalog's `signing_key` operations
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
   crawl            Calls the catalog's `crawl` operations
@@ -57,7 +58,7 @@ Manages the browser builds this version pins in the Browser cache
 Usage: goodfetch-foxhound browser [OPTIONS] <COMMAND>
 
 Commands:
-  install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+  install  Downloads the builds this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images: those named, else every one a Run launches by default, all but `chrome-headless-shell` (`browser.headless_shell`)
   clean    Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
 
 Options:
@@ -65,9 +66,12 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-foxhound browser install --help
-Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+Downloads the builds this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images: those named, else every one a Run launches by default, all but `chrome-headless-shell` (`browser.headless_shell`)
 
-Usage: goodfetch-foxhound browser install [OPTIONS]
+Usage: goodfetch-foxhound browser install [OPTIONS] [NAMES]...
+
+Arguments:
+  [NAMES]...  The builds to download, by the name they are pinned under [possible values: chrome-for-testing, chrome-headless-shell]
 
 Options:
       --json          Prints the result as JSON
@@ -542,7 +546,7 @@ Usage: goodfetch-foxhound run [OPTIONS] <COMMAND>
 Commands:
   new-page          Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
   new-session       Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call
-  start             Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  start             Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh
   finish            Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
   stop              Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does
   abort             Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
@@ -553,7 +557,7 @@ Commands:
   checkpoint        Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
   pause             Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
   migrate           Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
-  resume            Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+  resume            Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
   seeds             Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds
   add-seed          Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
   add-seeds         Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
@@ -604,21 +608,22 @@ Options:
   -h, --help               Print help
 
 $ goodfetch-foxhound run start --help
-Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh
 
 Usage: goodfetch-foxhound run start [OPTIONS]
 
 Options:
-      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
-      --run-id <RUN_ID>    The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID returns that Run when the caller and the inputs match, and fails with `run_conflict` otherwise
-      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
-      --tags <TAGS>        The Run's opaque tags
-      --json               Prints the result as JSON
-      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
-      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-  -h, --help               Print help
+      --limit <KIND=AMOUNT>  Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>    The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>      The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID reaches that Run when the caller and the inputs match, as `run.start` says, and fails with `run_conflict` otherwise
+      --set <KEY=VALUE>      Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->    Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>          The Run's opaque tags
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                 Print help
 
 $ goodfetch-foxhound run finish --help
 Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
@@ -629,7 +634,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds, at least 1, as `timeout.run` for this call alone: absent or `null` for none, since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the call fails with `deadline_exceeded` and only the wait ends
       --json                Prints the result as JSON
       --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -646,7 +651,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --timeout <DURATION>  How long the call waits for the Run's safe point, in milliseconds, at least 1: absent for the Run's `timeout.close`, `null` for none (ADR 0080). Past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point
       --json                Prints the result as JSON
       --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -795,7 +800,7 @@ Options:
   -h, --help                 Print help
 
 $ goodfetch-foxhound run resume --help
-Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
 
 Usage: goodfetch-foxhound run resume [OPTIONS] <RUN_ID>
 
@@ -1264,6 +1269,47 @@ Options:
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help
 
+$ goodfetch-foxhound signing-key --help
+Calls the catalog's `signing_key` operations
+
+Usage: goodfetch-foxhound signing-key [OPTIONS] <COMMAND>
+
+Commands:
+  create     Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`
+  directory  Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound signing-key create --help
+Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`
+
+Usage: goodfetch-foxhound signing-key create [OPTIONS] --signing-key <SIGNING_KEY>
+
+Options:
+      --signing-key <SIGNING_KEY>  The Secret reference of the item the key is kept in, a `keychain:` or a `secretfile:` one, such as `keychain:goodfetch/signing-key`; the value `identified.signing_key` then takes
+      --json                       Prints the result as JSON
+      --attached                   Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                     Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                       Print help
+
+$ goodfetch-foxhound signing-key directory --help
+Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused
+
+Usage: goodfetch-foxhound signing-key directory [OPTIONS] --authority <AUTHORITY> --signing-keys <SIGNING_KEYS>
+
+Options:
+      --authority <AUTHORITY>        The authority of the origin that serves the directory, its host and its port when not the scheme's own, such as `bot.example`, which the signatures cover: the origin `identified.signature_agent` names
+      --signing-keys <SIGNING_KEYS>  The Secret references of the keys the directory publishes, each proven by its own signature: the key in use, and while a rotation lasts the one before or after it
+      --valid-for <VALID_FOR>        How long the directory's signatures stay valid, in milliseconds, after which it is exported again; seven days when none is given
+      --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                         Print help
+
 $ goodfetch-foxhound key-value-store --help
 Calls the catalog's `key_value_store` operations
 
@@ -1400,7 +1446,7 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
-Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
+Deprecated. Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.
 
 $ goodfetch-foxhound sample crawl --help
 Visits sample pages, each repeating a text
@@ -1437,13 +1483,14 @@ Arguments:
   [URL]...  A seed of the crawl, its URL; repeatable
 
 Options:
-      --labels <LABELS>       The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue; a Label the crawl does not declare takes any Payload
+      --labels <LABELS>       The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue. A seed, a sitemap rule or an enqueue naming a Label the crawl does not declare fails with `label_unknown`, and so does a start under the ID of a Run with pending requests of a Label no longer declared, before any work; a code-free crawl declares its own Label
+      --limit <KIND=AMOUNT>   Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
       --project <PROJECT>     The project configuration the Client found, layer 3 (ADR 0083)
       --run-id <RUN_ID>       The Run's ID, as `run.start` takes it
       --set <KEY=VALUE>       Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
       --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
-      --tags <TAGS>           The Run's opaque tags
       --color <WHEN>          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --tags <TAGS>           The Run's opaque tags
       --format <NAME>         A format each page's Record holds, as `page.formats` gives it; repeatable; `markdown` when neither a format nor a field is given [possible values: contacts, html, images, links, markdown, media, metadata, tables, text]
       --field <NAME=LOCATOR>  A named field each page's Record holds: the text of the first element a CSS selector, or an XPath expression after `xpath:`, finds; repeatable
       --fields <FILE|->       Reads named fields, each with its locator and its Value transform, as one JSON object by name in FILE, or from standard input for `-`; `--field` beats it

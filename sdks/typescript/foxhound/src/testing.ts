@@ -8,4 +8,4 @@
 // player, so a program's tests run its code with no engine process.
 // Importing it reads, patches and logs nothing (ADR 0078).
 export type { ConnectOverOptions } from "@goodfetch/collie-client";
-export { connectOver } from "./foxhound.ts";
+export { connectOver, type FoxhoundConnectOverOptions } from "./foxhound.ts";

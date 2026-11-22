@@ -2,12 +2,12 @@
 //! text published about either Product uses a term of `wording.toml`. It
 //! matches whole words, whatever their case, in prose only, and skips code.
 //!
-//! It reads the docs pages (`docs/` but `docs/adr/` and `docs/agents/`, and
-//! the site's own pages in `website/`), every README and `CHANGELOG.md`, the
-//! skills (`skills/`), the descriptions, titles and messages of the generated
-//! catalog and JSON Schema bundle (the settings schema and the Error codes'
-//! messages among them), and every package's description and keywords (Cargo,
-//! npm and PyPI manifests). Frozen `rnd/` and fixtures are never read.
+//! It reads the docs pages (`docs/` but `docs/adr/`, `docs/agents/` and
+//! `docs/testing/`, and the site's own pages in `website/`), every README and
+//! `CHANGELOG.md`, the skills (`skills/`), the descriptions, titles and
+//! messages of the generated catalog and JSON Schema bundle (the settings
+//! schema and the Error codes' messages among them), and every package's
+//! description and keywords (Cargo, npm and PyPI manifests). Frozen `rnd/` and fixtures are never read.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -25,9 +25,9 @@ use crate::tree;
 /// The one list of terms (ADR 0097).
 const LIST: &str = "wording.toml";
 
-/// Folders of `docs/` that publish nothing: the decisions and the agents'
-/// configuration.
-const UNPUBLISHED: [&str; 2] = ["docs/adr/", "docs/agents/"];
+/// Folders of `docs/` that publish nothing: the decisions, the agents'
+/// configuration and the sections of `TESTING.md`.
+const UNPUBLISHED: [&str; 3] = ["docs/adr/", "docs/agents/", "docs/testing/"];
 
 /// The generated contract files whose texts are published (ADR 0038).
 const CONTRACTS: [&str; 2] = [

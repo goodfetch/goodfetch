@@ -9,7 +9,7 @@ use std::path::Path;
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
 use super::{ChangedParts, RepoPath};
 use crate::register::document as register;
-use crate::{foxhound_side, kennel, perf, screenshots, tlc};
+use crate::{features, foxhound_side, kennel, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -96,6 +96,10 @@ pub(crate) struct Selection {
     /// Whether the change is documents alone: at least one path, and every
     /// path a document (`is_document`).
     documents_only: bool,
+    /// Whether the change reaches what only xtask's codegen tests check
+    /// (`is_codegen_test_input`), which `just quick` and the quick gate then
+    /// run beside the Quick suite (`just codegen-tests`).
+    codegen_tests: bool,
 }
 
 /// The folder of every sink process (ADR 0087).
@@ -124,11 +128,19 @@ pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
             .any(|folder| path.is_in(folder))
 }
 
+/// The Markdown files no test reads from which `xtask codegen` builds a
+/// file, which `just lint`'s `xtask codegen --check` checks and `just
+/// lint-documents` does not: ADR 0037's matrix, whose rows are the Feature
+/// inventory's `row:` Features (#2476).
+const CODEGEN_INPUTS: [&str; 1] = [features::MATRIX];
+
 /// Whether the path is a document: Markdown among the paths no test reads,
 /// which only the checks of `just lint` that read documents check (`just
-/// lint-documents`). Any other file, even one no test reads, is not.
+/// lint-documents`). Any other file, even one no test reads, is not, nor is
+/// an input of `xtask codegen` (`CODEGEN_INPUTS`).
 fn is_document(path: &RepoPath) -> bool {
     needs_no_tests(path)
+        && !CODEGEN_INPUTS.contains(&path.as_str())
         && Path::new(path.as_str())
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
@@ -152,6 +164,48 @@ fn is_visual_input(path: &RepoPath) -> bool {
     is_visual_test(name)
         || screenshots::is_reference_screenshot(Path::new(path.as_str()))
         || VISUAL_INPUTS.iter().any(|input| path.is_in(input))
+}
+
+/// What only xtask's codegen tests (`xtask/tests/it/codegen.rs`) check, as
+/// `tests/` tests the Quick suite never runs. `xtask codegen` writes their
+/// fixture's committed outputs and SDK layers from xtask's own code and the
+/// protocol crate's, and the fixture holds some of the protocol crate's files
+/// as they are: the emitter and the xtask modules it renders through
+/// (Feature schemas and inventory, the licence allowlist, the refusal
+/// samples, the Products' folders), the protocol files the fixture copies,
+/// those whose items the emitter writes into the fixture (the Attached
+/// engine's name, the engine path variables, the format and refusal types),
+/// and the tests' own file and fixture. A change to one can leave the
+/// fixture's copy, its committed outputs or the SDK layer snapshots stale
+/// without a red Quick suite, as commit f6abad1cf did (issue 2892).
+const CODEGEN_TEST_INPUTS: [&str; 18] = [
+    "xtask/src/codegen.rs",
+    "xtask/src/codegen",
+    "xtask/src/features.rs",
+    "xtask/src/features",
+    "xtask/src/license_allowlist.rs",
+    "xtask/src/compat/refusals.rs",
+    "xtask/src/products.rs",
+    "crates/goodfetch-protocol/src/catalog.rs",
+    "crates/goodfetch-protocol/src/catalog",
+    "crates/goodfetch-protocol/src/wire_name.rs",
+    "crates/goodfetch-protocol/src/secret_reference.rs",
+    "crates/goodfetch-protocol/src/cli.rs",
+    "crates/goodfetch-protocol/src/settings/deployment.rs",
+    "crates/goodfetch-protocol/src/formats.rs",
+    "crates/goodfetch-protocol/src/refusals.rs",
+    "xtask/tests/it/codegen.rs",
+    "xtask/tests/it/fixtures/codegen",
+    "xtask/tests/it/workspace.rs",
+];
+
+/// The file-name prefix of the codegen tests' insta snapshots.
+const CODEGEN_TEST_SNAPSHOTS: &str = "xtask/tests/it/snapshots/it__codegen__";
+
+/// Whether a change to the path can turn xtask's codegen tests red.
+fn is_codegen_test_input(path: &RepoPath) -> bool {
+    CODEGEN_TEST_INPUTS.iter().any(|input| path.is_in(input))
+        || path.as_str().starts_with(CODEGEN_TEST_SNAPSHOTS)
 }
 
 /// What TLC's job reads besides the models: the pinned tools and the
@@ -280,8 +334,9 @@ struct Changed<'a> {
     jobs: BTreeSet<Job>,
     crates: BTreeSet<String>,
     /// The crates whose tests alone change: a path of their `tests/`
-    /// folder, which no build reads, so it reaches no dependant, no
-    /// executable and no bench target.
+    /// folder, which no build reads, or an executable their tests run
+    /// (`runs`), so it reaches no dependant, no executable and no bench
+    /// target.
     tested: BTreeSet<String>,
     packages: Vec<&'a Package>,
 }
@@ -349,6 +404,10 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     // A crate's executable changes with it and with what its build depends
     // on, not with its dev-dependencies; a crate or package whose tests run
     // a changed executable through the test tool manifest is reached by it.
+    // Such a crate's tests alone are reached: no build reads the executable,
+    // so its bench targets and its dependants stay out unless they name it
+    // in `runs` themselves (the owner's « Oui » of 2026-11-04, issue 2090's
+    // F9).
     let members: Vec<&Crate> = workspace.crates.iter().collect();
     let built = names(&with_dependants(
         &members,
@@ -369,7 +428,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     {
         changed.jobs.insert(Job::Kennel);
     }
-    changed.crates.extend(
+    changed.tested.extend(
         workspace
             .crates
             .iter()
@@ -547,6 +606,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
         bench_targets,
         models,
         documents_only: !paths.is_empty() && paths.iter().all(is_document),
+        codegen_tests: paths.iter().any(is_codegen_test_input),
     }
 }
 
@@ -652,6 +712,7 @@ impl fmt::Display for Selection {
             "models={}",
             joined(self.models.iter().map(String::as_str))
         )?;
+        writeln!(formatter, "codegen-tests={}", self.codegen_tests)?;
         writeln!(formatter, "gate={}", self.gate())
     }
 }

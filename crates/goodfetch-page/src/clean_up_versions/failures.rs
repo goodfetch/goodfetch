@@ -193,6 +193,8 @@ pub(super) fn refusal(
                 key: CLEAN_UP_VERSION.name.to_owned(),
                 layer: Some(layer),
                 reason: "is no digest `sha256:<hex>`".to_owned(),
+                limit: None,
+                fix: None,
             },
         ),
         Unobtained::Offline { layer } => CallError::new(
@@ -206,6 +208,7 @@ pub(super) fn refusal(
                     key: EGRESS_OFFLINE.name.to_owned(),
                     value: json!(true),
                     layer: *layer,
+                    origin: None,
                 },
                 fix: "Lift `egress.offline` where it was set, or pin a version this machine holds."
                     .to_owned(),

@@ -31,7 +31,6 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_page::Launcher;
-use goodfetch_page::blocks::NoBlocks;
 use goodfetch_page::page_value::ProgramPages;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, ProductVersion};
@@ -45,6 +44,8 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
+
+use crate::handler_page::NoBlocks;
 
 /// How long the relay holds `Runtime.enable`'s answer back behind a call that
 /// must come after it: long past what a call that does not wait takes to reach
@@ -362,7 +363,7 @@ async fn behind_a_relay<T>(
 
 /// A runtime for one test, on real time, as the browser answers.
 fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts")

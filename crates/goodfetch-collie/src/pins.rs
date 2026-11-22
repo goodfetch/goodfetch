@@ -3,16 +3,20 @@
 //! fetches and whose entries the clean-up keeps. Foxhound's version pins the
 //! same, since it launches what Collie launches.
 //!
-//! Chrome for Testing's build is the one Playwright's pinned release runs.
-//! Its digests are `pins.json`, which `examples/pin-chrome-for-testing.rs`
-//! writes: a platform with no archive digest yet is never downloaded, only
-//! launched from a cache that holds it, and a platform the file does not
-//! list has no pinned build. The file also holds the ALPS payload the build
+//! Chrome for Testing's build is the one Playwright's pinned release runs,
+//! with its `chrome-headless-shell` build of the same release beside it
+//! (`browser.headless_shell`, #3224). Their digests are `pins.json`, which
+//! `examples/pin-chrome-for-testing.rs` writes: a platform with no archive
+//! digest yet is never downloaded, only launched from a cache that holds
+//! it, and a platform the file does not list, or lists with no
+//! `headless_shell`, has no pinned build of that name. The file also holds the ALPS payload the build
 //! sends, which the same tool captures when it pins the build (ADR 0042):
 //! the egress relay sends a site the same, and a build without one is no
 //! pin this reads, rather than one whose relay sends another.
 
-use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, PinnedArtifact};
+use goodfetch_engine::browser_cache::{
+    BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, PinnedArtifact,
+};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use std::collections::BTreeMap;
 
@@ -60,25 +64,45 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
         .as_object()
         .into_iter()
         .flatten()
-        .map(|(platform, digests)| {
-            let digest = |key: &str| {
-                digests[key]
-                    .as_str()
-                    .map(|text| text.parse().expect("invariant: pins.json's digests read"))
-            };
-            PinnedArtifact {
-                id: ArtifactId {
-                    kind: ArtifactKind::Browser,
-                    name: CHROME_FOR_TESTING.to_owned(),
-                    build: build.to_owned(),
-                },
-                platform: Some(build_platform(platform)),
-                url: format!("{STORAGE}/{build}/{platform}/chrome-{platform}.zip"),
-                archive_digest: digest("archive_digest"),
-                digest: digest("digest").expect("invariant: each pinned platform has its digest"),
-                application_settings: application_settings.clone(),
-            }
+        .flat_map(|(platform, digests)| {
+            let shell = digests
+                .get("headless_shell")
+                .map(|shell| (CHROME_HEADLESS_SHELL, "chrome-headless-shell", shell));
+            [(CHROME_FOR_TESTING, "chrome", digests)]
+                .into_iter()
+                .chain(shell)
+                .map(|(name, archive, digests)| {
+                    let digest = |key: &str| {
+                        digests[key]
+                            .as_str()
+                            .map(|text| text.parse().expect("invariant: pins.json's digests read"))
+                    };
+                    PinnedArtifact {
+                        id: ArtifactId {
+                            kind: ArtifactKind::Browser,
+                            name: name.to_owned(),
+                            build: build.to_owned(),
+                        },
+                        platform: Some(build_platform(platform)),
+                        url: format!("{STORAGE}/{build}/{platform}/{archive}-{platform}.zip"),
+                        archive_digest: digest("archive_digest"),
+                        digest: digest("digest")
+                            .expect("invariant: each pinned platform has its digest"),
+                        application_settings: application_settings.clone(),
+                    }
+                })
+                .collect::<Vec<_>>()
         })
+        .collect()
+}
+
+/// The ids of every artifact this version pins, which an executable or
+/// linked program records in the list of installed executables so the
+/// clean-up keeps their entries (ADR 0098).
+pub(crate) fn pinned_artifact_ids() -> Vec<ArtifactId> {
+    pinned_artifacts()
+        .into_iter()
+        .map(|artifact| artifact.id)
         .collect()
 }
 
@@ -98,3 +122,6 @@ fn build_platform(platform: &str) -> BuildPlatform {
     BuildPlatform::of_chrome_for_testing_name(platform)
         .unwrap_or_else(|| panic!("invariant: pins.json names no platform `{platform}`"))
 }
+
+#[cfg(test)]
+mod tests;

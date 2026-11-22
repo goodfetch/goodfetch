@@ -9,7 +9,7 @@ use goodfetch_engine::admission::{Admission, Admitted, Ended};
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::page::PageResponse;
 use serde_json::{Map, Value};
@@ -87,6 +87,7 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         | Why::PageCheckFailed { .. }
         | Why::Proxy
         | Why::Handler
+        | Why::Hook
         | Why::OutcomeNotWritten
         | Why::Panicked
         | Why::Other => Ended::Done,

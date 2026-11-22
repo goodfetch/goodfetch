@@ -18,19 +18,23 @@
 //! `run_epoch` when a later writer holds the run file).
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::{Deadline, Enclosing};
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
+use goodfetch_protocol::connection::EnclosingCall;
+use goodfetch_protocol::foxhound::crawl::{
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord, TIMEOUT_HANDLER,
+};
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::jsonrpc::RequestId;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -40,6 +44,9 @@ use crate::work_items::{self, Changed, CleanUpRules, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
+
+/// How often a permit's wait renews its lease, as a share of its length.
+const RENEWALS_PER_LENGTH: u32 = 4;
 
 /// One attempt's lease of a work item, as a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +110,9 @@ pub(crate) struct Leases {
     /// The Clean-up rules the Run holds to, which its first commit that
     /// keeps Records reads for every one after it.
     clean_up_rules: CleanUpRules,
+    /// The Run's `timeout.handler`, which each handler call sent under a
+    /// lease waits under.
+    handler_timeout: Arc<Deadline>,
 }
 
 impl Leases {
@@ -119,7 +129,17 @@ impl Leases {
             datasets: Datasets::default(),
             keys: None,
             clean_up_rules: CleanUpRules::default(),
+            handler_timeout: Arc::new(Deadline::declared(&TIMEOUT_HANDLER)),
         }
+    }
+
+    /// The same, each handler call sent under a lease waiting under
+    /// `timeout`, the Run's `timeout.handler` as its settings resolved it
+    /// once; the setting's declared default otherwise.
+    #[must_use]
+    pub(crate) fn handled_under(mut self, timeout: Deadline) -> Self {
+        self.handler_timeout = Arc::new(timeout);
+        self
     }
 
     /// The same, each commit keying the work items it adds under `keys`,
@@ -168,12 +188,14 @@ impl Leases {
             lease,
             released: false,
             expired: false,
+            permit_waits: 0,
         });
         let granted = WorkItemLease(Arc::new(Shared {
             leases: self.clone(),
             work_item: Arc::from(work_item),
             length,
             state,
+            handler: watch::Sender::new(None),
         }));
         granted.trace("grant", &lease, None);
         granted
@@ -192,6 +214,9 @@ struct Shared {
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
+    /// The end of the handler call last sent under it, which encloses the
+    /// calls its handler makes (ADR 0080), built once as it is sent.
+    handler: watch::Sender<Option<Enclosing>>,
 }
 
 impl Drop for Shared {
@@ -208,6 +233,9 @@ struct Held {
     released: bool,
     /// Whether its end was traced.
     expired: bool,
+    /// How many of its handler's waits for a navigation-gate permit are
+    /// under way, which its handler's time does not count (ADR 0093).
+    permit_waits: u32,
 }
 
 /// What an attempt's commit committed, for its caller to finish.
@@ -242,7 +270,7 @@ pub(crate) struct Commit {
     /// Its answer's Records, checked against their Datasets on the page's
     /// task rather than on the writer's thread, or the first refusal.
     records: Result<Checked, CallError>,
-    ended_at: PointInTime,
+    ended_at: SystemTime,
 }
 
 impl Commit {
@@ -252,7 +280,7 @@ impl Commit {
     }
 
     /// When its work item's outcome ends.
-    pub(crate) fn ended_at(&self) -> &PointInTime {
+    pub(crate) fn ended_at(&self) -> &SystemTime {
         &self.ended_at
     }
 
@@ -339,17 +367,26 @@ pub(crate) enum CommitError {
 impl WorkItemLease {
     /// Renews it for `length` from now; one that ended stays ended.
     pub(crate) fn renew(&self, length: Duration) {
+        self.renew_counting(length, |_| false);
+    }
+
+    /// Renews it for `length` from now, unless it ended, in the same step
+    /// as `count` changes its count of permit waits under way, so its
+    /// handler's end never reads one without the other; `count` says
+    /// whether it changed the count.
+    fn renew_counting(&self, length: Duration, count: impl FnOnce(&mut u32) -> bool) {
         let now = self.0.leases.clock.now();
         let mut renewed = None;
         self.0.state.send_if_modified(|held| {
+            let counted = count(&mut held.permit_waits);
             if held.released || !held.lease.holds_at(now) {
-                return false;
+                return counted;
             }
             let lease = held.lease.renewed(now, length);
             renewed = Some(lease);
             let lengthened = lease != held.lease;
             held.lease = lease;
-            lengthened
+            counted || lengthened
         });
         if let Some(lease) = renewed {
             self.trace("renew", &lease, None);
@@ -359,6 +396,74 @@ impl WorkItemLease {
     /// How long it was granted for.
     pub(crate) fn length(&self) -> Duration {
         self.0.length
+    }
+
+    /// Holds it through a wait of its handler's for a navigation gate's
+    /// permit, until `wait_ended` (ADR 0093): renews it now and
+    /// `RENEWALS_PER_LENGTH` times per length, and its handler's time does
+    /// not run meanwhile; at the wait's end, renews it once more, and the
+    /// handler's time runs again from there.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops renewing it and leaves the wait counted,
+    /// until the lease runs out.
+    pub(crate) async fn held_through_permit_wait(&self, wait_ended: impl Future) {
+        let length = self.0.length;
+        self.renew_counting(length, |waits| {
+            *waits += 1;
+            true
+        });
+        tokio::pin!(wait_ended);
+        loop {
+            tokio::select! {
+                _ = &mut wait_ended => break,
+                () = self.0.leases.clock.sleep(length / RENEWALS_PER_LENGTH) => self.renew(length),
+            }
+        }
+        self.renew_counting(length, |waits| {
+            *waits = waits
+                .checked_sub(1)
+                .expect("invariant: a permit wait ends after it began");
+            true
+        });
+    }
+
+    /// Keeps the handler call `id`, sent under it, as the call enclosing
+    /// the calls its handler makes from now on (ADR 0080). Its end is the
+    /// lease's end less the lease's margin over the Run's
+    /// `timeout.handler`, so a renewal moves it as it moves the lease.
+    /// While a navigation-gate permit's wait is under way (ADR 0093) its
+    /// time does not run: its end stays the timeout ahead, and the wait's
+    /// last renewal, at its end, starts the handler's time again from
+    /// there.
+    pub(crate) fn handler_sent(&self, id: RequestId) {
+        let timeout = &self.0.leases.handler_timeout;
+        let call = EnclosingCall {
+            operation: CRAWL_REQUEST_HANDLE.name.to_owned(),
+            call_id: id,
+        };
+        let (clock, duration) = (self.0.leases.clock, timeout.duration());
+        let margin = self.0.length.saturating_sub(duration);
+        // The end reads the lease's state rather than the lease, which
+        // holds it: the lease would never drop.
+        let held = self.0.state.subscribe();
+        self.0
+            .handler
+            .send_replace(Some(Enclosing::new(timeout, call, move || {
+                let held = *held.borrow();
+                let (now, expires_at) = (clock.now(), held.lease.expires_at());
+                if held.permit_waits > 0 && held.lease.holds_at(now) {
+                    return now.checked_add(duration).unwrap_or(expires_at);
+                }
+                expires_at.checked_sub(margin).unwrap_or(expires_at)
+            })));
+    }
+
+    /// The end of the handler call last sent under it ([`Self::handler_sent`]);
+    /// none until one is sent, and a code-free crawl sends none.
+    pub(crate) fn enclosing(&self) -> Option<Enclosing> {
+        self.0.handler.borrow().clone()
     }
 
     /// Gives it back as its attempt ends; it then lets nothing more leave.
@@ -408,7 +513,8 @@ impl WorkItemLease {
 
     /// Sets aside what its attempt staged so far, its run that commits,
     /// while a run whose staging is discarded runs after it (a sample's
-    /// `discovered_api` run); `None` once the attempt ended.
+    /// `discovered_api` run, or the Record stage's Hooks); `None` once the
+    /// attempt ended.
     pub(crate) fn set_aside(&self) -> Option<SetAside> {
         let epoch = self.0.state.borrow().lease.epoch();
         self.0.leases.staging.set_aside(&self.0.work_item, epoch)
@@ -523,7 +629,7 @@ impl WorkItemLease {
         state: &RunState,
         masks: &Masks,
         records: Vec<PushedRecord>,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Committed, CommitError> {
         let commit = self.committing(state, masks, records, ended_at)?;
         let written = state
@@ -544,7 +650,7 @@ impl WorkItemLease {
         state: &RunState,
         masks: &Masks,
         records: Vec<PushedRecord>,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Commit, CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {

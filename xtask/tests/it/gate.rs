@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 
 use crate::affected::{commit_all, repository, value};
 use crate::github::GitHub;
-use rstest::rstest;
 
-use crate::workspace::{Outcome, Workspace, write_executable};
+#[cfg(unix)]
+use crate::workspace::write_executable;
+use crate::workspace::{Outcome, Workspace};
 
 /// Now, in seconds since the Unix epoch, for every run.
 const NOW: &str = "1800000000";
@@ -47,6 +48,7 @@ fn plan_with(workspace: &Workspace, records: &Path, environment: &str, extra: &[
 
 /// The plan for the head checked out, as `xtask gate plan` prints it and
 /// `ci/pre-merge.sh` reads it.
+#[cfg(unix)]
 pub(crate) fn plan_text(workspace: &Workspace, records: &Path) -> String {
     planned(workspace, records, "CI=", &[]).stdout
 }
@@ -468,10 +470,13 @@ const SHUFFLED: [&str; 4] = [
 #[case::ci_perf("ci/perf.sh", &["perf"], false)]
 #[case::ci_linux("ci/linux.sh", &["linux"], false)]
 #[case::ci_visual("ci/visual/run.sh", &["visual"], false)]
-#[case::ci_container("ci/container.sh", &["linux", "perf", "visual"], false)]
+#[case::ci_container("ci/container.sh", &["linux", "perf", "visual", "windows"], false)]
 #[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
 #[case::ci_miri("ci/miri.toml", &["miri"], false)]
 #[case::ci_loom("ci/loom.toml", &["loom"], false)]
+#[case::ci_windows("ci/windows.sh", &["windows"], false)]
+#[case::ci_windows_image("ci/windows/Containerfile", &["windows"], false)]
+#[case::ci_windows_skips("ci/windows/skips.toml", &["windows"], false)]
 fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
     #[case] path: &str,
     #[case] steps: &[&str],
@@ -529,7 +534,9 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
         second.why["pre-merge"]
     );
     // Its evidence reaches xtask's tests alone, which no crate depends on.
-    for step in ["perf", "msrv", "miri", "loom", "tlc", "visual", "kennel"] {
+    for step in [
+        "perf", "msrv", "miri", "loom", "windows", "tlc", "visual", "kennel",
+    ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }
@@ -778,7 +785,7 @@ fn a_run_in_another_environment_reuses_nothing() {
 /// version is not reused with it at another, whichever step ran it. A
 /// stand-in first on `PATH` (and before Cargo's own folder, where Cargo
 /// looks for its subcommands) gives the other version.
-#[rstest]
+#[rstest::rstest]
 #[case::just("just")]
 #[case::rustups_toolchains("rustup")]
 #[case::typos("typos")]
@@ -793,6 +800,7 @@ fn a_run_in_another_environment_reuses_nothing() {
 #[case::cargo_fuzz("cargo-fuzz")]
 #[case::cargo_audit("cargo-audit")]
 #[case::cargo_insta("cargo-insta")]
+#[cfg(unix)]
 fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
     let (workspace, _folder, records) = gated_repository(&[]);
     let first = first_run(&workspace, &records);
@@ -823,6 +831,7 @@ fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
 
 /// `PATH` with `folder` first, then Cargo's own folder, where Cargo looks
 /// for its subcommands before `PATH`, then the host's.
+#[cfg(unix)]
 fn path_starting_with(folder: &Path) -> std::ffi::OsString {
     let cargo_home = std::env::var_os("CARGO_HOME").map_or_else(
         || Path::new(&std::env::var_os("HOME").unwrap()).join(".cargo"),
@@ -849,6 +858,7 @@ fn host_changed_since(head: &str) -> String {
 /// standing first on `PATH`: a command no step runs, put there the same way,
 /// leaves the gate's results reused.
 #[test]
+#[cfg(unix)]
 fn a_command_no_step_runs_first_on_the_path_keeps_the_gates_results() {
     let (workspace, _folder, records) = gated_repository(&[]);
     first_run(&workspace, &records);
@@ -876,6 +886,7 @@ fn a_command_no_step_runs_first_on_the_path_keeps_the_gates_results() {
 /// toolchain rustup holds has other components. `rustup` is a stand-in
 /// that lists one toolchain and, as its components, the file beside it.
 #[test]
+#[cfg(unix)]
 fn a_run_after_a_toolchain_lost_a_component_reuses_nothing() {
     let (workspace, _folder, records) = gated_repository(&[]);
     let stand_in = tempfile::tempdir().unwrap();
@@ -1496,7 +1507,9 @@ fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_wha
     suites.insert("xtask".to_owned());
     assert_eq!(members(&second, "quick"), suites);
     assert_eq!(members(&second, "pre-merge"), suites);
-    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri", "loom"] {
+    for step in [
+        "perf", "visual", "tlc", "kennel", "msrv", "miri", "loom", "windows",
+    ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }

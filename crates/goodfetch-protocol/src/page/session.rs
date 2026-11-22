@@ -28,7 +28,7 @@ pub struct NewSessionParams {
     /// and 0092).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -39,8 +39,10 @@ pub struct NewSessionParams {
     /// Clean-up rules over the Run's, and `browser.service_workers` whether
     /// a site's service workers run in them, and `session.page_check` the
     /// Page check its pages are judged against, and `content.extractor`
-    /// the main-content step their formats read with. `session.source` is
-    /// refused here with `setting_not_applicable`,
+    /// the main-content step their formats read with; `browser.access_mode`
+    /// and the `stealth.*` items its Access mode and Identity profile, and
+    /// the `proxy.*` keys its proxy, which it keeps for its life.
+    /// `session.source` is refused here with `setting_not_applicable`,
     /// as the call's own `source` sets it, and so is any other key, which
     /// only the Run sets.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
@@ -99,7 +101,8 @@ pub struct NewSessionPageParams {
     /// over its Session's and its Run's: `content.extractor`, the
     /// main-content step its formats read with. Any other key is refused
     /// with `setting_not_applicable`, as only its Session or its Run sets
-    /// it.
+    /// it; the Session's Access mode, Identity profile and proxy only its
+    /// opening sets.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: Map<String, Value>,

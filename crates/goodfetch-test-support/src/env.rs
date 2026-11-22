@@ -10,7 +10,7 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -89,6 +89,8 @@ const USER_CONFIGURATION: &str = "configuration.toml";
 pub struct TestEnv {
     folder: tempfile::TempDir,
     home: PathBuf,
+    /// The lines its user configuration starts with, `log.level` aside.
+    defaults: String,
     /// The `log.level` of its user configuration.
     log_level: std::cell::RefCell<String>,
     crash_dumps: PathBuf,
@@ -224,7 +226,8 @@ impl TestEnv {
         }
         #[cfg(unix)]
         restrict_to_owner(&root.join("runtime"))?;
-        write_user_configuration(&home, "", &log_level())?;
+        let defaults = defaults(variables);
+        write_user_configuration(&home, &defaults, "", &log_level())?;
         env.insert("TZ".to_owned(), "UTC".to_owned());
         env.insert("LANG".to_owned(), "C.UTF-8".to_owned());
         let record = ExerciseRecord::of(variables);
@@ -244,6 +247,7 @@ impl TestEnv {
         Ok(Self {
             folder,
             home,
+            defaults,
             log_level: std::cell::RefCell::new(log_level()),
             crash_dumps,
             env,
@@ -296,17 +300,22 @@ impl TestEnv {
     }
 
     /// Writes the home's user configuration with `settings`, lines of TOML
-    /// under `[settings]`, after [`TEST_SETTINGS`] and the test's
-    /// `log.level`, which every test's home starts with, each unless
-    /// `settings` sets its key itself.
+    /// under `[settings]`, after [`TEST_SETTINGS`] (with
+    /// `browser.headless_shell = true` where the tests run with no GUI
+    /// session) and the test's `log.level`, which every test's home starts
+    /// with, each unless `settings` sets its key itself.
     ///
     /// # Panics
     ///
     /// If the file cannot be written.
     pub fn user_configuration(&self, settings: &str) {
-        write_user_configuration(&self.home, settings, &self.log_level.borrow()).unwrap_or_else(
-            |error| panic!("the test's user configuration cannot be written: {error}"),
-        );
+        write_user_configuration(
+            &self.home,
+            &self.defaults,
+            settings,
+            &self.log_level.borrow(),
+        )
+        .unwrap_or_else(|error| panic!("the test's user configuration cannot be written: {error}"));
     }
 
     /// Sets the `log.level` of every engine the test starts from now on,
@@ -355,6 +364,16 @@ impl TestEnv {
     /// The cleared environment of every child the test starts.
     pub fn env(&self) -> &BTreeMap<String, String> {
         &self.env
+    }
+
+    /// [`TestEnv::env`] as a map of OS strings, the form an SDK's connect
+    /// options take an environment in.
+    #[must_use]
+    pub fn env_os(&self) -> BTreeMap<OsString, OsString> {
+        self.env
+            .iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect()
     }
 
     /// The test's seed (ADR 0060).
@@ -680,14 +699,37 @@ fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
     replace(&file, &(lines.join("\n") + "\n"))
 }
 
-/// Writes `home`'s user configuration: [`TEST_SETTINGS`] and `log.level`
-/// at `log_level`, each unless `settings` sets its key, then `settings`.
-fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io::Result<()> {
+/// The setting a test's user configuration adds to [`TEST_SETTINGS`] where
+/// the tests run with no GUI session ([`Variables::no_gui_session`]): there
+/// Chrome for Testing's full build cannot start headless, and its headless
+/// shell can (#3224). Its first segment sorts before every other one's, so
+/// the file stays in the order the engine's settings writer keeps.
+const NO_GUI_SESSION_SETTINGS: &str = "browser.headless_shell = true\n";
+
+/// The lines a test's user configuration starts with under `variables`,
+/// `log.level` aside: [`TEST_SETTINGS`], after
+/// [`NO_GUI_SESSION_SETTINGS`] where the tests run with no GUI session.
+fn defaults(variables: &Variables) -> String {
+    if variables.no_gui_session() {
+        format!("{NO_GUI_SESSION_SETTINGS}{TEST_SETTINGS}")
+    } else {
+        TEST_SETTINGS.to_owned()
+    }
+}
+
+/// Writes `home`'s user configuration: `defaults` and `log.level` at
+/// `log_level`, each unless `settings` sets its key, then `settings`.
+fn write_user_configuration(
+    home: &Path,
+    defaults: &str,
+    settings: &str,
+    log_level: &str,
+) -> io::Result<()> {
     let folder = home.join(major_folder(env!("CARGO_PKG_VERSION")));
     std::fs::create_dir_all(&folder)?;
     let level = format!("log.level = \"{log_level}\"\n");
     let set: Vec<&str> = settings.lines().map(key_of).collect();
-    let defaults: String = TEST_SETTINGS
+    let defaults: String = defaults
         .lines()
         .map(|line| format!("{line}\n"))
         .chain(std::iter::once(level))

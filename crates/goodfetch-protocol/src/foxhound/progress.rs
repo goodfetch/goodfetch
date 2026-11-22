@@ -4,11 +4,14 @@
 //! concurrency. On the wire, a crawl's parts sit beside every Run's, which
 //! a reader of [`RunProgress`] keeps among its `kind_parts`.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::governor::{AllowanceSource, GovernorLevel};
-use crate::run::{PointInTime, RunProgress};
+use crate::run::RunProgress;
 use crate::settings::SettingLimit;
 
 use super::report::{CountOf, SitemapReport};
@@ -160,9 +163,13 @@ pub struct HeldDomain {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub domain: String,
     /// When it is next admitted; none until a request in flight ends.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub next_admitted_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub next_admitted_at: Option<SystemTime>,
 }
 
 /// A request being fetched or handled (ADR 0102).
@@ -185,8 +192,9 @@ pub struct InFlightRequest {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub attempt: u32,
     /// When the attempt began.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub started_at: SystemTime,
 }
 
 /// Where a request in flight is.

@@ -14,7 +14,11 @@ use serde::{Deserialize, Serialize};
 pub mod sections;
 mod setting;
 
-pub use setting::{Authority, HostList, PriceValue, ValueKind, ValueShape};
+pub(crate) use setting::shape_json;
+pub use setting::{
+    Authority, HostList, PriceValue, SettingJson, SettingScope, SettingWord, ValueKind, ValueShape,
+    wire_millis,
+};
 
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.
@@ -24,6 +28,15 @@ pub struct ProtocolVersion {
     pub major: u16,
     /// Raised by an additive change.
     pub minor: u16,
+}
+
+impl ProtocolVersion {
+    /// The WebSocket subprotocol a Client offers an Exposed Daemon for this
+    /// version, `goodfetch.v<major>` (ADR 0049; spec #606's Transports).
+    #[must_use]
+    pub fn websocket_subprotocol(self) -> String {
+        format!("goodfetch.v{}", self.major)
+    }
 }
 
 impl fmt::Display for ProtocolVersion {
@@ -222,8 +235,10 @@ pub enum Reach {
     AllSurfaces,
     /// The SDKs only, to the program's own code: a Session's cookies and a
     /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
-    /// `effect.close` (ADR 0106), and the routes and their answers, whose
-    /// handler is the program's own code (ADR 0085). No CLI command, MCP
+    /// `effect.close` (ADR 0106), the routes and their answers, whose
+    /// handler is the program's own code (ADR 0085), and each read, which
+    /// a handle answers from the answer that opened it without a message,
+    /// such as `run.started_as` (ADR 0099). No CLI command, MCP
     /// tool, skill, Code mode global or Framework adapter offers it.
     SdkOnly,
     /// A person's answer, given in the Kennel or an interactive
@@ -245,10 +260,11 @@ impl Reach {
 }
 
 /// The canonical names of the entries ADRs 0089, 0092 and 0106 keep to the
-/// SDKs, which the catalog marks [`Reach::SdkOnly`] when it defines them.
+/// SDKs, and of the reads an SDK's handle answers without a message (ADR
+/// 0099), which the catalog marks [`Reach::SdkOnly`] when it defines them.
 /// Each surface generator other than the SDKs' refuses to offer an entry of
 /// these names, so one added without the marker fails its checks.
-pub const SDK_ONLY: [&str; 8] = [
+pub const SDK_ONLY: [&str; 9] = [
     "session.cookies",
     "session.add_cookies",
     "session.clear_cookies",
@@ -257,6 +273,7 @@ pub const SDK_ONLY: [&str; 8] = [
     "page.lend",
     "effect.open",
     "effect.close",
+    "run.started_as",
 ];
 
 /// Whether an entry is under semver's promise (ADR 0030).
@@ -278,13 +295,35 @@ impl Stability {
     }
 }
 
-/// An entry's deprecation (ADR 0030).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Deprecation {
+/// An entry's deprecation (ADRs 0030 and 0099), declared with `'static`
+/// text in the catalog and read back with owned `Text` from its file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deprecation<Text = &'static str> {
     /// The version that deprecated it.
     pub since: ProtocolVersion,
-    /// What to use instead, or why it goes.
-    pub note: &'static str,
+    /// The canonical name of the entry of its section that replaces it, if
+    /// one does.
+    pub replacement: Option<Text>,
+    /// The earliest version that may remove it: a major after `since`'s.
+    pub earliest_removal: ProtocolVersion,
+    /// Why it goes, and what moving off it takes beyond the replacement.
+    pub note: Text,
+}
+
+impl<Text: AsRef<str>> Deprecation<Text> {
+    /// The deprecation's one text, which every SDK's type-level marker and
+    /// run-time warning and the CLI's warning and `--help` carry (ADR 0099).
+    pub fn message(&self) -> String {
+        let note = self.note.as_ref();
+        let (since, removal) = (self.since, self.earliest_removal);
+        match &self.replacement {
+            Some(replacement) => format!(
+                "Since {since}, removed no earlier than {removal}: use `{}` instead. {note}",
+                replacement.as_ref()
+            ),
+            None => format!("Since {since}, removed no earlier than {removal}: {note}"),
+        }
+    }
 }
 
 /// Registers a type's JSON Schema with the bundle's generator and returns
@@ -638,12 +677,17 @@ pub struct Setting {
     /// dropped"); `None` once its reader is built, in the change that
     /// builds it.
     pub unbuilt: Option<&'static str>,
+    /// Its deprecation, if any: its `replacement` is another setting's key.
+    /// A program that sets it is warned once per process through its SDK's
+    /// host channel, and the release notes list it (ADR 0099).
+    pub deprecated: Option<Deprecation>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }
 
-/// A setting whose value yields to another setting's: where `to` is set,
-/// a value of `key` that `when` matches does not take effect, and
+/// A setting whose value yields to another setting's: where `to` holds a
+/// value `to_values` matches, a value of `key` that `when` matches, set at
+/// any layer but the built-in default, does not take effect, and
 /// `config explain` names `to`, its value and its layer in the setting's
 /// `yields_to` (#2418).
 pub struct Yielding {
@@ -651,8 +695,26 @@ pub struct Yielding {
     pub key: &'static Setting,
     /// The values of `key` that yield.
     pub when: fn(&serde_json::Value) -> bool,
-    /// The setting it yields to, whenever its value is not `null`.
+    /// The setting it yields to.
     pub to: &'static Setting,
+    /// The values of `to` it yields to.
+    pub to_values: fn(&serde_json::Value) -> bool,
+    /// The setting whose value, set at a layer closer than `to`'s, keeps
+    /// `key` from yielding; `None` when none does.
+    pub unless: Option<Overruling>,
+    /// Why it yields, as `config explain` says it after `to`.
+    pub reason: &'static str,
+}
+
+/// What keeps a [`Yielding`] from taking effect: a value of `by` that
+/// `when` matches, set at a layer closer than the one it would yield to,
+/// as a `stealth.fingerprint_method` that makes a Session `stealth` over
+/// the `browser.access_mode` its items would yield to (spec #599).
+pub struct Overruling {
+    /// The setting that overrules.
+    pub by: &'static Setting,
+    /// The values of `by` that overrule.
+    pub when: fn(&serde_json::Value) -> bool,
 }
 
 /// A Hook stage: a fixed stage of a request, a navigation, a page, a Record
@@ -685,6 +747,10 @@ pub enum SharedType {
     CompletenessReasonCode,
     /// What waits for a person in "Needs you" (ADR 0031).
     NeedsYouKind,
+    /// The tool set an MCP server offers, chosen by `--profile` or
+    /// `mcp.profile`; a Collie profile offers the same tools in both
+    /// Products' servers (ADR 0095).
+    McpProfile,
 }
 
 impl SharedType {
@@ -699,6 +765,7 @@ impl SharedType {
             Self::RunWarningCode => "run_warning_code",
             Self::CompletenessReasonCode => "completeness_reason_code",
             Self::NeedsYouKind => "needs_you_kind",
+            Self::McpProfile => "mcp_profile",
         }
     }
 }

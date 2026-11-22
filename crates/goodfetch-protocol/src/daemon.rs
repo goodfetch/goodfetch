@@ -11,6 +11,8 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::time::SystemTime;
+
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -90,6 +92,7 @@ pub const IDLE_TIMEOUT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -125,6 +128,7 @@ pub const ADDRESS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -146,6 +150,7 @@ pub const DRAIN_GRACE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -461,8 +466,9 @@ pub struct DaemonUninstallOutput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TokenRotated {
     /// When the tokens were replaced, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub rotated_at: jiff::Timestamp,
+    pub rotated_at: SystemTime,
 }
 
 /// What `daemon http-listener-token --json` prints: the token the

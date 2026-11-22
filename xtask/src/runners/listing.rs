@@ -323,15 +323,52 @@ pub(crate) fn run(command: &mut Command, name: &str, success: &[i32]) -> Result<
 mod tests {
     use super::*;
 
-    /// pytest prints a collection error on stdout and nothing on stderr, so
-    /// a failure names whichever stream holds its cause.
-    #[rstest::rstest]
-    #[case::on_stderr("echo listed; echo 'unknown tag' >&2; exit 1")]
-    #[case::on_stdout_alone("echo 'unknown tag'; exit 1")]
-    fn a_failed_listing_names_its_cause(#[case] script: &str) {
-        let error = run(Command::new("sh").args(["-c", script]), "the listing", &[0])
-            .expect_err("the listing exits 1");
+    /// A shell running the `unix` script, or on Windows, which has no
+    /// `sh`, `cmd` running the `windows` one as its command line reads.
+    fn shell(
+        #[cfg_attr(
+            windows,
+            expect(unused_variables, reason = "`cmd` runs the Windows script")
+        )]
+        unix: &str,
+        #[cfg_attr(
+            not(windows),
+            expect(unused_variables, reason = "`sh` runs the Unix script")
+        )]
+        windows: &str,
+    ) -> Command {
+        #[cfg(windows)]
+        let command = {
+            use std::os::windows::process::CommandExt as _;
+            let mut command = Command::new("cmd");
+            command.arg("/C").raw_arg(windows);
+            command
+        };
+        #[cfg(not(windows))]
+        let command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", unix]);
+            command
+        };
+        command
+    }
 
-        assert_eq!(error.to_string(), "the listing failed: unknown tag\n");
+    /// pytest prints a collection error on stdout and nothing on stderr, so
+    /// a failure names whichever stream holds its cause; `cmd` ends a line
+    /// with CR LF.
+    #[rstest::rstest]
+    #[case::on_stderr(
+        "echo listed; echo 'unknown tag' >&2; exit 1",
+        "echo listed& echo unknown tag>&2& exit 1"
+    )]
+    #[case::on_stdout_alone("echo 'unknown tag'; exit 1", "echo unknown tag& exit 1")]
+    fn a_failed_listing_names_its_cause(#[case] unix: &str, #[case] windows: &str) {
+        let error =
+            run(&mut shell(unix, windows), "the listing", &[0]).expect_err("the listing exits 1");
+
+        assert_eq!(
+            error.to_string().replace("\r\n", "\n"),
+            "the listing failed: unknown tag\n"
+        );
     }
 }

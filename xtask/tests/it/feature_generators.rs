@@ -1,8 +1,8 @@
-//! The Feature inventory's generators of `command:` and
-//! `block-cause:` (ADR 0072): each command of both Products' executables
-//! and each Block cause of the catalog
-//! is a Feature the moment it exists, with the Products that carry it, and
-//! leaves the inventory when it goes. A kind whose source does not exist yet
+//! The Feature inventory's generators of `command:`, `block-cause:`,
+//! `mcp-profile:` and `skill:` (ADR 0072): each command of both Products'
+//! executables, each Block cause and MCP profile of the catalog and each
+//! agent skill is a Feature the moment it exists, with the Products that
+//! carry it, and leaves the inventory when it goes. A kind whose source does not exist yet
 //! generates nothing. A story is carried by both Products unless its entry
 //! names the one Product that carries it.
 
@@ -267,8 +267,116 @@ fn a_removed_block_cause_leaves_the_inventory() {
     );
 }
 
-/// The fixture has no executable crate and no Block cause,
-/// as the repository had before each source landed.
+#[test]
+fn each_mcp_profile_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("browser", "collie", "mcp_profile"),
+            ("crawl", "foxhound", "mcp_profile"),
+            ("challenge", "collie", "block_cause"),
+        ],
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "mcp-profile"),
+        vec![
+            ("mcp-profile:browser".to_owned(), both()),
+            ("mcp-profile:crawl".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_mcp_profile_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_shared_type_values(
+        &workspace,
+        &[
+            ("browser", "collie", "mcp_profile"),
+            ("run", "collie", "mcp_profile"),
+        ],
+    );
+    codegen(&workspace);
+    workspace.edit(COLLIE_ENTRIES, &shared_type_value("run", "mcp_profile"), "");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "mcp-profile"),
+        vec![("mcp-profile:browser".to_owned(), both())]
+    );
+}
+
+/// Writes the agent skill whose source folder is `folder`, under `skills/`.
+fn add_skill(workspace: &Workspace, folder: &str) {
+    let name = folder.rsplit('/').next().unwrap();
+    workspace.write(
+        &format!("skills/{folder}/SKILL.md"),
+        format!("---\nname: {name}\ndescription: A skill.\n---\n\nA skill.\n").as_bytes(),
+    );
+}
+
+/// A folder without a `SKILL.md`, such as a topic's references, is no skill,
+/// nor is a file such as the folder's README.
+#[test]
+fn each_skill_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("skills/README.md", b"# Agent skills\n");
+    add_skill(&workspace, "browse-pages");
+    add_skill(&workspace, "foxhound/crawl-sites");
+    workspace.write("skills/browse-pages/references/locators.md", b"Locators.\n");
+    workspace.write("skills/drafts/notes.md", b"Notes.\n");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "skill"),
+        vec![
+            ("skill:browse-pages".to_owned(), both()),
+            ("skill:crawl-sites".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_skill_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_skill(&workspace, "browse-pages");
+    add_skill(&workspace, "fill-forms");
+    codegen(&workspace);
+    workspace.remove_folder("skills/fill-forms");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "skill"),
+        vec![("skill:browse-pages".to_owned(), both())]
+    );
+}
+
+/// The check reads the skill files in process, so a skill added without
+/// regenerating the inventory fails it.
+#[test]
+fn the_check_fails_on_a_skill_the_inventory_lacks() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    add_skill(&workspace, "browse-pages");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "features/inventory.json")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The fixture has no executable crate, no Block cause, no MCP profile and no
+/// `skills/` folder, as the repository had before each source landed.
 #[test]
 fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
     let workspace = Workspace::from_fixture("codegen");
@@ -279,8 +387,10 @@ fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
         [
             features_of_kind(&workspace, "command"),
             features_of_kind(&workspace, "block-cause"),
+            features_of_kind(&workspace, "mcp-profile"),
+            features_of_kind(&workspace, "skill"),
         ],
-        [vec![], vec![]]
+        [vec![], vec![], vec![], vec![]]
     );
 }
 

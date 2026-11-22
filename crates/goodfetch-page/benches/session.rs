@@ -79,7 +79,7 @@ use goodfetch_engine::{
 use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, HeldPlace, Observer, PageValue, PooledSession,
+    BrowserPages, HandlerPages, HeldPlace, Observer, OwnFetch, PageValue, PooledSession,
 };
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
@@ -162,6 +162,29 @@ pub(crate) fn page_check() -> Value {
         "login_page": { "kind": "glob", "pattern": "**/login" },
         "expected_page": { "kind": "css", "selector": "main" },
     } } })
+}
+
+/// The variable of the engine's environment map that holds the signing key
+/// of an [`identified`] Session.
+const SIGNING_KEY: &str = "SIGNING_KEY";
+
+/// RFC 9421, Appendix B.1.4's Ed25519 test key, as a private JSON Web Key.
+const RFC_KEY: &str = r#"{"kty":"OKP","crv":"Ed25519","d":"n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}"#;
+
+/// The Run's settings of an `identified` Session (#1551), which signs each
+/// request it sends with the key [`SIGNING_KEY`] holds. A Borrowed
+/// browser's Session never signs, so it is counted on the browser pool.
+pub(crate) fn identified() -> Map<String, Value> {
+    Map::from_iter([
+        ("browser".to_owned(), json!({ "access_mode": "identified" })),
+        (
+            "identified".to_owned(),
+            json!({
+                "signing_key": format!("env:{SIGNING_KEY}"),
+                "signature_agent": "https://bot.example",
+            }),
+        ),
+    ])
 }
 
 /// The reads the program makes in each document: more than one, so a
@@ -269,6 +292,9 @@ pub(crate) struct Counted {
     pub(crate) paused: u64,
     /// The requests the browser was told to fail, each once.
     pub(crate) refused: u64,
+    /// The requests the browser was told to continue with a `Signature`
+    /// header, each once.
+    pub(crate) signed: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
     /// What [`READ_ROWS`], [`SERIALIZATION_ROWS`], [`FIELD_READ_ROWS`] and
@@ -317,6 +343,16 @@ struct Reading {
 }
 
 impl Reading {
+    /// How many documents and frames the calls ran in.
+    fn documents(&self) -> u64 {
+        let documents = self
+            .documents
+            .lock()
+            .expect("invariant: no holder panics")
+            .len();
+        u64::try_from(documents).expect("invariant: a few documents")
+    }
+
     /// Counts the command `method` with `params` while the program reads
     /// formats or fields, and each serialization or field read it is.
     fn formats_and_fields(&self, method: &str, params: &Value) {
@@ -387,6 +423,9 @@ struct Units {
     requests: AtomicU64,
     paused: AtomicU64,
     refused: AtomicU64,
+    /// The requests continued with a `Signature` header, which no row is
+    /// held per.
+    signed: AtomicU64,
 }
 
 impl Units {
@@ -775,10 +814,25 @@ fn moved_on(method: &str, params: &Value, requests: &mut Requests, units: &Units
         }
         return requests.pause(url, "Document", url, units);
     }
+    if method == "Fetch.continueRequest" && signed(params) {
+        units.signed.fetch_add(1, Ordering::Relaxed);
+    }
     match params["requestId"].as_str() {
         Some(id) if method.starts_with("Fetch.") => requests.answered(method, id, units),
         _ => Vec::new(),
     }
+}
+
+/// Whether a `Fetch.continueRequest` with `params` sends its request on with
+/// a `Signature` header.
+fn signed(params: &Value) -> bool {
+    params["headers"].as_array().is_some_and(|headers| {
+        headers.iter().any(|header| {
+            header["name"]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case("signature"))
+        })
+    })
 }
 
 /// The events of a navigation to `url`, its document's request `request`, that
@@ -1402,7 +1456,12 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                     let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
                         .expect("invariant: the program names its Run");
                     let url = params["url"].as_str().unwrap_or_default();
-                    let (page_id, _) = pages.open(&run_id, &pooled(), url, &context).await?;
+                    let own = OwnFetch {
+                        url,
+                        method: "GET",
+                        body: None,
+                    };
+                    let (page_id, _) = pages.open(&run_id, &pooled(), own, &context).await?;
                     Ok::<_, CallError>(json!({ "page_id": page_id }))
                 }
             },
@@ -1448,10 +1507,6 @@ fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
 /// counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a benchmark builds its own runtime, with real time as the browser's socket needs (ADR 0060); its SQL statements are its own, on no Shared path (ADR 0140)"
-)]
 pub(crate) fn counted(
     browsers: Browsers,
     home: &Path,
@@ -1469,7 +1524,7 @@ pub(crate) fn counted(
     let engine = engine(metrics, launcher);
     let heard = Heard::default();
     let (mut during_reads, mut by_fields) = (BTreeMap::new(), ByFields::new());
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");
@@ -1528,11 +1583,6 @@ pub(crate) fn counted(
         programmed
     });
     let reading = &heard.reading;
-    let documents = reading
-        .documents
-        .lock()
-        .expect("invariant: no holder panics")
-        .len();
     let [commands, requests, paused, refused] = heard.units.reading();
     Counted {
         commands,
@@ -1540,7 +1590,7 @@ pub(crate) fn counted(
         checks: heard.checks.load(Ordering::Relaxed),
         attempts,
         reads: reading.calls.load(Ordering::Relaxed),
-        documents: u64::try_from(documents).expect("invariant: a few documents"),
+        documents: reading.documents(),
         read_commands: reading.commands.load(Ordering::Relaxed),
         serializations: reading.serializations.load(Ordering::Relaxed),
         serialization_commands: reading.serialization_commands.load(Ordering::Relaxed),
@@ -1558,20 +1608,22 @@ pub(crate) fn counted(
         requests,
         paused,
         refused,
+        signed: heard.units.signed.load(Ordering::Relaxed),
         work,
         during_reads,
     }
 }
 
-/// What the engine runs on: its home in `home`, the system's clock, seeded
-/// entropy and every blocking task inline.
+/// What the engine runs on: its home in `home`, an environment map holding
+/// [`SIGNING_KEY`], the system's clock, seeded entropy and every blocking
+/// task inline.
 #[expect(
     clippy::disallowed_methods,
     reason = "a benchmark's engine draws seeded entropy, the Entropy's test version (ADR 0059)"
 )]
 fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
-        environment: std::collections::BTreeMap::new(),
+        environment: std::collections::BTreeMap::from([(SIGNING_KEY.into(), RFC_KEY.into())]),
         keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(home.to_owned()),
         clock: Clock::system(),

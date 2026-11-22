@@ -1,0 +1,75 @@
+[package]
+name = "goodfetch-collie-client"
+description = "Collie's client crate (spec #606, ADR 0095): the Connection to an engine, its transport and the call builders, with no engine; the SDK crates build on it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No SDK crate and no Foxhound crate (ADR 0095): `goodfetch-collie` and
+# `goodfetch-foxhound` take this one.
+[dependencies]
+# The Base64 of the `$/chunk` notifications a Daemon streams a file in.
+data-encoding.workspace = true
+# The encodings a Response's `text()` decodes a body in (ADR 0119).
+encoding_rs.workspace = true
+# The Encoding a body declares in its own bytes, read as Chrome reads it,
+# as the fetch tiers read it (ADR 0119).
+goodfetch-encoding.workspace = true
+# The Stream trait an EventStream implements (ADR 0081).
+futures-core.workspace = true
+# The sink of an Exposed Daemon's WebSocket messages (ADR 0049).
+futures-util.workspace = true
+goodfetch-protocol.workspace = true
+# The schemas of a program's own types, re-exported so that its derive's
+# version is the SDK's (ADR 0082).
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The hidden temporary file a saved file is written to (ADR 0116).
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt", "time"] }
+# The handshake and framing of an Exposed Daemon's WebSocket, as in the
+# engine (ADR 0049).
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+# The callsites an engine's `$/log` events are re-emitted through, under
+# targets known only when they arrive (ADR 0078).
+tracing-core.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The name of the signal that ended an Attached engine, which
+# `engine_exited` carries (ADR 0078).
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The hidden attribute of a saved file's temporary file (ADR 0116).
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+# A Collie engine with only the engine's own operations, over area 3's
+# in-memory network (ADR 0060).
+goodfetch-engine.workspace = true
+goodfetch-runtime.workspace = true
+# The Rust runner's case-log writer, which this crate's plays of the client
+# conformance cases append their entries through (ADR 0069).
+goodfetch-conformance.workspace = true
+goodfetch-test-support.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+trybuild.workspace = true
+
+# The opened call's loom tests (src/event_stream/opened/loom_tests.rs),
+# built only by `just loom`, which sets `--cfg goodfetch_loom` (ADR 0060).
+[target.'cfg(goodfetch_loom)'.dev-dependencies]
+loom = { workspace = true, features = ["futures"] }
+
+[lints]
+workspace = true

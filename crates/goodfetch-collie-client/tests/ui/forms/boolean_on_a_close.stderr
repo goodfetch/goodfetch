@@ -1,0 +1,16 @@
+error[E0061]: this method takes 0 arguments but 1 argument was supplied
+ --> tests/ui/forms/boolean_on_a_close.rs:4:23
+  |
+4 |     let _close = page.close(true);
+  |                       ^^^^^ ---- unexpected argument of type `bool`
+  |
+note: method defined here
+ --> src/generated/blocking.rs
+  |
+  |     pub fn close(
+  |            ^^^^^
+help: remove the extra argument
+  |
+4 -     let _close = page.close(true);
+4 +     let _close = page.close();
+  |

@@ -2,8 +2,10 @@
 //! its default features on, once per feature on its paths that can be
 //! switched off, once with no Live view viewer (C6 in ADR 0140: the default
 //! cell is the one with a viewer, which #959 gives it), once with a Page
-//! check and once on a browser pool's pages (C7: a pool its scripted launcher
-//! starts, its pages opened and closed through `BrowserPages`), and prints what each counted as one JSON line, which `xtask counts`
+//! check, once on a browser pool's pages (C7: a pool its scripted launcher
+//! starts, its pages opened and closed through `BrowserPages`) and once on
+//! the pool's pages of an `identified` Session, which signs each request it
+//! sends (C5, #1551), and prints what each counted as one JSON line, which `xtask counts`
 //! divides and holds to the Quality register's limits. An example and not a
 //! `[[bench]]`, as `xtask perf` runs every bench target under gungraun: counts
 //! need no Valgrind and no optimized build.
@@ -67,7 +69,11 @@ const LIVE_VIEW_FRAME: &[Row] = &[
     Row::LiveViewSeals,
 ];
 
-fn cells() -> [Cell; 7] {
+/// The cell of an `identified` Session, every request of which the browser
+/// must have been told to continue with a signature.
+const IDENTIFIED: &str = "identified";
+
+fn cells() -> [Cell; 8] {
     [
         // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
@@ -134,6 +140,16 @@ fn cells() -> [Cell; 7] {
             name: "pool",
             browsers: session::Browsers::Pool,
             settings: json!({}),
+            removes: &[],
+            counts_none_of: &[],
+        },
+        // The pool's pages again, of an `identified` Session: its key was
+        // resolved as it opened, so each request it signs is held to C5's
+        // limits as any other (#1551).
+        Cell {
+            name: IDENTIFIED,
+            browsers: session::Browsers::Pool,
+            settings: Value::Object(session::identified()),
             removes: &[],
             counts_none_of: &[],
         },
@@ -248,6 +264,33 @@ fn fields_read(cell: &Counted) {
     );
 }
 
+/// Fails unless `cell`'s browser paused requests, refused some only when it
+/// is a Borrowed one, and was told to sign each only in the `identified`
+/// cell.
+fn requests_sent(cell: &Counted) {
+    let session = &cell.session;
+    // A launched browser's addresses are judged by its Session's egress
+    // relay as it connects, which the scripted browser never reaches: only a
+    // Borrowed browser's paused requests are refused here.
+    let refuses = cell.browsers == session::Browsers::Borrowed;
+    assert!(
+        session.requests > 0 && (session.refused > 0) == refuses,
+        "the cell {} paused {} requests and refused {}",
+        cell.name,
+        session.requests,
+        session.refused
+    );
+    let signs = cell.name == IDENTIFIED;
+    assert_eq!(
+        session.signed,
+        if signs { session.requests } else { 0 },
+        "the cell {} signed {} of its {} requests",
+        cell.name,
+        session.signed,
+        session.requests
+    );
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -303,17 +346,7 @@ fn main() {
             "the cell {} opened no page",
             cell.name
         );
-        // A launched browser's addresses are judged by its Session's egress
-        // relay as it connects, which the scripted browser never reaches:
-        // only a Borrowed browser's paused requests are refused here.
-        let refuses = cell.browsers == session::Browsers::Borrowed;
-        assert!(
-            session.requests > 0 && (session.refused > 0) == refuses,
-            "the cell {} paused {} requests and refused {}",
-            cell.name,
-            session.requests,
-            session.refused
-        );
+        requests_sent(cell);
         assert!(
             session.navigations > 0,
             "the cell {} navigated nowhere",

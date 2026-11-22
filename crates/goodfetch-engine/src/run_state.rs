@@ -76,7 +76,7 @@ mod readers;
 pub mod run_row;
 mod wal_checkpointer;
 
-pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
+pub use batch::{BatchRows, BatchStatement, BatchWriter, SealedBatch};
 pub use batch_end::BatchEnd;
 pub(crate) use readers::RunStateReaders;
 
@@ -119,6 +119,7 @@ const SCHEMA: &[&str] = &[
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
+        fixed_settings TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,
@@ -519,6 +520,12 @@ pub enum Syncing {
         /// The bytes of the rows it writes, towards `run_state.batch.bytes`.
         bytes: u64,
     },
+    /// An Effect's sent mark (ADR 0106): synced before it is answered at
+    /// every level but `off`, `fast`'s and `periodic`'s included, so no
+    /// outside action follows a mark a power cut may take (ADR 0138's note
+    /// of #1550). At `fast`, its group commits on the writer's connection
+    /// switched to `synchronous=FULL`, then switched back.
+    Sent,
 }
 
 /// Why a run file did not open, or a write did not commit.
@@ -1231,15 +1238,20 @@ impl Writer {
         let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
         let last = last.is_some();
         let seals = without_seals(&mut group);
+        let sent = self.syncs_sent(&group, last);
+        let switched = sent && self.switch_to_full();
         if self.batching.is_some() {
-            self.batch(group, ticked, last);
+            self.batch(group, ticked, last, sent);
             self.seal(seals);
         } else {
-            self.commit_each(group, ticked, last);
+            self.commit_each(group, ticked, last, sent);
             // Each write committed in its group, answered once it did.
             for seal in seals {
                 seal(None).0(Ok(()));
             }
+        }
+        if switched {
+            self.switch_back();
         }
         for queued in refused {
             (queued.write)(None).0(Err(RunStateError::Closed));
@@ -1253,11 +1265,12 @@ impl Writer {
 
     /// Commits `group` in a transaction of its own, each attempt a batch of
     /// its own (`run_state.batch.per_attempt`).
-    fn commit_each(&mut self, group: Vec<Queued>, ticked: bool, last: bool) {
-        let planned = match &self.interval {
+    fn commit_each(&mut self, group: Vec<Queued>, ticked: bool, last: bool, sent: bool) {
+        let mut planned = match &self.interval {
             Some(interval) => interval.plan(ticked, last),
             None => self.deferral.plan(&group),
         };
+        planned.synced |= sent;
         // A tick with nothing committed unsynced commits nothing.
         let idle =
             group.is_empty() && !self.interval.as_ref().is_some_and(|interval| interval.owed);
@@ -1277,6 +1290,44 @@ impl Writer {
         {
             self.deferral.committed(planned, declared);
             self.committed(planned.synced, last);
+        }
+    }
+
+    /// Whether `group` holds an Effect's sent mark that syncs: at every
+    /// level but `off`. The writer's `last` write syncs at every level
+    /// already.
+    fn syncs_sent(&self, group: &[Queued], last: bool) -> bool {
+        !last
+            && self.durability.sync != BatchSync::Off
+            && group.iter().any(|queued| queued.syncing == Syncing::Sent)
+    }
+
+    /// Switches the writer's connection to `synchronous=FULL` for a group
+    /// that holds a sent mark at `fast`, whose connection syncs nothing:
+    /// whether it switched. A connection switches outside a transaction
+    /// only, so a batch open on it commits first.
+    fn switch_to_full(&mut self) -> bool {
+        if self.durability.sync != BatchSync::Never {
+            return false;
+        }
+        if self.batching.is_some() {
+            self.commit_open_batch();
+        }
+        self.connection
+            .connection
+            .pragma_update(None, "synchronous", "FULL")
+            .is_ok()
+    }
+
+    /// Switches the writer's connection back to `fast`'s
+    /// `synchronous=NORMAL` after a group that holds a sent mark.
+    fn switch_back(&self) {
+        if let Err(error) = self
+            .connection
+            .connection
+            .pragma_update(None, "synchronous", "NORMAL")
+        {
+            tracing::warn!(path = %self.path.display(), %error, "the run state writer did not switch back to synchronous=NORMAL after an Effect's sent mark");
         }
     }
 
@@ -1344,7 +1395,7 @@ impl Deferral {
         let mut charged = 0_u64;
         for queued in group {
             match queued.syncing {
-                Syncing::Required | Syncing::Attempt { .. } => required = true,
+                Syncing::Required | Syncing::Attempt { .. } | Syncing::Sent => required = true,
                 Syncing::Declaring => {
                     required = true;
                     declaring = true;

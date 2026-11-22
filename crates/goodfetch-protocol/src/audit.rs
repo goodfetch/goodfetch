@@ -22,6 +22,9 @@
 //! registers its own; this module lists the security area's and the
 //! Audit log's own.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,7 +34,7 @@ use crate::catalog::{
     SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
 };
 use crate::connection::Surface;
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::settings::SettingsLayer;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -69,8 +72,9 @@ pub struct AuditEntry {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sequence: u64,
     /// When it was recorded.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub time: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub time: SystemTime,
     /// Its kind, a value of the shared type `audit_kind`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub kind: String,
@@ -194,6 +198,13 @@ fn off() -> Value {
     Value::Bool(false)
 }
 
+/// `audit.refusals_per_minute`'s default.
+pub const DEFAULT_REFUSALS_PER_MINUTE: u64 = 10;
+
+fn ten() -> Value {
+    Value::from(DEFAULT_REFUSALS_PER_MINUTE)
+}
+
 /// `audit.retention` (ADR 0016).
 pub const AUDIT_RETENTION: Setting = Setting {
     name: "audit.retention",
@@ -205,6 +216,7 @@ pub const AUDIT_RETENTION: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -219,6 +231,22 @@ pub const AUDIT_OTLP: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `audit.refusals_per_minute` (#2324).
+pub const AUDIT_REFUSALS_PER_MINUTE: Setting = Setting {
+    name: "audit.refusals_per_minute",
+    description: "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Count,
+    default: ten,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -316,6 +344,11 @@ impl Listener {
 pub enum RefusalReason {
     /// A Connection's first message was no `hello`.
     HelloNotFirst,
+    /// A Connection sent no complete `hello` within `timeout.hello`.
+    HelloTimedOut,
+    /// A Connection's line before its `hello` was accepted passed
+    /// `network.max_hello_size`.
+    HelloTooLarge,
     /// No token came.
     TokenMissing,
     /// The token is not the listener's.
@@ -332,8 +365,10 @@ pub enum RefusalReason {
 
 impl RefusalReason {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::HelloNotFirst,
+        Self::HelloTimedOut,
+        Self::HelloTooLarge,
         Self::TokenMissing,
         Self::TokenWrong,
         Self::TokenExpired,
@@ -361,7 +396,23 @@ pub struct EndpointRefusal {
 /// A listening endpoint refused a request.
 pub const ENDPOINT_AUTHENTICATION_FAILED: SharedTypeValue = kind(
     "endpoint_authentication_failed",
-    "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.",
+    "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
+);
+
+/// The details of an `endpoint_refusals_folded` entry: which listener's
+/// refusals the Audit log did not record one by one, and how many.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FoldedRefusals {
+    /// The listener that refused.
+    pub listener: Listener,
+    /// How many refusals past `audit.refusals_per_minute` it counts.
+    pub folded: u64,
+}
+
+/// A listener's refusals past the rate the Audit log records.
+pub const ENDPOINT_REFUSALS_FOLDED: SharedTypeValue = kind(
+    "endpoint_refusals_folded",
+    "A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.",
 );
 
 /// A raw CDP client attached.
@@ -457,7 +508,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[AUDIT_RETENTION, AUDIT_OTLP],
+    settings: &[AUDIT_RETENTION, AUDIT_OTLP, AUDIT_REFUSALS_PER_MINUTE],
     hook_stages: &[],
     shared_type_values: &[
         AUDIT_LOG_ANCHOR,
@@ -466,6 +517,7 @@ pub const ENTRIES: Entries = Entries {
         SECURITY_SWITCH_TURNED_OFF,
         PRIVATE_ADDRESSES_ALLOWED,
         ENDPOINT_AUTHENTICATION_FAILED,
+        ENDPOINT_REFUSALS_FOLDED,
         RAW_CDP_ATTACHED,
         LENT_PAGE_ATTACHED,
         CERTIFICATE_PINNED,

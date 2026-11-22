@@ -86,15 +86,16 @@ impl On<'_> {
         } else {
             None
         };
-        if let (Some(reading), Some(politeness)) = (&reading, &of_run.shared_politeness)
+        if let (Some(reading), Some(crawl_delays)) = (&reading, &of_run.crawl_delays)
             && preferences.respects_robots_txt()
-            && let Err(error) = goodfetch_frontier::crawl_delay_read(
-                politeness,
-                key,
-                reading.location().as_str(),
-                preferences.crawl_delay_asked(reading),
-            )
-            .await
+            && let Err(error) = crawl_delays
+                .read(
+                    key,
+                    reading.location().as_str(),
+                    reading.shared_copy(),
+                    preferences.crawl_delay_asked(reading),
+                )
+                .await
         {
             tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
         }

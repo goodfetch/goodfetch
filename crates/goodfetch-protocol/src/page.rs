@@ -13,7 +13,9 @@
 //! its `proxy` module a Session's proxy, its `dialog` module a page's
 //! JavaScript dialogs, its `tabs` module a Session's pages and popups
 //! and `page.close`, its `functions` module the page functions,
-//! `page.evaluate` and `page.add_init_script`, and its `waits` module the
+//! `page.evaluate` and `page.add_init_script`, its `signing_key` module an
+//! `identified` Session's Web Bot Auth key and key directory, and its
+//! `waits` module the
 //! app-state waits, each armed when its call arrives.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
@@ -26,6 +28,8 @@
 //! Size: one catalog module, the contract of a Run's pages: their
 //! operations, Error codes and `browser.*` settings, kept whole so each
 //! entry sits beside the others it is listed with.
+
+use std::time::SystemTime;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -45,6 +49,9 @@ use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
+pub mod access_mode;
+pub mod ai_work;
+pub mod cdp_url;
 pub mod dialog;
 pub mod events;
 pub mod functions;
@@ -54,8 +61,10 @@ pub mod request;
 pub mod route;
 pub mod session;
 pub mod session_pages;
+pub mod signing_key;
 pub mod waits;
 
+use self::ai_work::NOT_VERIFIED;
 use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
 };
@@ -81,20 +90,6 @@ use self::waits::{
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
-
-/// A field that is present, `null` included, as `Some`; one left out stays
-/// `None` through `#[serde(default)]`.
-#[expect(
-    clippy::option_option,
-    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
-)]
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
 
 /// The notification that carries one chunk of a body `page.body` reads.
 pub const CHUNK: &str = "$/chunk";
@@ -261,10 +256,10 @@ pub struct GotoParams {
     /// count against it no more than against the setting.
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.navigation"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -399,13 +394,15 @@ pub struct LoggedOutDetails {
     pub judged_by: JudgedBy,
 }
 
-/// What `blocked` details (ADRs 0092 and 0118).
+/// What `blocked` details (ADRs 0092 and 0118), their cause Collie's
+/// `BlockCause`, or `Cause` as Foxhound reads them
+/// (`foxhound::block::BlockedDetails`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BlockedDetails {
+pub struct BlockedDetails<Cause = BlockCause> {
     /// The Block cause, kept as received by an SDK that does not know it
     /// (ADR 0079).
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub cause: BlockCause,
+    pub cause: Cause,
     /// The URL of the document that met it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
@@ -417,8 +414,9 @@ pub struct BlockedDetails {
     /// The time the site's `Retry-After` asks for, in RFC 3339, read in
     /// either of its forms; `null` when it asks for none. The engine never
     /// waits on it for a program's own navigation.
+    #[serde(default, with = "crate::point_in_time::nullable")]
     #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub retry_after: Option<jiff::Timestamp>,
+    pub retry_after: Option<SystemTime>,
 }
 
 /// The count of redirects a fetch follows at most, and what set it (ADR
@@ -444,7 +442,8 @@ pub enum RedirectLimit {
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
-    /// A call's option, such as `page.request`'s `maxRedirects`.
+    /// A call's option, such as `page.request`'s `max_redirects`, by its
+    /// canonical name (ADR 0099).
     Option {
         /// The option's name.
         #[schemars(extend("arrived_in" = "0.1"))]
@@ -627,6 +626,17 @@ pub const BLOCKED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Challenge the ladder ended without passing, on a Session a program or
+/// an Agent opened (ADRs 0035, 0088 and 0092).
+pub const CHALLENGE_UNSOLVED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "challenge_unsolved",
+    description: "The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A navigation past the count of redirects it may follow (ADR 0118).
 pub const TOO_MANY_REDIRECTS: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "too_many_redirects",
@@ -643,6 +653,17 @@ pub const RESPONSE_TRUNCATED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
     group: ErrorGroup::Page,
     retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A response's body that is not JSON, raised by the SDK's `json()` itself
+/// (ADRs 0085 and 0119).
+pub const RESPONSE_NOT_JSON: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_json",
+    description: "The response's body is not JSON, or not the JSON the program reads it as: `json()` reads the body as UTF-8 whatever its charset, a leading BOM ignored. The SDK raises it itself, naming the response's URL; the body is the same on every read, so read it with `text()` or `body()` instead.",
+    group: ErrorGroup::Page,
+    retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
@@ -678,6 +699,26 @@ pub const BROWSER_LAUNCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A full Chrome for Testing build asked to run headless by a macOS process
+/// with no GUI session, where it crashes at start-up (ADR 0115's amendment
+/// of 2026-11-21; #3224).
+pub const BROWSER_NEEDS_GUI_SESSION: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_needs_gui_session",
+    description: "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `browser_needs_gui_session` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserNeedsGuiSessionDetails {
+    /// What to do instead: the setting that launches the headless shell.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// A Browser host older than the engine that reaches it can drive (ADRs
 /// 0035 and 0096).
 pub const BROWSER_HOST_OUTDATED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -686,6 +727,17 @@ pub const BROWSER_HOST_OUTDATED: ErrorCodeDefinition = ErrorCodeDefinition {
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: Some(12),
+    arrived_in: ARRIVED_IN,
+};
+
+/// An operator's hosted Browser host whose link the engine lost (ADRs 0022
+/// and 0056).
+pub const BROWSER_HOST_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_host_unreachable",
+    description: "The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -986,7 +1038,7 @@ pub const PAGE_GO_FORWARD: Operation = Operation {
 /// `browser.headless` (ADRs 0083 and 0092; spec #577).
 pub const BROWSER_HEADLESS: Setting = Setting {
     name: "browser.headless",
-    description: "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+    description: "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
     kind: ValueKind::Boolean,
     default: headless,
     clearable: false,
@@ -994,11 +1046,31 @@ pub const BROWSER_HEADLESS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
 fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
+}
+
+/// `browser.headless_shell` (ADRs 0037's SDK-10, 0092 and 0115; #3224).
+pub const BROWSER_HEADLESS_SHELL: Setting = Setting {
+    name: "browser.headless_shell",
+    description: "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
+    kind: ValueKind::Boolean,
+    default: headless_shell,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn headless_shell() -> serde_json::Value {
+    serde_json::Value::Bool(false)
 }
 
 /// `browser.cdp_command_log` (spec #577; ADR 0140's C1, #1891).
@@ -1012,6 +1084,7 @@ pub const BROWSER_CDP_COMMAND_LOG: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1034,6 +1107,7 @@ pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1055,6 +1129,7 @@ pub const BROWSER_SERVICE_WORKERS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1077,6 +1152,7 @@ pub const CONTENT_EXTRACTOR: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1099,6 +1175,7 @@ pub const EXTRACTION_REMOVAL_SHARE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1122,6 +1199,7 @@ pub const EXTRACTION_READABILITY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1172,6 +1250,7 @@ pub const LIVE_VIEW_HIDING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1825,12 +1904,16 @@ pub const ENTRIES: Entries = Entries {
         PAGE_CHECK_FAILED,
         LOGGED_OUT,
         BLOCKED,
+        CHALLENGE_UNSOLVED,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
+        RESPONSE_NOT_JSON,
         SITE_PREFERENCES_REFUSED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
+        BROWSER_NEEDS_GUI_SESSION,
         BROWSER_HOST_OUTDATED,
+        BROWSER_HOST_UNREACHABLE,
         TARGET_NOT_UNIQUE,
         PATTERN_UNSUPPORTED,
         PAGE_HANDLER_FAILED,
@@ -1838,11 +1921,13 @@ pub const ENTRIES: Entries = Entries {
         DIALOG_ALREADY_HANDLED,
         PAGE_FUNCTION_FAILED,
         PAGE_VALUE_INVALID,
+        NOT_VERIFIED,
     ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
         BROWSER_HEADLESS,
+        BROWSER_HEADLESS_SHELL,
         BROWSER_CDP_COMMAND_LOG,
         BROWSER_BLOCK_RESOURCES,
         BROWSER_SERVICE_WORKERS,

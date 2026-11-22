@@ -121,7 +121,7 @@ fn crawl(
     let started = engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings, "labels": { "page": {} } }),
         &mut answer,
     );
     assert_eq!(started["result"]["run_id"], run_id, "{started}");
@@ -264,7 +264,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
     let mut before = Vec::new();
     killed.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "kept", "seeds": seeds, "settings": settings },
+        "params": { "run_id": "kept", "seeds": seeds, "settings": settings, "labels": { "page": {} } },
     }));
     while before.len() < 3 {
         let message = killed.next().unwrap();

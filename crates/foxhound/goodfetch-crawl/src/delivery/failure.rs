@@ -14,9 +14,10 @@ use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::{CallError, retry_after};
 use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{HANDLER_FAILED, RESPONSE_UNAVAILABLE};
+use goodfetch_protocol::hook::HOOK_FAILED;
 use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
 use goodfetch_protocol::page::{BLOCKED, NAVIGATION_FAILED, PAGE_CHECK_FAILED};
 use goodfetch_protocol::run::RUN_STATE_UNAVAILABLE;
@@ -53,6 +54,10 @@ pub(crate) enum Why {
     /// The handler's own failure (`handler_failed`), retried only as
     /// `crawl.retry.handler_failed` says.
     Handler,
+    /// A Hook in code that raised the program's own exception
+    /// (`hook_failed` wrapping no code), retried only as
+    /// `crawl.retry.handler_failed` says (ADR 0104).
+    Hook,
     /// The run file refused the write of the attempt's outcome: the
     /// attempt is retried as one that failed (issue 2320).
     OutcomeNotWritten,
@@ -168,8 +173,8 @@ impl AttemptFailure {
     }
 
     /// The cause its site blocked the request for, when it did.
-    pub(crate) fn block_cause(&self) -> Option<BlockCause> {
-        match self.why {
+    pub(crate) fn block_cause(&self) -> Option<&BlockCause> {
+        match &self.why {
             Why::Blocked(cause) => Some(cause),
             _ => None,
         }
@@ -232,6 +237,10 @@ fn read(code: &str, details: &Map<String, Value>) -> Why {
     if code == HANDLER_FAILED.name {
         return Why::Handler;
     }
+    // A wrapped code is retried as its own retryable flag says.
+    if code == HOOK_FAILED.name && details.get("wrapped_code").is_none_or(Value::is_null) {
+        return Why::Hook;
+    }
     Why::Other
 }
 
@@ -258,8 +267,8 @@ pub(super) fn kept_failure(
 /// How `failure`, which failed for `why`, on a work item's `attempt`th
 /// attempt since its latest admission ends it under `policy`: retried
 /// while it is `retryable` and retries are left, failed otherwise; a
-/// handler's own failure is retryable only as `crawl.retry.handler_failed`
-/// says, and one the engine's panic ended only as
+/// handler's own failure, or a Hook's own exception, is retryable only as
+/// `crawl.retry.handler_failed` says (ADR 0104), and one the engine's panic ended only as
 /// `crawl.retry.engine_panicked` says (ADR 0148).
 pub(super) fn retried_or_failed(
     policy: CrawlPolicy,
@@ -269,7 +278,7 @@ pub(super) fn retried_or_failed(
     retryable: bool,
 ) -> Unsuccessful {
     let retryable = match why {
-        Why::Handler => policy.retry_handler_failed,
+        Why::Handler | Why::Hook => policy.retry_handler_failed,
         Why::Panicked => policy.retry_engine_panicked,
         _ => retryable,
     };

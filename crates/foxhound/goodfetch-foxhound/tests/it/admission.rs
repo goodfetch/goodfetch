@@ -52,7 +52,7 @@ fn in_flight_at_once(
     let mut engine = site.engine(env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "fair", "seeds": seeds, "settings": settings },
+        "params": { "run_id": "fair", "seeds": seeds, "settings": settings, "labels": { "page": {} } },
     }));
     let mut turns = Vec::new();
     let mut held: Vec<Value> = Vec::new();
@@ -245,7 +245,7 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     let mut engine = site.engine(&env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "paced", "seeds": [seed(&site.url("a.test", "/1"), 0), seed(&site.url("b.test", "/1"), 0)] },
+        "params": { "run_id": "paced", "seeds": [seed(&site.url("a.test", "/1"), 0), seed(&site.url("b.test", "/1"), 0)], "labels": { "page": {} } },
     }));
     let first = loop {
         let message = engine.next().unwrap();
@@ -332,6 +332,7 @@ fn crawl_domain_order_is_explained_refused_when_invalid_and_locked_by_an_operato
             run_id,
             "crawl.start",
             &json!({
+                "labels": { "page": {} },
                 "run_id": run_id,
                 "seeds": [{ "url": site.url("ordered.test", "/1"), "label": "page" }],
                 "settings": settings,

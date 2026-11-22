@@ -83,7 +83,7 @@ fn finished(
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": run_id, "seeds": seeds, "settings": { "crawl": settings } }),
+        &json!({ "run_id": run_id, "seeds": seeds, "settings": { "crawl": settings }, "labels": { "page": {} } }),
         &mut |_| None,
     );
     let report = engine.call(
@@ -180,7 +180,7 @@ fn a_stopped_crawl_is_incomplete_counting_the_requests_it_left() {
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "stopped", "seeds": [seed(&site, "a"), seed(&site, "b"), seed(&site, "c")] }),
+        &json!({ "run_id": "stopped", "seeds": [seed(&site, "a"), seed(&site, "b"), seed(&site, "c")], "labels": { "page": {} } }),
         &mut |_| None,
     );
     let report = engine.call(

@@ -319,6 +319,8 @@ fn refused(matcher: &PageMatch, layer: SettingsLayer) -> CallError {
             key: SESSION_PAGE_CHECK.name.to_owned(),
             layer: Some(layer),
             reason,
+            limit: None,
+            fix: None,
         },
     )
 }

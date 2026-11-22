@@ -870,19 +870,64 @@ fn a_client_hello_is_read_from_its_records_whole_or_split() {
 /// the Scripted network at 169.254.169.254 stands in for the metadata
 /// service; the oracle is the connections the relay opened.
 ///
-/// Covers: story:4-11, story:4-13, error:egress_refused, setting:egress.private_ranges, setting:network.resolve
+/// Covers: story:4-11, story:4-13, setting:egress.private_ranges, setting:network.resolve
 #[rstest::rstest]
-#[case::loopback_unlisted("127.0.0.1", &[], false)]
-#[case::loopback_under_its_range("127.0.0.1", &["127.0.0.0/8"], true)]
-#[case::loopback_by_the_hosts_name("127.0.0.1", &["mapped.test"], true)]
-#[case::metadata_under_a_range_that_covers_it("169.254.169.254", &["169.254.0.0/16"], false)]
-#[case::metadata_through_the_hosts_name("169.254.169.254", &["mapped.test"], false)]
-#[case::metadata_by_its_exact_address("169.254.169.254", &["169.254.169.254"], true)]
-fn a_mapped_answer_is_judged_and_reaches_only_what_the_private_ranges_list(
+#[case::loopback_under_its_range("127.0.0.1", &["127.0.0.0/8"])]
+#[case::loopback_by_the_hosts_name("127.0.0.1", &["mapped.test"])]
+#[case::metadata_by_its_exact_address("169.254.169.254", &["169.254.169.254"])]
+fn a_mapped_answer_the_private_ranges_list_is_reached(
     #[case] mapped: &str,
     #[case] ranges: &[&str],
-    #[case] reached: bool,
 ) {
+    let (connections, refusals, answer) = mapped_through(mapped, ranges);
+
+    let address: IpAddr = mapped.parse().unwrap();
+    assert_eq!(
+        (connections, refusals, answer.ends_with("ok")),
+        (vec![Some(SocketAddr::new(address, 443))], vec![], true),
+        "{answer}"
+    );
+}
+
+/// The refused half of
+/// `a_mapped_answer_the_private_ranges_list_is_reached`'s rule: a name
+/// mapped to an address `egress.private_ranges` does not list reaches
+/// nothing, and the relay tells the refusal with its rule and address; the
+/// metadata address is listed only by its exact address, never through a
+/// range or a host's name that covers it.
+///
+/// Covers: story:4-11, story:4-13, error:egress_refused, setting:egress.private_ranges, setting:network.resolve
+#[rstest::rstest]
+#[case::loopback_unlisted("127.0.0.1", &[])]
+#[case::metadata_under_a_range_that_covers_it("169.254.169.254", &["169.254.0.0/16"])]
+#[case::metadata_through_the_hosts_name("169.254.169.254", &["mapped.test"])]
+fn a_mapped_answer_the_private_ranges_do_not_list_is_refused(
+    #[case] mapped: &str,
+    #[case] ranges: &[&str],
+) {
+    let (connections, refusals, answer) = mapped_through(mapped, ranges);
+
+    let address: IpAddr = mapped.parse().unwrap();
+    assert_eq!(
+        (connections, refusals),
+        (vec![], vec![(EgressRule::PrivateAddress, Some(address))]),
+        "{answer}"
+    );
+}
+
+/// What one connection through the relay left: the connections the
+/// Scripted network opened, the refusals the relay told as their rule and
+/// address, and the answer the browser read.
+type Left = (
+    Vec<Option<SocketAddr>>,
+    Vec<(EgressRule, Option<IpAddr>)>,
+    String,
+);
+
+/// A `GET` tunnelled to `mapped.test:443`, which the Run's `network.resolve`
+/// maps to `mapped`, through a relay whose `egress.private_ranges` are
+/// `ranges`: what it left.
+fn mapped_through(mapped: &str, ranges: &[&str]) -> Left {
     let mut network = Scripted::new(None, Far::Site);
     network
         .mapping
@@ -901,27 +946,14 @@ fn a_mapped_answer_is_judged_and_reaches_only_what_the_private_ranges_list(
         &told,
     ));
 
-    let address: IpAddr = mapped.parse().unwrap();
-    let refusals: Vec<_> = told
+    let refusals = told
         .refused
         .lock()
         .unwrap()
         .iter()
         .map(|(refused, _)| (refused.rule, refused.address))
         .collect();
-    if reached {
-        assert_eq!(
-            (network.connections(), refusals, answer.ends_with("ok")),
-            (vec![Some(SocketAddr::new(address, 443))], vec![], true),
-            "{answer}"
-        );
-    } else {
-        assert_eq!(
-            (network.connections(), refusals),
-            (vec![], vec![(EgressRule::PrivateAddress, Some(address))]),
-            "{answer}"
-        );
-    }
+    (network.connections(), refusals, answer)
 }
 
 /// The seed ClientHello records named `name`, of the relay's fuzz target.
@@ -1167,11 +1199,12 @@ refusal = { code = "egress_refused", rule = "private_address" }
 ///
 /// Covers: story:4-10, story:4-89, error:egress_refused
 #[rstest::rstest]
-#[case::as_the_browser_sends_it(Sent::AsTheBrowserSendsIt)]
-#[case::as_a_tunnel(Sent::AsATunnel)]
-#[case::terminated(Sent::Terminated)]
+#[case::as_the_browser_sends_it(Sent::AsTheBrowserSendsIt, false)]
+#[case::as_a_tunnel(Sent::AsATunnel, false)]
+#[case::terminated(Sent::Terminated, true)]
 fn every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_relay(
     #[case] sent: Sent,
+    #[case] every_sent_case_terminates: bool,
 ) {
     let runner = Runner::committed(
         sent.layer(),
@@ -1198,11 +1231,10 @@ fn every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_rel
         "only {} cases",
         runner.cases().len()
     );
-    let expected_terminating = match sent {
-        Sent::Terminated => sent_cases,
-        _ => 0,
-    };
-    assert_eq!(terminating, expected_terminating);
+    assert_eq!(
+        terminating,
+        sent_cases * usize::from(every_sent_case_terminates)
+    );
     // Only the URLs the WHATWG parser refuses, which no browser sends,
     // never reach the relay, and reach nothing.
     let unsent = |case: &str| (case.to_owned(), None, false);

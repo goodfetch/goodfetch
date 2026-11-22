@@ -235,6 +235,10 @@ async fn open_os() -> Option<Backend> {
 /// This OS's keychain, or none where its store does not open. A future, as
 /// Linux's, which opens over the bus.
 #[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unused_async,
+    reason = "Linux's opens over the bus, and both have one signature"
+)]
 async fn open_os() -> Option<Backend> {
     match os_store() {
         Ok(store) => Some(Backend::Store(store)),

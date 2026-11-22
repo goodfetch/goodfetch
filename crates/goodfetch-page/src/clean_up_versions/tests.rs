@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_engine::clock::Clock;
@@ -56,24 +56,31 @@ fn the_sources_state_is_replaced_whole_through_a_partial_file_that_does_not_stay
 /// calendar says when the test runs: the rule takes "now" (TESTING.md ›
 /// Time), so the embedded part's date only moves where it goes stale.
 /// Covers: story:5-97
-#[test]
-fn a_version_goes_stale_14_days_after_its_date_on_any_calendar() {
+#[rstest::rstest]
+#[case::a_day_before_its_date(
+    |published| published - jiff::SignedDuration::from_hours(24),
+    false
+)]
+#[case::on_its_date(|published| published, false)]
+#[case::a_second_before_fourteen_days_after(
+    |published| published + jiff::SignedDuration::from_secs(14 * 24 * 3600 - 1),
+    false
+)]
+#[case::fourteen_days_after(
+    |published| published + jiff::SignedDuration::from_hours(14 * 24),
+    true
+)]
+#[case::at_the_end_of_time(|_| jiff::Timestamp::MAX, true)]
+fn a_version_goes_stale_14_days_after_its_date_on_any_calendar(
+    #[case] now: fn(jiff::Timestamp) -> jiff::Timestamp,
+    #[case] stale: bool,
+) {
     let embedded = Version::embedded();
-    let published = embedded.manifest.published_at;
-    let stale_from = published + jiff::SignedDuration::from_hours(14 * 24);
-    let second = jiff::SignedDuration::from_secs(1);
+    let published = jiff::Timestamp::try_from(embedded.manifest.published_at).unwrap();
 
-    assert_eq!(
-        [
-            published - jiff::SignedDuration::from_hours(24),
-            published,
-            stale_from - second,
-            stale_from,
-            jiff::Timestamp::MAX,
-        ]
-        .map(|now| embedded.stale(now)),
-        [false, false, false, true, true]
-    );
+    let judged = embedded.stale(now(published));
+
+    assert_eq!(judged, stale);
 }
 
 /// The test Clock's start.
@@ -104,8 +111,8 @@ async fn expired_version(sources: &Sources, now: jiff::Timestamp) -> Version {
     let manifest = CleanUpRulesManifest {
         format_version: CLEAN_UP_RULES.version,
         source: RulesSource::Upstream,
-        published_at: now - jiff::SignedDuration::from_hours(48),
-        expires_at: Some(now - jiff::SignedDuration::from_hours(24)),
+        published_at: SystemTime::from(now - jiff::SignedDuration::from_hours(48)),
+        expires_at: Some(SystemTime::from(now - jiff::SignedDuration::from_hours(24))),
         lists: RulesLists {
             ads: "easylist.txt".to_owned(),
             trackers: "easyprivacy.txt".to_owned(),

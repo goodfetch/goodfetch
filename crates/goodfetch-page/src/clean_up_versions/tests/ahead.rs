@@ -36,7 +36,7 @@ use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::super::{Versions, lock};
-use crate::interception::run_needs_lists;
+use crate::interception::Interception;
 
 /// The test's own operation.
 const STARTED_LISTS: Operation = Operation {
@@ -218,7 +218,7 @@ fn a_runs_start_loads_its_filter_lists_when_its_settings_turn_one_on(
     #[case] loaded: bool,
 ) {
     let env = TestEnv::new();
-    let versions = Versions::new(run_needs_lists);
+    let versions = Interception::default().versions();
 
     let answer = call(
         &env,
@@ -235,7 +235,7 @@ fn a_runs_start_loads_its_filter_lists_when_its_settings_turn_one_on(
 #[test]
 fn a_crawls_start_leaves_its_filter_lists_to_its_crawl() {
     let env = TestEnv::new();
-    let versions = Versions::new(run_needs_lists);
+    let versions = Interception::default().versions();
 
     let answer = call(
         &env,

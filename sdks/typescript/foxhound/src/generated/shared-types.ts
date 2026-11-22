@@ -5,7 +5,7 @@ import type { AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, Comp
 /**
  * A `audit_kind`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).
  *
- * - `feature_switched_off`: A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its values `learned` and `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.
+ * - `feature_switched_off`: A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.
  * - `learning_switched_off`: A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.
  * - `politeness_weakened`: A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).
  */

@@ -253,7 +253,7 @@ fn at_critical_a_page_past_its_memory_cap_ends_with_page_memory_exceeded() {
             &json!("page_memory_exceeded"),
             &json!(true),
             &json!(page.page_id),
-            &json!({ "key": "governor.browser.page_memory_cap", "value": 32 * MIB, "layer": "run" }),
+            &json!({ "key": "governor.browser.page_memory_cap", "value": 32 * MIB, "layer": "run", "origin": "settings" }),
             true,
             true,
         ),

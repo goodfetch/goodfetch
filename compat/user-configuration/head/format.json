@@ -47,6 +47,11 @@
                 "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
                 "type": "boolean"
               },
+              "refusals_per_minute": {
+                "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "retention": {
                 "anyOf": [
                   {
@@ -66,6 +71,14 @@
           "browser": {
             "additionalProperties": false,
             "properties": {
+              "access_mode": {
+                "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                "enum": [
+                  "standard",
+                  "identified",
+                  "stealth"
+                ]
+              },
               "block_resources": {
                 "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
                 "items": {
@@ -83,7 +96,11 @@
                 "type": "boolean"
               },
               "headless": {
-                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+                "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
+                "type": "boolean"
+              },
+              "headless_shell": {
+                "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                 "type": "boolean"
               },
               "service_workers": {
@@ -171,6 +188,27 @@
                   }
                 ],
                 "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default."
+              }
+            },
+            "type": "object"
+          },
+          "connection": {
+            "additionalProperties": false,
+            "properties": {
+              "max_listener_queue": {
+                "description": "The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_pending_calls": {
+                "description": "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_queued_write_bytes": {
+                "description": "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+                "minimum": 1,
+                "type": "integer"
               }
             },
             "type": "object"
@@ -386,7 +424,7 @@
                     "type": "boolean"
                   },
                   "handler_failed": {
-                    "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                    "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                     "type": "boolean"
                   },
                   "max": {
@@ -490,6 +528,23 @@
               "write_ids_and_epochs": {
                 "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
                 "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "effect": {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -740,7 +795,7 @@
                 "type": "object"
               },
               "http_from": {
-                "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+                "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` (the default) behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `transport` is a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`; `learned`, the default, and `browser` are not reported weakened.",
                 "enum": [
                   "browser",
                   "learned",
@@ -896,9 +951,18 @@
             "additionalProperties": false,
             "properties": {
               "blocking_threads": {
-                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
-                "minimum": 1,
-                "type": "integer"
+                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                "oneOf": [
+                  {
+                    "description": "This many threads.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "const": "per_core",
+                    "description": "One thread a core."
+                  }
+                ]
               },
               "browser": {
                 "additionalProperties": false,
@@ -1035,15 +1099,48 @@
                 "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
                 "oneOf": [
                   {
-                    "description": "This many worker threads.",
+                    "description": "This many threads.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   {
                     "const": "per_core",
-                    "description": "One worker thread a core."
+                    "description": "One thread a core."
                   }
                 ]
+              }
+            },
+            "type": "object"
+          },
+          "identified": {
+            "additionalProperties": false,
+            "properties": {
+              "signature_agent": {
+                "anyOf": [
+                  {
+                    "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
+                    "maxLength": 4096,
+                    "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`."
+              },
+              "signing_key": {
+                "anyOf": [
+                  {
+                    "description": "A Secret reference, such as `env:NAME`.",
+                    "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`."
               }
             },
             "type": "object"
@@ -1130,6 +1227,12 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "max_hello_size": {
+                "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
               "max_json_depth": {
                 "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
                 "maximum": 1024,
@@ -1163,6 +1266,17 @@
                   }
                 ],
                 "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+              },
+              "attached_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start."
               }
             },
             "type": "object"
@@ -1267,6 +1381,10 @@
                   }
                 },
                 "type": "object"
+              },
+              "delegation": {
+                "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
+                "type": "boolean"
               },
               "domain": {
                 "additionalProperties": false,
@@ -2604,6 +2722,71 @@
             },
             "type": "object"
           },
+          "stealth": {
+            "additionalProperties": false,
+            "properties": {
+              "allowed_builds": {
+                "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "chromium_build": {
+                "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+                "enum": [
+                  "goodfetch",
+                  "fingerprint_chromium",
+                  "clearcote"
+                ]
+              },
+              "fingerprint_method": {
+                "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+                "enum": [
+                  "none",
+                  "js_injection",
+                  "basic",
+                  "engine"
+                ]
+              },
+              "generated_identity": {
+                "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+                "type": "boolean"
+              },
+              "human_input": {
+                "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+                "type": "boolean"
+              },
+              "identity": {
+                "additionalProperties": false,
+                "properties": {
+                  "brand": {
+                    "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "device": {
+                    "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "os": {
+                    "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "storage": {
             "additionalProperties": false,
             "properties": {
@@ -2642,8 +2825,23 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "agent": {
+                "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "ai": {
+                "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connect": {
+                "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -2659,6 +2857,31 @@
               },
               "handler": {
                 "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hello": {
+                "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hook": {
+                "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "human_pause": {
+                "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "model": {
+                "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -2682,6 +2905,11 @@
               },
               "secret": {
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sink_write": {
+                "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -2742,6 +2970,17 @@
                 },
                 "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
                 "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "usage": {
+            "additionalProperties": false,
+            "properties": {
+              "ledger_read_interval": {
+                "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "type": "object"

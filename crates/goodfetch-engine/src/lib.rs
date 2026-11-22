@@ -29,6 +29,7 @@ pub mod daemon;
 pub mod deadline;
 pub mod dns;
 mod durable;
+pub mod effect;
 pub mod egress;
 pub mod endpoint;
 mod engine;
@@ -62,6 +63,7 @@ pub mod otlp;
 pub mod pinned_download;
 pub mod politeness;
 mod product;
+pub mod request_signing;
 pub mod response_limits;
 pub mod retry_after;
 pub mod robots_txt;
@@ -80,9 +82,11 @@ pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
 mod settings_editor;
+mod signing_key_operations;
 mod sqlite_store;
 mod sqlite_wal;
 pub mod staging;
+mod stored_time;
 mod sync;
 pub mod tasks;
 pub mod tls;
@@ -93,12 +97,13 @@ pub mod upgrade;
 mod usage;
 mod wire;
 
-pub use call_error::CallError;
+pub use call_error::{CallError, named};
 pub use composition::{
     Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
-    Driver, Guard, GuardAnswer, Handler, Params, ReadParams,
+    Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;
-pub use info::contribution;
+pub use info::{contribution, contribution_sharing};
 pub use product::{Channel, Identity, Requested};
+pub use stored_time::StoredTime;

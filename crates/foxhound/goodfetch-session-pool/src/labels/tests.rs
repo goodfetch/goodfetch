@@ -86,16 +86,17 @@ fn a_labels_session_source_that_is_no_source_is_invalid() {
 /// `session.source` or it declares a `login` of its own, which logs in
 /// through the browser; a fresh source, HTTP credentials or a secret alone
 /// hold none, and the Run's pool is the Run's settings' to say (#2418).
+/// The Label's `settings` set it, so its origin is `settings` (ADR 0083).
 ///
 /// Covers: setting:session.source
 #[rstest]
 #[case::a_saved_identity(
     json!({ "session": { "source": { "kind": "saved_identity", "name": "shop" } } }),
-    Some(json!({ "key": "session.source", "value": { "kind": "saved_identity", "name": "shop" }, "layer": "run" }))
+    Some(json!({ "key": "session.source", "value": { "kind": "saved_identity", "name": "shop" }, "layer": "run", "origin": "settings" }))
 )]
 #[case::a_login_step(
     json!({ "login": { "url": "https://shop.test/login" } }),
-    Some(json!({ "key": "login", "value": { "url": "https://shop.test/login" }, "layer": "run" }))
+    Some(json!({ "key": "login", "value": { "url": "https://shop.test/login" }, "layer": "run", "origin": "settings" }))
 )]
 #[case::a_fresh_source(json!({ "session": { "source": null } }), None)]
 #[case::http_credentials(json!({ "session": { "http_credentials": { "user": "a" } } }), None)]

@@ -580,6 +580,7 @@ fn an_operator_policy_lock_keeps_robots_txt_respected() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "locked",
             "seeds": [{ "url": proving_ground.url(FILE_HOST, "/private/catalog/1"), "label": "page" }],
             "settings": settings(
@@ -740,7 +741,7 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
                 .collect();
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": run, "seeds": seeds, "settings": settings },
+                "params": { "run_id": run, "seeds": seeds, "settings": settings, "labels": { "page": {} } },
             }));
             (engine, *run, false)
         })

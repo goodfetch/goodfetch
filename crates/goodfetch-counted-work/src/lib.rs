@@ -93,7 +93,7 @@ rows! {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses => "F1.parses", "page_analysis", "parses";
     /// `F1.selector_compilations`: a selector, glob or regular expression
-    /// compiled for a fetched page.
+    /// compiled, or an `XPath` locator parsed, for a fetched page.
     PageSelectorCompilations => "F1.selector_compilations", "page_analysis", "selector_compilations";
     /// `F1.readability_runs`: a run of the main-content step on a fetched page.
     PageReadabilityRuns => "F1.readability_runs", "page_analysis", "readability_runs";
@@ -178,6 +178,18 @@ rows! {
     /// `F3.actor_round_trips`: a message a page's task sends the actor that
     /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
     ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
+    /// `F3.second_copy_round_trips`: a message a second copy of a request
+    /// the Run admitted, such as a hedge or a handler's navigation to
+    /// another domain key, sends the actor that holds its Run's Politeness
+    /// to take its Permit, whose answer it waits for (#2171).
+    SecondCopyRoundTrips => "F3.second_copy_round_trips", "frontier_admission", "second_copy_round_trips";
+    /// `F3.politeness_read_round_trips`: a message a crawl's task sends the
+    /// task that holds its Run's own Politeness, held in memory, whose
+    /// answer it waits for, such as a paced key's start at its send or
+    /// after its robots.txt, another key's last start or a proxy's Permit;
+    /// a robots.txt copy's read counts on `E6.robots_reads` and a second
+    /// copy's take on `F3.second_copy_round_trips` instead (#2171).
+    PolitenessReadRoundTrips => "F3.politeness_read_round_trips", "frontier_admission", "politeness_read_round_trips";
     /// `F3.in_flight_serializations`: a crawl's requests in flight encoded
     /// to JSON, for a value of its Run's progress that a reader takes.
     InFlightSerializations => "F3.in_flight_serializations", "frontier_admission", "in_flight_serializations";
@@ -353,9 +365,19 @@ rows! {
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";
-    /// `E6.transactions`: a transaction on a Politeness file, as its commit
-    /// hook sees it.
+    /// `E6.transactions`: a transaction on a Politeness file that takes or
+    /// gives back a Permit, or changes a key's state, outside a Delegation,
+    /// as its commit hook sees it.
     PolitenessTransactions => "E6.transactions", "politeness_permit", "transactions";
+    /// `E6.delegations`: a key's Delegation taken by an engine (#2172).
+    PolitenessDelegations => "E6.delegations", "politeness_permit", "delegations";
+    /// `E6.delegation_transactions`: a transaction on a Politeness file
+    /// that takes Delegations, every key a group of jobs asks for together.
+    PolitenessDelegationTransactions => "E6.delegation_transactions", "politeness_permit", "delegation_transactions";
+    /// `E6.other_transactions`: any other transaction on a Politeness file:
+    /// its open, the robots.txt copy, a site's ask read or written when
+    /// learned, a Delegation given back, waiters withdrawn.
+    PolitenessOtherTransactions => "E6.other_transactions", "politeness_permit", "other_transactions";
     /// `E6.opens`: a Politeness file opened. Its statement preparations are
     /// the benchmark's, read from Callgrind, as no wrapper sees them.
     PolitenessOpens => "E6.opens", "politeness_permit", "opens";

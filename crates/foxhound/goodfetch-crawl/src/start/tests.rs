@@ -17,7 +17,11 @@
 
 mod admission;
 mod finishing;
+mod fixed;
+mod given_back;
+mod hooks;
 mod keep_alive;
+mod labels;
 mod limits;
 mod lost_outcome;
 mod masking;
@@ -98,6 +102,8 @@ pub(crate) struct Client {
     next_id: i64,
     /// The handler requests the engine sent, as they came.
     pub(crate) handled: Vec<Value>,
+    /// The params of each Hook call the engine sent, as they came.
+    pub(crate) hooked: Vec<Value>,
     /// The ids of the requests left unanswered.
     pub(crate) silent: Vec<Value>,
     /// Each request and notification the engine sent, as it came, with
@@ -170,7 +176,9 @@ impl Client {
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
-    /// harness pushes every Record into.
+    /// harness pushes every Record into. A Hook call goes to `handler`
+    /// too, its params naming the Hook: any `Records` reply returns from
+    /// it.
     pub(crate) async fn call(
         &mut self,
         method: &str,
@@ -215,49 +223,59 @@ impl Client {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": records } }))
                             .await;
                     }
-                    Reply::Fails(code, retryable) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the handler failed", "data": { "code": code, "retryable": retryable } },
-                        }))
-                        .await;
-                    }
-                    Reply::FailsWith(code, retryable, details) => {
-                        let mut data = json!({ "code": code, "retryable": retryable });
-                        if let (Some(data), Value::Object(details)) =
-                            (data.as_object_mut(), details)
-                        {
-                            data.extend(details);
-                        }
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32005, "message": "the handler failed", "data": data },
-                        }))
-                        .await;
+                    reply @ (Reply::Fails(..) | Reply::FailsWith(..) | Reply::Blocked(_)) => {
+                        self.failing(&message["id"], reply).await;
                     }
                     Reply::Skips(text) => {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
                             .await;
-                    }
-                    Reply::Blocked(cause) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the site refused the page", "data": { "code": "blocked", "retryable": false, "cause": cause } },
-                        }))
-                        .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
                     Reply::Calls(..) | Reply::After(..) => {
                         unreachable!("invariant: the calls were sent and the waits waited above")
                     }
                 }
+            } else if message.get("method").and_then(Value::as_str) == Some("crawl_hook.handle") {
+                self.hooked.push(message["params"].clone());
+                match self.answering(handler(&message["params"])).await {
+                    Reply::Records(_) => {
+                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }))
+                            .await;
+                    }
+                    Reply::Silent => self.silent.push(message["id"].clone()),
+                    reply => self.failing(&message["id"], reply).await,
+                }
             } else if message["id"] == json!(id) {
                 return message;
             }
         }
+    }
+
+    /// Answers the handler request or Hook call `id` with the failure
+    /// `reply` says.
+    async fn failing(&mut self, id: &Value, reply: Reply) {
+        let (code, message, data) = match reply {
+            Reply::Fails(code, retryable) => (
+                -32003,
+                "the handler failed",
+                json!({ "code": code, "retryable": retryable }),
+            ),
+            Reply::FailsWith(code, retryable, details) => {
+                let mut data = json!({ "code": code, "retryable": retryable });
+                if let (Some(data), Value::Object(details)) = (data.as_object_mut(), details) {
+                    data.extend(details);
+                }
+                (-32005, "the handler failed", data)
+            }
+            Reply::Blocked(cause) => (
+                -32003,
+                "the site refused the page",
+                json!({ "code": "blocked", "retryable": false, "cause": cause }),
+            ),
+            reply => unreachable!("invariant: {reply:?} is no failure"),
+        };
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message, "data": data } }))
+            .await;
     }
 
     pub(crate) async fn close(&mut self) {
@@ -481,6 +499,26 @@ pub(crate) fn crawl_on<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
+    connected_on(engine, &json!({}), dependencies, talk)
+}
+
+/// [`crawl`], on a Connection whose `hello` sets `settings`, its own, which
+/// each crawl it starts takes beneath its own (ADR 0083).
+pub(crate) fn crawl_connected<T>(
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> T {
+    connected_on(&engine(), settings, dependencies, talk).0
+}
+
+/// [`crawl_on`], on a Connection whose `hello` sets `settings`.
+pub(crate) fn connected_on<T>(
+    engine: &Engine,
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
@@ -496,6 +534,7 @@ pub(crate) fn crawl_on<T>(
                 writer,
                 next_id: 0,
                 handled: Vec::new(),
+                hooked: Vec::new(),
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,
@@ -510,6 +549,7 @@ pub(crate) fn crawl_on<T>(
                         "surface": "rust",
                         "needs": "foxhound",
                         "product_version": "1.4.0",
+                        "settings": settings,
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -636,9 +676,51 @@ pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
 }
 
+/// Each delivered work item's page and attempt, in order.
+pub(super) fn delivered(client: &Client) -> Vec<(String, u64)> {
+    client
+        .handled
+        .iter()
+        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
+        .collect()
+}
+
 /// Answers each page with one Record naming it.
 pub(super) fn answer_all(params: &Value) -> Reply {
     Reply::Records(vec![json!({ "page": page_of(params) })])
+}
+
+/// Answers the first seed's page with its Record, leaving every other
+/// page unanswered.
+pub(super) fn first_only(params: &Value) -> Reply {
+    if page_of(params).ends_with("/1") {
+        answer_all(params)
+    } else {
+        Reply::Silent
+    }
+}
+
+/// Starts the crawl of `start`, whose first seed's page alone is answered,
+/// and pauses its Run once that page's Record is committed, resuming it
+/// until then; answers the pause that held.
+pub(super) async fn paused_after_its_first_page(
+    client: &mut Client,
+    env: &TestEnv,
+    start: Value,
+) -> Value {
+    let run_id = start["run_id"].as_str().unwrap().to_owned();
+    client.call("crawl.start", start, &mut first_only).await;
+    loop {
+        let paused = client
+            .call("run.pause", json!({ "run_id": run_id }), &mut first_only)
+            .await;
+        if records(&run_file(env, &run_id)).len() == 1 {
+            return paused;
+        }
+        client
+            .call("run.resume", json!({ "run_id": run_id }), &mut first_only)
+            .await;
+    }
 }
 
 /// Covers: story:3-41, operation:crawl.start, operation:run.finish
@@ -652,7 +734,7 @@ fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {
             let started = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "shop", "seeds": seeds(3) }),
+                    json!({ "run_id": "shop", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -714,7 +796,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "retry", "seeds": seeds(1) }),
+                    json!({ "run_id": "retry", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -757,7 +839,7 @@ fn a_handlers_own_failure_commits_nothing_and_is_not_retried() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "bug", "seeds": seeds(1) }),
+                    json!({ "run_id": "bug", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -797,7 +879,7 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "hung", "seeds": seeds(1) }),
+                    json!({ "run_id": "hung", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -853,6 +935,7 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits(
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "late",
                         "seeds": seeds(1),
                         "settings": { "run_state": { "durability": level } },
@@ -946,7 +1029,7 @@ fn a_handler_that_never_answers_any_attempt_fails_its_work_item_with_handler_los
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "gone", "seeds": seeds(1) }),
+                    json!({ "run_id": "gone", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -990,6 +1073,7 @@ fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending(
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "aborted",
                         "seeds": seeds(2),
                         "settings": { "run_state": { "durability": level } },
@@ -1048,6 +1132,7 @@ fn a_crawl_at_off_with_no_threshold_writes_its_records_only_as_it_stops() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "unwritten",
                         "seeds": seeds(2),
                         "settings": {
@@ -1085,9 +1170,14 @@ fn a_crawl_at_off_with_no_threshold_writes_its_records_only_as_it_stops() {
     );
 }
 
-/// Covers: error:run_conflict
+/// A start under the ID of a live crawl with other inputs raises
+/// `run_conflict` listing each difference, and one with the same inputs
+/// `run_in_use`, the crawl being live in this engine (ADR 0102).
+///
+/// Covers: error:run_conflict, error:run_in_use, story:3-167
 #[test]
-fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_same_returns_it() {
+fn a_start_under_a_live_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_same_is_in_use()
+{
     let env = TestEnv::new();
 
     let answers = crawl(
@@ -1097,14 +1187,14 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(1) }),
+                    json!({ "run_id": "same", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
             let other_seeds = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(2) }),
+                    json!({ "run_id": "same", "seeds": seeds(2), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
@@ -1114,7 +1204,7 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
             let same = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(1) }),
+                    json!({ "run_id": "same", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
@@ -1132,12 +1222,12 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
                 &answers.1["error"]["data"]["code"],
                 &answers.1["error"]["data"]["differences"]
             ),
-            &answers.2["result"]["started_as"],
+            &answers.2["error"]["data"]["code"],
         ),
         (
             (&json!("run_conflict"), &json!(["seeds"])),
             (&json!("run_conflict"), &json!(["product", "kind", "seeds"])),
-            &json!("existing"),
+            &json!("run_in_use"),
         )
     );
 }
@@ -1156,7 +1246,7 @@ fn a_crawl_needs_foxhound_in_its_run_state_and_its_run_index_row() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "tagged", "tags": ["nightly", "shop"], "seeds": seeds(1) }),
+                    json!({ "run_id": "tagged", "tags": ["nightly", "shop"], "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -1215,6 +1305,7 @@ fn a_crawls_settings_shape_its_attempts() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "once",
                         "seeds": seeds(1),
                         "settings": { "crawl": { "retry": { "max": 0 } } },
@@ -1250,7 +1341,8 @@ fn a_crawls_settings_shape_its_attempts() {
 fn an_operator_policy_cap_tightened_during_a_crawl_reaches_the_next_crawl() {
     let env = TestEnv::new();
     let policy = env.home().join("1").join("operator-policy.toml");
-    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+    let started =
+        |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1), "labels": { "page": {} } });
 
     crawl(
         || default_dependencies(&env, RunStateOptions::default()),
@@ -1307,7 +1399,8 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
     let tight = "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 1\n";
     std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
     std::fs::write(&policy, tight).unwrap();
-    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+    let started =
+        |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1), "labels": { "page": {} } });
 
     let (going, after) = crawl(
         || default_dependencies(&env, RunStateOptions::default()),
@@ -1342,20 +1435,16 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
             attempts("after"),
             after["result"]["policy_version"] == going["result"]["policy_version"],
         ),
-        (
-            2,
-            json!(goodfetch_engine::settings::policy_version(tight)),
-            3,
-            false,
-        )
+        (2, json!("sha256:0ee1c4517f01bd0e"), 3, false)
     );
 }
 
 /// A crawl whose `fetch.tier` forces a tier this engine does not build,
 /// for the Run or for one of its Labels, is refused before its Run begins,
 /// naming the setting and the tier (spec #579), and a Label setting a key
-/// a Label does not take is refused with `setting_not_applicable`; the
-/// conformance fetch suite starts one under `http`.
+/// a Label does not take is refused with `setting_not_applicable`, as is
+/// the Run's own `timeout.run`, which only the Connection sets (ADR 0083);
+/// the conformance fetch suite starts one under `http`.
 ///
 /// Covers: story:5-128, story:5-118, setting:fetch.tier
 #[rstest::rstest]
@@ -1385,6 +1474,12 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
     json!({}),
     json!({ "list": { "settings": { "crawl": { "max_depth": 2 } } } }),
     json!(["setting_not_applicable", "crawl.max_depth", null])
+)]
+/// Covers: story:11-70, setting:timeout.run, error:setting_not_applicable
+#[case::a_run_timeout_of_the_runs_own(
+    json!({ "timeout": { "run": 60_000 } }),
+    json!({}),
+    json!(["setting_not_applicable", "timeout.run", null])
 )]
 fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
     #[case] settings: Value,
@@ -1541,11 +1636,11 @@ fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
     );
 }
 
-/// A crawl's start checks a field's CSS selector on the engine's Counted
-/// work, the one its Run compiles the selector through: a start refused for
-/// a later field compiled the selector there once, where a Run reading it
-/// would find it kept, rather than on Counted work of the check's own
-/// (#2605).
+/// A crawl's start checks a field's selector on the engine's Counted work,
+/// the one its Run compiles the selector through: a start refused for a
+/// later field compiled the CSS selector there once (#2605) and parsed the
+/// refused `XPath` expression there once (#2713), where a Run reading them
+/// would find them kept, rather than on Counted work of the check's own.
 #[test]
 fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
     let env = TestEnv::new();
@@ -1561,6 +1656,7 @@ fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "refused",
                         "seeds": seeds(1),
                         "datasets": [],
@@ -1583,7 +1679,7 @@ fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
             &refused["error"]["data"]["code"],
             work.read(goodfetch_counted_work::Row::PageSelectorCompilations)
         ),
-        (&json!("invalid_params"), 1),
+        (&json!("invalid_params"), 2),
         "{refused}"
     );
 }
@@ -1600,25 +1696,31 @@ fn shop() -> Value {
 /// Run's pool and a Label's own for its requests, conflicts with the
 /// identity `session.source` fixed: the start is refused with
 /// `setting_locked`, whose `limit` names `session.source`, its value and
-/// the layer that set it (ADR 0083).
+/// the layer that set it, and `settings` as its origin: the Run's
+/// `settings` or the Label's, a scope's `settings` option (ADRs 0083 and
+/// 0093).
 ///
 /// Covers: setting:fetch.http_from, setting:session.source, error:setting_locked
 #[rstest::rstest]
 #[case::a_labels_own_login_pool(
     json!({}),
-    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "transport" } } } })
+    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "transport" } } } }),
+    json!({ "key": "session.source", "value": shop(), "layer": "run", "origin": "settings" })
 )]
 #[case::the_runs_login_pool(
     json!({ "session": { "source": shop() }, "fetch": { "http_from": "transport" } }),
-    json!({})
+    json!({}),
+    json!({ "key": "session.source", "value": shop(), "layer": "run", "origin": "settings" })
 )]
 #[case::a_label_on_the_runs_login_pool(
     json!({ "session": { "source": shop() } }),
-    json!({ "list": { "settings": { "fetch": { "http_from": "transport" } } } })
+    json!({ "list": { "settings": { "fetch": { "http_from": "transport" } } } }),
+    json!({ "key": "session.source", "value": shop(), "layer": "run", "origin": "settings" })
 )]
 fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
     #[case] settings: Value,
     #[case] labels: Value,
+    #[case] limit: Value,
 ) {
     let env = TestEnv::new();
 
@@ -1641,18 +1743,12 @@ fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
     );
 
     let refusal = &refused["error"]["data"];
-    let message = refused["error"]["message"].as_str().unwrap_or_default();
     assert_eq!(
         (
             json!([refusal["code"], refusal["key"], refusal["layer"]]),
             &refusal["limit"],
-            message.contains("`fetch.http_from`") && message.contains("`session.source`"),
         ),
-        (
-            json!(["setting_locked", "fetch.http_from", "run"]),
-            &json!({ "key": "session.source", "value": shop(), "layer": "run" }),
-            true,
-        ),
+        (json!(["setting_locked", "fetch.http_from", "run"]), &limit),
         "{refused}"
     );
 }
@@ -1666,15 +1762,15 @@ fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
 #[rstest::rstest]
 #[case::a_labels_login_pool_under_the_runs_transport(
     json!({ "fetch": { "http_from": "transport" } }),
-    json!({ "account": { "settings": { "session": { "source": shop() } } } })
+    json!({ "account": { "settings": { "session": { "source": shop() } } }, "page": {} })
 )]
 #[case::the_runs_login_pool_under_learned(
     json!({ "session": { "source": shop() }, "fetch": { "http_from": "learned" } }),
-    json!({})
+    json!({ "page": {} })
 )]
 #[case::a_labels_login_pool_under_its_own_learned(
     json!({}),
-    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "learned" } } } })
+    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "learned" } } }, "page": {} })
 )]
 fn a_login_pool_under_a_value_that_yields_starts(#[case] settings: Value, #[case] labels: Value) {
     let env = TestEnv::new();
@@ -1721,7 +1817,7 @@ fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Va
                     json!({
                         "run_id": "fragments",
                         "seeds": seeds(1),
-                        "labels": { "app": { "settings": label } },
+                        "labels": { "app": { "settings": label }, "page": {} },
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -1735,8 +1831,8 @@ fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Va
 /// A crawl request's identity follows `crawl.keep_url_fragment`, which is
 /// fixed for a Run's life (ADRs 0102 and 0120): a start under the Run's ID
 /// that changes it, for the Run or for a Label, is refused with
-/// `setting_not_applicable` naming the key, while one that keeps it goes
-/// on with the Run.
+/// `setting_not_applicable` naming the key, while one that keeps it passes
+/// that check to find the Run live in this engine, `run_in_use`.
 ///
 /// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[test]
@@ -1750,8 +1846,8 @@ fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
             "settings": settings,
         })
     };
-    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } } });
-    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } } });
+    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } }, "page": {} });
+    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } }, "page": {} });
 
     let answers = crawl(
         || dependencies(&env, RunStateOptions::default()),
@@ -1791,7 +1887,7 @@ fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
             json!("fixed"),
             json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
             json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
-            json!("fixed"),
+            json!(["run_in_use", null]),
         ]
     );
 }
@@ -1814,6 +1910,7 @@ fn a_crawl_whose_redirect_count_the_browser_cannot_keep_is_refused(#[case] max: 
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "redirects",
                         "seeds": seeds(1),
                         "settings": { "fetch": { "redirect": { "max": max } } },

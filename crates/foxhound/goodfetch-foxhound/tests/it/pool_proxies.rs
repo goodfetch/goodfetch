@@ -12,12 +12,16 @@
 )]
 
 use std::collections::BTreeSet;
+#[cfg(unix)]
 use std::time::Duration;
 
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+#[cfg(unix)]
+use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, browser_cache};
+use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
+#[cfg(unix)]
 use crate::attached_with;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_declaring;
@@ -28,11 +32,13 @@ use url::Url;
 const SEED: u64 = 1160;
 
 /// The variable the engine's environment holds the proxies' password in.
+#[cfg(unix)]
 const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// User configuration declaring the `list` provider of the Proving
 /// ground's datacenter, isp and open proxies, the open one declared of the
 /// datacenter kind too, with the proxies' credentials.
+#[cfg(unix)]
 fn list_configuration(proving_ground: &ProvingGround) -> String {
     let fixtures = &proving_ground.description().fixtures;
     let server = |name: &str, kind: &str| {
@@ -52,6 +58,7 @@ fn list_configuration(proving_ground: &ProvingGround) -> String {
 
 /// The proxies the Proving ground's relays carried requests for targets
 /// holding `marker` through.
+#[cfg(unix)]
 fn proxies_to(proving_ground: &ProvingGround, marker: &str) -> BTreeSet<String> {
     proving_ground.observations().unwrap()["relays"]
         .as_array()

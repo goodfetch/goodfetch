@@ -41,13 +41,14 @@ fn seeds(proving_ground: &ProvingGround, paths: &[&str]) -> Vec<Value> {
         .collect()
 }
 
-/// The settings of a crawl on `tier`, its Label sampling one request, with
-/// one Session in each pool at a time.
+/// The settings of a crawl on `tier`, its Label sampling one request and
+/// its HTTP sent from the browser (`fetch.http_from: browser`), with one
+/// Session in each pool at a time.
 fn crawl_settings(proving_ground: &ProvingGround, tier: &str) -> Value {
     settings(
         proving_ground,
         &json!({
-            "fetch": { "tier": tier, "sample": { "count": 1 } },
+            "fetch": { "tier": tier, "http_from": "browser", "sample": { "count": 1 } },
             "session": { "pool": { "max_size": 1 } },
         }),
     )

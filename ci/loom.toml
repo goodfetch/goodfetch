@@ -13,3 +13,9 @@ preemptions = 2
 [[module]]
 crate = "goodfetch-engine"
 filter = "tasks::cpu_pool::loom_tests"   # the libtest filter that selects its loom tests
+
+# The lock and wakers an event stream's call shares with the values it
+# opens, whose readers read on several threads (issue 3131).
+[[module]]
+crate = "goodfetch-collie-client"
+filter = "event_stream::opened::loom_tests"

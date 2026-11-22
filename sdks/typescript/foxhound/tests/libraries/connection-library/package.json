@@ -1,0 +1,16 @@
+{
+  "name": "connection-library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A library serving both Products, which takes the Collie client package as a peer dependency (story 11-180); Foxhound's tests use it.",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "devDependencies": {
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "peerDependencies": {
+    "@goodfetch/collie-client": "0.0.x"
+  }
+}

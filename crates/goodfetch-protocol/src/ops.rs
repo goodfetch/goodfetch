@@ -1,8 +1,8 @@
-//! The Daemon's ops contracts (ADR 0050): where its ops listener listens,
-//! where its metrics are exported over OTLP, and the runtime's metrics,
-//! whose names under `goodfetch.*` (rendered `goodfetch_*` for Prometheus)
-//! are a versioned contract, each Stable or Experimental, each label taking
-//! a bounded set of values. Every Daemon of either Product serves them, so
+//! The ops contracts (ADR 0050): where the Daemon's ops listener listens,
+//! and an Attached engine's, where the Daemon's metrics are exported over
+//! OTLP, and the runtime's metrics, whose names under `goodfetch.*`
+//! (rendered `goodfetch_*` for Prometheus) are a versioned contract, each
+//! Stable or Experimental, each label taking a bounded set of values. Every Daemon of either Product serves them, so
 //! everything here is Collie's.
 
 use crate::catalog::{
@@ -31,6 +31,23 @@ pub const ADDRESS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `ops.attached_address` (ADR 0050): where an Attached engine serving
+/// itself serves an ops listener, if anywhere.
+pub const ATTACHED_ADDRESS: Setting = Setting {
+    name: "ops.attached_address",
+    description: "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -46,6 +63,7 @@ pub const OTLP_METRICS_ENDPOINT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -82,10 +100,10 @@ pub const COMPLETENESS_LABEL: MetricLabel = MetricLabel {
 };
 
 /// The `browser` label of `goodfetch.browser.running`: the pinned Chrome for
-/// Testing, or the distribution's Chromium.
+/// Testing, its headless shell (#3224), or the distribution's Chromium.
 pub const BROWSER_LABEL: MetricLabel = MetricLabel {
     name: "browser",
-    values: || vec!["chrome_for_testing", "chromium"],
+    values: || vec!["chrome_for_testing", "chrome_headless_shell", "chromium"],
 };
 
 /// The `reason` label of `goodfetch.browser.recycled`: why a pool recycled
@@ -149,7 +167,7 @@ pub const RUN_ENDED: Metric = Metric {
 /// `goodfetch.browser.running`: the browsers the Runs launched.
 pub const BROWSER_RUNNING: Metric = Metric {
     name: "goodfetch.browser.running",
-    description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+    description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, its headless shell under `browser.headless_shell`, or the distribution's Chromium where no build is made.",
     instrument: Instrument::UpDownCounter,
     unit: "{browser}",
     labels: &[BROWSER_LABEL],
@@ -221,7 +239,7 @@ include!("../generated/counted_work.rs");
 /// `goodfetch.counted_work`: the Counted work of each Shared path (ADR 0140).
 pub const COUNTED_WORK: Metric = Metric {
     name: "goodfetch.counted_work",
-    description: "The Counted work the Daemon did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
+    description: "The Counted work the Daemon, or an Attached engine serving `ops.attached_address`, did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
     instrument: Instrument::Counter,
     unit: "{work}",
     labels: &[COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL],
@@ -313,7 +331,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_STATE_SPILLED_LOOKUPS,
         ENGINE_PANICS,
     ],
-    settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],
+    settings: &[ADDRESS, ATTACHED_ADDRESS, OTLP_METRICS_ENDPOINT],
     hook_stages: &[],
     shared_type_values: &[],
 };

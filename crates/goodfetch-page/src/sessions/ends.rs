@@ -15,15 +15,10 @@
 
 use std::sync::Arc;
 
-use futures_util::FutureExt as _;
-use goodfetch_engine::CallError;
-use goodfetch_engine::run::limit_reached;
 use goodfetch_engine::runs::Run;
-use goodfetch_protocol::connection::{ClosedValue, StoppedBy};
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PageEventName};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
-use goodfetch_protocol::run::StopReason;
 use goodfetch_protocol::usage::PAGE_CRASHES;
 use tokio::sync::mpsc;
 
@@ -31,7 +26,7 @@ use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
 use super::{OpenPage, PageLife, Session, Sessions};
 use crate::driver::Lost;
-use crate::errors::cancelled;
+use crate::errors::run_stopped;
 use crate::pool::BrowserLoss;
 
 impl Sessions {
@@ -201,8 +196,8 @@ impl Sessions {
     /// closes its target, a target the browser destroyed, a renderer that
     /// crashed, or its browser lost, which ends its Session too when the
     /// Session is seated there. Once its Run stops, or the engine closes
-    /// its browser, its calls in flight end as its Session's close by the
-    /// program does (S7), with no wait for an end that never comes.
+    /// its browser, its calls in flight end with the Run's close (ADR
+    /// 0113), with no wait for an end that never comes.
     pub(super) fn watch(&self, page_id: PageId, page: OpenPage, open: Arc<Session>, browser: u64) {
         let sessions = self.clone();
         let OpenPage {
@@ -215,7 +210,7 @@ impl Sessions {
         let stopping = run.cancellation().clone();
         run.clone().spawn(async move {
             let closed_by_the_engine = || {
-                if let Err(error) = life.end(&Ending::RunStopped(run_stop(&run))) {
+                if let Err(error) = life.end(&Ending::RunStopped(run_stopped(&run))) {
                     tracing::error!(%error, "a page's end with its Run was refused");
                 }
             };
@@ -268,16 +263,6 @@ impl Sessions {
                 tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
             }
         });
-    }
-}
-
-/// What a call in flight raises when `run` stops under it: the Limit the
-/// Run reached, as the charge that reached it raised (ADR 0041), and
-/// otherwise the program's close of its Session (S7), whatever stopped it.
-fn run_stop(run: &Run) -> CallError {
-    match run.stopping().now_or_never() {
-        Some(StopReason::Limit(reached)) => limit_reached(&reached),
-        _ => cancelled(StoppedBy::Program, ClosedValue::Session),
     }
 }
 

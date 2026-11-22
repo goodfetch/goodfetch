@@ -256,9 +256,6 @@ fn a_subscriber_that_grants_no_credits_falls_behind_to_a_resync_and_holds_back_n
     });
 
     let last = positions(&read).last().copied().unwrap_or(0);
-    let runs: Vec<Value> = (0..RUNS)
-        .map(|index| json!({ "run_id": format!("run-{index}"), "lifecycle": "running" }))
-        .collect();
     assert_eq!(
         (
             unheld,
@@ -276,7 +273,13 @@ fn a_subscriber_that_grants_no_credits_falls_behind_to_a_resync_and_holds_back_n
             RUNS,
             true,
             json!("events.resync"),
-            Value::Array(runs),
+            json!([
+                { "run_id": "run-0", "lifecycle": "running" },
+                { "run_id": "run-1", "lifecycle": "running" },
+                { "run_id": "run-2", "lifecycle": "running" },
+                { "run_id": "run-3", "lifecycle": "running" },
+                { "run_id": "run-4", "lifecycle": "running" },
+            ]),
             true,
             json!("run.axes_changed"),
             json!("after"),

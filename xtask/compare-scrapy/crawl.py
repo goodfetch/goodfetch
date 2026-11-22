@@ -3,7 +3,7 @@
 ADR 0138's matrix: from `--url`, at `--concurrency` requests at once, every
 page of the site, with `--host`, when given, sent as each request's `Host` so
 the Proving ground serves its family on the loopback address, nothing kept on
-disk but the extraction scenario's items. `--scenario` names the matrix's
+disk but the extraction and handled scenarios' items. `--scenario` names the matrix's
 scenario:
 
 - `raw`: Scrapy's default crawl on the first page's host, no delay,
@@ -19,7 +19,11 @@ scenario:
   setting but the `Host` header and `LOG_LEVEL: INFO`, which changes only
   what Scrapy logs, so robots.txt is not obeyed (`ROBOTSTXT_OBEY` is False
   by default), 16 requests in flight, 8 a domain, no delay, and 429s and
-  503s retried twice; `--concurrency` is unread.
+  503s retried twice; `--concurrency` is unread;
+- `handled` (#2317): `raw` with each page's twenty fields read with CSS
+  selectors, each the first element its selector matches, as its text or one
+  attribute, `None` when none matches, yielded with the page's URL as an
+  Item, which the extraction scenario's pipeline writes to `items.jsonl`.
 
 Every scenario but `hostile` verifies an `https` site's certificate against
 the platform's roots, which `SSL_CERT_FILE` extends with the Proving
@@ -51,7 +55,7 @@ if TYPE_CHECKING:
     from scrapy.http import Response
 
 
-SCENARIOS = ("raw", "polite", "extraction", "browser", "hostile")
+SCENARIOS = ("raw", "polite", "extraction", "browser", "hostile", "handled")
 
 ITEMS_FILE = "items.jsonl"
 
@@ -59,6 +63,47 @@ REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
 # Scrapy's HTTP/2 download handler, which offers `h2` alone over ALPN.
 H2_HANDLER = "scrapy.core.downloader.handlers.http2.H2DownloadHandler"
+
+ITEM = "article.item"
+
+
+def child(k: int) -> str:
+    """The `k`th child page's link in a page's list of children."""
+    return f"ul.pages > li:nth-child({k}) > a"
+
+
+# The handled crawl's twenty fields of a page of the article site, by name:
+# each one's selector and, for a link, the attribute it reads in place of
+# the text.
+FIELDS: dict[str, tuple[str, str | None]] = {
+    "title": ("title", None),
+    "name": (f"{ITEM} > h1.name", None),
+    "id": (ITEM, "data-id"),
+    "home": ("nav > a", "href"),
+    "home_label": ("nav > a", None),
+    "header": ("header > p", None),
+    "nav": ("nav > p", None),
+    "footer": ("footer > p", None),
+    "first_child": (child(1), "href"),
+    "first_child_name": (child(1), None),
+    "second_child": (child(2), "href"),
+    "second_child_name": (child(2), None),
+    **{f"paragraph_{k}": (f"{ITEM} > p:nth-of-type({k})", None) for k in range(1, 9)},
+}
+
+
+def fields(response: Response) -> dict[str, str | None]:
+    """The handled crawl's fields of `response`, `None` where none matches."""
+    read: dict[str, str | None] = {}
+    for name, (selector, attribute) in FIELDS.items():
+        matched = response.css(selector)
+        if not matched:
+            read[name] = None
+        elif attribute is None:
+            read[name] = matched[0].xpath("string()").get()
+        else:
+            read[name] = matched[0].attrib.get(attribute)
+    return read
 
 
 class Site(scrapy.Spider):
@@ -94,8 +139,8 @@ class Site(scrapy.Spider):
         self,
         response: Response,
         **_kwargs: object,
-    ) -> Iterator[scrapy.Request | dict[str, str]]:
-        """Counts the page, yields its Item in `extraction`, and follows each link."""
+    ) -> Iterator[scrapy.Request | dict[str, str | None]]:
+        """Counts the page, yields its Item when it has one, and follows each link."""
         self.pages += 1
         if self.scenario == "extraction":
             yield {
@@ -103,6 +148,8 @@ class Site(scrapy.Spider):
                 "title": response.css("title::text").get(default=""),
                 "text": " ".join(response.css("main ::text").getall()).strip(),
             }
+        elif self.scenario == "handled":
+            yield {"url": response.url, **fields(response)}
         yield from response.follow_all(css="a", callback=self.parse, meta=self.meta)
 
 
@@ -122,7 +169,7 @@ class JsonLines:
         if self.file is not None:
             self.file.close()
 
-    def process_item(self, item: dict[str, str]) -> dict[str, str]:
+    def process_item(self, item: dict[str, str | None]) -> dict[str, str | None]:
         """Writes `item` as one line."""
         if self.file is not None:
             self.file.write(json.dumps(item) + "\n")
@@ -157,7 +204,7 @@ def settings_of(arguments: argparse.Namespace) -> dict[str, Any]:
                 "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
             },
         )
-    if arguments.scenario == "extraction":
+    if arguments.scenario in {"extraction", "handled"}:
         settings["ITEM_PIPELINES"] = {f"{__name__}.JsonLines": 300}
     if arguments.scenario == "browser":
         handler = "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler"

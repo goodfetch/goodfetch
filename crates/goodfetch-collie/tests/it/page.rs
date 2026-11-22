@@ -8,12 +8,9 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-#![cfg_attr(
-    unix,
-    expect(
-        clippy::disallowed_methods,
-        reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
-    )
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the clock and the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
 )]
 
 use std::collections::BTreeSet;
@@ -23,13 +20,15 @@ use std::process::Command;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+#[cfg(unix)]
 use goodfetch_protocol::connection::Surface;
+#[cfg(unix)]
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
-    cli, runtime,
+    cli, runtime, skipped_without_gui_session,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -74,6 +73,7 @@ pub(crate) fn started_with(
 /// As [`started_with`], its Client a person's, the CLI: the engine admits
 /// from it the operations only a person may call, such as
 /// `config.user_write`.
+#[cfg(unix)]
 pub(crate) fn started_by_a_person(
     env: &TestEnv,
     cache: &Path,
@@ -141,6 +141,7 @@ pub(crate) fn resumed_with(
 /// The next `engine.system_info` the engine sends on the subscription
 /// `samples`, every other message read past, and one credit given for the
 /// sample after it.
+#[cfg(unix)]
 pub(crate) fn next_sample(engine: &mut Attached) -> Value {
     loop {
         let message = engine
@@ -299,6 +300,42 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
             &json!("finished"),
             (vec![], true)
         )
+    );
+}
+
+/// A Session's page opens on every OS over the browser's debugging pipe,
+/// with no debugging port: Chromium writes `DevToolsActivePort` into its data
+/// folder once its debugging server listens on a port, as a Borrowed
+/// browser's does, and never for the pipe (ADR 0017).
+/// Covers: story:5-61, operation:run.new_page
+#[test]
+fn a_sessions_page_opens_over_the_debugging_pipe_with_no_debugging_port() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "piped");
+
+    let page = engine.ask(2, "run.new_page", &json!({ "run_id": "piped" }));
+    let data_folder = HomeLayout::of(env.home())
+        .run_folder("piped")
+        .join("browser-data")
+        .join("1");
+    let running = (
+        data_folder.is_dir(),
+        data_folder.join("DevToolsActivePort").exists(),
+    );
+    let finished = engine.ask(3, "run.finish", &json!({ "run_id": "piped" }));
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            page["result"]["page_id"].is_string(),
+            running,
+            &finished["result"]["lifecycle"],
+            (rest, exited),
+        ),
+        (true, (true, false), &json!("finished"), (vec![], true)),
+        "{page}"
     );
 }
 
@@ -568,6 +605,11 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
 /// Covers: story:5-61
 #[test]
 fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
+    if skipped_without_gui_session(
+        "its Browser cache holds the full build beside the headless shell, and the clean-up deletes the full build while the shell runs",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

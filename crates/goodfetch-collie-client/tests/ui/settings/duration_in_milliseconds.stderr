@@ -1,0 +1,17 @@
+error[E0277]: `u64` is no value of a setting whose values are `Duration`
+ --> tests/ui/settings/duration_in_milliseconds.rs:6:62
+  |
+6 |     let _settings = Settings::new().set(timeout::NAVIGATION, 30_000_u64);
+  |                                     ---                      ^^^^^^^^^^ the key's values are `Duration`
+  |                                     |
+  |                                     required by a bound introduced by this call
+  |
+  = help: the trait `IntoSettingValue<Duration>` is not implemented for `u64`
+note: required by a bound in `Settings::set`
+ --> src/settings.rs
+  |
+  |     pub fn set<T: SettingValue>(
+  |            --- required by a bound in this associated function
+...
+  |         value: impl IntoSettingValue<T>,
+  |                     ^^^^^^^^^^^^^^^^^^^ required by this bound in `Settings::set`

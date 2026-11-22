@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
 
@@ -36,8 +36,9 @@ use crate::pinned_download::{Digest, Fetching};
 
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge, Os, PinnedArtifact,
-    Platform, PlatformNotice, browser_source, content_digest, installed_browser, kept_artifacts,
+    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge,
+    Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
+    installed_browser, kept_artifacts,
 };
 
 /// The digest of [`build_files`]'s tree, worked out by hand from the rule
@@ -289,6 +290,35 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     );
 }
 
+/// A missing headless shell's fix names it, since a bare `browser install`
+/// fetches only the builds a Run launches by default (#3224).
+/// Covers: error:artifact_unavailable_offline, setting:browser.headless_shell
+#[test]
+fn a_missing_headless_shell_under_offline_names_its_own_install() {
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let id = artifact(ArtifactKind::Browser, CHROME_HEADLESS_SHELL, "156.0.8078.4");
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    let CacheError::Offline { details, .. } = refused else {
+        panic!("expected artifact_unavailable_offline, got {refused:?}");
+    };
+    assert_eq!(
+        details.fix,
+        "Run `goodfetch-collie browser install chrome-headless-shell` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+    );
+}
+
 /// A pin whose archive digest is not known yet is never downloaded, even
 /// into a cache the engine can write: only a cache that holds it serves it.
 /// Covers: error:browser_not_installed
@@ -516,7 +546,7 @@ fn an_entry_counts_as_installed_while_at_its_path_or_seen_within_the_age() {
     let env = TestEnv::new();
     let entry = |still_at_path, seen_days_ago, build: &str| InstalledExecutable {
         still_at_path,
-        last_seen: days_before(&env, seen_days_ago),
+        last_seen: SystemTime::from(days_before(&env, seen_days_ago)),
         pins: vec![browser(build)],
     };
     let installed = [
@@ -585,7 +615,7 @@ fn the_clean_up_deletes_only_what_nothing_pins_uses_or_holds() {
     let kept = kept_artifacts(
         &[InstalledExecutable {
             still_at_path: false,
-            last_seen: days_before(&env, 2),
+            last_seen: SystemTime::from(days_before(&env, 2)),
             pins: vec![pinned_by_counting_entry.clone()],
         }],
         std::slice::from_ref(&declared_by_plugin),
@@ -696,34 +726,18 @@ fn the_clean_up_reports_the_bytes_each_entry_it_deletes_takes(#[case] dry_run: b
     let env = TestEnv::new();
     let cache = cache_in(&env);
     let old = browser("unpinned-and-unused");
-    let folder = lay_out(&cache, &old, days_before(&env, 31));
-    let bytes = folder_bytes(&folder);
+    lay_out(&cache, &old, days_before(&env, 31));
 
     let report = goodfetch_test_support::runtime()
         .block_on(cache.clean_up(&clean_up_at(&env, BTreeSet::new(), dry_run)))
         .unwrap();
 
+    // 12 bytes of build files (`#!chrome\n` and `é\n`), an empty lock and a
+    // 266-byte entry.json.
     assert_eq!(
         (report.deleted.clone(), report.bytes_of(&old)),
-        (vec![old.clone()], Some(bytes))
+        (vec![old.clone()], Some(278))
     );
-    assert!(bytes > 0);
-}
-
-/// The bytes of every file under `folder`.
-fn folder_bytes(folder: &Path) -> u64 {
-    fs::read_dir(folder)
-        .unwrap()
-        .map(|entry| {
-            let entry = entry.unwrap();
-            let kind = entry.file_type().unwrap();
-            if kind.is_dir() {
-                folder_bytes(&entry.path())
-            } else {
-                entry.metadata().unwrap().len()
-            }
-        })
-        .sum()
 }
 
 /// Covers: story:3-140
@@ -830,30 +844,69 @@ fn browsers_install_fetches_the_builds_of_the_platform_a_host_runs(
     assert_eq!(platform.build_platform(), expected);
 }
 
+const GLIBC_LDD: &[u8] = b"#! /bin/bash\n# This file is part of the GNU C Library.\n";
+const ALPINE_LDD: &[u8] = b"#!/bin/sh\nexec /lib/ld-musl-x86_64.so.1 --list \"$@\"\n";
+
+/// A static musl executable runs on any Linux, so the host's C library,
+/// not the build's, decides whether Chrome for Testing runs there. The
+/// host's `ldd` names it, as Node's `detect-libc` reads it (glibc's loader
+/// does not: Alpine's `gcompat` installs it). An `ldd` that is missing,
+/// unreadable or names neither leaves the musl build's own answer, musl.
+#[rstest]
+#[case::glibc_host(Some(GLIBC_LDD), Os::LinuxGnu)]
+#[case::alpine_host(Some(ALPINE_LDD), Os::LinuxMusl)]
+#[case::missing_or_unreadable_ldd(None, Os::LinuxMusl)]
+#[case::ldd_naming_neither(Some(b"#!/bin/sh\n".as_slice()), Os::LinuxMusl)]
+fn a_musl_executable_reads_the_c_library_of_the_linux_host_it_runs_on(
+    #[case] ldd: Option<&[u8]>,
+    #[case] expected: Os,
+) {
+    assert_eq!(super::platform::linux_os(ldd), expected);
+}
+
 /// Each platform Chrome for Testing builds has its name, which reads back as
 /// it, and its executable's place in the folder its archive unpacks to;
 /// Linux on arm64, which it builds nothing for, has neither.
 #[rstest]
-#[case::linux(BuildPlatform::LinuxX64, Some(("linux64", "chrome-linux64/chrome")))]
+#[case::linux(
+    BuildPlatform::LinuxX64,
+    Some(("linux64", "chrome-linux64/chrome", "chrome-headless-shell-linux64/chrome-headless-shell"))
+)]
 #[case::mac_arm(
     BuildPlatform::MacArm64,
-    Some(("mac-arm64", "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+    Some((
+        "mac-arm64",
+        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    ))
 )]
 #[case::mac_intel(
     BuildPlatform::MacX64,
-    Some(("mac-x64", "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+    Some((
+        "mac-x64",
+        "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "chrome-headless-shell-mac-x64/chrome-headless-shell",
+    ))
 )]
-#[case::windows(BuildPlatform::WindowsX64, Some(("win64", "chrome-win64/chrome.exe")))]
+#[case::windows(
+    BuildPlatform::WindowsX64,
+    Some(("win64", "chrome-win64/chrome.exe", "chrome-headless-shell-win64/chrome-headless-shell.exe"))
+)]
 #[case::linux_arm(BuildPlatform::LinuxArm64, None)]
-fn each_chrome_for_testing_platform_has_its_name_and_its_executable(
+fn each_chrome_for_testing_platform_has_its_name_and_its_executables(
     #[case] platform: BuildPlatform,
-    #[case] expected: Option<(&str, &str)>,
+    #[case] expected: Option<(&str, &str, &str)>,
 ) {
     let named = platform.chrome_for_testing_name();
+    let executables = platform
+        .chrome_for_testing_executable()
+        .zip(platform.chrome_headless_shell_executable());
 
     assert_eq!(
         (
-            named.zip(platform.chrome_for_testing_executable()),
+            named
+                .zip(executables)
+                .map(|(name, (full, shell))| (name, full, shell)),
             named.and_then(BuildPlatform::of_chrome_for_testing_name),
         ),
         (expected, expected.map(|_| platform))

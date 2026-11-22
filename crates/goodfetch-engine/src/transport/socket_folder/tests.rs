@@ -25,7 +25,6 @@ fn long_temporary(env: &TestEnv) -> PathBuf {
 /// The Daemon's socket, an Attached engine's private endpoint and the
 /// Politeness file's wake endpoint each listen in a folder made under a
 /// long temporary folder.
-#[cfg(unix)]
 #[test]
 fn every_engine_socket_listens_in_a_folder_made_under_a_long_temporary_folder() {
     let env = TestEnv::new();

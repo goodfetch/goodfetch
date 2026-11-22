@@ -1,0 +1,37 @@
+{
+  "description": "A Collie Client's hello, carrying the Daemon's token, refused with protocol_version_unsupported by a Daemon of an older protocol that cannot hand over, which ends the exchange (ADR 0098).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "token": "scripted-daemon-token"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "This Client speaks protocol 0.1, and this engine speaks 0.0: it accepts 0.0 to 0.0.",
+          "data": {
+            "code": "protocol_version_unsupported",
+            "retryable": false,
+            "client_protocol_version": "0.1",
+            "engine_protocol_version": "0.0",
+            "fix": "Upgrade the engine to a version that speaks protocol 0.1, or use a Client of the engine's own version."
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

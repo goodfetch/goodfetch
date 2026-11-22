@@ -9,7 +9,9 @@
 //! servers per Session for its life, and its bytes by proxy kind in Usage,
 //! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129), the Run
 //! that Limit stopped waiting in "Needs you" until a person raises it at
-//! the interactive prompt (ADRs 0031 and 0041); and the `bright_data`,
+//! the interactive prompt (ADRs 0031 and 0041), and a Run its own Limit
+//! from `run start --limit` stopped refused at the next start, exit `16`;
+//! and the `bright_data`,
 //! `oxylabs` and `apify` adapters (ticket #891), against a forward proxy
 //! that reads each provider's sticky username: one sticky exit per Session
 //! for its life, and `proxy_exit_may_change` for a Session that outlives
@@ -24,15 +26,21 @@
 )]
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Barrier, mpsc};
+#[cfg(unix)]
+use std::sync::mpsc;
+use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::robots_txt_readings;
+#[cfg(unix)]
 use goodfetch_test_support::{
-    Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
-    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, proxy_in_front, pty,
+    Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, SecretKind, cli, pty,
+    skipped_without_gui_session,
+};
+use goodfetch_test_support::{
+    ProvingGround, ReceivedRequests, TestEnv, browser_cache, proxy_in_front,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -225,6 +233,7 @@ fn started_through(
 }
 
 /// How a failing proxy is met.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
 enum Failing {
     /// The tunnel to an `https://` page is refused.
@@ -311,6 +320,7 @@ fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
 }
 
 /// How a failing SOCKS5 proxy is met by an `http:` navigation.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
 enum FailingSocks5 {
     /// Nothing listens where the proxy should, and the Session gives no
@@ -400,6 +410,7 @@ fn a_failing_socks5_proxy_raises_a_proxy_error_on_an_http_navigation(
 
 /// The relays the Proving ground's proxies carried out for targets that
 /// hold `marker`, in arrival order: each one's proxy and target.
+#[cfg(unix)]
 fn relays_to(proving_ground: &ProvingGround, marker: &str) -> Vec<(String, String)> {
     proving_ground.observations().unwrap()["relays"]
         .as_array()
@@ -610,6 +621,7 @@ fn a_proxy_per_page_or_per_request_is_refused(
 /// Where the engine left any of `canaries` in what it writes: the files of
 /// the Goodfetch home `home`, at any depth, its stderr and the browser's
 /// command lines, in every encoding a search reads.
+#[cfg(unix)]
 fn leaks_of(
     canaries: &Canaries,
     home: &std::path::Path,
@@ -753,6 +765,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
 
 /// A `list` server: the Proving ground's proxy `name`, declared of `kind`,
 /// its exit in `country` if given.
+#[cfg(unix)]
 struct Listed<'a> {
     name: &'a str,
     kind: &'a str,
@@ -761,6 +774,7 @@ struct Listed<'a> {
 
 /// User configuration declaring the `list` provider of `servers`, with the
 /// Proving ground's proxy credentials and `price` per GB if given.
+#[cfg(unix)]
 fn list_configuration(
     proving_ground: &ProvingGround,
     servers: &[Listed<'_>],
@@ -793,6 +807,7 @@ fn list_configuration(
 
 /// The Proving ground's datacenter proxy, then its isp proxy, then its open
 /// proxy, declared of the datacenter kind too.
+#[cfg(unix)]
 const THREE_SERVERS: [Listed<'static>; 3] = [
     Listed {
         name: "datacenter",
@@ -814,6 +829,7 @@ const THREE_SERVERS: [Listed<'static>; 3] = [
 /// Starts an engine whose user configuration is `configuration` and whose
 /// environment holds the Proving ground's proxy password, has it answer
 /// `before`, then starts a Run of `settings`.
+#[cfg(unix)]
 fn started_listing(
     env: &TestEnv,
     cache: &std::path::Path,
@@ -970,6 +986,7 @@ fn a_session_the_provider_cannot_serve_is_refused_with_setting_invalid(
 
 /// What the Proving ground's proxies of `kind` carried, in bytes, on every
 /// relay.
+#[cfg(unix)]
 fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
     proving_ground.observations().unwrap()["relays"]
         .as_array()
@@ -1010,6 +1027,7 @@ fn page_load_relayed(observations: &Value) -> bool {
 /// Waits until [`page_load_relayed`], a minute at most, so no byte of the
 /// page's load, nor of the engine's robots.txt read beside it, is under
 /// way when the Run ends.
+#[cfg(unix)]
 fn page_load_settled(proving_ground: &ProvingGround) {
     for _ in 0..600 {
         if page_load_relayed(&proving_ground.observations().unwrap()) {
@@ -1058,6 +1076,11 @@ fn a_page_load_is_relayed_once_its_icon_and_the_engines_robots_txt_read_ended(
 #[cfg(unix)]
 #[test]
 fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
+    if skipped_without_gui_session(
+        "it waits for the `/favicon.ico` the full build asks for, which the headless shell never asks for",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -1109,6 +1132,7 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
 }
 
 /// What the sink proxy saw, as it saw it.
+#[cfg(unix)]
 enum Sunk {
     /// It accepted a connection from this address.
     Opened(std::net::SocketAddr),
@@ -1121,6 +1145,7 @@ enum Sunk {
 /// A proxy stand-in on loopback, on threads of its own, that reads every
 /// byte each connection sends it to the connection's end and answers
 /// nothing: its address, and what it sees.
+#[cfg(unix)]
 #[expect(
     clippy::disallowed_types,
     reason = "the sink proxy is a loopback listener on the test's own threads, never an async worker"
@@ -1148,6 +1173,7 @@ fn sink() -> (std::net::SocketAddr, mpsc::Receiver<Sunk>) {
 /// Every byte the sink proxy at `address` read, once each of its
 /// connections ended: a connection of the test's own, opened last, closes
 /// at once, so every earlier one was accepted by the time it is.
+#[cfg(unix)]
 #[expect(
     clippy::disallowed_types,
     reason = "the test's last connection to the sink proxy is a loopback socket on the test's own thread"
@@ -1176,10 +1202,12 @@ fn sunk_once_ended(
 
 /// The bytes a page uploads through its proxy: far more than it carries
 /// before the Run ends.
+#[cfg(unix)]
 const UPLOAD: u64 = 8 * 1024 * 1024;
 
 /// What the sink proxy must have read before the Run ends: the upload is
 /// under way.
+#[cfg(unix)]
 const UNDER_WAY: u64 = 1024 * 1024;
 
 /// Covers: story:8-92, setting:proxy.providers, operation:run.usage
@@ -1303,8 +1331,77 @@ fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
     );
 }
 
+/// `run start --limit` holds the Run to its own Limit: once that Limit,
+/// with nothing left, refused a priced proxy's bytes under the Run's
+/// program and stopped the Run, a start that names the Run again fails
+/// `limit_reached`, exit `16`, naming the Run's own Limit (ADR 0102). A
+/// Run starts under a Limit with nothing left, as its Limits hold it only
+/// once it has begun; only a Limit with nothing left refuses a start.
+///
+/// Covers: story:11-206, command:run.start, error:limit_reached, exit:limit_reached
+#[cfg(unix)]
+#[test]
+fn a_run_start_naming_a_run_its_limit_stopped_exits_16() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let password = &proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .password;
+    let start = || {
+        cli(&env, COLLIE)
+            .args(["run", "start", "--run-id", "capped", "--attached", "--json"])
+            .args(["--limit", "proxy_bytes=0USD"])
+            .env(PASSWORD_VARIABLE, password)
+            .run()
+            .unwrap()
+    };
+    let given = start();
+    let configuration = list_configuration(&proving_ground, &THREE_SERVERS, Some("1000 USD"));
+    let mut program = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "capped",
+        &configuration,
+        &json!({ "proxy": { "provider": "list" } }),
+        &[],
+    );
+    let page = opened(&program.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    program.ask(3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
+    );
+    let finished = program.ask(4, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = program.finish();
+
+    let restarted = start();
+    let refused: Value = serde_json::from_str(&restarted.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            given.exit,
+            &finished["result"]["stop_reason"]["scope"],
+            restarted.exit,
+            &refused["error"]["code"],
+            &refused["error"]["scope"],
+        ),
+        (
+            Some(0),
+            &json!({ "kind": "run", "id": "capped" }),
+            Some(16),
+            &json!("limit_reached"),
+            &json!({ "kind": "run", "id": "capped" }),
+        ),
+        "{given}\n{finished}\n{restarted}"
+    );
+}
+
 /// The kinds, Runs and actions of the items `needs-you list --json` prints
 /// in `env`'s home.
+#[cfg(unix)]
 fn needs_you(env: &TestEnv) -> Vec<(Value, Value, Value)> {
     let listed = cli(env, COLLIE)
         .args(["needs-you", "list", "--json"])
@@ -1612,6 +1709,7 @@ pub(crate) fn adapter_configuration(proving_ground: &ProvingGround, name: &str) 
 
 /// Opens a Session of `run_id` with `own` settings and a page in it, as
 /// the `position`-th call: the Session's and the page's IDs.
+#[cfg(unix)]
 fn session_page(engine: &mut Attached, position: i64, run_id: &str, own: &Value) -> (Value, Value) {
     let session = engine.ask(
         position,
@@ -1957,6 +2055,7 @@ fn a_provider_refusing_the_accounts_credentials_names_its_own_keys() {
 
 /// An install Limit on `proxy_bytes` far above what the test carries, so
 /// the Run holds Slices of it and the ledger traces every charge.
+#[cfg(unix)]
 fn a_bytes_limit() -> (&'static str, Value) {
     (
         "usage.set",
@@ -1967,6 +2066,7 @@ fn a_bytes_limit() -> (&'static str, Value) {
 /// The ledger's trace lines, in `stderr`, that charged or reserved
 /// `proxy_bytes`: one per charge before, one per allowance (two when
 /// priced) since.
+#[cfg(unix)]
 fn proxy_bytes_charges(stderr: &str) -> usize {
     stderr
         .lines()
@@ -2064,6 +2164,11 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
 #[cfg(unix)]
 #[test]
 fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
+    if skipped_without_gui_session(
+        "it waits for the `/favicon.ico` the full build asks for, which the headless shell never asks for",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -2111,6 +2216,7 @@ fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
 /// ends once the browser read its whole answer, and no byte is under way
 /// when the Run ends. A SOCKS5 tunnel names no path, so the relays alone
 /// cannot tell the page's last request, as [`page_load_relayed`] does.
+#[cfg(unix)]
 fn tunnels_settled(proving_ground: &ProvingGround) {
     for _ in 0..600 {
         let observations = proving_ground.observations().unwrap();
@@ -2138,6 +2244,7 @@ fn tunnels_settled(proving_ground: &ProvingGround) {
 
 /// What the Proving ground's proxies carried, in bytes, on every relay
 /// that ended.
+#[cfg(unix)]
 fn carried_by_every_relay(proving_ground: &ProvingGround) -> u64 {
     proving_ground.observations().unwrap()["relays"]
         .as_array()

@@ -101,6 +101,20 @@ impl SettingsFiles {
                     layer,
                 }
             }
+            SettingsError::NotApplicable { key, layer, .. }
+                if keys::find(&key).is_some_and(|found| {
+                    matches!(found.setting.authority, Authority::OperatorPolicyAlone)
+                }) =>
+            {
+                SettingsError::NotApplicable {
+                    fix: format!(
+                        "set `{key}` in an Operator policy, `{}`",
+                        self.operator_policy.display()
+                    ),
+                    key,
+                    layer,
+                }
+            }
             error => error,
         }
     }
@@ -258,19 +272,6 @@ pub fn find_project(folder: &Path) -> Option<PathBuf> {
         .ancestors()
         .map(|folder| folder.join(PROJECT_CONFIGURATION_FILE))
         .find(|path| path.is_file())
-}
-
-/// Reads the project configuration at `path`, on an engine of `engine`.
-/// Blocking.
-///
-/// # Errors
-///
-/// As [`SettingsFiles::load`].
-pub fn load_project(path: &Path, engine: Product) -> Result<Values, SettingsError> {
-    match read(path, SettingsLayer::ProjectConfiguration)? {
-        Some(text) => configuration(SettingsLayer::ProjectConfiguration, &text, engine),
-        None => Ok(Values::default()),
-    }
 }
 
 /// Reads user configuration's text, on an engine of `engine` at the Product

@@ -76,7 +76,7 @@ impl<'a> Arrived<'a> {
     /// # Errors
     ///
     /// `invalid_params` when their `_meta` holds a key other than
-    /// `traceparent` and `tracestate` or a value that is no string.
+    /// `traceparent`, `tracestate` and `raw`, or a value of another type.
     pub(crate) fn preamble(&self) -> Result<Preamble<'a>, CallError> {
         self.check()?;
         Ok(self.preamble.take().unwrap_or_default())
@@ -118,14 +118,18 @@ impl<'a> Params<'a> {
         self.0.json
     }
 
-    /// They, read as `P` in one pass, each struct and map only from an
-    /// object, without their `_meta`. Counts one decode. A read that goes
-    /// through every member of the params also finds, in the same pass,
-    /// what dispatch takes of them and the page they name.
+    /// They, read as `P` in one pass, each struct and map only from an object,
+    /// without their `_meta`. Counts one decode. A read that goes through every
+    /// member of the params also finds, in the same pass, what dispatch takes
+    /// of them and the page they name. A function of its own, never inlined in
+    /// the build `xtask counts` reads under Callgrind
+    /// (`--cfg goodfetch_callgrind_names`), so that the run can name it in
+    /// `E1.handled_page_wire_share` (ADR 0140).
     ///
     /// # Errors
     ///
     /// `invalid_params` when they are no `P`.
+    #[cfg_attr(goodfetch_callgrind_names, inline(never))]
     pub fn read<P: DeserializeOwned>(&self) -> Result<P, CallError> {
         self.0.work.count(Row::MessageDecodes);
         let mut noted = Noted::default();

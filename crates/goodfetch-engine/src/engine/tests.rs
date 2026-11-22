@@ -14,12 +14,14 @@
 mod call_input;
 mod changed_certificates;
 mod checkpoint;
+mod connection_settings;
 mod consent_walls;
 mod controls;
 mod daemon;
 mod discard;
 mod disk_view;
 mod durability;
+mod effect;
 mod events;
 mod following;
 mod governor;
@@ -33,17 +35,20 @@ mod local_addresses;
 mod log;
 mod masking;
 mod needs_you;
+mod opening;
 mod ops;
 mod panics;
 mod pauses;
 mod preamble;
 mod progress;
+mod raw_calls;
 mod refetch_stops;
 mod refusals;
 mod report;
 mod run;
 mod run_files;
 mod run_key;
+mod run_limits;
 mod settings;
 mod settings_edits;
 mod storage;
@@ -69,7 +74,7 @@ use goodfetch_test_support::TestEnv;
 use super::{Dependencies, Engine};
 use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::{CallContext, Composition, Contribution, Handler};
+use crate::composition::{CallContext, Composition, CompositionError, Contribution, Handler};
 use crate::entropy::Entropy;
 use crate::home::{Home, RunStateLocation};
 use crate::product::{Channel, Identity};
@@ -183,6 +188,31 @@ fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
     Engine::new(identity, &composition).unwrap()
 }
 
+#[test]
+fn a_second_handler_for_one_operation_is_refused_naming_both_contributions() {
+    let again = Contribution::new("again")
+        .with_handler(Handler::new(&WAIT, |_: Value, _: CallContext| async {
+            Ok::<Value, CallError>(json!({}))
+        }));
+    let composition = Composition::default().with(test_operations()).with(again);
+    let identity = Identity {
+        product: Product::Collie,
+        product_version: version(),
+        channel: Channel::CratesIo,
+    };
+
+    let refused = Engine::new(identity, &composition).err();
+
+    assert_eq!(
+        refused,
+        Some(CompositionError::DuplicateHandler {
+            operation: WAIT.name,
+            first: "test",
+            second: "again",
+        })
+    );
+}
+
 fn hello(product: &str, protocol_version: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -206,7 +236,7 @@ fn cancel(id: i64) -> Value {
 }
 
 /// How many calls a Connection keeps in flight, as `too_many_calls`'s
-/// `max` names it.
+/// `max` and `hello`'s `max_calls_in_flight` name it.
 const IN_FLIGHT_CAP: i64 = 256;
 
 /// How long a test waits, on the paused clock, for a message the engine
@@ -405,7 +435,10 @@ fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
             vec![json!({
                 "jsonrpc": "2.0",
                 "id": 0,
-                "result": { "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0" },
+                "result": {
+                    "protocol_version": "0.1", "product": "collie", "product_version": "1.4.0",
+                    "max_calls_in_flight": IN_FLIGHT_CAP,
+                },
             })],
             true
         )

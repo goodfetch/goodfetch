@@ -8,7 +8,14 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from goodfetch_collie_client.generated.open_values import (
+    CancelledBy,
+    ClosedValue,
+    Verdict,
+)
+from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_collie_client.unknown_member import UnknownMember
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class CollieTypes(BaseModel):
@@ -213,6 +220,24 @@ class BrowserName(StrEnum):
     """Firefox."""
     safari = "safari"
     """Safari."""
+
+
+class CallCancelledDetails(BaseModel):
+    """What `call_cancelled` details (ADR 0113)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    by: CancelledBy
+    """Who stopped the call."""
+    closed: ClosedValue | None = None
+    """
+    What was closed or stopped under it, when something was rather than
+    the call itself cancelled.
+    """
+    person: str | None = None
+    """Whom the stopping Client acts for (ADR 0031), when known."""
 
 
 class CertificateExceptionKind(StrEnum):
@@ -496,6 +521,153 @@ class DownloadSaved(BaseModel):
     `$/chunk` notifications before this answer carried every byte, and
     the SDK writes the path.
     """
+
+
+class EffectAttempt(BaseModel):
+    """
+    The crawl attempt an Effect is declared through: a handler's `ctx.run`,
+    which is bound to its attempt (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt declares the Effect."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+
+
+class EffectClosed1(BaseModel):
+    """
+    The body returned a value the Effect journal keeps: it never runs
+    again under its key, and the SDK answers `performed`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    judged: Literal["done"]
+    performed_at: PointInTime
+    """When it was performed."""
+
+
+class EffectClosed2(BaseModel):
+    """
+    The body did not return, and nothing was sent or the Effect is
+    repeatable: the entry is dropped, the SDK propagates the body's
+    error, and the next declaration runs the body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    judged: Literal["dropped"]
+    sent: bool
+    """Whether something was sent for it."""
+
+
+class EffectOpened1(BaseModel):
+    """
+    The Effect journal holds no answer: run the body, then
+    `effect.close` the entry.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    answer: Literal["perform"]
+    entry: str
+    """The Effect journal entry, which `effect.close` names."""
+    idempotency_key: str
+    """
+    An opaque key, the same on every attempt and resume of this
+    Effect on any machine and different in every Run and install,
+    for the body to send as a site's `Idempotency-Key`.
+    """
+
+
+class EffectOpened2(BaseModel):
+    """
+    An earlier attempt or start performed the Effect: the body does not
+    run, and the output it returned then is the answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    answer: Literal["journal"]
+    output: Any | None = None
+    """What the body returned, or absent when it returned nothing."""
+    performed_at: PointInTime
+    """When it was performed."""
+
+
+class EffectOpened3(BaseModel):
+    """
+    A person answered "it happened" (ADR 0029): the body does not run,
+    and no output is known.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    answer: Literal["reconciled"]
+    reconciled_at: PointInTime
+    """When they answered."""
+    reconciled_by: str
+    """Who answered."""
+
+
+class EffectOpened(RootModel[EffectOpened1 | EffectOpened2 | EffectOpened3]):
+    root: EffectOpened1 | EffectOpened2 | EffectOpened3
+    """What `effect.open` answers."""
+
+
+class EffectOutcome1(BaseModel):
+    """It returned a value, or nothing."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["returned"]
+    output: Any | None = None
+    """
+    What it returned: JSON up to `effect.output.max_size` bytes, or
+    absent when it returned nothing.
+    """
+
+
+class EffectOutcome2(BaseModel):
+    """
+    It raised an error, which the SDK propagates, or wraps in
+    `effect_uncertain` when the Effect is left uncertain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["threw"]
+
+
+class EffectOutcome3(BaseModel):
+    """
+    It was cut short: a cancellation or its attempt's end, whose error
+    the SDK propagates unchanged (ADRs 0080 and 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["cut_short"]
+
+
+class EffectOutcome(RootModel[EffectOutcome1 | EffectOutcome2 | EffectOutcome3]):
+    root: EffectOutcome1 | EffectOutcome2 | EffectOutcome3
+    """How an Effect's body ended."""
 
 
 class ElementState(StrEnum):
@@ -1184,18 +1356,6 @@ class MetaTag(BaseModel):
     """Its `property`, else its `name`, as written, such as `og:title`."""
 
 
-class ModelUsage(BaseModel):
-    """A Run's model calls (ADR 0101)."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    calls: Annotated[int, Field(ge=0)]
-    """The calls, retries and Repairs included."""
-    tokens: Annotated[int, Field(ge=0)]
-    """The tokens, input and output."""
-
-
 class NeedsYouAllowConsentDomainParams(BaseModel):
     """What `needs_you.allow_consent_domain` takes."""
 
@@ -1350,6 +1510,18 @@ class NotAddedReason(StrEnum):
     The `enqueueLinks` call that matched it already added its `limit`
     links (ADR 0093).
     """
+
+
+class NothingDone1(BaseModel):
+    """The start found the Run ended."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    ended_at: PointInTime
+    """When it ended."""
+    reason: Literal["already_ended"]
 
 
 class NothingDone3(BaseModel):
@@ -1646,11 +1818,6 @@ class PluginRun(BaseModel):
     """The network level it ran at."""
 
 
-class PointInTime(RootModel[AwareDatetime]):
-    root: AwareDatetime
-    """A point in time in UTC, as RFC 3339."""
-
-
 class PolicyReadParams(BaseModel):
     """What `config.policy_read` takes: nothing."""
 
@@ -1784,6 +1951,25 @@ class ProxyKindBytes(BaseModel):
     """The proxy kind, such as `residential`."""
 
 
+class PublicSigningKey(BaseModel):
+    """
+    A key directory's entry of one key: its public JSON Web Key, named by
+    its thumbprint.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    crv: str
+    """The curve, `Ed25519`."""
+    kid: str
+    """The key's ID, its RFC 7638 thumbprint, which each signature names."""
+    kty: str
+    """The key type, `OKP`."""
+    x: str
+    """The public key, in unpadded Base64url."""
+
+
 class Reached(BaseModel):
     """
     What `page.wait_for_url`, `page.wait_for_load_state` and
@@ -1800,6 +1986,7 @@ class RecordingReport(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     file: str
     """Its file."""
@@ -1839,6 +2026,39 @@ class RequestFailure(BaseModel):
 class RequestId(RootModel[int | str]):
     root: int | str
     """A request's id, which its reply carries back."""
+
+
+class RequestMeta(BaseModel):
+    """
+    What a request's `_meta` holds (ADR 0132), which its runtime writes and
+    never a program: its Trace context, with no Baggage, and the raw mark of
+    a call a program made through the raw `call` (ADR 0099). A closed
+    object: the engine refuses any other key. The schema checks only that
+    each Trace context field is a string: a receiver drops a value it cannot
+    use, and never fails the call for it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    raw: bool | None = None
+    """
+    Whether the program sent the call through the raw `call`, the way
+    down to an operation its SDK does not generate (ADR 0099): an SDK
+    sets it on that call alone, and refuses a `_meta` the program writes
+    into its params, so a program neither forges nor removes it. The
+    engine validates and enforces a raw call as any other.
+    """
+    traceparent: str | None = None
+    """
+    The caller's span, as W3C Trace Context's `traceparent` header
+    holds it.
+    """
+    tracestate: str | None = None
+    """
+    Its vendors' values, as W3C Trace Context's `tracestate` header
+    holds them.
+    """
 
 
 class RequestSeed(BaseModel):
@@ -1916,6 +2136,7 @@ class ResponseOrigin1(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     fetched_at: PointInTime
     """When the cached response was fetched."""
@@ -1927,6 +2148,7 @@ class ResponseOrigin2(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     kind: Literal["response_recording"]
     recorded_at: PointInTime
@@ -2083,6 +2305,30 @@ class RunKind(StrEnum):
     """A crawl, whose work items the engine leases to its handlers."""
 
 
+class RunLimit(BaseModel):
+    """
+    A Limit a program gives a Run at its start (`run.start`'s `limits`):
+    the Run's own, with no period, set by its Client. A start that names
+    the Run again lowers it and never raises it (ADR 0102).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """
+    How much the Run may use: a count of the Usage kind, or millionths
+    of the currency.
+    """
+    currency: str | None = None
+    """
+    The currency it caps the price in, an ISO 4217 code; none for a
+    count of the Usage kind.
+    """
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
 class RunMigrating(BaseModel):
     """What `run.migrating` carries."""
 
@@ -2104,6 +2350,14 @@ class RunOrigin(StrEnum):
     """A CLI flag."""
     form = "form"
     """An Integration's form."""
+    registered = "registered"
+    """
+    A program's only SDK handler of a kind that one setting chooses,
+    registered on its connection: the lowest of the run layer's origins,
+    which every other replaces and configuration does not. A lock wins
+    over it with no refusal, since the program never wrote the key (ADR
+    0104's amendment of ADR 0083).
+    """
 
 
 class RunOwner1(BaseModel):
@@ -2133,7 +2387,10 @@ class RunOwner(RootModel[RunOwner1 | RunOwner2]):
 
 
 class RunParams(BaseModel):
-    """What `run.usage`, `run.pause` and `run.migrate` take: the Run."""
+    """
+    What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
+    the Run.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -2223,6 +2480,26 @@ class RunSortKey(StrEnum):
     """Its Completeness."""
 
 
+class RunStopParams(BaseModel):
+    """
+    What `run.stop` takes: the Run, and how long the call waits for its
+    safe point.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's safe point, in milliseconds,
+    at least 1: absent for the Run's `timeout.close`, `null` for none
+    (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+    Run still stops at its next safe point.
+    """
+
+
 class RunTrigger(StrEnum):
     """
     What fired a Schedule's occurrence (ADR 0036), as its run's reserved
@@ -2237,26 +2514,6 @@ class RunTrigger(StrEnum):
     """The end of another run."""
     run_now = "run_now"
     """A person's or a program's "run now"."""
-
-
-class RunWaitParams(BaseModel):
-    """
-    What `run.finish` and `run.stop` take: the Run, and how long the call
-    waits for its end.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    run_id: RunId
-    """The Run's ID."""
-    timeout: Annotated[int | None, Field(ge=0)] = None
-    """
-    How long the call waits for the Run's end, in milliseconds; past it,
-    it fails with `deadline_exceeded` and only the wait ends. None by
-    default for `run.finish`, which the Run's own `timeout.run` bounds;
-    `timeout.close` by default for `run.stop`.
-    """
 
 
 class RunWarning(BaseModel):
@@ -2584,6 +2841,111 @@ class SettingsLayer(StrEnum):
     """
 
 
+class SigningKeyCreateParams(BaseModel):
+    """What `signing_key.create` takes: where the key is kept."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    signing_key: Annotated[
+        str,
+        Field(
+            pattern="^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$"
+        ),
+    ]
+    """
+    The Secret reference of the item the key is kept in, a `keychain:`
+    or a `secretfile:` one, such as `keychain:goodfetch/signing-key`;
+    the value `identified.signing_key` then takes.
+    """
+
+
+class SigningKeyCreated(BaseModel):
+    """
+    What `signing_key.create` answers: the key's reference and its public
+    half, never its private key.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created: bool
+    """
+    Whether this call made the key; false when the item held a key
+    already, which is kept.
+    """
+    key_id: str
+    """The key's ID, its RFC 7638 thumbprint."""
+    public_key: PublicSigningKey
+    """The key's public JSON Web Key."""
+    signing_key: str
+    """The Secret reference the key is kept at."""
+
+
+class SigningKeyDirectory(BaseModel):
+    """
+    What `signing_key.directory` answers: the directory's body and the
+    header fields its response carries, served as they are.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    body: str
+    """The response's body, the JSON key set, byte for byte."""
+    content_type: str
+    """The response's `Content-Type`."""
+    expires: PointInTime
+    """When its signatures expire, by which it is exported again."""
+    key_ids: list[str]
+    """The IDs of the keys it publishes, in the order given."""
+    path: str
+    """Where on the origin the directory is served."""
+    signature: str
+    """The response's `Signature` field, one label per key."""
+    signature_input: str
+    """The response's `Signature-Input` field, one label per key."""
+
+
+class SigningKey(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            pattern="^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$"
+        ),
+    ]
+
+
+class SigningKeyDirectoryParams(BaseModel):
+    """
+    What `signing_key.directory` takes: the keys it publishes and the
+    origin that serves it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    authority: Annotated[str, Field(min_length=1)]
+    """
+    The authority of the origin that serves the directory, its host
+    and its port when not the scheme's own, such as `bot.example`,
+    which the signatures cover: the origin `identified.signature_agent`
+    names.
+    """
+    signing_keys: Annotated[list[SigningKey], Field(min_length=1)]
+    """
+    The Secret references of the keys the directory publishes, each
+    proven by its own signature: the key in use, and while a rotation
+    lasts the one before or after it.
+    """
+    valid_for: Annotated[int | None, Field(ge=1000)] = None
+    """
+    How long the directory's signatures stay valid, in milliseconds,
+    after which it is exported again; seven days when none is given.
+    """
+
+
 class SitemapRule(BaseModel):
     """
     One rule of a sitemap seed: a URL pattern, a glob as
@@ -2672,20 +3034,23 @@ class SortOrder(StrEnum):
 
 
 class StartedAs(StrEnum):
-    """Whether a start began its Run or found it."""
+    """
+    What a start did with its Run: began it, resumed it, or found it ended
+    (ADR 0102).
+    """
 
     new = "new"
     """The start began it."""
-    existing = "existing"
-    """
-    Its Run ID named a Run started before with the same inputs, which is
-    returned as it is.
-    """
     resumed = "resumed"
     """
     It was interrupted and goes on from its committed state, its run
     file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
     0102).
+    """
+    ended = "ended"
+    """
+    Its Run ID named a Run that finished, returned as it ended with no
+    handler called.
     """
 
 
@@ -2789,18 +3154,29 @@ class StopReason10(BaseModel):
     """The resource that ran out."""
 
 
+class StopReason11(UnknownMember):
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unknown"]
+    tag: str
+    """The tag the engine sent."""
+
+
 class StoppedBy(StrEnum):
-    """Who stopped a call (ADR 0113)."""
+    """
+    Who stopped a Run as an abort, the `by` of its `abort` stop reason; a
+    call the stop cancels names it as its `by` (ADR 0113).
+    """
 
     client = "client"
-    """A Client, such as through `$/cancel`."""
+    """A Client, through `run.abort`."""
     program = "program"
     """The program, such as through `run.stop` (ADR 0102)."""
     browser = "browser"
-    """
-    The browser, outside every Client: a page's window closed there, or
-    the browser quit (ADR 0113).
-    """
+    """The browser, outside every Client."""
 
 
 class StorageLevel(StrEnum):
@@ -2954,6 +3330,7 @@ class TimeRange(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
+        arbitrary_types_allowed=True,
     )
     from_: Annotated[PointInTime | None, Field(alias="from")] = None
     """Its first point, included."""
@@ -2961,34 +3338,12 @@ class TimeRange(BaseModel):
     """The point it ends before, excluded."""
 
 
-class TraceContext(BaseModel):
-    """
-    A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
-    and `tracestate`, which its runtime writes and never a program, with no
-    Baggage. The schema checks only that each is a string: a receiver drops
-    a value it cannot use, and never fails the call for it.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    traceparent: str | None = None
-    """
-    The caller's span, as W3C Trace Context's `traceparent` header
-    holds it.
-    """
-    tracestate: str | None = None
-    """
-    Its vendors' values, as W3C Trace Context's `tracestate` header
-    holds them.
-    """
-
-
 class UncertainEffect(BaseModel):
     """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     crawl_request: str | None = None
     """The crawl request it ran for, in a crawl."""
@@ -3132,12 +3487,13 @@ class UserWriteParams(BaseModel):
 
 class ValueField(BaseModel):
     """
-    A value field (ADRs 0123 and 0147): the first element its locator finds
-    in the page, its text, its runs of white space read as one space and
-    trimmed, or one of its attributes, an `href` or `src` resolved against
-    the document's base URL; optionally a capture group of a regular
-    expression over that text; then its Value transform. A field the page
-    does not give is null, with why.
+    A value field (ADRs 0123 and 0147): the first element its locator
+    ladder finds in the page, its locator tried first, then each of its
+    `fallbacks` in turn until one finds an element; its text, its runs of
+    white space read as one space and trimmed, or one of its attributes, an
+    `href` or `src` resolved against the document's base URL; optionally a
+    capture group of a regular expression over that text; then its Value
+    transform. A field the page does not give is null, with why.
     """
 
     model_config = ConfigDict(
@@ -3145,6 +3501,14 @@ class ValueField(BaseModel):
     )
     attribute: str | None = None
     """The attribute read in place of the element's text."""
+    fallbacks: list[FieldLocator] | None = None
+    """
+    Its locator ladder's further rungs: when `locator` finds no
+    element, the first of these, in order, that finds one supplies it;
+    in a list, the first that finds any; in rows, the first that finds
+    one under the row's element. Each is checked as `locator` is when
+    the call or crawl starts.
+    """
     locator: FieldLocator
     """What finds its element."""
     match: FieldMatch | None = None
@@ -3174,20 +3538,6 @@ class ValueTransform(StrEnum):
     """A relative time under its locale, anchored at the fetch time."""
     map = "map"
     """An exact text looked up in the transform's table."""
-
-
-class Verdict(StrEnum):
-    """Whether a Run's own checks prove what it committed (ADR 0029)."""
-
-    verified = "verified"
-    """
-    Every check the Run relies on passed, none was switched off, and no
-    Effect is left uncertain.
-    """
-    rejected = "rejected"
-    """A declared Success check failed."""
-    needs_review = "needs_review"
-    """Everything else: a person reviews it."""
 
 
 class WaitForExchangeParams(BaseModel):
@@ -3515,6 +3865,7 @@ class CertificatePin(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     changed_spki_sha256: str | None = None
     """
@@ -3559,6 +3910,7 @@ class Checkpoint(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     digest: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
@@ -3634,6 +3986,14 @@ class ConfigExplainParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration to explain with."""
+    run_id: str | None = None
+    """
+    The Run ID of a live Run to explain, with the settings it opened
+    with; none explains the Connection's own, the run values given set
+    over them (ADR 0083). One that is no Run ID fails with
+    `run_id_invalid`, and one given with `settings`, `origin`,
+    `project` or `missing_project` with `invalid_params`.
+    """
     settings: dict[str, Any] | None = None
     """
     Run-layer values to explain with, as a Run's `settings` would give
@@ -3846,6 +4206,85 @@ class DownloadProgress(BaseModel):
     """The bytes the answer announced, when it did."""
 
 
+class EffectCloseParams(BaseModel):
+    """
+    What `effect.close` takes: the entry `effect.open` answered and how its
+    body ended.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entry: str
+    """The entry `effect.open` answered with `perform`."""
+    outcome: EffectOutcome
+    """How the body ended."""
+    run_id: RunId
+    """The Run whose Effect journal keeps the Effect."""
+
+
+class EffectClosed3(BaseModel):
+    """
+    The body did not return a value the Effect journal keeps after
+    something was sent, and the Effect is not repeatable: it never runs
+    again until a person reconciles it, and every later declaration of
+    its key raises `effect_uncertain`. The SDK raises `effect_uncertain`
+    with the body's error as its cause, or propagates a cut-short
+    body's error unchanged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str | None = None
+    """
+    The Error code the body's value met, `effect_output_invalid`,
+    when it returned one the Effect journal does not keep.
+    """
+    effect: UncertainEffect
+    """The Effect left uncertain, as the Run report lists it."""
+    judged: Literal["uncertain"]
+
+
+class EffectClosed(RootModel[EffectClosed1 | EffectClosed2 | EffectClosed3]):
+    root: EffectClosed1 | EffectClosed2 | EffectClosed3
+    """
+    What `effect.close` answers: how the engine judged the body by what it
+    sent for it.
+    """
+
+
+class EffectOpenParams(BaseModel):
+    """
+    What `effect.open` takes: the Run, the Effect key and whether its body
+    is safe to run again.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attempt: EffectAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` declares the Effect
+    (ADR 0093), whose crawl request is the key's namespace. Absent, the
+    key's namespace is the Run.
+    """
+    key: str
+    """
+    The Effect key, chosen by the program: 1 to 255 Unicode code
+    points. Its namespace is the crawl request in a handler and the Run
+    elsewhere.
+    """
+    repeatable: bool | None = False
+    """
+    Whether the body is safe to run again: a body that sent something
+    and did not return then runs again at its next declaration instead
+    of leaving its Effect uncertain. `false` by default.
+    """
+    run_id: RunId
+    """The Run whose Effect journal keeps the Effect."""
+
+
 class EncodingProvenance(BaseModel):
     """
     The encoding a Record's document was read in, and where it came from
@@ -3965,6 +4404,7 @@ class ExportedAuditEntry(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     actor: Actor
     """Who did what it records."""
@@ -4047,8 +4487,8 @@ class HelloParams(BaseModel):
     """
     form: Form | None = None
     """
-    The form its user writes names in (ADR 0099); none until each
-    surface names its own.
+    The form its user writes names in (ADR 0099), which every SDK
+    declares; without one, the engine takes its surface's.
     """
     keep_daemon_alive: bool | None = None
     """
@@ -4073,6 +4513,13 @@ class HelloParams(BaseModel):
     """The sender's own Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the sender speaks."""
+    settings: dict[str, Any] | None = None
+    """
+    The Connection's own settings, nested by key: the run layer at the
+    connection scope, which every Run it starts inherits beneath its
+    own (ADR 0083). A key the connection scope does not take is refused
+    with `setting_not_applicable`, and the `hello` with it.
+    """
     surface: Surface
     """The surface it comes from."""
     token: str | None = None
@@ -4090,6 +4537,14 @@ class HelloResult(BaseModel):
     The engine process, new each time an engine starts: the positions
     of its events count within it, so a Client that meets a new one
     resyncs (ADR 0031).
+    """
+    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many calls the engine keeps in flight on this Connection: one
+    more is refused with `too_many_calls`, so a Client sends at most
+    this many at once and queues the rest in the order they were made
+    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+    as the Scripted engine.
     """
     private_endpoint: PrivateEndpoint | None = None
     """
@@ -4115,6 +4570,7 @@ class HumanPause(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     deadline: PointInTime | None = None
     """
@@ -4433,6 +4889,91 @@ class Media(BaseModel):
     """
 
 
+class ModelCounts(BaseModel):
+    """What model calls used, and its price (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens read from the provider's cache, part of
+    `input_tokens`.
+    """
+    cache_write_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens written to the provider's cache, part of
+    `input_tokens`.
+    """
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    input_tokens: Annotated[int, Field(ge=0)]
+    """The input tokens, the cached ones included."""
+    output_tokens: Annotated[int, Field(ge=0)]
+    """The output tokens, the reasoning ones included."""
+    price: UsageAmount | None = None
+    """
+    Their price at the price table's list prices, in its currency: an
+    estimate, never a bill (ADR 0012). `null` when it needs a price or
+    a rate the table lacks, never a partial sum.
+    """
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+    """
+    The output tokens the model spent reasoning, part of
+    `output_tokens`.
+    """
+    tokens: Annotated[int, Field(ge=0)]
+    """
+    The tokens, input and output, what the `model_tokens` Usage kind
+    counts.
+    """
+
+
+class ModelUsage(BaseModel):
+    """
+    The Usage of a Run's model calls (ADR 0101): their counts and price,
+    and the same per Model reference.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by_model: dict[str, ModelCounts] | None = None
+    """The counts and price of each model called, by Model reference."""
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens read from the provider's cache, part of
+    `input_tokens`.
+    """
+    cache_write_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens written to the provider's cache, part of
+    `input_tokens`.
+    """
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    input_tokens: Annotated[int, Field(ge=0)]
+    """The input tokens, the cached ones included."""
+    output_tokens: Annotated[int, Field(ge=0)]
+    """The output tokens, the reasoning ones included."""
+    price: UsageAmount | None = None
+    """
+    Their price at the price table's list prices, in its currency: an
+    estimate, never a bill (ADR 0012). `null` when it needs a price or
+    a rate the table lacks, never a partial sum.
+    """
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+    """
+    The output tokens the model spent reasoning, part of
+    `output_tokens`.
+    """
+    tokens: Annotated[int, Field(ge=0)]
+    """
+    The tokens, input and output, what the `model_tokens` Usage kind
+    counts.
+    """
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -4467,6 +5008,7 @@ class NeedsYouItem(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     actions: list[str]
     """
@@ -4565,19 +5107,9 @@ class NewSessionPageParams(BaseModel):
     over its Session's and its Run's: `content.extractor`, the
     main-content step its formats read with. Any other key is refused
     with `setting_not_applicable`, as only its Session or its Run sets
-    it.
+    it; the Session's Access mode, Identity profile and proxy only its
+    opening sets.
     """
-
-
-class NothingDone1(BaseModel):
-    """The start found the Run ended."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    ended_at: PointInTime
-    """When it ended."""
-    reason: Literal["already_ended"]
 
 
 class NothingDone2(BaseModel):
@@ -4880,6 +5412,7 @@ class ReachedLimit(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency it caps a price in, for a price Limit."""
@@ -5027,6 +5560,7 @@ class RunAxes(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Whether its results cover its scope, once it ended."""
@@ -5075,6 +5609,26 @@ class RunDiscarded(BaseModel):
     """The Run's ID."""
 
 
+class RunFinishParams(BaseModel):
+    """
+    What `run.finish` takes: the Run, and how long the call waits for its
+    end.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's end, in milliseconds, at least
+    1, as `timeout.run` for this call alone: absent or `null` for none,
+    since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+    call fails with `deadline_exceeded` and only the wait ends.
+    """
+
+
 class RunListParams(BaseModel):
     """
     What `run.list` takes: which rows of the Run index it answers, each
@@ -5083,6 +5637,7 @@ class RunListParams(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Their Completeness: only Runs that ended have one."""
@@ -5134,6 +5689,12 @@ class RunStartParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    limits: list[RunLimit] | None = None
+    """
+    The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
+    kind and currency. A start that names the Run again lowers them and
+    never raises them (ADR 0102).
+    """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     run_id: Annotated[
@@ -5141,8 +5702,9 @@ class RunStartParams(BaseModel):
     ] = None
     """
     The Run's ID; the engine generates a lowercase ULID when it is
-    absent. An existing ID returns that Run when the caller and the
-    inputs match, and fails with `run_conflict` otherwise.
+    absent. An existing ID reaches that Run when the caller and the
+    inputs match, as `run.start` says, and fails with `run_conflict`
+    otherwise.
     """
     settings: dict[str, Any] | None = None
     """The Run's settings, nested by key: the run layer (ADR 0083)."""
@@ -5165,6 +5727,19 @@ class RunStarted(BaseModel):
     """
     run_id: RunId
     """The Run's ID."""
+    started_as: StartedAs
+    """Whether the start began it."""
+
+
+class RunStartedAs(BaseModel):
+    """
+    What `run.started_as` answers: how the start that opened the Run's
+    handle reached it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
     started_as: StartedAs
     """Whether the start began it."""
 
@@ -5274,8 +5849,9 @@ class SessionSource(
 
 class SettingLimit(BaseModel):
     """
-    A setting that decided an outcome: its key, its value and the layer that
-    set it (ADRs 0028 and 0079).
+    A setting that decided an outcome: its key, its value, the layer that
+    set it and, for the run layer, where the value came from (ADRs 0028,
+    0079 and 0083).
     """
 
     model_config = ConfigDict(
@@ -5285,6 +5861,12 @@ class SettingLimit(BaseModel):
     """The setting's key."""
     layer: SettingsLayer
     """The layer that set it."""
+    origin: RunOrigin | None = None
+    """
+    For the run layer, where the value came from, such as `argument`
+    for a call's own `timeout` (ADR 0083); absent when unknown or for
+    another layer.
+    """
     value: Any
     """Its value."""
 
@@ -5326,6 +5908,7 @@ class StopReason6(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency it caps a price in, for a price Limit."""
@@ -5374,6 +5957,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     ]
 ):
     root: (
@@ -5387,6 +5971,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 
@@ -5422,6 +6007,7 @@ class TransformProvenance(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     anchor: PointInTime | None = None
     """A relative time's anchor: the fetch time of the page's document."""
@@ -5587,6 +6173,7 @@ class AppliedLimit(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     amount: Annotated[int, Field(ge=0)]
     """What it allows per period: a count, or millionths of the currency."""
@@ -5829,6 +6416,7 @@ class LimitUsage(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     charged: Annotated[int, Field(ge=0)]
     """
@@ -5863,6 +6451,7 @@ class ModelAllowance(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency of a `price` allowance, an ISO 4217 code."""
@@ -5916,8 +6505,10 @@ class NewSessionParams(BaseModel):
     Clean-up rules over the Run's, and `browser.service_workers` whether
     a site's service workers run in them, and `session.page_check` the
     Page check its pages are judged against, and `content.extractor`
-    the main-content step their formats read with. `session.source` is
-    refused here with `setting_not_applicable`,
+    the main-content step their formats read with; `browser.access_mode`
+    and the `stealth.*` items its Access mode and Identity profile, and
+    the `proxy.*` keys its proxy, which it keeps for its life.
+    `session.source` is refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """
@@ -6116,6 +6707,7 @@ class RunIndexRow(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Its Completeness, once it ended."""
@@ -6184,6 +6776,7 @@ class RunProgress(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     at: PointInTime
     """When the engine read it."""
@@ -6321,6 +6914,7 @@ class DatasetRecord(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     committed_at: PointInTime
     """When it was committed."""
@@ -6368,6 +6962,7 @@ class RunReport(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""

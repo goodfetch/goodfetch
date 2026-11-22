@@ -11,9 +11,11 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, PinnedArtifact};
+use goodfetch_engine::browser_cache::{
+    BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, PinnedArtifact,
+};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -22,17 +24,28 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_page::Launcher;
-use goodfetch_page::blocks::NoBlocks;
+use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, ProductVersion, Surface};
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_REQUESTS};
+use goodfetch_protocol::page::PageResponse;
 use goodfetch_recording_gate::RecordingGate;
 use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+
+/// The Block classifier of a composition that holds no Block
+/// classification rules, as Collie's own: no document has a Block cause.
+pub(crate) struct NoBlocks;
+
+impl BlockClassifier for NoBlocks {
+    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+        None
+    }
+}
 
 /// How long one call may take: the first page launches the browser.
 const CALL_DEADLINE: Duration = Duration::from_secs(60);
@@ -48,8 +61,8 @@ pub(crate) const RUN: &str = "handler-pages";
 /// since this crate sits below Collie's executable crate.
 const PINS: &str = include_str!("../../../goodfetch-collie/src/pins.json");
 
-/// The pinned Chrome for Testing build the Browser cache holds, for this
-/// platform, never downloaded.
+/// The pinned Chrome for Testing build and its headless shell the Browser
+/// cache holds, for this platform, never downloaded.
 fn pins() -> Vec<PinnedArtifact> {
     let platform = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         BuildPlatform::MacArm64
@@ -66,22 +79,27 @@ fn pins() -> Vec<PinnedArtifact> {
     let pins: Value = serde_json::from_str(PINS).expect("invariant: Collie's pins are JSON");
     let chrome = &pins["chrome_for_testing"];
     assert_eq!(chrome["build"], json!(CHROME_FOR_TESTING_BUILD));
-    vec![PinnedArtifact {
+    let pin = |artifact: &str, digest: &Value| PinnedArtifact {
         id: ArtifactId {
             kind: ArtifactKind::Browser,
-            name: CHROME_FOR_TESTING.to_owned(),
+            name: artifact.to_owned(),
             build: CHROME_FOR_TESTING_BUILD.to_owned(),
         },
         platform: Some(platform),
         url: "https://storage.googleapis.com/chrome-for-testing-public/unused.zip".to_owned(),
         archive_digest: None,
         application_settings: std::collections::BTreeMap::new(),
-        digest: chrome["platforms"][name]["digest"]
+        digest: digest
             .as_str()
             .expect("Collie pins this platform's build")
             .parse()
             .expect("invariant: Collie's digests read"),
-    }]
+    };
+    let build = &chrome["platforms"][name];
+    vec![
+        pin(CHROME_FOR_TESTING, &build["digest"]),
+        pin(CHROME_HEADLESS_SHELL, &build["headless_shell"]["digest"]),
+    ]
 }
 
 /// A Connection to the engine, as a program holds it.
@@ -346,13 +364,33 @@ pub(crate) fn with_handler_page(
 
 /// As [`with_handler_page`], with the settings `settings_of` the test's
 /// Proving ground, such as one naming its proxies' addresses.
+pub(crate) fn with_handler_page_of(
+    gate: &RecordingGate,
+    settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
+    handler_page(gate, settings_of, None, test);
+}
+
+/// As [`with_handler_page`], on an engine whose clock reads `start` as the
+/// test begins and moves on in real time, as the browser does.
+pub(crate) fn with_handler_page_on(
+    gate: &RecordingGate,
+    start: SystemTime,
+    settings: Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
+    handler_page(gate, |_| settings, Some(start), test);
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
 )]
-pub(crate) fn with_handler_page_of(
+fn handler_page(
     gate: &RecordingGate,
     settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    start: Option<SystemTime>,
     test: impl AsyncFnOnce(&mut Program),
 ) {
     let env = TestEnv::new();
@@ -372,19 +410,19 @@ pub(crate) fn with_handler_page_of(
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(identity, &composition).expect("invariant: one handler each");
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");
     runtime.block_on(async {
         // The dispatch records go into the test's exercise record (ADR 0072).
-        let clock = Clock::system();
+        let clock = start.map_or_else(Clock::system, Clock::paused);
         let _subscriber =
             tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
                 clock.wall()
             }));
         let (network, dialer) = transport::in_memory();
-        let dependencies = dependencies(env.home(), &cache);
+        let dependencies = dependencies(env.home(), &cache, clock);
         let program = async {
             let (reader, writer) = dialer
                 .connect()
@@ -480,18 +518,18 @@ impl<F: Future> Future for Unwinding<F> {
     }
 }
 
-/// What the engine runs on: the test's home, its Browser cache, the OS's
-/// clock and threads.
+/// What the engine runs on: the test's home, its Browser cache, `clock`
+/// and the OS's threads.
 #[expect(
     clippy::disallowed_methods,
     reason = "the engine's entropy is seeded from the test's own seed (ADR 0059)"
 )]
-fn dependencies(home: &Path, cache: &Path) -> Dependencies {
+fn dependencies(home: &Path, cache: &Path, clock: Clock) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
         keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(home.to_owned()).with_browsers_path(Some(cache.to_owned())),
-        clock: Clock::system(),
+        clock,
         entropy: Entropy::seeded(720),
         blocking: BlockingPolicy::Threads,
         run_state_location: RunStateLocation::PerMajor,

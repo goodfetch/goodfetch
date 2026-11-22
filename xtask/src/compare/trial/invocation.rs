@@ -17,7 +17,8 @@ pub(crate) struct Invocation {
     pub(crate) arguments: Vec<OsString>,
 }
 
-/// Node.js's executable, which runs Crawlee's side.
+/// Node.js's executable, which runs Crawlee's side and Foxhound's
+/// program.
 const NODE: &str = "node";
 
 /// The Python environment `uv sync` makes beside Scrapy's side, and its
@@ -28,7 +29,8 @@ const PYTHON: &str = "bin/python";
 #[cfg(windows)]
 const PYTHON: &str = "Scripts/python.exe";
 
-/// The packages `pnpm install` leaves beside Crawlee's side.
+/// The packages `pnpm install` leaves beside Crawlee's side and
+/// Foxhound's program.
 const NODE_MODULES: &str = "node_modules";
 
 /// The first file named `name` in a folder of `PATH`.
@@ -54,8 +56,8 @@ pub(crate) fn fastcrw_server(executable: &Path) -> PathBuf {
 /// How `config`'s tool runs `executable`: Foxhound's, Spider's,
 /// crawlee-rs's, pagesift's, OpenSpider's, fastCRW's and crawlberg's are
 /// executables, Spider's side given its row's page channel capacity and
-/// fastCRW's the server it starts, Crawlee's is its side's script run by
-/// Node.js from `PATH`, and Scrapy's its side's script run by the
+/// fastCRW's the server it starts, Crawlee's side's script and Foxhound's
+/// program are run by Node.js from `PATH`, and Scrapy's its side's script run by the
 /// interpreter of the Python environment beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
@@ -75,7 +77,7 @@ pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
             program: executable.to_owned(),
             arguments: vec!["--capacity".into(), capacity.to_string().into()],
         },
-        Config::Crawlee => Invocation {
+        Config::Crawlee | Config::FoxhoundProgram => Invocation {
             program: on_path(NODE).unwrap_or_else(|| PathBuf::from(NODE)),
             arguments: vec![executable.as_os_str().to_owned()],
         },
@@ -90,8 +92,14 @@ pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
 /// it), and for a tool run by an interpreter, the interpreter's executable
 /// and the packages its side installed (`node_modules`, or the Python
 /// environment; the Python standard library outside it is not counted);
-/// with `browser`, the browser's folder too, the same for every tool.
-pub(super) fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u64 {
+/// with `engine`, the Foxhound executable its program's SDK starts; with
+/// `browser`, the browser's folder too, the same for every tool.
+pub(super) fn install_bytes(
+    config: Config,
+    executable: &Path,
+    engine: Option<&Path>,
+    browser: Option<&Path>,
+) -> u64 {
     let file_bytes = |path: &Path| {
         std::fs::canonicalize(path)
             .and_then(std::fs::metadata)
@@ -112,10 +120,11 @@ pub(super) fn install_bytes(config: Config, executable: &Path, browser: Option<&
                 + file_bytes(&fastcrw_server(executable))
                 + browser_bytes;
         }
-        Config::Crawlee => NODE_MODULES,
+        Config::Crawlee | Config::FoxhoundProgram => NODE_MODULES,
         Config::Scrapy => PYTHON_ENVIRONMENT,
     };
     file_bytes(&invocation(config, executable).program)
         + footprint(&side_of(executable).join(packages))
+        + engine.map_or(0, file_bytes)
         + browser_bytes
 }

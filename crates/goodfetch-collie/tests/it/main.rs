@@ -32,7 +32,6 @@ mod background_traffic;
 #[cfg(unix)]
 mod borrowed_browser;
 mod browser;
-#[cfg(unix)]
 mod browser_pool;
 #[cfg(all(
     target_os = "linux",
@@ -69,6 +68,8 @@ mod help;
 ))]
 mod huge_pages;
 mod human_output;
+#[cfg(unix)]
+mod identified;
 mod invalid_calls;
 mod journeys;
 #[cfg(unix)]
@@ -80,6 +81,10 @@ mod locator;
 mod log;
 mod navigation_egress;
 mod needs_you;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_console;
 mod operations_guide;
 mod ops;
@@ -92,10 +97,13 @@ mod parent_death;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;
+#[cfg(unix)]
 mod proxy_limits;
 mod relay_fingerprint;
 mod request_kinds;
 mod run;
+mod rust_client;
+mod sdk;
 mod secrets;
 mod security_controls;
 mod service_manager;
@@ -103,6 +111,7 @@ mod sessions;
 mod settings_flags;
 #[cfg(unix)]
 mod shedding;
+mod signing_key;
 #[cfg(target_os = "linux")]
 mod storage;
 #[cfg(target_os = "linux")]

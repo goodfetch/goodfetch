@@ -63,7 +63,9 @@ pub struct FieldElement {
     pub attributes: Vec<(String, String)>,
 }
 
-/// What one field's locators found in a page, as its kind reads them.
+/// What a field's locators found in a page, as its kind reads them: a
+/// value field's or a list's, one per rung of its locator ladder (issue
+/// 1972), and rows' one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Found {
     /// A value field's first element; none when its locator found none.
@@ -71,8 +73,8 @@ pub enum Found {
     /// Every element a list's locator found, in document order.
     List(Vec<FieldElement>),
     /// Each row, in document order: the first element under the row's
-    /// element that each of its fields' locators found, in the order of
-    /// their names.
+    /// element that each rung of each of its fields found, in the order of
+    /// their names, then of the rungs.
     Rows(Vec<Vec<Option<FieldElement>>>),
 }
 
@@ -134,55 +136,86 @@ impl Fields {
         Self { declared }
     }
 
-    /// The values of the fields, `found` holding what each one's locators
-    /// found, in the order of their names, in a document whose base URL is
-    /// `base_url`. A field whose find answered another kind than its own,
-    /// or none, found nothing.
+    /// The values of the fields, `found` holding what each one's locator
+    /// ladder found, in the order of their names, in a document whose base
+    /// URL is `base_url`: one find per rung of a value field or a list, and
+    /// rows' one find whose each row holds one entry per rung of each of
+    /// its fields, in the order of their names. Each reads its first rung
+    /// that found an element. A rung whose find answered another kind than
+    /// its own, or none, found nothing.
     #[must_use]
     pub fn read(&self, found: Vec<Found>, base_url: &str) -> Values {
         let mut read = Values::default();
         let mut found = found.into_iter();
         for (name, declared) in &self.declared {
             let field_pointer = pointer(name);
-            let value =
-                match (declared, found.next()) {
-                    (Declared::One(field, reader), Some(Found::One(element))) => read.take(
-                        read_one(&field_pointer, (field, reader), element.as_ref(), base_url),
-                    ),
-                    (Declared::One(field, reader), _) => {
-                        read.take(read_one(&field_pointer, (field, reader), None, base_url))
-                    }
-                    (Declared::List(field, reader), Some(Found::List(elements))) => Value::Array(
-                        elements
-                            .iter()
-                            .enumerate()
-                            .map(|(index, element)| {
-                                let at = format!("{field_pointer}/{index}");
-                                read.take(read_one(&at, (field, reader), Some(element), base_url))
-                            })
-                            .collect(),
-                    ),
-                    (Declared::Rows(fields), Some(Found::Rows(rows))) => Value::Array(
+            let value = match declared {
+                Declared::One(field, reader) => {
+                    let element = first_rung(&mut found, field, |found| match found {
+                        Found::One(element) => element,
+                        Found::List(_) | Found::Rows(_) => None,
+                    });
+                    read.take(read_one(
+                        &field_pointer,
+                        (field, reader),
+                        element.as_ref(),
+                        base_url,
+                    ))
+                }
+                Declared::List(field, reader) => Value::Array(
+                    first_rung(&mut found, field, |found| match found {
+                        Found::List(elements) if !elements.is_empty() => Some(elements),
+                        Found::One(_) | Found::List(_) | Found::Rows(_) => None,
+                    })
+                    .unwrap_or_default()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, element)| {
+                        let at = format!("{field_pointer}/{index}");
+                        read.take(read_one(&at, (field, reader), Some(element), base_url))
+                    })
+                    .collect(),
+                ),
+                Declared::Rows(fields) => match found.next() {
+                    Some(Found::Rows(rows)) => Value::Array(
                         rows.iter()
                             .enumerate()
                             .map(|(index, row)| {
+                                let mut entries = row.iter();
                                 let mut object = Map::new();
-                                for ((name, field, reader), element) in fields.iter().zip(row) {
+                                for (name, field, reader) in fields {
+                                    let element = first_rung(&mut entries, field, Option::as_ref);
                                     let at = format!("{field_pointer}/{index}{}", pointer(name));
-                                    let one =
-                                        read_one(&at, (field, reader), element.as_ref(), base_url);
+                                    let one = read_one(&at, (field, reader), element, base_url);
                                     object.insert(name.clone(), read.take(one));
                                 }
                                 Value::Object(object)
                             })
                             .collect(),
                     ),
-                    (Declared::List(..) | Declared::Rows(_), _) => Value::Array(Vec::new()),
-                };
+                    Some(Found::One(_) | Found::List(_)) | None => Value::Array(Vec::new()),
+                },
+            };
             read.values.insert(name.clone(), value);
         }
         read
     }
+}
+
+/// What the first of `field`'s rungs that `pick` takes found, of the next
+/// finds of `found`, one per rung, every one of them taken from it.
+fn first_rung<I: Iterator, T>(
+    found: &mut I,
+    field: &ValueField,
+    mut pick: impl FnMut(I::Item) -> Option<T>,
+) -> Option<T> {
+    let mut first = None;
+    for each in found.take(field.rungs().count()) {
+        if first.is_none() {
+            first = pick(each);
+        }
+    }
+    first
 }
 
 impl Values {

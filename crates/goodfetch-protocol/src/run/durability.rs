@@ -83,6 +83,7 @@ pub const RUN_STATE_DURABILITY: Setting = Setting {
     weakens: Some(durability_off),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -105,6 +106,7 @@ pub const RUN_STATE_BATCH_PER_ATTEMPT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -143,6 +145,22 @@ impl BatchThreshold {
             Self::At(at) => at.get() > default,
             Self::Never => true,
         }
+    }
+}
+
+/// The value [`BatchThreshold::read`] reads it back from.
+impl serde::Serialize for BatchThreshold {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::At(at) => serializer.serialize_u64(at.get()),
+            Self::Never => serializer.serialize_str(NO_THRESHOLD),
+        }
+    }
+}
+
+impl crate::catalog::SettingJson for BatchThreshold {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
     }
 }
 
@@ -197,6 +215,7 @@ pub const RUN_STATE_BATCH_PAGES: Setting = Setting {
     weakens: Some(pages_above),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -219,6 +238,7 @@ pub const RUN_STATE_BATCH_INTERVAL: Setting = Setting {
     weakens: Some(interval_above),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -241,6 +261,7 @@ pub const RUN_STATE_BATCH_BYTES: Setting = Setting {
     weakens: Some(bytes_above),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -264,6 +285,7 @@ pub const RUN_STATE_BATCH_SYNC: Setting = Setting {
     weakens: Some(sync_below_each),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -282,6 +304,7 @@ pub const RUN_STATE_COMMIT_INTERVAL: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -300,6 +323,7 @@ pub const RUN_STATE_MEMORY_BUDGET: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

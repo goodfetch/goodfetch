@@ -3,14 +3,17 @@
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
 //! manifest's path, the folder Journey variants write their result documents
 //! into, the exercise records' folder with the test's ID as nextest gives
-//! it, the way a runner declares `DnsNamespace` comes up on it, and on
-//! Windows the variables a child needs to start.
+//! it, the way a runner declares `DnsNamespace` comes up on it, the cap on
+//! the Callgrind children a counts benchmark runs at once, what a
+//! Cargo a test starts needs to find its toolchain, and on Windows the
+//! variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
 )]
 
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 
 /// Overrides every test's seed (ADR 0060).
 pub const SEED_VARIABLE: &str = "GOODFETCH_TEST_SEED";
@@ -39,6 +42,10 @@ pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
 /// into, beside the test's own folder, which `just test` sets.
 pub const RESULT_DOCUMENTS_VARIABLE: &str = "GOODFETCH_TEST_RESULT_DOCUMENTS";
 
+/// The folder of the case logs, where a Rust test that runs a Client
+/// conformance case appends its entry (ADR 0069), which `just test` sets.
+pub const CASE_LOGS_VARIABLE: &str = "GOODFETCH_TEST_CASE_LOGS";
+
 /// The folder of every test's exercise record, which `just test` sets
 /// (ADR 0072).
 pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
@@ -48,6 +55,18 @@ pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 /// tries the first, then the second.
 pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 
+/// The most Callgrind children a counts benchmark runs at once, below its
+/// own bound of half the cores, at most eight: `xtask counts
+/// --callgrind-at-once` sets it, or the host's environment does (#2520).
+pub const CALLGRIND_AT_ONCE_VARIABLE: &str = "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE";
+
+/// Set where the tests run with no GUI session, as the Release suite's
+/// macOS cells do on a runner started in the Background session (#3224):
+/// Chrome for Testing's full build cannot start headless there, so each
+/// test's user configuration sets `browser.headless_shell`, its Browser
+/// cache holds the shell, and a test that needs the full build skips.
+pub const NO_GUI_SESSION_VARIABLE: &str = "GOODFETCH_TEST_NO_GUI_SESSION";
+
 /// Where Playwright keeps its browsers when it is not its default folder
 /// (the CI image sets it), from which the tests' Browser cache takes the
 /// Chrome for Testing build Playwright pins.
@@ -56,6 +75,17 @@ pub(crate) const PLAYWRIGHT_BROWSERS_VARIABLE: &str = "PLAYWRIGHT_BROWSERS_PATH"
 /// The user's folders, under which Playwright's default folder is: `HOME`
 /// on macOS and Linux, `LOCALAPPDATA` on Windows.
 pub(crate) const USER_FOLDER_VARIABLES: [&str; 2] = ["HOME", "LOCALAPPDATA"];
+
+/// What a Cargo a test starts needs to find its toolchain, since the test's
+/// map clears the environment and gives `HOME` a folder of its own: the
+/// `PATH` of the running test, Cargo's and rustup's homes, and the
+/// toolchain rustup picked for the test's own build.
+pub(crate) const TOOLCHAIN_VARIABLES: [&str; 4] =
+    ["PATH", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"];
+
+/// The user's own folder on Windows, under which Cargo's and rustup's homes
+/// are when no variable names them; `HOME` on macOS and Linux.
+pub(crate) const WINDOWS_USER_VARIABLE: &str = "USERPROFILE";
 
 /// The binary ID of the test nextest runs (`<package>::<target>`).
 pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
@@ -93,16 +123,21 @@ impl Variables {
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
+            CASE_LOGS_VARIABLE,
             ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,
             COVERAGE_VARIABLE,
             DNS_NAMESPACE_VARIABLE,
+            CALLGRIND_AT_ONCE_VARIABLE,
             PLAYWRIGHT_BROWSERS_VARIABLE,
+            NO_GUI_SESSION_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)
+        .chain(TOOLCHAIN_VARIABLES)
+        .chain([WINDOWS_USER_VARIABLE])
         .chain(WINDOWS_VARIABLES)
         .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
         .collect()
@@ -138,6 +173,24 @@ impl Variables {
             }),
         }
     }
+
+    /// Whether the tests run with no GUI session:
+    /// `GOODFETCH_TEST_NO_GUI_SESSION` is set, to any value.
+    pub fn no_gui_session(&self) -> bool {
+        self.get(NO_GUI_SESSION_VARIABLE).is_some()
+    }
+
+    /// The cap on the Callgrind children a counts benchmark runs at once:
+    /// `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, or none when it is absent.
+    pub fn callgrind_at_once(&self) -> Result<Option<NonZeroUsize>, CallgrindAtOnceError> {
+        self.get(CALLGRIND_AT_ONCE_VARIABLE)
+            .map(|value| {
+                value.parse().map_err(|_| CallgrindAtOnceError {
+                    value: value.to_owned(),
+                })
+            })
+            .transpose()
+    }
 }
 
 impl<K: Into<String>, V: Into<String>> FromIterator<(K, V)> for Variables {
@@ -166,6 +219,15 @@ pub fn current_test() -> String {
         .name()
         .unwrap_or("unnamed test")
         .to_owned()
+}
+
+/// The folder of the case logs, which `just test` names in
+/// `GOODFETCH_TEST_CASE_LOGS`: a Rust test passes it to
+/// `ClientCaseRun::start`, which keeps no entry when it is absent (ADR 0069).
+pub fn case_logs() -> Option<std::path::PathBuf> {
+    Variables::from_process()
+        .get(CASE_LOGS_VARIABLE)
+        .map(std::path::PathBuf::from)
 }
 
 /// One of the three suites (ADR 0061).
@@ -207,6 +269,15 @@ pub enum SeedError {
 #[error("{SUITE_VARIABLE} is `{value}`, not quick, pre-merge or release")]
 #[non_exhaustive]
 pub struct SuiteError {
+    /// The value it holds.
+    pub value: String,
+}
+
+/// `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` is no whole number of 1 or more.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{CALLGRIND_AT_ONCE_VARIABLE} is `{value}`, not a whole number of 1 or more")]
+#[non_exhaustive]
+pub struct CallgrindAtOnceError {
     /// The value it holds.
     pub value: String,
 }

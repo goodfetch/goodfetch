@@ -1,8 +1,11 @@
-use goodfetch_test_support::{ArticleAnswer, ArticleAnswers};
+use goodfetch_test_support::{ArticleAnswer, ArticleAnswers, ArticleLink};
+use serde_json::{Value, json};
 
-use super::{Answers, Differing, Extracted, Page, Written, check, read};
+use super::{Answers, Differing, Extracted, Fielded, Page, Written, check, check_fields, read};
 
 const HEADER: &str = "Tidewater Supply masthead";
+const NAV: &str = "Catalogue index navigation";
+const ASIDE: &str = "Related reading sidebar";
 const FOOTER: &str = "Tidewater Supply imprint and terms";
 const AD: &str = "Sponsored offer from Harbourline Freight";
 
@@ -14,6 +17,13 @@ fn answers() -> Answers {
         path: format!("/sites/3/{number}"),
         title: title.to_owned(),
         paragraphs: paragraphs.iter().map(|&text| text.to_owned()).collect(),
+        id: format!("S-{number:07}"),
+        name: NAMES[number as usize - 1].to_owned(),
+        children: if number == 1 {
+            vec![link(2), link(3)]
+        } else {
+            Vec::new()
+        },
     };
     let served = ArticleAnswers {
         pages: vec![
@@ -29,10 +39,24 @@ fn answers() -> Answers {
                 &["Rope coil is piece number 3."],
             ),
         ],
-        boilerplate: vec![HEADER.to_owned(), FOOTER.to_owned()],
+        home: ArticleLink {
+            path: "/sites/3/1".to_owned(),
+            name: "Home".to_owned(),
+        },
+        boilerplate: [HEADER, NAV, ASIDE, FOOTER].map(str::to_owned).to_vec(),
         ad: AD.to_owned(),
     };
     serde_json::from_value(serde_json::to_value(served).unwrap()).unwrap()
+}
+
+/// The three pages' names, as their headings hold them.
+const NAMES: [&str; 3] = ["Brass lantern", "Oak barrel", "Rope coil"];
+
+fn link(number: u32) -> ArticleLink {
+    ArticleLink {
+        path: format!("/sites/3/{number}"),
+        name: NAMES[number as usize - 1].to_owned(),
+    }
 }
 
 fn page(number: u32, title: &str, text: &str) -> Page {
@@ -245,7 +269,92 @@ fn a_tools_pages_are_read_from_its_lines_or_its_dataset() {
 fn a_tool_that_left_no_file_fails_the_read() {
     let home = tempfile::tempdir().unwrap();
 
-    let error = read(Written::Lines("items.jsonl"), home.path()).unwrap_err();
+    let error = read::<Page>(Written::Lines("items.jsonl"), home.path()).unwrap_err();
 
     assert!(format!("{error:#}").contains("items.jsonl"), "{error:#}");
+}
+
+/// Page `number`'s twenty fields as a handler that reads each one right
+/// writes them: page 1 links to pages 2 and 3, which link to none.
+fn fielded(number: u32) -> Fielded {
+    let answers = answers();
+    let answer = &answers.pages[number as usize - 1];
+    let child = |index: usize, value: fn(&super::Link) -> &str| {
+        answer
+            .children
+            .get(index)
+            .map_or(Value::Null, |link| json!(value(link)))
+    };
+    let mut fields = json!({
+        "title": answer.title,
+        "name": answer.name,
+        "id": answer.id,
+        "home": answers.home.path,
+        "home_label": answers.home.name,
+        "header": HEADER,
+        "nav": NAV,
+        "footer": FOOTER,
+        "first_child": child(0, |link| &link.path),
+        "first_child_name": child(0, |link| &link.name),
+        "second_child": child(1, |link| &link.path),
+        "second_child_name": child(1, |link| &link.name),
+    });
+    for k in 1..=8 {
+        fields[format!("paragraph_{k}")] = answer
+            .paragraphs
+            .get(k - 1)
+            .map_or(Value::Null, |paragraph| json!(paragraph));
+    }
+    Fielded {
+        url: format!("http://article.localhost:4000/sites/3/{number}"),
+        fields: fields.as_object().unwrap().clone(),
+    }
+}
+
+/// A handled page reads right when each of its twenty fields is its
+/// answer: text once white space is collapsed on it, a link by its path
+/// whatever its origin, and a field the page has no element for null or
+/// absent.
+#[test]
+fn a_pages_twenty_fields_read_right_when_each_is_its_answer() {
+    let mut written: Vec<Fielded> = (1..=3).map(fielded).collect();
+    written[0]
+        .fields
+        .insert("name".to_owned(), json!("  Brass\n lantern "));
+    written[0].fields.insert(
+        "first_child".to_owned(),
+        json!("http://article.localhost:4000/sites/3/2"),
+    );
+    written[1].fields.remove("paragraph_8");
+    written[1].fields.remove("second_child");
+
+    assert_eq!(check_fields(&answers(), &written), Extracted::default());
+}
+
+/// A field that is not its answer, one the page has an element for but
+/// the tool left out, and one the page has none for that the tool wrote,
+/// each differ, as does a page never written; the first difference is the
+/// first page's in the site's order and names the field.
+#[test]
+fn a_field_that_is_not_its_answer_differs() {
+    let mut written: Vec<Fielded> = (1..=3).map(fielded).collect();
+    written[0]
+        .fields
+        .insert("paragraph_3".to_owned(), json!("A third paragraph."));
+    written[1].fields.insert("name".to_owned(), json!("Oak"));
+    written[2].fields.remove("paragraph_1");
+    let differs = check_fields(&answers(), &written);
+    let missing = check_fields(&answers(), &written[1..]);
+
+    let first = "/sites/3/1: paragraph_3 \"A third paragraph.\", not none";
+    assert_eq!(
+        (differs, missing.whole),
+        (
+            Extracted {
+                whole: differing(3, first),
+                ad_allowed: differing(3, first),
+            },
+            differing(3, "/sites/3/1: no page written"),
+        )
+    );
 }

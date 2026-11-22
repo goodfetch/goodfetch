@@ -19,8 +19,10 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use goodfetch_test_support::record_command;
 use goodfetch_test_support::{
-    Cli, CliError, CliJson, Mode, ProvingGround, TestEnv, assert_cli_snapshot, cli, record_command,
+    Cli, CliError, CliJson, Mode, ProvingGround, TestEnv, assert_cli_snapshot, cli,
 };
 use rstest::rstest;
 use serde_json::{Value, json};

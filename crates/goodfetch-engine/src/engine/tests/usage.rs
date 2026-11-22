@@ -11,7 +11,8 @@
 //! any it journals only in one write once they are all charged, as a
 //! crawl's claim does; another,
 //! `test.reserve`, one that reserves a paid solve's worst case and settles
-//! it, as area 8's solvers will.
+//! it, as area 8's solvers will; and `test.charge_live`, which charges a
+//! Run already started, failing with `limit_reached` as a call does.
 
 use std::collections::BTreeMap;
 
@@ -33,7 +34,7 @@ use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
-use crate::ledger::Ledger;
+use crate::ledger::{Ledger, Refusal};
 use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
@@ -56,6 +57,14 @@ const CHARGE: Operation = Operation {
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+/// Charges the live Run `run_id` requests one at a time, `amount` of them,
+/// failing as a call does once a Limit refuses one.
+const CHARGE_LIVE: Operation = Operation {
+    name: "test.charge_live",
+    description: "Charges a live Run requests one at a time.",
+    ..CHARGE
 };
 
 /// Starts a Run of its own that reserves a paid solve's worst case in USD,
@@ -176,6 +185,7 @@ pub(super) fn charging() -> Contribution {
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
         ))
+        .with_handler(Handler::new(&CHARGE_LIVE, charge_live))
         .with_handler(Handler::new(&COVERED, covered))
         .with_handler(Handler::new(&CHARGE_FROM_TASKS, charge_from_tasks))
         .with_handler(Handler::new(
@@ -198,6 +208,22 @@ pub(super) fn charging() -> Contribution {
                 Ok(json!({ "refused": false }))
             },
         ))
+}
+
+/// [`CHARGE_LIVE`]'s handler.
+async fn charge_live(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = context.runs().live(run_id).await.unwrap();
+    for _ in 0..params["amount"].as_u64().unwrap() {
+        match run.charge("requests", 1).await {
+            Ok(()) => {}
+            Err(ChargeError::Refused(Refusal::Reached(reached))) => {
+                return Err(crate::run::limit_reached(&reached));
+            }
+            Err(error) => panic!("the charge failed: {error}"),
+        }
+    }
+    Ok(json!({}))
 }
 
 /// Holds one of the runtime's blocking threads until its sender is used,
@@ -407,12 +433,12 @@ pub(super) fn install_month() -> Value {
 
 /// Runs a Collie engine with `test.charge` in `env` while the Client makes
 /// `calls`, after its `hello`, and answers each reply.
-fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
+pub(super) fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
     replies_from(env, product, "sdk_typescript", calls)
 }
 
 /// As [`replies`], from a Client whose `hello` names `surface`.
-fn replies_from(
+pub(super) fn replies_from(
     env: &TestEnv,
     product: Product,
     surface: &str,
@@ -658,11 +684,7 @@ fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
 /// A paused runtime with two blocking threads, which a test can hold: no
 /// blocking call is then made until it lets one go.
 fn runtime_with_two_blocking_threads() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test bounds the runtime's blocking threads, which the shared test runtime does not (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .max_blocking_threads(2)
@@ -761,11 +783,7 @@ fn a_change_the_runs_slices_cover_makes_no_blocking_call_and_one_that_needs_a_sl
 /// Several worker threads, as a Product's runtime has: a Run's tasks then
 /// change its charging at the same instant.
 fn runtime_of_several_threads() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test needs tasks that run at once, which the shared test runtime's one thread does not give (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_multi_thread()
+    goodfetch_runtime::multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()
@@ -1143,5 +1161,67 @@ fn an_engine_writes_the_install_limit_of_its_managed_operator_policy_when_it_sta
             &install["managed_major"],
         ),
         (&json!(40), &json!("managed_policy"), &json!("1"))
+    );
+}
+
+/// A Run reads its Limits again from the Usage ledger at the
+/// `usage.ledger_read_interval` its user configuration sets (issue 2602):
+/// at `0`, a Limit an engine of another process sets, as a row written
+/// straight into the file is here, refuses the Run's next charge; at an
+/// hour, the Slices the Run holds still cover it.
+///
+/// Covers: story:3-71, setting:usage.ledger_read_interval
+#[rstest]
+#[case::at_every_charge(0, Some(json!("limit_reached")))]
+#[case::an_hour_later(3_600_000, None)]
+fn a_run_reads_its_limits_again_at_the_interval_its_user_configuration_sets(
+    #[case] interval: u64,
+    #[case] refused: Option<Value>,
+) {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        format!("version = \"0.1\"\n\n[settings]\nusage.ledger_read_interval = {interval}\n"),
+    )
+    .unwrap();
+    let ledger = env.home().join("usage-ledger.sqlite");
+
+    let next = attached_on(
+        &engine_with(Product::Collie, Some(charging())),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(
+                &mut client,
+                1,
+                "run.start",
+                json!({
+                    "run_id": "going",
+                    "limits": [{ "usage_kind": "requests", "amount": 1_000 }],
+                }),
+            )
+            .await;
+            let first = json!({ "run_id": "going", "amount": 1 });
+            call(&mut client, 2, "test.charge_live", first).await;
+            rusqlite::Connection::open(ledger)
+                .unwrap()
+                .execute(
+                    "INSERT INTO limits (scope_kind, scope_id, usage_kind, amount, must_understand, set_by, set_at)
+                     VALUES ('install', '', 'requests', 0, 1, 'person', '2026-01-05T09:00:00Z')",
+                    [],
+                )
+                .unwrap();
+            let next = json!({ "run_id": "going", "amount": 1 });
+            call(&mut client, 3, "test.charge_live", next).await
+        },
+    );
+
+    assert_eq!(
+        next["error"]["data"].get("code").cloned(),
+        refused,
+        "{next}"
     );
 }

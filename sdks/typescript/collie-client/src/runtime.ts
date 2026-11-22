@@ -10,15 +10,46 @@
 // naming the Product, through which the Product's package reaches its own
 // operations, streams and Run type and serves the engine's requests to its
 // program's handlers. It is for the Product packages, never for programs,
-// which hold their Product's Connection type.
+// which hold their Product's Connection type. Its generated members of a
+// deprecated or Experimental entry warn through `markers`' functions.
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
+export { refuseHandlersOnEdge } from "./edge-runtime.ts";
+export {
+  FileSaving,
+  saveFile,
+  writeFileWhole,
+  type FileWriteOptions,
+  type Saved,
+} from "./file-saving.ts";
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
+export { alsoInNamespace } from "./raw-call.ts";
+export { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { Sequence, type SequenceOptions } from "./sequence.ts";
+export {
+  type DeprecatedSettings,
+  onWire,
+  type SettingsOnWire,
+  type Spelling,
+  warnDeprecatedOnWire,
+} from "./settings.ts";
+export { idOfLocator } from "./generated/handles.ts";
+export { settingsOnWire } from "./generated/settings.ts";
+export { collieOperationNames } from "./generated/operations.ts";
+export { collieWire, type CollieWireType } from "./generated/wire.ts";
+export {
+  fromWire,
+  type Wire,
+  type WireField,
+  type WirePath,
+  type WireTypes,
+  type WireUnion,
+} from "./wire.ts";
 export {
   locateEngine,
-  openAttached,
+  openEngine,
   openOver,
   type EngineLocation,
   type ProductPackage,

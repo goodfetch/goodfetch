@@ -87,6 +87,7 @@ pub const FETCH_TIER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -101,6 +102,7 @@ pub const FETCH_TIER_RACE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -115,34 +117,46 @@ pub const FETCH_LIGHT_BROWSER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
-/// The values `fetch.http_from` takes: the default, then the two that
-/// weaken browser-fetch for identity consistency (ADR 0023).
+/// The values `fetch.http_from` takes: from the browser always, the ladder
+/// (the default, issue 3106) and from the transport always, the one value
+/// that weakens browser-fetch for identity consistency (ADR 0023).
 pub const HTTP_FROM_VALUES: &[&str] = &["browser", "learned", "transport"];
 
-fn from_the_browser() -> Value {
-    Value::String("browser".to_owned())
+/// The default: each Label learns which client its site accepts (ADR 0020's
+/// note of 2026-11-13, issue 3106).
+fn learned_per_label() -> Value {
+    Value::String("learned".to_owned())
 }
 
 /// Whether a `fetch.http_from` sends a Label's HTTP from anywhere but the
-/// Session's browser: a weakened control (ADR 0023).
+/// Session's browser, so a pool holding a login overrides it (#2418).
 fn not_from_the_browser(value: &Value) -> bool {
     value.as_str().is_some_and(|from| from != "browser")
+}
+
+/// Whether a `fetch.http_from` never sends from the browser, whatever a
+/// sample shows: the weakened control (ADR 0023's note of 2026-11-21).
+/// `learned` is the default, and a default is not a weakening.
+fn from_the_transport_always(value: &Value) -> bool {
+    value.as_str() == Some("transport")
 }
 
 /// `fetch.http_from` (ADRs 0020 and 0023; spec #2413).
 pub const FETCH_HTTP_FROM: Setting = Setting {
     name: "fetch.http_from",
-    description: "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+    description: "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` (the default) behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `transport` is a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`; `learned`, the default, and `browser` are not reported weakened.",
     kind: ValueKind::Choice(HTTP_FROM_VALUES),
-    default: from_the_browser,
+    default: learned_per_label,
     clearable: false,
     authority: Authority::Every,
-    weakens: Some(not_from_the_browser),
+    weakens: Some(from_the_transport_always),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -153,7 +167,15 @@ pub const HTTP_FROM_YIELDS_TO_A_LOGIN: Yielding = Yielding {
     key: &FETCH_HTTP_FROM,
     when: not_from_the_browser,
     to: &SESSION_SOURCE,
+    to_values: set,
+    unless: None,
+    reason: "its Sessions hold a login, so their HTTP leaves from the browser",
 };
+
+/// Whether a `session.source` is set: any value but `null`.
+fn set(source: &Value) -> bool {
+    !source.is_null()
+}
 
 /// `fetch.encoding` (ADR 0119).
 pub const FETCH_ENCODING: Setting = Setting {
@@ -166,6 +188,7 @@ pub const FETCH_ENCODING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -180,6 +203,7 @@ pub const FETCH_KEPT_RESPONSES_URLS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -214,6 +238,7 @@ pub const FETCH_HEDGE_ENABLED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -228,6 +253,7 @@ pub const FETCH_HEDGE_MAX_PERCENT: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -242,6 +268,7 @@ pub const FETCH_COALESCE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -261,7 +288,9 @@ pub struct BrowserRequiredDetails {
     /// The call the tier cannot serve exactly, by its operation's name, or
     /// the setting that judges the request's own document in its place:
     /// `session.page_check` for a page its markup cannot judge, and
-    /// `fetch.encoding` for one only a guess could decode.
+    /// `fetch.encoding` for one only a guess could decode; or the part of
+    /// the crawl request the tier cannot send: `crawl_request.method` for
+    /// a method other than `GET`, and `crawl_request.body` for a body.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub call: String,
     /// What serves it: another tier, and for a wait also content the page
@@ -273,7 +302,7 @@ pub struct BrowserRequiredDetails {
 /// A call a forced tier cannot serve exactly (ADR 0093).
 pub const BROWSER_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "browser_required",
-    description: "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`.",
+    description: "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`. So does a crawl request with a method other than `GET` or a body on a forced `light_browser`, which sends neither, its call `crawl_request.method` or `crawl_request.body`.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -328,6 +357,7 @@ pub const FETCH_REDIRECT_MAX: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -342,6 +372,7 @@ pub const FETCH_REFRESH_MAX_DELAY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -370,6 +401,7 @@ pub const FETCH_SAMPLE_COUNT: Setting = Setting {
     weakens: Some(fewer_samples),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -385,6 +417,12 @@ pub struct SampleRefresh {
     pub requests: u64,
     /// The milliseconds a choice stands before it is sampled again.
     pub after: u64,
+}
+
+impl crate::catalog::SettingJson for SampleRefresh {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
 }
 
 impl SampleRefresh {
@@ -448,6 +486,7 @@ pub const FETCH_SAMPLE_REFRESH_AFTER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

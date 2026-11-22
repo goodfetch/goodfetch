@@ -9,6 +9,8 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -54,14 +56,15 @@ pub struct CleanUpRulesManifest {
     pub source: RulesSource,
     /// When its lists were taken from their authors, in RFC 3339: the date
     /// Provenance names, from which a Run report counts its 14 days.
+    #[serde(with = "crate::point_in_time")]
     #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub published_at: jiff::Timestamp,
+    pub published_at: SystemTime,
     /// When a newer version should replace it, in RFC 3339: a daily
     /// version's 14 days, an upstream one's shortest declared expiry; none
     /// for the embedded part and a release's.
-    #[serde(default)]
+    #[serde(with = "crate::point_in_time::nullable", default)]
     #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub expires_at: Option<jiff::Timestamp>,
+    pub expires_at: Option<SystemTime>,
     /// The file of each Filter list, beside the manifest.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lists: RulesLists,

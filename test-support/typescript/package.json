@@ -9,9 +9,12 @@
     "./canaries": "./src/canaries.ts",
     "./case-log": "./src/case-log.ts",
     "./features": "./src/features.ts",
+    "./install": "./src/install.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-contract": "./src/protocol-contract.ts",
     "./screenshot": "./src/screenshot.ts",
+    "./serve-static": "./src/serve-static.ts",
+    "./smoke": "./src/smoke.ts",
     "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
@@ -24,9 +27,12 @@
     "@axe-core/playwright": "4.14.0",
     "@goodfetch/collie-client": "workspace:*",
     "@guidepup/virtual-screen-reader": "0.33.0",
+    "@yarnpkg/cli-dist": "4.18.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "smol-toml": "1.9.0"
+    "sirv": "3.0.2",
+    "smol-toml": "1.9.0",
+    "verdaccio": "7.1.1"
   },
   "devDependencies": {
     "@playwright/test": "catalog:",

@@ -1,6 +1,6 @@
 //! What a declaration is, and the Rust declarations of Features (ADRs 0072
-//! and 0075): a `/// Covers:` line on a test function, or a `//! Covers:`
-//! line on a test module for every test in it, read with `syn` from each
+//! and 0075): a `/// Covers:` declaration on a test function, or a `//! Covers:`
+//! one on a test module for every test in it, read with `syn` from each
 //! Cargo target's module tree and named as nextest names the test, an rstest
 //! case included. Each declaration's level comes from the path of the file
 //! that holds the test. The sibling modules `listed` and `covers` read the
@@ -16,6 +16,8 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::journey::FeatureId;
+use quote::ToTokens as _;
 
 use super::rstest_names;
 use crate::metadata;
@@ -182,6 +184,10 @@ pub(crate) struct Test {
     /// `cfg` predicate but `test`, as `cfg(unix)`, a `cfg_attr`, and
     /// `ignore` for an `#[ignore]`d test.
     pub(crate) gates: Vec<String>,
+    /// Its function's body, which `xtask clients check` reads for the
+    /// `ClientCaseRun::start` call that carries a case on the `sdk-rust`
+    /// surface.
+    pub(crate) body: proc_macro2::TokenStream,
 }
 
 /// Every Rust test of the workspace at `root`, read from each Cargo target's
@@ -412,6 +418,7 @@ impl Target<'_> {
                 .collect()
         };
         let path = relative(self.root, module.path);
+        let body = function.block.to_token_stream();
         tests.extend(named.into_iter().map(|(name, own)| Test {
             binary: self.binary.to_owned(),
             name,
@@ -419,6 +426,7 @@ impl Target<'_> {
             path: path.clone(),
             features: shared.iter().cloned().chain(own).collect(),
             gates: gates.clone(),
+            body: body.clone(),
         }));
         Ok(())
     }
@@ -501,29 +509,67 @@ fn gates(attributes: &[syn::Attribute]) -> Vec<String> {
         .collect()
 }
 
-/// The Feature IDs of the `Covers:` lines among doc attributes.
+/// The Feature IDs of the `Covers:` declarations among doc attributes. A
+/// declaration wrapped onto the doc lines below it reads on while each line
+/// holds Feature IDs only: prose, a blank doc line or another attribute ends
+/// it.
 fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<String> {
-    attributes
-        .into_iter()
-        .filter(|attribute| attribute.path().is_ident("doc"))
-        .filter_map(|attribute| match &attribute.meta {
-            syn::Meta::NameValue(syn::MetaNameValue {
-                value:
-                    syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(text),
-                        ..
-                    }),
-                ..
-            }) => Some(text.value()),
-            _ => None,
-        })
-        .filter_map(|line| line.trim().strip_prefix("Covers:").map(ToOwned::to_owned))
-        .flat_map(|rest| {
-            rest.split(',')
-                .map(str::trim)
-                .filter(|feature| !feature.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    let mut features = Vec::new();
+    let mut declaring = false;
+    for attribute in attributes {
+        let Some(text) = doc_text(attribute) else {
+            declaring = false;
+            continue;
+        };
+        // `split`, not `lines`: a blank `///` is one empty line, which ends
+        // a declaration.
+        for line in text.split('\n').map(str::trim) {
+            if let Some(rest) = line.strip_prefix("Covers:") {
+                features.extend(feature_ids(rest));
+                declaring = true;
+            } else if declaring && let Some(continued) = continuation(line) {
+                features.extend(continued);
+            } else {
+                declaring = false;
+            }
+        }
+    }
+    features
+}
+
+/// A doc attribute's text, `None` for any other attribute.
+fn doc_text(attribute: &syn::Attribute) -> Option<String> {
+    if !attribute.path().is_ident("doc") {
+        return None;
+    }
+    match &attribute.meta {
+        syn::Meta::NameValue(syn::MetaNameValue {
+            value:
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(text),
+                    ..
+                }),
+            ..
+        }) => Some(text.value()),
+        _ => None,
+    }
+}
+
+/// The comma-separated Feature IDs of a declaration's line.
+fn feature_ids(line: &str) -> impl Iterator<Item = String> + '_ {
+    line.split(',')
+        .map(str::trim)
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+}
+
+/// The Feature IDs of a doc line below a `Covers:` line when it carries on
+/// the declaration, holding Feature IDs and nothing else; `None` otherwise.
+fn continuation(line: &str) -> Option<Vec<String>> {
+    let features: Vec<String> = feature_ids(line).collect();
+    let carries_on = !features.is_empty()
+        && features
+            .iter()
+            .all(|feature| FeatureId::try_from(feature.clone()).is_ok());
+    carries_on.then_some(features)
 }

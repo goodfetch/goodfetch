@@ -30,6 +30,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
@@ -37,6 +38,8 @@ use bytes::Bytes;
 use bytestring::ByteString;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_encoding::Kind;
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
@@ -49,24 +52,29 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
+
+use goodfetch_engine::{
+    Answered, CallContext, CallError, GuardAnswer, ReadParams, RunOfCall, named,
+};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
+    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_CONTENT_TYPES, CRAWL_HANDLE_STATUSES, CRAWL_START, CrawlRequest,
+};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
 };
-use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_LINKS;
+use goodfetch_protocol::foxhound::frontier::{CRAWL_REQUEST_LINKS, HttpBody};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionKind, CertificateExceptionMark,
@@ -97,9 +105,9 @@ use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
 };
-use crate::charset::{Kind, Read, Text};
+use crate::charset::{Read, Text};
 use crate::choice::{
-    ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
+    ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unsendable, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::cookies::{Jars, WithJar};
@@ -369,7 +377,7 @@ struct Opened {
 
 /// What a served document's hand-off to the CPU pool read of its Block
 /// cause (issue 2189).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Classified {
     /// The hand-off did not classify it: Block classification reads it in a
     /// hand-off of its own when asked.
@@ -854,9 +862,11 @@ fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
-            "`fetch.light_browser` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{key}` sets in {}: switch `fetch.light_browser` off, or unset `{key}`.",
+            "`{light}` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{proxy}` sets in {}: switch `{light}` off, or unset `{proxy}`.",
             allowed.layer.as_str(),
-            proxied.layer.as_str()
+            proxied.layer.as_str(),
+            light = named::setting_in(FETCH_LIGHT_BROWSER.name, allowed.layer),
+            proxy = named::setting_in(key, proxied.layer),
         ),
         &CapabilityUnavailableDetails {
             key: FETCH_LIGHT_BROWSER.name.to_owned(),
@@ -995,6 +1005,8 @@ impl FetchTiers {
                         key: CRAWL_CONTENT_TYPES.name.to_owned(),
                         layer: Some(effective.layer),
                         reason: format!("{} {reason}", effective.value),
+                        limit: None,
+                        fix: None,
                     },
                 )
             })?;
@@ -1419,7 +1431,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 untouched: Arc::clone(&opened.untouched),
-                classified: opened.classified,
+                classified: opened.classified.clone(),
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
@@ -1442,7 +1454,11 @@ impl FetchTiers {
     ///
     /// [`Stop::Failed`] with the Browser cache's Error codes or
     /// `navigation_failed`; [`Stop::Skipped`] with `content_type` for a
-    /// type its Label does not take.
+    /// type its Label does not take. [`Stop::Failed`], before anything is
+    /// sent, for a request Lightpanda cannot send (no `GET`, or a body):
+    /// with `browser_required` where `fetch.tier` forces the tier, else
+    /// with `attempt_ended`, which the attempt never meets, since it sends
+    /// such a request to the browser first (issue 2471).
     ///
     /// # Cancel safety
     ///
@@ -1456,6 +1472,17 @@ impl FetchTiers {
         hand_over: &Arc<HandOver>,
         (home, pinned_by): (&Home, &PinnedBy),
     ) -> Result<PageId, Stop> {
+        // Lightpanda sends a bodiless `GET` alone; under `auto` the attempt
+        // sends any other request to the browser before it comes here.
+        if let Some(call) = crate::light_browser::unsent(request) {
+            let error = match &choice.forced {
+                Some(forced) => unsendable(choice.tier, forced, call),
+                None => match unserved(choice, call, false) {
+                    Unserved::Escalated(error) | Unserved::Refused(error) => error,
+                },
+            };
+            return Err(Stop::failed(error));
+        }
         let prepared = self
             .served
             .light
@@ -1905,9 +1932,11 @@ impl FetchTiers {
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
         // Its document's hand-off classified it, when it took one.
-        if let Classified::Read(classified) = page.classified {
+        if let Classified::Read(classified) = &page.classified {
             let received = run.clock().wall();
-            return classified.map(|block| (block, blocked(block, &response, received)));
+            return classified
+                .clone()
+                .map(|block| (block.clone(), blocked(block, &response, received)));
         }
         self.classified(&run, response, Arc::clone(&page.document))
             .await
@@ -1941,7 +1970,7 @@ impl FetchTiers {
                 block.map(|block| (block, response))
             })
             .await?;
-        Some((block, blocked(block, &response, received)))
+        Some((block.clone(), blocked(block, &response, received)))
     }
 
     /// The formats `request` names of the page `page_id`, served or a
@@ -2006,8 +2035,9 @@ impl FetchTiers {
     /// Run `run_id`, in the Session of the crawl's Session pool that
     /// serves the handler, `pooled`, its own browser context, for the call
     /// `context`, whose
-    /// Connection's Client then reaches it, and navigates it to `url`
-    /// through its navigation gate: the attempt hands its Run's pages over
+    /// Connection's Client then reaches it, and navigates it to
+    /// `request`'s URL through its navigation gate, its document fetched
+    /// with `request`'s method and body: the attempt hands its Run's pages over
     /// first, as `hand_over`, and the page takes that hand-over's value,
     /// reader and observer, however many of the Run's attempts handed its
     /// pages over since. Answers its ID and the navigation's answer.
@@ -2024,7 +2054,7 @@ impl FetchTiers {
         &self,
         hand_over: &Arc<HandOver>,
         pooled: &PooledSession,
-        url: &str,
+        request: &CrawlRequest,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
         let Some(pages) = self.served.browser.get() else {
@@ -2034,10 +2064,15 @@ impl FetchTiers {
             ));
         };
         let run_id = hand_over.run().id();
+        let own = OwnFetch {
+            url: &request.url,
+            method: request.method.as_str(),
+            body: request.body.as_ref().map(HttpBody::bytes),
+        };
         OPENING
             .scope(
                 Arc::clone(hand_over),
-                pages.open(run_id, pooled, url, context),
+                pages.open(run_id, pooled, own, context),
             )
             .await
     }
@@ -2241,6 +2276,24 @@ impl FetchTiers {
     }
 }
 
+// The Run a raw call names by a page a document tier serves, whose trace
+// records it (ADR 0099); a browser page's is Collie's Sessions'.
+impl RunOfCall for FetchTiers {
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
+        let run = self
+            .served_page(&PageId(page_id.to_owned()))
+            .map(|page| page.hand_over.run().id().clone());
+        Box::pin(std::future::ready(run))
+    }
+
+    fn session_run(&self, _session_id: &str) -> Option<RunId> {
+        None
+    }
+}
+
 impl HandlerPages for FetchTiers {
     /// The value of the attempt opening its own browser page, else of the
     /// one that handed its Run's pages over last, while its handler runs
@@ -2294,6 +2347,21 @@ impl HandlerPages for FetchTiers {
             .open
             .get(page_id)
             .map(|page| Arc::clone(&page.document))
+    }
+
+    /// A crawl handler's call encloses the calls on its pages (ADR 0080).
+    fn encloses_calls(&self) -> bool {
+        true
+    }
+
+    /// The handler call enclosing the served page's attempt, through its
+    /// lease (ADR 0080).
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
+        let hand_over = lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .map(|page| Arc::clone(&page.hand_over))?;
+        hand_over.lease.enclosing()
     }
 
     fn call(
@@ -2805,13 +2873,17 @@ fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
     Err(CallError::new(
         &SETTING_INVALID,
         format!(
-            "`fetch.redirect.max` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `crawl.handle_statuses` to hand it to the handler unfollowed.",
-            effective.layer.as_str()
+            "`{}` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `{}` to hand it to the handler unfollowed.",
+            named::setting_in(FETCH_REDIRECT_MAX.name, effective.layer),
+            effective.layer.as_str(),
+            named::setting_in(CRAWL_HANDLE_STATUSES.name, effective.layer),
         ),
         &SettingInvalidDetails {
             key: FETCH_REDIRECT_MAX.name.to_owned(),
             layer: Some(effective.layer),
             reason: format!("expected a count from 1 to {REDIRECT_MAX_LIMIT}, found `{max}`"),
+            limit: None,
+            fix: None,
         },
     ))
 }
@@ -2914,7 +2986,7 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
             )
         })
         .and_then(|asked| match asked {
-            RetryAfter::Until(until) => jiff::Timestamp::try_from(until).ok(),
+            RetryAfter::Until(until) => Some(until),
             RetryAfter::NoWait | RetryAfter::Unparsable => None,
         });
     CallError::new(

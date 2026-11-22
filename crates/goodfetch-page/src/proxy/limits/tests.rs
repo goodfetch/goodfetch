@@ -322,14 +322,13 @@ fn a_request_that_ended_well_leaves_an_unlearned_proxy_without_a_ceiling() {
 #[tokio::test(start_paused = true)]
 async fn a_wait_for_room_through_a_proxy_ends_once_its_run_is_cancelled() {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
-    let politeness = Politeness::in_memory(&PolitenessOptions::default(), vec![TABLES], &owner)
-        .await
-        .unwrap();
+    let politeness = Politeness::in_memory(&PolitenessOptions::default(), &owner).unwrap();
     let clock = Clock::paused(at(0));
     let holder = Holder {
         run_id: "waiting".to_owned(),
         epoch: 1,
         run_folder: PathBuf::from("waiting"),
+        delegates: true,
     };
     let rule = SharedRule::new(concurrency(1));
     let ending = CancellationToken::new();

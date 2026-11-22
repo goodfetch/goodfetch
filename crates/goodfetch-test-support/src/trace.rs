@@ -119,6 +119,29 @@ pub fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
     (answer, captured.written())
 }
 
+/// A subscriber that records, without colour, each target of `levels` at
+/// its level and above, and nothing else, with the [`CapturedLog`] it
+/// writes to: for a test that changes what its program records while it
+/// runs, or reads what was written before its work ends.
+pub fn capturing(
+    levels: &[(&str, tracing::Level)],
+) -> (impl tracing::Subscriber + Send + Sync + use<>, CapturedLog) {
+    let captured = CapturedLog::default();
+    let writer = captured.clone();
+    let targets = levels
+        .iter()
+        .fold(Targets::new(), |targets, &(target, level)| {
+            targets.with_target(target, level)
+        });
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .with_filter(targets),
+    );
+    (subscriber, captured)
+}
+
 /// A `tracing` writer that keeps the bytes a subscriber wrote, shared by
 /// its clones: [`logged`]'s, and one a test hands to
 /// [`subscriber_writing_to`] as `move || writer.clone()`.

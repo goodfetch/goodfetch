@@ -10,7 +10,6 @@
 )]
 
 mod audit;
-mod block_cause;
 mod check;
 mod command;
 mod contract;
@@ -25,6 +24,8 @@ mod report;
 mod row;
 mod rstest_names;
 mod scan;
+mod shared_type;
+mod skill;
 mod story;
 
 use std::ffi::OsStr;
@@ -38,10 +39,10 @@ use crate::environment::Environment;
 use crate::{journeys, output};
 
 pub(crate) use command::{CommandLines, SECTION as COMMANDS};
-pub(crate) use files::{INVENTORY, schemas};
+pub(crate) use files::{INVENTORY, MATRIX, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 pub(crate) use report::manual_exceptions;
-pub(crate) use scan::tests;
+pub(crate) use scan::{Test, tests};
 
 /// The report's files in its folder.
 const REPORT_JSON: &str = "features.json";

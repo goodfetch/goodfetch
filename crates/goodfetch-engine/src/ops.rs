@@ -1,4 +1,6 @@
-//! The Daemon's health and its ops listener (ADR 0050). A Daemon is live
+//! The ops listener of a Daemon, or of an Attached engine at
+//! `ops.attached_address`, and the health it answers (ADR 0050); an
+//! Attached engine's answers from its Runs alone. A Daemon is live
 //! while its runtime and its Runs' registry, which writes their run state,
 //! respond; it is ready while it is live, its run state is writable, the
 //! browsers its configuration uses are installed, it does not drain, its
@@ -66,9 +68,11 @@ pub struct Ops {
     pub browsers: Option<Arc<dyn ConfiguredBrowsers>>,
 }
 
-/// A Daemon's ops listener, as its starter set it up.
+/// A Daemon's or an Attached engine's ops listener, as its starter set it
+/// up.
 pub struct OpsOptions {
-    /// The listener, bound at `ops.address`.
+    /// The listener, bound at `ops.address`, or an Attached engine's
+    /// `ops.attached_address`.
     pub listener: OpsListener,
     /// The ops token, which `/metrics` takes as a bearer token.
     pub token: String,
@@ -76,7 +80,7 @@ pub struct OpsOptions {
     pub scrape: Arc<dyn Scrape>,
 }
 
-/// What a Daemon's health is checked on.
+/// What a Daemon's or an Attached engine's health is checked on.
 #[derive(Clone)]
 pub(crate) struct Health {
     pub(crate) runs: Runs,

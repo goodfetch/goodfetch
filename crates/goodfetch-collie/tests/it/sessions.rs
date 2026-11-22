@@ -14,7 +14,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_support::{Mode, TestEnv};
 #[cfg(unix)]
-use goodfetch_test_support::{ProvingGround, browser_cache};
+use goodfetch_test_support::{ProvingGround, browser_cache, skipped_without_gui_session};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -31,14 +31,14 @@ const SEED: u64 = 697;
 
 /// The Session `run.new_session` answered.
 #[cfg(unix)]
-fn session_of(answer: &Value) -> SessionId {
+pub(crate) fn session_of(answer: &Value) -> SessionId {
     serde_json::from_value(answer["result"]["session_id"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
 
 /// Opens a page in the Session `session`.
 #[cfg(unix)]
-fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
+pub(crate) fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
     opened(&engine.ask(id, "session.new_page", &json!({ "session_id": session })))
 }
 
@@ -357,6 +357,164 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
                 json!("cookie_header")
             ),
             json!(200),
+        )
+    );
+}
+
+/// The Error code of `answer`'s error, with the key, layer and kind its
+/// details name and whether its `fix` or reason names `word`.
+#[cfg(unix)]
+fn naming(answer: &Value, word: &str) -> (Value, Value, Value, Value, bool) {
+    let (code, key, layer, kind) = refusal_of(answer);
+    let data = &answer["error"]["data"];
+    let says = [&data["fix"], &answer["error"]["message"]]
+        .iter()
+        .any(|text| text.as_str().is_some_and(|text| text.contains(word)));
+    (code, key, layer, kind, says)
+}
+
+/// The answers to `run.new_session` with each of `opened`, in a Run whose
+/// settings set `stealth.human_input`, which each Session inherits.
+#[cfg(unix)]
+fn sessions_opened(opened: &[Value]) -> Vec<Value> {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = serde_json::Map::new();
+    settings.insert("stealth".to_owned(), json!({ "human_input": true }));
+    let mut engine =
+        crate::page::started_with(&env, &cache, &proving_ground, "modes", &settings, |_| {});
+    let answers = opened
+        .iter()
+        .zip(2..)
+        .map(|(params, id)| {
+            let mut params = params.clone();
+            params["run_id"] = json!("modes");
+            engine.ask(id, "run.new_session", &params)
+        })
+        .collect();
+    let _ = engine.ask(100, "run.finish", &json!({ "run_id": "modes" }));
+    let _ = engine.finish();
+    answers
+}
+
+/// A refusal at the run layer, with the key, the kind and whether its fix
+/// or message names the word looked for.
+#[cfg(unix)]
+fn refused_naming(code: &str, key: &str, kind: Value) -> (Value, Value, Value, Value, bool) {
+    (json!(code), json!(key), json!("run"), kind, true)
+}
+
+/// Covers: story:8-5, story:8-6, story:8-102, operation:run.new_session
+/// Covers: error:setting_not_applicable, error:setting_invalid
+#[cfg(unix)]
+#[test]
+fn a_session_whose_settings_its_access_mode_cannot_take_is_refused_with_the_setting_that_cannot() {
+    let answers = sessions_opened(&[
+        json!({ "settings": { "stealth": { "human_input": false } } }),
+        json!({ "settings": { "browser": { "access_mode": "standard" }, "stealth": { "fingerprint_method": "basic" } } }),
+        json!({ "settings": { "browser": { "access_mode": "identified" }, "stealth": { "generated_identity": true } } }),
+        json!({}),
+    ]);
+
+    assert_eq!(
+        (
+            naming(&answers[0], "standard"),
+            naming(&answers[1], "stealth.fingerprint_method"),
+            naming(&answers[2], "browser.access_mode"),
+            answers[3]["result"]["session_id"].is_string(),
+        ),
+        (
+            refused_naming("setting_not_applicable", "stealth.human_input", Value::Null),
+            refused_naming("setting_invalid", "browser.access_mode", Value::Null),
+            refused_naming("setting_invalid", "stealth.generated_identity", Value::Null),
+            true,
+        )
+    );
+}
+
+/// Covers: story:8-2, story:8-9, story:8-10, operation:run.new_session
+/// Covers: error:setting_not_applicable, error:capability_unavailable
+#[cfg(unix)]
+#[test]
+fn a_session_opens_in_its_access_mode_only_where_its_browser_can_run_it() {
+    if skipped_without_gui_session(
+        "its `stealth` Sessions are refused under the headless shell before their own refusals",
+    ) {
+        return;
+    }
+    let answers = sessions_opened(&[
+        json!({
+            "settings": { "browser": { "access_mode": "identified" } },
+            "source": { "kind": "cookie_header", "header": "mark=own", "domain": "scope.test" },
+        }),
+        json!({
+            "settings": { "browser": { "access_mode": "stealth" } },
+            "source": { "kind": "cdp_url", "url": "http://127.0.0.1:9" },
+        }),
+        json!({
+            "settings": { "browser": { "access_mode": "stealth" } },
+            "source": { "kind": "installed_browser", "browser": "safari", "domains": ["scope.test"] },
+        }),
+        json!({ "settings": { "stealth": { "fingerprint_method": "engine" } } }),
+    ]);
+
+    assert_eq!(
+        (
+            naming(&answers[0], "cookie_header"),
+            naming(&answers[1], "cdp_url"),
+            naming(&answers[2], "WebKit"),
+            naming(&answers[3], "stealth"),
+        ),
+        (
+            refused_naming("setting_not_applicable", "browser.access_mode", Value::Null),
+            refused_naming("setting_not_applicable", "browser.access_mode", Value::Null),
+            refused_naming(
+                "capability_unavailable",
+                "browser.access_mode",
+                json!("webkit")
+            ),
+            refused_naming(
+                "capability_unavailable",
+                "browser.access_mode",
+                json!("stealth")
+            ),
+        )
+    );
+}
+
+/// Covers: story:8-7, operation:session.new_page, error:setting_not_applicable
+#[cfg(unix)]
+#[rstest]
+#[case::its_access_mode(json!({ "browser": { "access_mode": "identified" } }), "browser.access_mode")]
+#[case::an_item_of_its_identity_profile(json!({ "stealth": { "human_input": true } }), "stealth.human_input")]
+#[case::its_proxy(json!({ "proxy": { "server": "http://127.0.0.1:9" } }), "proxy.server")]
+fn an_open_sessions_access_mode_identity_profile_and_proxy_are_refused_on_its_pages(
+    #[case] page_settings: Value,
+    #[case] key: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "fixed");
+
+    let session = session_of(&engine.ask(2, "run.new_session", &json!({ "run_id": "fixed" })));
+    let changed = engine.ask(
+        3,
+        "session.new_page",
+        &json!({ "session_id": session, "settings": page_settings }),
+    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "fixed" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        naming(&changed, "new Session"),
+        (
+            json!("setting_not_applicable"),
+            json!(key),
+            json!("run"),
+            Value::Null,
+            true
         )
     );
 }

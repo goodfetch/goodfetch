@@ -9,7 +9,7 @@
 use std::net::SocketAddr;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -319,6 +319,35 @@ fn a_handshake_that_names_the_daemon_as_localhost_is_accepted() {
     );
 
     assert!(opened);
+}
+
+/// Covers: story:3-13
+#[test]
+fn a_handshake_that_offers_the_protocols_major_as_subprotocol_is_answered_with_it() {
+    let subprotocol = PROTOCOL_VERSION.websocket_subprotocol();
+    let offered = format!("goodfetch.v9999, {subprotocol}");
+    let (_, answered) = served(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        exposed(),
+        |dialer| async move {
+            let mut request = handshake(ADDRESS, Some(&format!("http://{ADDRESS}")));
+            request
+                .headers_mut()
+                .insert("Sec-WebSocket-Protocol", offered.parse().unwrap());
+            let (reader, writer) = dialer.connect().await.unwrap().split();
+            let (_, response) =
+                tokio_tungstenite::client_async(request, tokio::io::join(reader, writer))
+                    .await
+                    .unwrap();
+            response
+                .headers()
+                .get("Sec-WebSocket-Protocol")
+                .map(|value| value.to_str().unwrap().to_owned())
+        },
+    );
+
+    assert_eq!(answered, Some(subprotocol));
 }
 
 /// Covers: story:3-13

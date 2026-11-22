@@ -63,7 +63,7 @@ use rusqlite::Connection;
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
-use crate::work_items::{Changed, Leased};
+use crate::work_items::{Again, Changed, Leased};
 use kept::{Kept, Leasing};
 
 pub(crate) mod admission;
@@ -451,10 +451,11 @@ impl RunState {
 
     /// Takes how the attempt of `leased` settled, once its outcome's job
     /// answered, which ran once `committed` commits were acknowledged: its
-    /// work item waits again for a retry, `retried`, as its next lease
-    /// takes it, or else it ended.
-    pub(crate) fn settled(&mut self, leased: Leased, retried: bool, committed: u64) {
-        self.kept.settled(leased, retried, committed);
+    /// work item waits again as `again` says, as its next lease takes it,
+    /// or else it ended.
+    pub(crate) fn settled(&mut self, leased: Leased, again: Again, committed: u64) {
+        self.kept
+            .settled(leased, again, committed, || self.stored.frontier_bytes());
     }
 
     /// Takes `added`, the work items a job of the writer that ran once
@@ -464,7 +465,10 @@ impl RunState {
     pub(crate) fn added(&mut self, added: Vec<Leased>, committed: u64) -> Vec<Waiting> {
         added
             .into_iter()
-            .map(|leased| self.kept.added(leased, committed))
+            .map(|leased| {
+                self.kept
+                    .added(leased, committed, || self.stored.frontier_bytes())
+            })
             .collect()
     }
 

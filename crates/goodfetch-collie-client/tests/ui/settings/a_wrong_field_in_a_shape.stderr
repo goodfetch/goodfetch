@@ -1,0 +1,7 @@
+error[E0559]: variant `SessionSource::SavedIdentity` has no field named `identity`
+  --> tests/ui/settings/a_wrong_field_in_a_shape.rs:10:13
+   |
+10 |             identity: "shop".to_owned(),
+   |             ^^^^^^^^ `SessionSource::SavedIdentity` does not have this field
+   |
+   = note: available fields are: `name`

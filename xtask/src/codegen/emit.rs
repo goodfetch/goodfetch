@@ -10,10 +10,13 @@
 //! whose Journey schema `xtask codegen` also writes on its own to
 //! `journeys/journey.schema.json`. Its `documents` holds the schemas of the
 //! documents tests write rather than files the repository keeps: the result
-//! document and the case log's entry (ADRs 0063 and 0069). What later
-//! decisions put in the bundle
-//! joins here once its types exist, through the same `xtask codegen`: the
-//! Feature inventory schemas (ADR 0072). The catalog's `exit_codes` is ADR
+//! document and the case log's entry (ADRs 0063 and 0069). Its
+//! `model_provider` holds the types of one model call, which every Model
+//! provider speaks outside the catalog: the request, and each part of the
+//! streamed answer, the last carrying the whole response (ADR 0101). What
+//! later decisions put in the bundle joins here once its types exist,
+//! through the same `xtask codegen`: the Feature inventory schemas (ADR
+//! 0072). The catalog's `exit_codes` is ADR
 //! 0069's exit-code table by exit code, each row `{name, product, code,
 //! description}`, whose names are the `exit:` Features.
 //! The bundle's `outputs` maps each hand-written command's path, such as
@@ -27,8 +30,8 @@
 //! types of `hello` and `$/cancel`, which open and govern every Connection
 //! outside the catalog, and those of the streaming calls' notifications,
 //! the Client's `$/credit` and the engine's `$/events` and `$/chunk`, and
-//! `meta`, the Trace context that every request's params type holds as
-//! `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
+//! `meta`, the Trace context and raw mark that every request's params type
+//! holds as `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -36,7 +39,6 @@
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::{BrowserCleaned, BrowserInstalled};
 use goodfetch_protocol::case_log::CaseLogEntry;
 use goodfetch_protocol::catalog::sections::Sections;
@@ -47,18 +49,22 @@ use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
 use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::error_details::typed_details_of;
 use goodfetch_protocol::events::{CreditParams, EventBatch};
 use goodfetch_protocol::formats::FORMATS;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::dataset::RecordRead;
 use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use goodfetch_protocol::journey::{Journey, JourneyCatalog};
-use goodfetch_protocol::jsonrpc::{META, TraceContext};
+use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, RequestMeta};
 use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
+use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
+use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::versions::FilesUpgraded;
 
@@ -76,7 +82,7 @@ pub(super) struct Emitted {
 /// Emits the bundle and catalog of every entry `goodfetch-protocol` defines.
 pub(super) fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::default();
+    let mut sections = Sections::new(setting_scopes::of, typed_details_of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
@@ -110,7 +116,7 @@ pub(super) fn emit() -> Emitted {
         "seeds": { "params": generator.subschema_for::<SeedBatch>() },
         "enqueued": { "params": generator.subschema_for::<EnqueuedBatch>() },
         "record": { "params": generator.subschema_for::<RecordRead>() },
-        "meta": generator.subschema_for::<TraceContext>(),
+        "meta": generator.subschema_for::<RequestMeta>(),
     });
     let outputs = json!({
         "browser.clean": generator.subschema_for::<BrowserCleaned>(),
@@ -133,6 +139,10 @@ pub(super) fn emit() -> Emitted {
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
+    let model_provider = json!({
+        "request": generator.subschema_for::<ModelRequest>(),
+        "response_part": generator.subschema_for::<ModelResponsePart>(),
+    });
     let mut definitions = generator.take_definitions(true);
     for params in sections
         .request_params()
@@ -141,6 +151,10 @@ pub(super) fn emit() -> Emitted {
         add_meta(&mut definitions, params);
     }
     let exit_codes: Vec<Value> = exit_code_table().iter().map(exit_code_entry).collect();
+    let protocol_failures: Vec<Value> = ProtocolFailure::ALL
+        .iter()
+        .map(|failure| protocol_failure_entry(*failure))
+        .collect();
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -160,13 +174,14 @@ pub(super) fn emit() -> Emitted {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,
             },
+            "model_provider": model_provider,
             "$defs": definitions,
         }),
-        catalog: sections.into_catalog(&exit_codes),
+        catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
 }
 
-/// Adds `_meta`, the request's Trace context, to the params type `params`
+/// Adds `_meta`, the request's Trace context and raw mark, to the params type `params`
 /// refers to (ADR 0132): an envelope field each runtime fills in, which no
 /// Rust type of the params declares.
 fn add_meta(definitions: &mut serde_json::Map<String, Value>, params: &Value) {
@@ -185,7 +200,7 @@ fn add_meta(definitions: &mut serde_json::Map<String, Value>, params: &Value) {
         .expect("invariant: a request's params type is an object")
         .insert(
             META.to_owned(),
-            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+            json!({ "$ref": "#/$defs/RequestMeta", "arrived_in": "0.1" }),
         );
 }
 
@@ -197,6 +212,17 @@ fn exit_code_entry(row: &ExitCodeRow) -> Value {
         "product": Product::Collie.as_str(),
         "code": row.code,
         "description": row.description,
+    })
+}
+
+/// A failure of the protocol itself, with the JSON-RPC code it takes and
+/// the group an SDK raises it in (ADRs 0038 and 0079).
+fn protocol_failure_entry(failure: ProtocolFailure) -> Value {
+    json!({
+        "name": failure.name(),
+        "product": Product::Collie.as_str(),
+        "json_rpc_code": failure.code(),
+        "group": failure.group().as_str(),
     })
 }
 

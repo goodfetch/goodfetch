@@ -67,6 +67,11 @@ export interface TestEnvStart {
   readonly testName: string;
   /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
   readonly toolManifest: string | undefined;
+  /**
+   * The environment `goodfetch-test-env` starts with, `GOODFETCH_TEST_SEED`
+   * among it; this process's when absent.
+   */
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
   /** What runs in place of the manifest's `goodfetch-test-env`, when given. */
   readonly program?: Program | undefined;
   /** The seed of a Proving ground to start beside the setup, when given. */
@@ -123,7 +128,7 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     args: [],
   };
   const env: Record<string, string | undefined> = {
-    ...process.env,
+    ...(start.env ?? process.env),
     [TOOLS_VARIABLE]: start.toolManifest,
   };
   const provingGround =

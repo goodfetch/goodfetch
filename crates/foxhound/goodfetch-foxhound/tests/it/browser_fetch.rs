@@ -44,7 +44,9 @@ fn engine_silent_for(env: &TestEnv, silent: Duration) -> Attached {
 }
 
 /// The settings of a crawl that reaches every host of `proving_ground` on
-/// `tier`, one Session in each pool at a time.
+/// `tier`, one Session in each pool at a time, its HTTP sent from the
+/// browser under `auto` (`fetch.http_from: browser`, whose default is
+/// `learned` since issue 3106; a forced tier ignores it).
 fn settings(proving_ground: &ProvingGround, tier: &str) -> Value {
     let resolve: serde_json::Map<String, Value> = proving_ground
         .description()
@@ -56,7 +58,7 @@ fn settings(proving_ground: &ProvingGround, tier: &str) -> Value {
         "network": { "resolve": resolve },
         // The egress relay judges a mapping's answers as any other.
         "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
-        "fetch": { "tier": tier },
+        "fetch": { "tier": tier, "http_from": "browser" },
         "session": { "pool": { "max_size": 1 } },
     })
 }

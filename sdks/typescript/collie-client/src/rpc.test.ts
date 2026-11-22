@@ -51,6 +51,7 @@ function playedEngine(): PlayedEngine {
 }
 
 const owner: ChannelOwner = {
+  operationNames: {},
   ended: () => Promise.resolve(new ClosedError("the transport ended")),
   failure: () => new ClosedError("the engine failed the call"),
 };
@@ -267,6 +268,181 @@ describe("a Channel", () => {
       ends: [{ kind: "write_failed", cause: refused }],
     });
   });
+});
+
+describe("a Channel under the engine's cap on calls in flight", () => {
+  test("keeps 300 calls at most at the cap in flight, sends the rest in the order they were made, and answers them all", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(256);
+    const calls = Array.from({ length: 300 }, (_, index) => channel.call("sample.echo", { index }));
+    await settled();
+    const sentAtOnce = engine.written.length;
+
+    let mostInFlight = 0;
+    for (let id = 0; id < 300; id += 1) {
+      await expect.poll(() => engine.written.length).toBeGreaterThan(id);
+      mostInFlight = Math.max(mostInFlight, engine.written.length - id);
+      engine.send({ id, result: { echoed: id } });
+    }
+    const answers = await Promise.all(calls);
+
+    expect({ sentAtOnce, mostInFlight }).toEqual({ sentAtOnce: 256, mostInFlight: 256 });
+    expect(answers).toEqual(Array.from({ length: 300 }, (_, id) => ({ echoed: id })));
+    expect(engine.written).toEqual(
+      Array.from({ length: 300 }, (_, id) =>
+        expect.objectContaining({ id, params: { index: id } }),
+      ),
+    );
+  });
+
+  test(
+    "fails a queued call whose timeout passes with deadline_exceeded, never sending it",
+    { tags: ["error:deadline_exceeded"] },
+    async () => {
+      const engine = playedEngine();
+      const channel = new Channel(engine.transport, owner);
+      channel.capCallsInFlight(1);
+      const first = channel.call("sample.echo", {});
+
+      const error = await failure(
+        channel.call(
+          "page.goto",
+          { timeout: 1 },
+          { deadline: { key: "timeout.navigation", value: 1 } },
+        ),
+      );
+      engine.send({ id: 0, result: "first" });
+      await first;
+      await settled();
+
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        retryable: true,
+        limit: { key: "timeout.navigation", value: 1, layer: "run", origin: "argument" },
+        details: { waited_for: "calls_in_flight" },
+      });
+      expect(engine.written).toEqual([expect.objectContaining({ id: 0 })]);
+    },
+  );
+
+  test("keeps a queued call whose timeout is past the longest timer waiting, rather than failing it at once", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    let failed = false;
+    const queued = channel.call(
+      "run.finish",
+      {},
+      { deadline: { key: "timeout.run", value: thirtyDays } },
+    );
+    queued.catch(() => {
+      failed = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const failedWhileQueued = failed;
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 1, result: "finished" });
+
+    expect(failedWhileQueued).toBe(false);
+    await expect(queued).resolves.toBe("finished");
+  });
+
+  test("never sends a queued call its signal aborts, and sends the next one in its place", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const aborting = new AbortController();
+    const aborted = failure(channel.call("sample.echo", {}, { signal: aborting.signal }));
+    const next = channel.call("sample.echo", {});
+
+    aborting.abort(new CallCancelledError("the program cancelled the call"));
+    const error = await aborted;
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 2, result: "next" });
+
+    expect(error).toMatchObject({ code: "call_cancelled" });
+    expect(await next).toBe("next");
+    expect(engine.written).toEqual([
+      expect.objectContaining({ id: 0 }),
+      expect.objectContaining({ id: 2 }),
+    ]);
+  });
+
+  test("sends a queued stream's credits right after the call itself, never before", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const { id } = channel.open("events.subscribe", {});
+    channel.notify("$/credit", { id, credits: 8 });
+    await settled();
+    const beforeAPlaceFrees = engine.written.length;
+
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(3);
+
+    expect(beforeAPlaceFrees).toBe(1);
+    expect(engine.written.slice(1)).toEqual([
+      expect.objectContaining({ id: 1, method: "events.subscribe" }),
+      expect.objectContaining({ method: "$/credit", params: { id: 1, credits: 8 } }),
+    ]);
+  });
+
+  test("holds a sent call's place until the engine answers its $/cancel", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const aborting = new AbortController();
+    const cancelled = failure(channel.call("sample.echo", {}, { signal: aborting.signal }));
+    await settled();
+    aborting.abort(new CallCancelledError("the program cancelled the call"));
+    await cancelled;
+    const next = channel.call("sample.echo", {});
+    await settled();
+    const beforeTheEnginesAnswer = engine.written.length;
+
+    engine.send({
+      id: 0,
+      error: { code: -32006, message: "cancelled", data: { code: "call_cancelled" } },
+    });
+    await expect.poll(() => engine.written).toHaveLength(3);
+    engine.send({ id: 1, result: "next" });
+
+    expect(beforeTheEnginesAnswer).toBe(2);
+    expect(await next).toBe("next");
+    expect(engine.written[2]).toMatchObject({ id: 1 });
+  });
+
+  test(
+    "counts queued calls against its bound on calls waiting, refusing the next at once",
+    { tags: ["error:connection_overloaded"] },
+    async () => {
+      const engine = playedEngine();
+      const channel = new Channel(engine.transport, owner, { maxPendingCalls: 2 });
+      channel.capCallsInFlight(1);
+      void channel.call("sample.echo", {});
+      void channel.call("sample.echo", {});
+
+      const error = await failure(channel.call("sample.echo", {}));
+      await settled();
+
+      expect(error).toMatchObject({
+        code: "connection_overloaded",
+        details: { bound: "pending_calls", value: 2 },
+      });
+      expect(engine.written).toHaveLength(1);
+    },
+  );
 });
 
 /** A Channel to `engine` whose owner serves `crawl_request.handle` with `served`, and no other method. */

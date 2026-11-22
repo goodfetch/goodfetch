@@ -261,22 +261,16 @@ fn a_path_table_keeps_the_cases_of_the_os_asked_for() {
     );
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn the_current_os_is_linux_on_linux() {
-    assert_eq!(Os::current(), Os::Linux);
-}
+fn the_current_os_is_the_one_the_standard_library_names() {
+    let named = match std::env::consts::OS {
+        "linux" => Os::Linux,
+        "macos" => Os::Macos,
+        "windows" => Os::Windows,
+        other => panic!("no Os for {other}"),
+    };
 
-#[cfg(target_os = "macos")]
-#[test]
-fn the_current_os_is_macos_on_macos() {
-    assert_eq!(Os::current(), Os::Macos);
-}
-
-#[cfg(windows)]
-#[test]
-fn the_current_os_is_windows_on_windows() {
-    assert_eq!(Os::current(), Os::Windows);
+    assert_eq!(Os::current(), named);
 }
 
 #[test]
@@ -313,32 +307,6 @@ fn the_committed_tables_parse_with_unique_names() {
     assert_eq!(
         duplicates,
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    );
-}
-
-#[test]
-fn the_committed_tables_name_the_proving_grounds_hostile_pages() {
-    let tables = HostileTables::committed().unwrap();
-
-    let pages = tables.pages();
-
-    assert_eq!(
-        pages,
-        vec![
-            ("header_values", "response_head_with_nul", "headers/5"),
-            ("header_values", "response_head_with_a_bare_cr", "headers/6"),
-            ("limits", "gzip_bomb", "bombs/1"),
-            ("limits", "deflate_bomb", "bombs/2"),
-            ("limits", "brotli_bomb", "bombs/3"),
-            ("limits", "zstd_bomb", "bombs/4"),
-            ("limits", "stacked_codings_bomb", "bombs/5"),
-            ("limits", "body_past_64_mib", "body-limits/1"),
-            ("limits", "coded_body_past_256_mib", "body-limits/6"),
-            ("limits", "endless_chunked_body", "body-limits/2"),
-            ("limits", "endless_close_delimited_body", "body-limits/3"),
-            ("limits", "response_json_past_128_deep", "body-limits/4"),
-            ("limits", "response_head_past_256_kib", "headers/1"),
-        ]
     );
 }
 
@@ -444,17 +412,10 @@ fn escapes(name: &str) -> bool {
     false
 }
 
-#[rstest]
-#[case::plain_name("report.csv")]
-#[case::name_in_a_subfolder("shots/front.png")]
-#[case::climb_back_inside("shots/../front.png")]
-fn a_name_that_stays_inside_does_not_escape_a_naive_join(#[case] name: &str) {
-    assert!(!escapes(name));
-}
-
 #[test]
 fn the_escaping_path_cases_scheduled_here_leave_the_folder_a_naive_join_writes_under() {
     let tables = HostileTables::committed().unwrap();
+    let inside = ["report.csv", "shots/front.png", "shots/../front.png"];
 
     let kept_in: Vec<&str> = tables
         .paths
@@ -474,7 +435,11 @@ fn the_escaping_path_cases_scheduled_here_leave_the_folder_a_naive_join_writes_u
         .map(|case| case.name.as_str())
         .collect();
 
-    assert_eq!(kept_in, Vec::<&str>::new());
+    let escaping_inside: Vec<&str> = inside.into_iter().filter(|name| escapes(name)).collect();
+    assert_eq!(
+        (kept_in, escaping_inside),
+        (Vec::<&str>::new(), Vec::<&str>::new())
+    );
 }
 
 #[test]

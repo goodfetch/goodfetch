@@ -38,6 +38,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
+use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
@@ -458,6 +459,58 @@ impl Secrets {
             })
         })?;
         let key = SecretString::from(data_encoding::BASE64.encode(bytes.as_slice()));
+        self.store_where_missing(reference, &key, unavailable).await
+    }
+
+    /// Makes the item `reference` names, in the OS keychain or the
+    /// encrypted local file, hold `key`, a new Web Bot Auth signing key,
+    /// unless it holds a value already (`signing-key create`, ADR 0045),
+    /// as [`Self::make_key`] makes the engine's own key. The engine's own
+    /// items are refused, as is a reference of any other provider, which
+    /// the engine cannot write.
+    ///
+    /// # Errors
+    ///
+    /// `Unavailable` naming `identified.signing_key`: `not_configured` for
+    /// a reference the engine cannot write, and the provider's failure when
+    /// it refuses the write.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Self::make_key`]'s.
+    pub(crate) async fn make_signing_key(
+        &self,
+        reference: &SecretReference,
+        key: &SecretString,
+    ) -> Result<(), SecretError> {
+        let unavailable = |failure: ProviderFailure| {
+            let (failure, fix) = failure_of(failure, reference);
+            SecretError::Unavailable {
+                placeholder: IDENTIFIED_SIGNING_KEY.name.to_owned(),
+                reference: reference.clone(),
+                failure,
+                fix,
+            }
+        };
+        if !can_hold_a_signing_key(reference) {
+            return Err(unavailable(ProviderFailure::NotConfigured(ConfigProblem {
+                fix: format!(
+                    "The engine makes a signing key only in an item of its own in the OS keychain or an encrypted local file; name a `keychain:` or `secretfile:` item other than `{KEY_REFERENCE_IN_KEYCHAIN}` and `{KEY_REFERENCE_IN_FILE}`, or store a key where `{reference}` points."
+                ),
+            })));
+        }
+        self.store_where_missing(reference, key, unavailable).await
+    }
+
+    /// Stores `value` in the item `reference` names, a `keychain:` or a
+    /// `secretfile:` one, unless it holds a value already, failing through
+    /// `unavailable`.
+    async fn store_where_missing(
+        &self,
+        reference: &SecretReference,
+        value: &SecretString,
+        unavailable: impl Fn(ProviderFailure) -> SecretError,
+    ) -> Result<(), SecretError> {
         if reference.provider() == Provider::Keychain {
             let (service, account) = reference
                 .rest()
@@ -465,7 +518,7 @@ impl Secrets {
                 .expect("invariant: a `keychain:` reference parses as service/account");
             // The item is read, then stored where it is missing, under a
             // lock every engine of the user takes, so of two engines making
-            // it at once the second reads the first's key and stores none.
+            // it at once the second reads the first's value and stores none.
             let path = self.0.key_lock.clone();
             let _lock = self
                 .0
@@ -475,7 +528,7 @@ impl Secrets {
                 .map_err(|error| {
                     unavailable(ProviderFailure::Refused {
                         fix: format!(
-                            "The engine cannot lock `{}` while it makes its key-encryption key ({error}); check that the Goodfetch home is writable.",
+                            "The engine cannot lock `{}` while it makes `{reference}` ({error}); check that the Goodfetch home is writable.",
                             self.0.key_lock.display()
                         ),
                     })
@@ -490,30 +543,20 @@ impl Secrets {
                 Err(ProviderFailure::Missing) => self
                     .0
                     .keychain
-                    .store(service, account, &key, &self.0.owner)
+                    .store(service, account, value, &self.0.owner)
                     .await
                     .map_err(unavailable),
                 Err(failure) => Err(unavailable(failure)),
             }
         } else {
             let (folder, name) = (self.0.secret_files.clone(), reference.rest().to_owned());
+            let value = value.clone();
             self.0
                 .owner
-                .blocking(move || secretfile::make(&folder, &name, &key))
+                .blocking(move || secretfile::make(&folder, &name, &value))
                 .await
                 .map_err(unavailable)
         }
-    }
-
-    /// The same driver with `implementation` answering `provider`'s
-    /// references in place of any it had, as a crate of built-in
-    /// providers or a Secret provider Plugin adds one.
-    #[must_use]
-    pub fn with(mut self, provider: Provider, implementation: Arc<dyn SecretProvider>) -> Self {
-        Arc::make_mut(&mut self.0)
-            .providers
-            .insert(provider, Implementation(implementation));
-        self
     }
 
     /// The same driver with `factory` building, for each Run, the provider
@@ -571,13 +614,8 @@ impl Secrets {
 
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
-    /// handle drops, its values masked in its kept outputs too.
-    pub fn for_run(&self, timeout: Duration) -> RunSecrets {
-        self.for_run_with(timeout, Redaction::On)
-    }
-
-    /// The same, its values masked in its kept outputs unless `redaction`,
-    /// its `security.redaction`, is off.
+    /// handle drops, its values masked in its kept outputs unless
+    /// `redaction`, its `security.redaction`, is off.
     pub fn for_run_with(&self, timeout: Duration, redaction: Redaction) -> RunSecrets {
         self.for_run_reusing(timeout, redaction, BTreeSet::new())
     }
@@ -1013,6 +1051,16 @@ fn same(one: &SecretString, other: &SecretString) -> bool {
 /// where run state first wraps a data key with it.
 pub fn is_engine_key(reference: &SecretReference) -> bool {
     ENGINE_KEYS.contains(&reference.as_str())
+}
+
+/// Whether the engine can make a signing key in the item `reference`
+/// names: a `keychain:` or `secretfile:` item, other than its own
+/// key-encryption key's.
+pub fn can_hold_a_signing_key(reference: &SecretReference) -> bool {
+    matches!(
+        reference.provider(),
+        Provider::Keychain | Provider::SecretFile
+    ) && !is_engine_key(reference)
 }
 
 /// The items the engine makes its own key-encryption key in, the defaults of

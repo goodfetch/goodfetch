@@ -5,18 +5,49 @@
 //! earlier trial. On Linux, `posix_fadvise(POSIX_FADV_DONTNEED)` over the
 //! whole file, which needs no root, after `fdatasync` has written back the
 //! pages its build left dirty, which the advice keeps. Elsewhere nothing is
-//! dropped, and each command says so ([`NOT_DROPPED`]).
-#![cfg_attr(
-    target_os = "linux",
-    expect(
-        clippy::disallowed_methods,
-        reason = "xtask is synchronous: it opens the executable with a blocking call (STYLE.md)"
-    )
+//! dropped, and each command says so ([`NOT_DROPPED`]). `xtask rss measure
+//! --page-cache cached` reads each executable through instead, so a run
+//! finds every page of it in the page cache, as a start soon after another
+//! does ([`PageCache`]).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: it opens the executable with a blocking call (STYLE.md)"
 )]
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
+
+/// Where an executable's pages are when a run of it starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum PageCache {
+    /// Dropped from the page cache, so the run pages its executable in by
+    /// its own faults, as a first start does.
+    #[default]
+    Dropped,
+    /// Read through once, so every page of the executable is in the page
+    /// cache when the run maps it, as at a start soon after another.
+    Cached,
+}
+
+impl PageCache {
+    /// Leaves `path`'s pages where this mode says, while no process runs it.
+    pub(crate) fn prepare(self, path: &Path) -> Result<()> {
+        match self {
+            Self::Dropped => drop_cached(path),
+            Self::Cached => read_through(path),
+        }
+    }
+}
+
+/// Reads `path` whole, which leaves each of its pages in the page cache.
+fn read_through(path: &Path) -> Result<()> {
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    std::io::copy(&mut file, &mut std::io::sink())
+        .with_context(|| format!("reading {} into the page cache", path.display()))?;
+    Ok(())
+}
 
 /// Whether this OS drops a file from its page cache.
 pub(crate) const DROPS: bool = cfg!(target_os = "linux");
@@ -34,8 +65,6 @@ pub(crate) const NOT_DROPPED: &str = "This OS drops no executable from the page 
 pub(crate) fn drop_cached(path: &Path) -> Result<()> {
     use std::os::fd::AsRawFd as _;
 
-    use anyhow::Context as _;
-
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     file.sync_data()
         .with_context(|| format!("writing back {}", path.display()))?;
@@ -50,6 +79,10 @@ pub(crate) fn drop_cached(path: &Path) -> Result<()> {
 
 /// Drops nothing: this OS has no `posix_fadvise`.
 #[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the Linux drop, which can fail"
+)]
 pub(crate) fn drop_cached(_path: &Path) -> Result<()> {
     Ok(())
 }

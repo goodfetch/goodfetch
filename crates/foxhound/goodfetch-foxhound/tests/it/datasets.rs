@@ -52,6 +52,7 @@ fn start_declaring((engine, site): (&mut Attached, &Site), datasets: &Value) -> 
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "declared",
             "seeds": [{ "url": site.page("/"), "label": "page" }],
             "datasets": datasets,
@@ -272,6 +273,7 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "pushed",
             "seeds": [
                 { "url": site.page("/book"), "label": "page" },
@@ -367,6 +369,7 @@ fn a_push_of_fifty_records_is_one_request_staging_those_that_hold_and_naming_eac
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "listed",
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
@@ -421,6 +424,7 @@ fn a_push_of_no_record_is_refused_as_invalid_params() {
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "empty",
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
@@ -455,6 +459,7 @@ fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "escaped",
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
@@ -512,6 +517,7 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "retried",
             "seeds": [
                 { "url": site.page("/a"), "label": "page" },
@@ -594,6 +600,7 @@ fn start_again((engine, site): (&mut Attached, &Site), run_id: &str, datasets: &
         "again",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": run_id,
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": datasets,
@@ -641,14 +648,14 @@ fn start_again((engine, site): (&mut Attached, &Site), run_id: &str, datasets: &
 )]
 #[case::a_dataset_holding_no_record_dropped(
     json!([{ "name": "books", "schema": book_schema(), "key": ["isbn"] }]),
-    json!({ "started_as": "existing" }),
+    json!({ "started_as": "ended" }),
 )]
 #[case::the_key_of_a_dataset_holding_no_record_changed(
     json!([
         { "name": "books", "schema": book_schema(), "key": ["isbn"] },
         { "name": "notes", "key": ["text"] },
     ]),
-    json!({ "started_as": "existing" }),
+    json!({ "started_as": "ended" }),
 )]
 fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_anew(
     #[case] datasets: Value,
@@ -662,6 +669,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "kept",
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
@@ -698,6 +706,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_rena
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "rejecting",
             "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
@@ -773,13 +782,13 @@ fn books_hash(env: &TestEnv, run_id: &str) -> Option<String> {
         .unwrap()
 }
 
-/// A crawl killed while its second request is handled resumes, after a
+/// A crawl killed while its second request is handled is resumed by a
 /// start under its Run ID whose `books` schema changed (`price` now a
 /// string), under that schema: the resumed attempt's Record, which only the
 /// new schema takes, commits, and each Record keeps the hash of the schema
 /// it was committed under.
 ///
-/// Covers: story:6-272, operation:crawl.start, operation:run.resume
+/// Covers: story:6-272, story:3-166, operation:crawl.start
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -797,6 +806,7 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
     let one_at_a_time = json!({ "crawl": { "handler": { "concurrency": 1 } } });
     let start = |datasets: Value| {
         json!({
+            "labels": { "page": {} },
             "run_id": "evolved",
             "seeds": [
                 { "url": site.page("/a"), "label": "page" },
@@ -851,12 +861,6 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
         &start(schema("string")),
         &mut answer,
     );
-    let resumed = resuming.call(
-        "resume",
-        "run.resume",
-        &json!({ "run_id": "evolved", "settings": one_at_a_time }),
-        &mut answer,
-    );
     let finished = resuming.call(
         "finish",
         "run.finish",
@@ -870,12 +874,10 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
     assert_eq!(
         (
             &again["result"]["started_as"],
-            &resumed["result"]["started_as"],
             &finished["result"]["lifecycle"],
             hashed(&env, "evolved"),
         ),
         (
-            &json!("existing"),
             &json!("resumed"),
             &json!("finished"),
             vec![(1, first, began), (2, second, now)],

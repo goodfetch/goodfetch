@@ -1,0 +1,37 @@
+{
+  "description": "A Collie Client's hello refused with not_in_product by an engine whose Product lacks Collie, which ends the exchange.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "This Client needs Collie, and this engine does not carry it.",
+          "data": {
+            "code": "not_in_product",
+            "retryable": false,
+            "needs": "collie",
+            "product": "foxhound",
+            "product_version": "0.0.0",
+            "fix": "Install goodfetch-collie and connect to its engine."
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

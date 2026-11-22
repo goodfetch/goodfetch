@@ -35,6 +35,7 @@ use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
+use crate::endpoint::Refusals;
 use crate::engine_context::{EngineContext, Stores, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
@@ -45,6 +46,7 @@ use crate::log::LogEvents;
 use crate::mask::Masks;
 use crate::metrics::Metrics;
 use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
+use crate::ops::{self, Health, OpsOptions};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -120,6 +122,7 @@ impl Engine {
                 log_events: None,
                 masks: Masks::new(),
                 metrics: metrics.clone(),
+                runs_of_calls: composition.runs_of_calls(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -466,11 +469,17 @@ impl Engine {
             .sending_to(self.audit_events.clone()),
         );
         audit.start_pruning(dependencies.clock, owner);
+        let refusals = Refusals::new(
+            (*audit).clone(),
+            dependencies.clock,
+            part_stopped_with(owner, "listener refusals"),
+        )
+        .limited_under(settings.clone());
         let context = EngineContext::new(
             dependencies.home.clone(),
             dependencies.clock,
             settings,
-            Arc::clone(&audit),
+            (Arc::clone(&audit), refusals),
             stores,
             needs_you,
             sandbox_probe,
@@ -553,8 +562,41 @@ impl Engine {
     /// Dropping the future cancels nothing it started; run it to its end.
     pub async fn run_attached(
         &self,
+        network: Network,
+        dependencies: Dependencies,
+    ) -> Result<(), AttachedFailure> {
+        self.attached(network, dependencies, None).await
+    }
+
+    /// Runs as an Attached engine, as [`Engine::run_attached`] does, and
+    /// serves `ops` beside its Connection while it runs: an ops listener
+    /// (ADR 0050) whose `/metrics` gives the metrics of the meter this
+    /// engine was made with ([`Engine::with_metrics`]), its Counted work
+    /// among them, and whose probes answer from its Runs. It is the
+    /// listener `ops.attached_address` asks for; without one, an Attached
+    /// engine serves none.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::run_attached`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels nothing it started; run it to its end.
+    pub async fn run_attached_with_ops(
+        &self,
+        network: Network,
+        dependencies: Dependencies,
+        ops: OpsOptions,
+    ) -> Result<(), AttachedFailure> {
+        self.attached(network, dependencies, Some(ops)).await
+    }
+
+    async fn attached(
+        &self,
         mut network: Network,
         dependencies: Dependencies,
+        ops: Option<OpsOptions>,
     ) -> Result<(), AttachedFailure> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
@@ -579,6 +621,7 @@ impl Engine {
         // The private endpoint's Connections, which the stdio Connection
         // does not wait for.
         let accepting = owner.part("private endpoint");
+        serve_attached_ops(ops, &runs, &owner, &context);
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
@@ -843,6 +886,32 @@ async fn stop_runs_on_panic(runs: &Runs, grace: impl Future<Output = ()>) {
             "the drain grace passed before the Runs' registry answered: each live run stays resumable from its run file"
         ),
     }
+}
+
+/// Serves `ops`, if any, under `owner` while an Attached engine runs (ADR
+/// 0050): its probes answer from `runs` alone, since an Attached engine
+/// launches each Run's browser as the Run asks, and `/metrics` from
+/// `context`'s meter.
+fn serve_attached_ops(
+    ops: Option<OpsOptions>,
+    runs: &Runs,
+    owner: &TaskOwner,
+    context: &EngineContext,
+) {
+    let Some(ops) = ops else {
+        return;
+    };
+    let health = Health {
+        runs: runs.clone(),
+        browsers: None,
+        blocking: Arc::new(owner.part("ops checks")),
+    };
+    owner.spawn(ops::serve(
+        ops,
+        health,
+        owner.part("ops endpoint"),
+        context.clone(),
+    ));
 }
 
 /// Serves every Connection of an Attached engine's private endpoint on

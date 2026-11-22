@@ -1,0 +1,8 @@
+[package]
+name = "goodfetch-foxhound"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+goodfetch-collie = { path = "../../goodfetch-collie" }

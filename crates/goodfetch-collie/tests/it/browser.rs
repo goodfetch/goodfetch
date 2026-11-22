@@ -15,17 +15,21 @@
 use std::fs;
 use std::path::Path;
 
-use goodfetch_engine::browser_cache::Platform;
 use goodfetch_protocol::browser_cache::{
     BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild,
 };
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    TestEnv, assert_cli_snapshot, browser_cache, cli, lay_out_browser_entry,
+    TestEnv, assert_cli_snapshot, browser_cache, browser_cache_with_headless_shell, cli,
+    lay_out_browser_entry,
 };
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// The builds this version pins, as `examples/pin-chrome-for-testing.rs`
+/// writes them.
+const PINS: &str = include_str!("../../src/pins.json");
 
 fn run(env: &TestEnv, arguments: &[&str], variables: &[(&str, &Path)]) -> Value {
     let command = variables.iter().fold(
@@ -63,24 +67,56 @@ fn browser_install_makes_sure_of_each_build_the_version_pins() {
         .unwrap();
 
     let output: BrowserInstalled = serde_json::from_value(checked.documents[0].clone()).unwrap();
-    let platform = Platform::current().build_platform();
+    let pins: Value = serde_json::from_str(PINS).unwrap();
     assert_eq!(
         output,
         BrowserInstalled {
-            builds: goodfetch_collie::pinned_artifacts()
-                .into_iter()
-                .filter(|pin| pin.platform.is_none() || pin.platform == platform)
-                .map(|pin| InstalledBuild {
-                    name: pin.id.name,
-                    version: pin.id.build,
-                    outcome: InstallOutcome::AlreadyInstalled,
-                })
-                .collect(),
+            builds: vec![InstalledBuild {
+                name: "chrome-for-testing".to_owned(),
+                version: pins["chrome_for_testing"]["build"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                outcome: InstallOutcome::AlreadyInstalled,
+            }],
         }
     );
     let mut settings = checked.output.settings();
     settings.add_filter(r#""version": "[^"]+""#, r#""version": "[build]""#);
     settings.bind(|| assert_cli_snapshot!(checked.output));
+}
+
+/// `browser install chrome-headless-shell` makes sure of the pinned
+/// release's headless shell alone, which `browser.headless_shell` launches
+/// and a bare `browser install` leaves out (#3224).
+///
+/// Covers: command:browser.install, setting:browser.headless_shell
+#[test]
+fn browser_install_of_the_headless_shell_makes_sure_of_that_build_alone() {
+    let env = TestEnv::new();
+    let cache = browser_cache_with_headless_shell(&env).unwrap();
+
+    let installed = run(
+        &env,
+        &["browser", "install", "chrome-headless-shell", "--json"],
+        &[("GOODFETCH_BROWSERS_PATH", &cache)],
+    );
+
+    let output: BrowserInstalled = serde_json::from_value(installed).unwrap();
+    let pins: Value = serde_json::from_str(PINS).unwrap();
+    assert_eq!(
+        output,
+        BrowserInstalled {
+            builds: vec![InstalledBuild {
+                name: "chrome-headless-shell".to_owned(),
+                version: pins["chrome_for_testing"]["build"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                outcome: InstallOutcome::AlreadyInstalled,
+            }],
+        }
+    );
 }
 
 /// `browser clean --dry-run` lists, with their bytes, the builds `browser
@@ -148,22 +184,6 @@ fn install_a_foxhound_executable(env: &TestEnv, build: &str) {
         list.to_string(),
     )
     .unwrap();
-}
-
-/// Covers: story:3-140, command:browser.clean
-#[test]
-fn browser_clean_deletes_what_nothing_pins_or_used_within_the_age() {
-    let env = TestEnv::new();
-    let cache = env.home().join("browsers");
-    let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
-    let recent = lay_out_browser_entry(&cache, "used-in-2100", "2100-01-01T00:00:00Z");
-
-    let output = run(&env, &["browser", "clean", "--json"], &[]);
-
-    let output: BrowserCleaned = serde_json::from_value(output).unwrap();
-    assert_eq!(removed(&output), ["unused-since-2020"]);
-    assert!(!unused.exists());
-    assert!(recent.join("entry.json").exists());
 }
 
 /// Writes the list of installed executables of the test's home: a linked
@@ -250,6 +270,11 @@ fn goodfetch_browsers_path_wins_over_goodfetch_home() {
     let env = TestEnv::new();
     let copy = env.folder().join("prepared cache");
     let unused = lay_out_browser_entry(&copy, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let in_home = lay_out_browser_entry(
+        &env.home().join("browsers"),
+        "unused-in-home",
+        "2020-01-01T00:00:00Z",
+    );
 
     let output = run(
         &env,
@@ -258,8 +283,14 @@ fn goodfetch_browsers_path_wins_over_goodfetch_home() {
     );
 
     let output: BrowserCleaned = serde_json::from_value(output).unwrap();
-    assert_eq!(removed(&output), ["unused-since-2020"]);
-    assert!(!unused.exists());
+    assert_eq!(
+        (
+            removed(&output),
+            unused.exists(),
+            in_home.join("entry.json").exists()
+        ),
+        (vec!["unused-since-2020"], false, true)
+    );
 }
 
 /// Covers: story:3-140

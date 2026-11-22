@@ -7,12 +7,16 @@ import type {
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  JSONValue,
+  RawCallOptions,
+  RawParams,
   Run,
+  SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
 import {
   holdInRealm,
-  openAttached,
+  openEngine,
   openOver,
   type ClientConnection,
   type Transport,
@@ -41,12 +45,14 @@ export class Collie implements Connection {
 
   /**
    * Starts Collie's engine as an Attached engine and completes `hello`
-   * before returning, so a missing executable (`engine_not_found`) or a
-   * refused Product or version fails here, with a `fix`. An aborted
+   * before returning, so a `GOODFETCH_` variable off the closed list
+   * (`setting_unknown`) or one set but empty (`setting_invalid`), a missing
+   * executable (`engine_not_found`) or a refused Product or version fails
+   * here, with a `fix`. An aborted
    * `signal` fails it with the signal's reason, leaving no engine behind.
    */
   static async connect(options: ConnectOptions = {}): Promise<Collie> {
-    return open(await openAttached(collie, options));
+    return open(await openEngine(collie, options));
   }
 
   /** The engine reached: its kind, Product, Product version and protocol version. Read without a round trip. */
@@ -55,12 +61,39 @@ export class Collie implements Connection {
   }
 
   /**
-   * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an existing Run returns that Run. `finish()` ends it; closing it
-   * unfinished stops it, resumable by its Run ID.
+   * Leaving the scope or `close()` stops the Run with a Checkpoint;
+   * `finish()` ends it. Starts a Run and returns once it is started
+   * (ADR 0102): a `runId` naming an interrupted Run resumes it, logged at
+   * info, and one naming a finished Run returns it as it ended, logged at
+   * warning, through the host's logger.
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);
+  }
+
+  /**
+   * Sends `operation`, one the SDK may not generate that acts on no value
+   * or whose `params` name every value, with `params` as the wire's JSON in
+   * snake_case, and answers its result as the engine sent it (ADR 0099).
+   * `timeout` is sent as the operation's own; `signal` cancels the call. It
+   * fails with the same classes as any call, `closed` once the Connection
+   * is closed, and is never retried.
+   */
+  call(operation: string, params?: RawParams, options?: RawCallOptions): Promise<JSONValue> {
+    return this.#connection.call(operation, params, options);
+  }
+
+  /**
+   * What the Connection runs with (ADR 0083): each setting under `keys`,
+   * each a key or a prefix of keys such as `timeout`, every one when left
+   * out, with its effective value, the layer and origin that set it and
+   * the layer that locked it, as `goodfetch config explain` shows them: the
+   * Connection's own `settings` over configuration and the Operator
+   * policy, which each Run it starts inherits. Fails with `closed` once
+   * the Connection is closed.
+   */
+  explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
+    return this.#connection.explainSettings(keys);
   }
 
   /**

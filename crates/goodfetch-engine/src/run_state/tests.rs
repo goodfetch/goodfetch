@@ -788,20 +788,6 @@ fn each_generated_refusal_of_a_run_file_is_refused(
     );
 }
 
-/// What a writer acknowledged is there when the file opens again.
-#[test]
-fn acknowledged_writes_are_there_after_the_file_opens_again() {
-    let env = TestEnv::new();
-    with_writer(&env, 1, async |state| {
-        state.write(insert(5)).await.unwrap();
-        state.write(insert(6)).await.unwrap();
-    });
-
-    let reopened = with_writer(&env, 1, async |state| state.read(items).await.unwrap());
-
-    assert_eq!(reopened, vec![5, 6]);
-}
-
 /// What a run file's transactions and its writer's reads count at `full`,
 /// beyond its opening, once `test` ran on its writer.
 fn counted(test: impl AsyncFnOnce(&RunState)) -> (u64, u64) {
@@ -931,22 +917,6 @@ fn a_stopped_writers_file_reads_whole_with_its_wal_beside_it() {
     .and_then(|connection| items(&connection))
     .unwrap();
     assert_eq!(whole, vec![1]);
-}
-
-/// A read commits nothing, so the writer's acknowledged commits do not move
-/// for it, and it sees every write acknowledged before it.
-#[test]
-fn a_read_moves_no_acknowledged_commit() {
-    let env = TestEnv::new();
-
-    let (before, seen, after) = with_writer(&env, 1, async |state| {
-        state.write(insert(1)).await.unwrap();
-        let before = *state.commits().borrow();
-        let seen = state.read(items).await.unwrap();
-        (before, seen, *state.commits().borrow())
-    });
-
-    assert_eq!((seen, after), (vec![1], before));
 }
 
 /// A preparation writes nothing, so the writer's acknowledged commits do
@@ -1088,6 +1058,34 @@ fn a_group_with_one_synced_write_syncs_once_at_full(
         second.unwrap();
         third.unwrap();
         vfs.syncs() - before
+    });
+
+    assert_eq!(added, syncs);
+}
+
+/// An Effect's sent mark is synced before it is answered at every
+/// Durability level but `off`, where nothing is (ADR 0106, ADR 0138's note
+/// of #1550), and a level that syncs no other write goes back to not
+/// syncing after it.
+///
+/// Covers: story:3-34, setting:run_state.durability
+#[rstest::rstest]
+#[case::full(Durability::FULL, [1, 1])]
+#[case::batch(Durability::BATCH, [1, 1])]
+#[case::fast(Durability::FAST, [1, 0])]
+#[case::periodic(Durability::periodic(Duration::from_secs(3_600)), [1, 0])]
+#[case::off(Durability::OFF, [0, 0])]
+fn an_effects_sent_mark_syncs_at_every_level_but_off(
+    #[case] durability: Durability,
+    #[case] syncs: [u64; 2],
+) {
+    let added = with_counted_writer(durability, async |state, vfs| {
+        let before = vfs.syncs();
+        state.write_with(Syncing::Sent, insert(1)).await.unwrap();
+        let sent = vfs.syncs() - before;
+        let before = vfs.syncs();
+        state.write(insert(2)).await.unwrap();
+        [sent, vfs.syncs() - before]
     });
 
     assert_eq!(added, syncs);

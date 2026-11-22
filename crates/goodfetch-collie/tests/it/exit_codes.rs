@@ -1,9 +1,11 @@
 //! ADR 0069's exit-code table through the binary: one case per row. A
-//! command that succeeds exits `0` and a command line it cannot read `2`;
+//! command line the executable cannot read exits `2` (a command that
+//! succeeds exits `0`, proved by `commands.rs`'s snapshots);
 //! a call that fails exits with its Error code's own row, else its group's,
 //! the code and group coming from the Scripted engine run as a Daemon, which
 //! answers `config explain --daemon` with them; a Run that ended `stopped`
-//! exits `20` and resumes by its Run ID; and `SIGTERM` exits `143` once the
+//! exits `20` and resumes by its Run ID; a start's `--limit` above the
+//! Run's own Limit is refused, exit `4`; and `SIGTERM` exits `143` once the
 //! call it interrupted is cancelled. A failure before any call, as a
 //! Daemon nothing answers for or a deployment variable the executable
 //! cannot take, prints as every failure does, `{ "error" }` under
@@ -48,27 +50,6 @@ fn unanswered_address(proving_ground: &ProvingGround) -> std::net::SocketAddr {
     proving_ground.description().fixtures.proxies["down"]
         .parse()
         .expect("the down address is a socket address")
-}
-
-/// No other program can listen where the unreachable Daemon's command
-/// connects, so it always meets a refused connection (#1796).
-#[cfg(unix)]
-#[test]
-fn no_other_program_can_take_the_unreachable_daemons_address() {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
-    let address = unanswered_address(&proving_ground);
-
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the test plays the other program that would listen there, outside the engine (ADR 0060)"
-    )]
-    let other = std::net::TcpListener::bind(address);
-
-    assert_eq!(
-        other.map(|_| ()).map_err(|error| error.kind()),
-        Err(std::io::ErrorKind::AddrInUse)
-    );
 }
 
 /// A command whose Daemon nothing answers for, the remote one
@@ -327,19 +308,6 @@ fn a_failed_call_exits_with_its_codes_row_else_its_groups(
     );
 }
 
-/// Covers: story:11-205, command:engine.info, exit:success
-#[test]
-fn a_command_that_did_what_it_was_asked_exits_0() {
-    let env = TestEnv::new();
-
-    let output = cli(&env, COLLIE)
-        .args(["engine", "info", "--json"])
-        .run()
-        .unwrap();
-
-    assert_eq!(output.exit, Some(0), "{}", output.stderr);
-}
-
 /// Covers: story:11-205, command:engine.info, exit:usage
 #[test]
 fn a_command_line_with_an_unknown_flag_exits_2_before_any_engine_call() {
@@ -355,33 +323,6 @@ fn a_command_line_with_an_unknown_flag_exits_2_before_any_engine_call() {
         (Some(2), ""),
         "{}",
         output.stderr
-    );
-}
-
-/// The Run a command started stops with its Attached engine; the command
-/// that answers its report exits `20`.
-///
-/// Covers: story:11-206, command:run.start, command:run.finish, exit:run_stopped
-#[test]
-fn a_run_that_ended_stopped_exits_20() {
-    let env = TestEnv::new();
-    let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first", "--attached"])
-        .run()
-        .unwrap();
-    assert_eq!(started.exit, Some(0), "{}", started.stderr);
-
-    let finished = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--json", "--attached"])
-        .json("RunReport")
-        .unwrap();
-
-    assert_eq!(
-        (
-            finished.output.exit,
-            finished.documents[0]["lifecycle"].clone()
-        ),
-        (Some(20), json!("stopped"))
     );
 }
 
@@ -430,6 +371,33 @@ fn a_stopped_run_exits_20_under_require_verified() {
         .unwrap();
 
     assert_eq!(finished.exit, Some(20), "{}", finished.stderr);
+}
+
+/// `run start --limit` gives the Run its Limits: a start that names the
+/// Run again above one is refused, `limit_raise_refused`, exit `4`
+/// (ADR 0102).
+///
+/// Covers: story:11-206, command:run.start, exit:refused
+#[test]
+fn a_run_start_raising_a_limit_the_run_was_given_exits_4() {
+    let env = TestEnv::new();
+    let start = |amount: &str| {
+        cli(&env, COLLIE)
+            .args(["run", "start", "--run-id", "held", "--attached", "--json"])
+            .args(["--limit", &format!("requests={amount}")])
+            .args(["--limit", "page_crashes=1"])
+            .run()
+            .unwrap()
+    };
+
+    let given = start("5");
+    let raised = start("8");
+
+    assert_eq!(
+        (given.exit, failed_with(&raised)),
+        (Some(0), (Some(4), json!("limit_raise_refused"))),
+        "{given}\n{raised}"
+    );
 }
 
 #[cfg(unix)]

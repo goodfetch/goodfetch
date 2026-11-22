@@ -7,6 +7,10 @@
 //! an Attached engine in the executable's own process and as a Client of
 //! the Daemon, and both cases share one snapshot of its exit code, stdout
 //! and stderr (ADR 0069).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -154,7 +158,7 @@ fn engine_info_prints_the_engines_product_and_versions_one_field_per_line(#[case
     });
 }
 
-/// Covers: story:11-204, command:engine.info
+/// Covers: story:11-204, story:11-205, command:engine.info, exit:success
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]
@@ -218,7 +222,7 @@ fn run_start_json_prints_the_run_started(#[case] mode: Mode) {
     "#);
 }
 
-/// Covers: story:11-197, story:11-204, command:run.finish
+/// Covers: story:11-197, story:11-204, story:11-206, command:run.finish, exit:run_stopped
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]
@@ -254,7 +258,13 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped(#[case] mo
       "usage": {
         "browser_time": 0,
         "model": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
           "calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "price": null,
+          "reasoning_tokens": 0,
           "tokens": 0
         },
         "proxy_bytes": 0,
@@ -290,7 +300,7 @@ fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line(#[case] mode: 
     run_id: first
     started_at: [INSTANT]
     stop_reason: {"by":"client","kind":"abort"}
-    usage: {"browser_time":0,"model":{"calls":0,"tokens":0},"proxy_bytes":0,"requests":0}
+    usage: {"browser_time":0,"model":{"cache_read_tokens":0,"cache_write_tokens":0,"calls":0,"input_tokens":0,"output_tokens":0,"price":null,"reasoning_tokens":0,"tokens":0},"proxy_bytes":0,"requests":0}
     verdict: verified
     ----- stderr -----
     "#);
@@ -394,7 +404,16 @@ fn run_usage_answers_what_the_run_used(#[case] mode: Mode) {
             Some(0),
             &json!({
                 "browser_time": 0,
-                "model": { "calls": 0, "tokens": 0 },
+                "model": {
+                    "calls": 0,
+                    "tokens": 0,
+                    "input_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "price": null
+                },
                 "proxy_bytes": 0,
                 "requests": 0
             })
@@ -690,7 +709,7 @@ fn key_value_store_keys_sends_none_from_a_store_never_written(#[case] mode: Mode
 }
 
 /// The Key-value store of a Run no engine holds is never written: a write
-/// fails with `run_not_found`, naming a start or a resume.
+/// fails with `run_not_found`.
 #[rstest]
 /// Covers: command:key-value-store.set
 #[case::set(&["set", "--value", "1"], "key_value_store.set")]
@@ -719,15 +738,8 @@ fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
 
     let error = &checked.documents[0]["error"];
     assert_eq!(
-        (
-            checked.output.exit,
-            &error["code"],
-            &error["operation"],
-            error["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("start or resume it")),
-        ),
-        (Some(3), &json!("run_not_found"), &json!(operation), true),
+        (checked.output.exit, &error["code"], &error["operation"],),
+        (Some(3), &json!("run_not_found"), &json!(operation)),
         "{}",
         checked.output
     );

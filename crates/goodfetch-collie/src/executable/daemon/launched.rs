@@ -39,9 +39,9 @@ use goodfetch_protocol::daemon::{
     DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
 
-use super::super::runtime;
 use super::{Failure, Machine, now_of, per_install, unavailable};
 use crate::executable::output;
+use crate::runtime;
 
 /// Starts the Daemon's process from `executable`, the versioned copy of
 /// build `build`, and waits for the runtime file it prints once ready.
@@ -64,6 +64,7 @@ pub(super) fn launch(
         .stderr(Stdio::null());
     detach(&mut command);
     give_huge_pages_as_started(&mut command);
+    keep_own_standard_handles();
     let mut child = command
         .spawn()
         .map_err(unavailable("the Daemon's process cannot start"))?;
@@ -107,6 +108,48 @@ fn detach(command: &mut std::process::Command) {
 
 #[cfg(not(any(unix, windows)))]
 fn detach(_command: &mut std::process::Command) {}
+
+/// Keeps this process's own standard handles from the Daemon. Windows
+/// gives a started process every inheritable handle of its starter, not
+/// only the standard handles it is given, and this process's own were
+/// inheritable from its start; a Daemon holding them kept its caller's
+/// pipes open, so a caller reading `daemon start`'s output to its end
+/// waited until the Daemon ended. A child this process starts later with
+/// an inherited standard handle still gets it: the standard library hands
+/// it an inheritable copy. A handle this process has not is left as it
+/// is, and one the call refuses is logged and left as it is.
+#[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "GetStdHandle and SetHandleInformation are Windows C calls (STYLE.md, `unsafe`)"
+)]
+fn keep_own_standard_handles() {
+    use windows_sys::Win32::Foundation::{
+        HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle only reads the process's standard handle.
+        let handle = unsafe { GetStdHandle(which) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            continue;
+        }
+        // SAFETY: the standard handles live as long as the process, and the
+        // call only clears a handle's inheritance flag.
+        let cleared = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+        if cleared == 0 {
+            let error = std::io::Error::last_os_error();
+            tracing::debug!(%error, "a standard handle stays inheritable by the Daemon");
+        }
+    }
+}
+
+/// On Unix, a started process's standard descriptors are those it is given,
+/// and the standard library opens every other descriptor close-on-exec.
+#[cfg(not(windows))]
+fn keep_own_standard_handles() {}
 
 /// The Daemon's process, started by [`launch`] from the copy of build
 /// `copy`, or by the major's service under `service`: waits for the serving

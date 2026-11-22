@@ -15,11 +15,15 @@ requires-python = ">=3.11"
 # exactly: `xtask codegen`'s committed output depends on its version.
 dev = [
   "anyio>=4.15.1",
+  "connection-library",
   "datamodel-code-generator==0.86.0",
+  "goodfetch-collie",
   "goodfetch-collie-client",
   "goodfetch-foxhound",
   "goodfetch-test-support",
+  "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
+  "mutmut>=3.8.1",
   "mypy>=2.4.0",
   "pip-audit>=2.10.1",
   "pyright>=1.1.414",
@@ -30,6 +34,7 @@ dev = [
   "pytest-timeout>=2.4.0",
   "pytest-xdist>=3.8.0",
   "ruff>=0.17.1",
+  "trio>=0.35.0",
   "types-jsonschema>=4.26.0.20261006",
 ]
 
@@ -38,9 +43,19 @@ package = false
 required-version = ">=0.9.28"
 
 [tool.uv.workspace]
-members = ["sdks/python/collie-client", "sdks/python/foxhound", "test-support/python"]
+members = [
+  "sdks/python/collie",
+  "sdks/python/collie-client",
+  # The library Collie's tests use (story 11-180), a member so that uv
+  # resolves its range on the Collie client package.
+  "sdks/python/collie/tests/libraries/connection-library",
+  "sdks/python/foxhound",
+  "test-support/python",
+]
 
 [tool.uv.sources]
+connection-library = { workspace = true }
+goodfetch-collie = { workspace = true }
 goodfetch-collie-client = { workspace = true }
 goodfetch-foxhound = { workspace = true }
 goodfetch-test-support = { workspace = true }
@@ -51,7 +66,14 @@ minversion = "9.0"
 # parametrization IDs; strict_markers is named too, as TESTING.md names it.
 strict = true
 strict_markers = true
-addopts = ["--import-mode=importlib", "--junitxml=target/junit/pytest.xml"]
+# The case log of Client conformance cases, as `vitest.config.ts` writes
+# Vitest's (ADR 0069); its paths are the workspace's.
+addopts = [
+  "--import-mode=importlib",
+  "--junitxml=target/junit/pytest.xml",
+  "--case-log=target/case-logs/pytest.jsonl",
+  "--case-list=conformance/clients/cases.toml",
+]
 # A failed test's captured output goes into the JUnit file, where
 # `xtask junit-summary` reads its `goodfetch-test-seed=<n>` line.
 junit_logging = "out-err"
@@ -61,6 +83,9 @@ junit_log_passing_tests = false
 timeout = "300"
 # Replaces pytest's default list, so hidden folders (other worktrees under
 # `.claude/`) and fixture folders (samples xtask runs on purpose) are named.
+# The folder of programs both an SDK's unit and integration tests run, as
+# TypeScript's `tests/programs/` (ADR 0069); pyright's `extraPaths` names it too.
+pythonpath = ["sdks/python/collie/tests/programs"]
 norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
 
 [tool.ruff]
@@ -69,6 +94,14 @@ extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
 ignore = ["D206", "D300"]
+
+# ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
+# gives every SDK call that takes one: the operation's own timeout, sent for
+# the engine to apply, as the generated calls take it.
+[tool.ruff.lint.per-file-ignores]
+"sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
+"sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
+"sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -83,6 +116,13 @@ convention = "google"
 # its imports; ruff still checks it, as Spider's side is left to rustc.
 [tool.pyright]
 typeCheckingMode = "strict"
+# A `# pyright: ignore[rule]` whose rule no longer fires, or a
+# `# type: ignore[code]` on a line pyright finds clean, fails; mypy's
+# `warn_unused_ignores` (in `strict`) checks each `type: ignore` code.
+reportUnnecessaryTypeIgnoreComment = "error"
+# As pytest's `pythonpath`: the folder of programs both an SDK's unit and
+# integration tests run.
+extraPaths = ["sdks/python/collie/tests/programs"]
 exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv", "**/fixtures", "xtask/compare-scrapy"]
 
 [tool.mypy]

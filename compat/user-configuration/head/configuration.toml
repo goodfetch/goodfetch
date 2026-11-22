@@ -1,6 +1,38 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.timeout]
+hello = 30000
+secret = 30000
+run = 30000
+connect = 30000
+close = 30000
+action = 30000
+navigation = 30000
+launch = 30000
+wait = 30000
+first_byte = 30000
+hook = 30000
+sink_write = 30000
+agent = 30000
+ai = 30000
+model = 30000
+human_pause = 30000
+handler = 30000
+dataset_query = 30000
+
+[settings.network]
+max_hello_size = 4
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
+[settings.connection]
+max_pending_calls = 4
+max_queued_write_bytes = 4
+max_listener_queue = 4
+
 [settings.log]
 level = "example"
 output = "stdout"
@@ -22,6 +54,7 @@ drain_grace = 30000
 
 [settings.ops]
 address = "example"
+attached_address = "example"
 
 [settings.governor]
 memory_allowance = 4
@@ -30,7 +63,7 @@ critical = 4
 host_memory = true
 huge_pages = true
 worker_threads = 2
-blocking_threads = 4
+blocking_threads = 2
 sample_interval = 30000
 last_resort_after = 30000
 run_share = 4
@@ -78,12 +111,6 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 ipv4 = 24
 ipv6 = 64
 
-[settings.network]
-max_body_size = 4
-max_decompression_ratio = 4
-max_json_depth = 4
-resolve = { "example.test" = ["127.0.0.1"] }
-
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -91,9 +118,11 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+headless_shell = true
 cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
+access_mode = "standard"
 
 [settings.live_view]
 hiding = "auto"
@@ -116,6 +145,22 @@ country = "US"
 sticky_lifetime = 30000
 providers = { "example.test" = { endpoint = "http://proxy.example:8000", password = "env:PROXY_PASSWORD", price = "5 USD", servers = [{ country = "US", kind = "datacenter", server = "http://203.0.113.7:3128" }], username = "account", zones = { residential = "residential_proxy1" } } }
 
+[settings.stealth]
+fingerprint_method = "none"
+generated_identity = true
+human_input = true
+chromium_build = "goodfetch"
+allowed_builds = ["example"]
+
+[settings.stealth.identity]
+os = ["example"]
+device = ["example"]
+brand = ["example"]
+
+[settings.identified]
+signing_key = "env:EXAMPLE"
+signature_agent = "https://bot.example"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -136,20 +181,13 @@ budget = 4
 [settings.checkpoint]
 interval = 30000
 
+[settings.effect.output]
+max_size = 4
+
 [settings.audit]
 retention = 30000
 otlp = true
-
-[settings.timeout]
-secret = 30000
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-wait = 30000
-first_byte = 30000
-handler = 30000
-dataset_query = 30000
+refusals_per_minute = 4
 
 [settings.secrets]
 resolve_each_use = ["env:EXAMPLE"]
@@ -232,11 +270,15 @@ signing = true
 [settings.admission]
 max_requests_per_minute = 4
 
+[settings.usage]
+ledger_read_interval = 30000
+
 [settings.version]
 age_notice = true
 
 [settings.politeness]
 sharing = "shared"
+delegation = true
 
 [settings.politeness.proxy]
 concurrency = 4

@@ -1,0 +1,39 @@
+---
+source: crates/goodfetch-engine/src/daemon/service/tests.rs
+expression: text(&file.contents)
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.goodfetch.daemon.1.cfa77cf6</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/ada/Goodfetch é home/browsers/executable_copy/goodfetch-collie/1.4.0-0123456789abcdef/files/goodfetch-collie</string>
+		<string>daemon</string>
+		<string>launched</string>
+		<string>--service</string>
+		<string>--copy</string>
+		<string>1.4.0-0123456789abcdef</string>
+		<string>--environment</string>
+		<string>GOODFETCH_HOME=/Users/ada/Goodfetch é home</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/ada/Goodfetch é home</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LimitLoadToSessionType</key>
+	<string>Background</string>
+	<key>Sockets</key>
+	<dict>
+		<key>Listeners</key>
+		<dict>
+			<key>SockPathName</key>
+			<string>/Users/ada/Goodfetch é home/1/daemon.sock</string>
+			<key>SockPathMode</key>
+			<integer>384</integer>
+		</dict>
+	</dict>
+</dict>
+</plist>

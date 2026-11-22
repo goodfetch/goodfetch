@@ -72,6 +72,11 @@ pub(crate) struct MeasureArguments {
     /// How many times each scenario runs on each executable.
     #[arg(long, default_value_t = 1)]
     runs: u32,
+    /// Where each executable's pages are when a run starts: dropped from
+    /// the page cache, as at a first start, or read into it, as at a start
+    /// soon after another.
+    #[arg(long, value_enum, default_value_t)]
+    page_cache: page_cache::PageCache,
 }
 
 #[derive(Args)]
@@ -132,6 +137,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 &environment.path(&arguments.tools),
                 &environment.path(&arguments.out),
                 arguments.runs,
+                arguments.page_cache,
             )?;
             Ok(ExitCode::SUCCESS)
         }

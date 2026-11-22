@@ -11,6 +11,7 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+aho-corasick.workspace = true
 btls.workspace = true
 bytes.workspace = true
 bytestring.workspace = true
@@ -21,6 +22,7 @@ dom_query.workspace = true
 encoding_rs.workspace = true
 http-body-util.workspace = true
 goodfetch-counted-work.workspace = true
+goodfetch-encoding.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-frontier.workspace = true
@@ -62,6 +64,7 @@ netdev.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
@@ -82,6 +85,11 @@ harness = false
 [[bench]]
 name = "heap"
 harness = false
+
+# Its tests start the Proving ground through the test tool manifest, so a
+# change to it runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
 
 [lints]
 workspace = true

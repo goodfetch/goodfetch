@@ -68,7 +68,7 @@ fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling)
         .collect();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "waits", "seeds": seeds, "settings": settings(&proving_ground, more) },
+        "params": { "run_id": "waits", "seeds": seeds, "settings": settings(&proving_ground, more), "labels": { "page": {} } },
     }));
     let mut held = Vec::new();
     let mut params = json!({ "run_id": "waits" });
@@ -118,7 +118,8 @@ fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling)
 
 /// A domain at its concurrency, its one request held by the handler, holds
 /// its next due request under `domain_concurrency`, naming
-/// `politeness.domain.concurrency` with its value and layer.
+/// `politeness.domain.concurrency` with its value, its layer and, for the
+/// run layer, its origin (ADR 0083).
 ///
 /// Covers: story:3-162, operation:run.progress, setting:politeness.domain.concurrency
 #[test]
@@ -139,7 +140,12 @@ fn a_domain_at_its_concurrency_holds_its_due_requests_under_domain_concurrency()
             "reason": "domain_concurrency",
             "count": 1,
             "domains": [{ "domain": STATUSES }],
-            "setting": { "key": "politeness.domain.concurrency", "value": 1, "layer": "run" },
+            "setting": {
+                "key": "politeness.domain.concurrency",
+                "value": 1,
+                "layer": "run",
+                "origin": "settings",
+            },
         })
     );
 }
@@ -171,7 +177,12 @@ fn a_domain_within_its_delay_holds_its_next_request_under_domain_delay() {
             &json!(1),
             &json!(STATUSES),
             true,
-            &json!({ "key": "politeness.domain.delay", "value": 3_600_000, "layer": "run" }),
+            &json!({
+                "key": "politeness.domain.delay",
+                "value": 3_600_000,
+                "layer": "run",
+                "origin": "settings",
+            }),
         )
     );
 }
@@ -236,7 +247,12 @@ fn a_due_request_waits_under_handler_concurrency_while_the_handlers_are_busy() {
         (
             &json!("handler_concurrency"),
             &json!(1),
-            &json!({ "key": "crawl.handler.concurrency", "value": 1, "layer": "run" }),
+            &json!({
+                "key": "crawl.handler.concurrency",
+                "value": 1,
+                "layer": "run",
+                "origin": "settings",
+            }),
         )
     );
 }

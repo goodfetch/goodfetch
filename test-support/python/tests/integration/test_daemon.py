@@ -115,3 +115,4 @@ def test_daemon_without_with_daemon_fails_the_fixture(
     outcome = sample_run.run(WITHOUT_DAEMON_TEST)
 
     assert outcome.results == {"test_reaches": "error"}, outcome.output
+    assert "DaemonNotRequested" in outcome.output

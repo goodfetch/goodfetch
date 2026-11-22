@@ -11,12 +11,8 @@ use serde_json::{Map, Value};
 /// A runtime of real time, the driver's timeouts on it: on a paused clock
 /// the driver's timeout would fire before a stand-in answers (TESTING.md,
 /// Time).
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test helper builds the runtime the test runs on (ADR 0060)"
-)]
 pub(crate) fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .unwrap()

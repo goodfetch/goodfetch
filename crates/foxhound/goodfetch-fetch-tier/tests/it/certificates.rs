@@ -31,6 +31,7 @@ use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{ExceptionKind, KeyHash, KnownCertificates};
+use goodfetch_engine::mask::Redaction;
 use goodfetch_engine::secrets::{Carried, Keychain, RunSecrets, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
@@ -139,7 +140,7 @@ impl Fixture {
             Arc::clone(&self.owner),
             Clock::system(),
         )
-        .for_run(Duration::from_secs(30))
+        .for_run_with(Duration::from_secs(30), Redaction::On)
     }
 
     /// `stack`'s transport for a Run: the Proving ground's authority, and
@@ -540,11 +541,7 @@ fn concurrent_first_hops_to_an_excepted_host_each_pass(#[case] stack: Stack) {
         })
     };
     // Worker threads run the handshakes in parallel, as the engine's do.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test builds its own multi-threaded runtime (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = goodfetch_runtime::multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()

@@ -56,7 +56,7 @@ use data_encoding::BASE64;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallError, ReadParams};
+use goodfetch_engine::{CallError, ReadParams, named};
 use goodfetch_extractor::fields::Fields;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
 use goodfetch_page::url_pattern::UrlPattern;
@@ -372,7 +372,11 @@ fn ready(answer: Result<Box<RawValue>, CallError>) -> Served {
     Box::pin(std::future::ready(answer))
 }
 
-/// `value` as a call's result, encoded into bytes once.
+/// `value` as a call's result, encoded into bytes once: a function of its own,
+/// never inlined in the build `xtask counts` reads under Callgrind
+/// (`--cfg goodfetch_callgrind_names`), so that the run can name it in
+/// `E1.handled_page_wire_share` (ADR 0140).
+#[cfg_attr(goodfetch_callgrind_names, inline(never))]
 fn encoded(value: &impl Serialize) -> Box<RawValue> {
     serde_json::value::to_raw_value(value).expect("invariant: a protocol type encodes as JSON")
 }
@@ -547,12 +551,15 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         return Err(CallError::new(
             &SETTING_INVALID,
             format!(
-                "`max_redirects` is {max_redirects}, above {MAX_REDIRECTS}, the most redirects a request follows"
+                "`{}` is {max_redirects}, above {MAX_REDIRECTS}, the most redirects a request follows",
+                named::parameter("max_redirects")
             ),
             &SettingInvalidDetails {
                 key: "max_redirects".to_owned(),
                 layer: Some(SettingsLayer::Run),
                 reason: format!("{max_redirects} is above {MAX_REDIRECTS}"),
+                limit: None,
+                fix: None,
             },
         ));
     }
@@ -805,7 +812,8 @@ fn too_many_redirects(chain: &[String], max_redirects: u32) -> CallError {
     CallError::new(
         &TOO_MANY_REDIRECTS,
         format!(
-            "the request to {first} was redirected again after {max_redirects} redirects, past its `max_redirects`"
+            "the request to {first} was redirected again after {max_redirects} redirects, past its `{}`",
+            named::parameter("max_redirects")
         ),
         &TooManyRedirectsDetails {
             url: first.clone(),

@@ -9,14 +9,15 @@
     reason = "tests run on the test Clock (ADR 0059)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, LimitScope, LimitSetter, Period, PeriodLength, PointInTime, Presence,
-    ReachedLimit, RunId, RunIndexRow, RunKind, StopReason, Tags,
+    Completeness, Lifecycle, LimitScope, LimitSetter, Period, PeriodLength, Presence, ReachedLimit,
+    RunId, RunIndexRow, RunKind, StopReason, Tags,
 };
 use goodfetch_protocol::usage::Limit;
 use jiff::Timestamp;
@@ -60,7 +61,7 @@ fn daily(scope: &str, amount: u64, set_by: LimitSetter) -> Limit {
 
 /// The Run `capped`, stopped by the install's daily Limit.
 fn stopped() -> RunIndexRow {
-    let at = PointInTime::from_rfc3339(STOPPED_AT.to_owned());
+    let at = point_in_time::from_rfc3339(STOPPED_AT).unwrap();
     RunIndexRow {
         run_id: RunId::parse("capped").unwrap(),
         location: "runs/capped".to_owned(),
@@ -70,7 +71,7 @@ fn stopped() -> RunIndexRow {
         lifecycle: Lifecycle::Stopped,
         verdict: None,
         completeness: Some(Completeness::Incomplete),
-        started_at: at.clone(),
+        started_at: at,
         ended_at: Some(at),
         owner: None,
         presence: Presence::Present,
@@ -86,7 +87,7 @@ fn stopped() -> RunIndexRow {
                 every: PeriodLength::Day,
                 time_zone: "UTC".to_owned(),
             }),
-            resets_at: Some(PointInTime::from_rfc3339("2026-10-25T00:00:00Z".to_owned())),
+            resets_at: Some(point_in_time::from_rfc3339("2026-10-25T00:00:00Z").unwrap()),
         }))),
         replayed: false,
     }
@@ -180,29 +181,33 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
 
 /// Covers: story:12-100, story:12-32
 #[rstest]
-#[case::while_its_limit_has_nothing_left(Then::Nothing, Duration::from_hours(1), true)]
-#[case::not_once_a_person_raised_it(Then::Raised, Duration::from_hours(1), false)]
+#[case::while_its_limit_has_nothing_left(
+    Then::Nothing,
+    Duration::from_hours(1),
+    &[("run_stopped_by_limit", Some("capped"))]
+)]
+#[case::not_once_a_person_raised_it(Then::Raised, Duration::from_hours(1), &[])]
 #[case::while_a_person_set_it_again_with_nothing_more_left(
     Then::RaisedToNothingMore,
     Duration::from_hours(1),
-    true
+    &[("run_stopped_by_limit", Some("capped"))]
 )]
-#[case::not_once_its_period_started_again(Then::Nothing, Duration::from_hours(15), false)]
+#[case::not_once_its_period_started_again(Then::Nothing, Duration::from_hours(15), &[])]
 #[case::not_when_only_another_limit_holds_nothing_left(
     Then::OnlyAnotherScope,
     Duration::from_hours(1),
-    false
+    &[]
 )]
 fn a_run_a_limit_stopped_is_listed_while_that_limit_still_holds_it(
     #[case] then: Then,
     #[case] after: Duration,
-    #[case] listed_then: bool,
+    #[case] expected: &[(&str, Option<&str>)],
 ) {
-    let expected = if listed_then {
-        vec![("run_stopped_by_limit".to_owned(), Some("capped".to_owned()))]
-    } else {
-        Vec::new()
-    };
+    let found = listed(then, after);
 
-    assert_eq!(listed(then, after), expected);
+    let found: Vec<(&str, Option<&str>)> = found
+        .iter()
+        .map(|(kind, run)| (kind.as_str(), run.as_deref()))
+        .collect();
+    assert_eq!(found, expected);
 }

@@ -1,0 +1,5 @@
+[package]
+name = "goodfetch-collie-client"
+version = "0.0.0"
+edition = "2024"
+publish = false

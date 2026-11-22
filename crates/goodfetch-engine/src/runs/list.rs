@@ -6,13 +6,12 @@
 //! removes it: missing and erased rows are listed as such.
 
 use std::cmp::Ordering;
+use std::time::SystemTime;
 
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, OCCURRENCE_TAG, PointInTime, RECIPE_TAG, ROLE_TAG, RunIndexRow,
-    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
-    Verdict, WATCH_ROLE,
+    Completeness, Lifecycle, OCCURRENCE_TAG, RECIPE_TAG, ROLE_TAG, RunIndexRow, RunListParams,
+    RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange, Verdict, WATCH_ROLE,
 };
-use jiff::Timestamp;
 
 /// The rows of `rows` that `params` names, in its order.
 pub(super) fn select(rows: Vec<RunIndexRow>, params: &RunListParams) -> Vec<RunIndexRow> {
@@ -52,10 +51,10 @@ fn matches(row: &RunIndexRow, params: &RunListParams, text: Option<&str>) -> boo
         && equal(params.trigger, trigger(row))
         && equal(params.product, Some(row.needs))
         && equal(params.lifecycle, Some(row.lifecycle))
-        && equal(params.verdict, row.verdict)
+        && equal(params.verdict.as_ref(), row.verdict.as_ref())
         && equal(params.completeness, row.completeness)
-        && within(params.started.as_ref(), Some(&row.started_at))
-        && within(params.ended.as_ref(), row.ended_at.as_ref())
+        && within(params.started.as_ref(), Some(row.started_at))
+        && within(params.ended.as_ref(), row.ended_at)
         && text.is_none_or(|text| holds_text(row, text))
 }
 
@@ -64,28 +63,15 @@ fn equal<T: PartialEq>(wanted: Option<T>, found: Option<T>) -> bool {
     wanted.is_none_or(|wanted| found.is_some_and(|found| found == wanted))
 }
 
-fn instant(point: &PointInTime) -> Option<Timestamp> {
-    point.as_str().parse().ok()
-}
-
-/// Whether `point` is in `range`; no point, or one that is not a time, is
-/// in no range.
-fn within(range: Option<&TimeRange>, point: Option<&PointInTime>) -> bool {
+/// Whether `point` is in `range`; no point is in any range.
+fn within(range: Option<&TimeRange>, point: Option<SystemTime>) -> bool {
     let Some(range) = range else {
         return true;
     };
-    let Some(point) = point.and_then(instant) else {
+    let Some(point) = point else {
         return false;
     };
-    let after_from = range
-        .from
-        .as_ref()
-        .is_none_or(|from| instant(from).is_some_and(|from| point >= from));
-    let before_until = range
-        .until
-        .as_ref()
-        .is_none_or(|until| instant(until).is_some_and(|until| point < until));
-    after_from && before_until
+    range.from.is_none_or(|from| point >= from) && range.until.is_none_or(|until| point < until)
 }
 
 /// Whether `text`, in lowercase, is in the row's Run ID or a tag, its
@@ -115,11 +101,12 @@ fn lifecycle_rank(lifecycle: Lifecycle) -> u8 {
     }
 }
 
-fn verdict_rank(verdict: Verdict) -> u8 {
+fn verdict_rank(verdict: &Verdict) -> u8 {
     match verdict {
         Verdict::Verified => 0,
         Verdict::Rejected => 1,
         Verdict::NeedsReview => 2,
+        _ => 3,
     }
 }
 
@@ -142,13 +129,8 @@ fn trigger_rank(trigger: RunTrigger) -> u8 {
 
 fn compare(key: RunSortKey, left: &RunIndexRow, right: &RunIndexRow) -> Ordering {
     match key {
-        RunSortKey::StartedAt => {
-            present_first(instant(&left.started_at), instant(&right.started_at))
-        }
-        RunSortKey::EndedAt => present_first(
-            left.ended_at.as_ref().and_then(instant),
-            right.ended_at.as_ref().and_then(instant),
-        ),
+        RunSortKey::StartedAt => left.started_at.cmp(&right.started_at),
+        RunSortKey::EndedAt => present_first(left.ended_at, right.ended_at),
         RunSortKey::RunId => left.run_id.cmp(&right.run_id),
         RunSortKey::Recipe => present_first(
             left.tags.reserved(RECIPE_TAG),
@@ -171,8 +153,8 @@ fn compare(key: RunSortKey, left: &RunIndexRow, right: &RunIndexRow) -> Ordering
             lifecycle_rank(left.lifecycle).cmp(&lifecycle_rank(right.lifecycle))
         }
         RunSortKey::Verdict => present_first(
-            left.verdict.map(verdict_rank),
-            right.verdict.map(verdict_rank),
+            left.verdict.as_ref().map(verdict_rank),
+            right.verdict.as_ref().map(verdict_rank),
         ),
         RunSortKey::Completeness => present_first(
             left.completeness.map(completeness_rank),

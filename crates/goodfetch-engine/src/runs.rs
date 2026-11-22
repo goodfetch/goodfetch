@@ -51,7 +51,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tracing::Instrument as _;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
@@ -65,11 +65,11 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
-use goodfetch_protocol::politeness::POLITENESS_SHARING;
+use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
-    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
+    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, Presence,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
     RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
     RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
     RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
@@ -84,7 +84,7 @@ use goodfetch_protocol::settings::{
     ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
 };
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
-use goodfetch_protocol::usage::Limit;
+use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
 use rusqlite::Connection;
 use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
@@ -102,8 +102,8 @@ pub use self::writer::{Writer, test_writer};
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
-    Found, RunRow, canonical_inputs, input_differences, masked_tags, read_found, read_report, text,
-    write_end,
+    Compared, FixedSettings, Found, RunRow, canonical_inputs, input_differences, masked_tags,
+    read_found, read_report, text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -134,7 +134,9 @@ use crate::ledger::{
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
-use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
+use crate::politeness::{
+    Holder, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
+};
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index::{self, RunIndex};
@@ -144,13 +146,13 @@ use crate::run_state::{
     self, BatchSync, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
     RunStateTables, SecretColumn, Syncing,
 };
-use crate::run_trace;
+use crate::run_trace::{self, RawCallLine};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
 use crate::tasks::{OwnerKind, TaskOwner};
-use crate::trace::Link;
+use crate::trace::{self, Link, RawMark};
 use crate::transition;
 
 /// How often a report read of a Run another engine writes, whose owner did
@@ -283,6 +285,11 @@ pub struct Driving {
     /// The setting that says whether its Run trace keeps a Provenance log
     /// (ADR 0138); none when it always does.
     pub provenance_log: Option<&'static Setting>,
+    /// Whether its driver opens its Run's admission ([`Run::admission`])
+    /// before any of its tasks waits on the Run's Politeness, and serves
+    /// that admission's jobs while the Run goes: a Politeness of the Run's
+    /// own is then held by its admission rather than by an actor (#2171).
+    pub admits: bool,
 }
 
 impl Default for Driving {
@@ -291,6 +298,7 @@ impl Default for Driving {
             ended_by: EndedBy::Finish,
             defers_charges: false,
             provenance_log: None,
+            admits: false,
         }
     }
 }
@@ -379,19 +387,33 @@ pub enum Resumed {
         /// (ADR 0016).
         listed: Vec<WeakenedSetting>,
     },
-    /// The Run is live in this engine, or finished: answered as it is.
-    Existing(RunStarted),
+    /// This engine runs the Run already: it is not resumed.
+    Live {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// The Run's table leaves it as it is: a finished Run a resume finds,
+    /// or a running one with no live writer a retry finds.
+    Unchanged {
+        /// The Run ID.
+        run_id: RunId,
+        /// Where it is.
+        lifecycle: Lifecycle,
+        /// The Product it needs.
+        needs: Product,
+    },
 }
 
 impl Resumed {
-    /// The Run `run_id`, answered as it is: at `lifecycle`, needing `needs`.
-    fn existing(run_id: RunId, lifecycle: Lifecycle, needs: Product) -> Self {
-        Self::Existing(RunStarted {
+    /// The Run `run_id` as `held` holds it, left as it is.
+    fn unchanged(run_id: RunId, held: &checkpoint::Held) -> Self {
+        Self::Unchanged {
             run_id,
-            started_as: StartedAs::Existing,
-            lifecycle,
-            needs,
-        })
+            lifecycle: held.lifecycle,
+            needs: held.needs,
+        }
     }
 }
 
@@ -403,8 +425,12 @@ impl Resumed {
 pub enum Started {
     /// It began a new Run, which its driver now drives.
     New(Run),
-    /// Its Run ID names a Run of the same inputs, returned as it is.
-    Existing(RunStarted),
+    /// Its Run ID names an interrupted Run of the same inputs, which the
+    /// caller resumes as `run.resume` does (ADR 0102).
+    Interrupted(RunId),
+    /// Its Run ID names a finished Run of the same inputs, returned as it
+    /// ended.
+    Ended(RunStarted),
 }
 
 /// Why a start failed.
@@ -422,6 +448,14 @@ pub enum StartError {
     /// Another engine holds the Run's writer lock.
     #[error("another engine holds the writer lock of `{run_id}`")]
     InUse {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// This engine runs the Run already (ADR 0102).
+    #[error("this engine runs `{run_id}` already")]
+    Live {
         /// The Run ID.
         run_id: RunId,
         /// The Run's folder.
@@ -499,6 +533,24 @@ pub enum StartError {
     /// the Clean-up rules it cannot have (ADR 0047).
     #[error("the start was refused: {0}")]
     Refused(Box<CallError>),
+    /// A start under the Run's ID changes a key fixed for the Run's life
+    /// (ADRs 0102 and 0120).
+    #[error("{0}")]
+    FixedSetting(FixedSettingChanged),
+}
+
+/// A key fixed for a Run's life (`Setting::fixed_for_run`) that a start
+/// under its Run ID or a resume gives another value than the Run began
+/// with (ADRs 0102 and 0120): only a new Run takes it.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the Run `{run_id}` began with another `{key}`, which is fixed for its life")]
+pub struct FixedSettingChanged {
+    /// The Run.
+    pub run_id: RunId,
+    /// The key.
+    pub key: &'static str,
+    /// The layer that set the other value.
+    pub layer: SettingsLayer,
 }
 
 /// A filesystem a Run needs at the `critical` storage level (ADR 0122).
@@ -930,6 +982,10 @@ pub enum RunError {
     /// this failure (ADR 0102).
     #[error("the Run's owner answered `{}`", .0.data.code)]
     Forwarded(Box<ErrorObject>),
+    /// The resume's settings change a key fixed for the Run's life (ADRs
+    /// 0102 and 0120).
+    #[error("{0}")]
+    FixedSetting(#[from] FixedSettingChanged),
     /// The registry has stopped.
     #[error("the engine's Runs have stopped")]
     Stopped,
@@ -1086,6 +1142,7 @@ impl End {
                 StopReason::EngineLost => RunEvent::EngineLost,
                 StopReason::EnginePanicked => RunEvent::EnginePanicked,
                 StopReason::Resources { .. } => RunEvent::ResourcesExhausted,
+                _ => unreachable!("invariant: this engine stops a Run only for a reason it knows"),
             },
         }
     }
@@ -1103,7 +1160,9 @@ enum Cause {
 
 /// What the registry is asked. The channel's blocks hold 32 commands
 /// each, of the largest one's size, so the two that carry a Run's whole
-/// start or report box it: each is sent once per Run.
+/// start or report box it: each is sent once per Run. A command that ends
+/// a Run, or waits for its end, carries the raw mark of the raw call that
+/// sent it (ADR 0099), none for a generated call's.
 enum Command {
     Start(
         Box<(Start, RunSecrets, Link)>,
@@ -1113,6 +1172,7 @@ enum Command {
     Finish(
         RunId,
         Letting,
+        Option<RawMark>,
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     ProgressMessage(
@@ -1124,6 +1184,7 @@ enum Command {
         RunId,
         StoppedBy,
         Forwarded,
+        Option<RawMark>,
         oneshot::Sender<Result<Waiting, RunError>>,
     ),
     End(RunId, End),
@@ -1147,6 +1208,7 @@ enum Command {
         RunId,
         StopReason,
         Option<PathBuf>,
+        Option<RawMark>,
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
@@ -1161,7 +1223,12 @@ enum Command {
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
     GenerateId(oneshot::Sender<RunId>),
-    SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
+    SafeStop(
+        RunId,
+        StoppedBy,
+        Option<RawMark>,
+        oneshot::Sender<Result<Waiting, RunError>>,
+    ),
     Reader(RunId, oneshot::Sender<Result<RunReader, RunError>>),
     Progress(RunId, oneshot::Sender<Result<Followed, RunError>>),
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
@@ -1284,7 +1351,8 @@ pub struct Run {
 
 /// What every handle of a live Run shares.
 struct Shared {
-    /// The reason it was asked to stop at its next safe point, once asked.
+    /// The reason it was asked to stop at its next safe point, once asked,
+    /// or the reason it stopped at once.
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
@@ -1321,6 +1389,8 @@ struct Shared {
     /// The Politeness its own code shares outside admission, once it asked
     /// for it.
     politeness: tokio::sync::OnceCell<Politeness>,
+    /// The Politeness of its own that its admission comes to hold.
+    own_politeness: tokio::sync::Mutex<OwnHolding>,
     /// Its own copies of the robots.txt files its program's navigation
     /// read, one per origin (ADRs 0086 and 0098).
     robots_txt: RunCopies,
@@ -1591,7 +1661,7 @@ impl Run {
         let at = self.point_in_time();
         let stop = run_index::RefetchStopped {
             domain,
-            first_stopped: at.clone(),
+            first_stopped: at,
             last_run: self.id.clone(),
             cause,
             project_file: self
@@ -1857,6 +1927,19 @@ impl Run {
         });
     }
 
+    /// Keeps `reason`, unless one was asked before, as what a call in
+    /// flight reads once the Run's tasks are cancelled (ADR 0113), such as
+    /// the Client whose abort stops it at once, waking nothing that waits
+    /// for a safe point: the Run ends now, not at one.
+    fn stopped_at_once(&self, reason: StopReason) {
+        self.shared.stop.send_if_modified(|stop| {
+            if stop.is_none() {
+                *stop = Some(reason);
+            }
+            false
+        });
+    }
+
     /// Its admission under `settings`: the gate in admission the
     /// composition passes in, opened from what its run file journaled, its
     /// rate cap, and, when the gate names a rule that paces its keys, the
@@ -1888,13 +1971,25 @@ impl Run {
             .await?;
         let admission = Admission::new(gate, settings);
         if !admission.shares(settings) {
+            // A Politeness of its own that its other code opened, for its
+            // robots.txt copy, is served by an actor instead.
+            if let OwnHolding::Waiting(own) = self.own_politeness_held().await {
+                own.serve_on(&self.admitting.politeness.owner)?;
+            }
             return Ok(Some(admission));
         }
         // The one Politeness the Run shares, its proxies' limits included.
         let (politeness, holder) = self.politeness(settings).await?;
-        Ok(Some(
-            admission.sharing(politeness, holder, self.clock, settings),
-        ))
+        let own = match self.own_politeness_held().await {
+            OwnHolding::Waiting(own) => Some(*own),
+            OwnHolding::Before | OwnHolding::After => None,
+        };
+        Ok(Some(admission.sharing(
+            (politeness, own),
+            holder,
+            self.clock,
+            settings,
+        )))
     }
 
     /// The Politeness its own code shares for keys outside admission, such
@@ -1920,15 +2015,21 @@ impl Run {
             .politeness
             .get_or_try_init(|| async {
                 if own {
+                    let mut holding = self.shared.own_politeness.lock().await;
+                    if let OwnHolding::Before = *holding {
+                        // Its admission holds it once it opens, which its
+                        // driver does before any of its tasks waits on it.
+                        let (politeness, own) = Politeness::own(&self.admitting.politeness.options);
+                        *holding = OwnHolding::Waiting(Box::new(own));
+                        return Ok(politeness);
+                    }
                     // The engine's owner, not the Run's: the Run keeps this
                     // handle while it ends, and its owner waits for its
                     // tasks, the file's actor among them.
                     return Politeness::in_memory(
                         &self.admitting.politeness.options,
-                        self.admitting.politeness.tables.clone(),
                         &self.admitting.politeness.owner,
-                    )
-                    .await;
+                    );
                 }
                 let file = self.admitting.politeness.file().await?;
                 self.stop_on_failures(
@@ -1943,8 +2044,18 @@ impl Run {
             run_id: self.id.to_string(),
             epoch: self.state.epoch(),
             run_folder: self.folder.clone(),
+            delegates: settings.get::<bool>(&POLITENESS_DELEGATION),
         };
         Ok((politeness, holder))
+    }
+
+    /// The Politeness of its own its admission comes to hold, as it opens:
+    /// from then on one opened is served by an actor.
+    async fn own_politeness_held(&self) -> OwnHolding {
+        std::mem::replace(
+            &mut *self.shared.own_politeness.lock().await,
+            OwnHolding::After,
+        )
     }
 
     /// Stops the Run at its next safe point, as at `critical`, once
@@ -2206,13 +2317,13 @@ impl Run {
     }
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
-    pub fn point_in_time(&self) -> PointInTime {
+    pub fn point_in_time(&self) -> SystemTime {
         self.clock.point_in_time()
     }
 
     /// The wall time `wait` from now, as a point in time of the Run's, such
     /// as when a domain is next admitted (ADR 0102).
-    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+    pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
         self.clock.point_in_time_after(wait)
     }
 
@@ -2775,6 +2886,12 @@ fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
     get_or_default(settings.map(RunSettings::resolved), &TIMEOUT_SECRET)
 }
 
+/// The `usage.ledger_read_interval` of a Run whose settings resolved as
+/// `settings`, its catalog default when none did.
+fn ledger_read_interval(settings: Option<&RunSettings>) -> Duration {
+    get_or_default(settings.map(RunSettings::resolved), &LEDGER_READ_INTERVAL)
+}
+
 /// What a Run whose settings resolved as `settings` resolves its Secret
 /// references through: each provider the composition builds for each Run
 /// built from them, bounded by its `timeout.secret` and masked by its
@@ -2881,6 +2998,14 @@ impl Runs {
     /// records in (ADR 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
+    }
+
+    /// The Secret-provider driver, and what a call outside any Run resolves
+    /// through: the engine's providers, each bounded by `timeout.secret`'s
+    /// default, its values masked. `signing_key.*` makes and reads keys
+    /// through them (ADR 0045).
+    pub(crate) fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
+        (&self.secrets, run_secrets(&self.secrets, None))
     }
 
     /// How the gate in admission of a Run with the settings `settings`
@@ -3101,7 +3226,7 @@ impl Runs {
     async fn finish_or_wait(&self, run_id: RunId, letting: Letting) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Finish(run_id, letting, answer))
+            .send(Command::Finish(run_id, letting, trace::raw_mark(), answer))
             .await
             .map_err(|_| RunError::Stopped)?;
         let report = answered.await.map_err(|_| RunError::Stopped)??;
@@ -3169,7 +3294,13 @@ impl Runs {
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Abort(run_id, by, forwarded, answer))
+            .send(Command::Abort(
+                run_id,
+                by,
+                forwarded,
+                trace::raw_mark(),
+                answer,
+            ))
             .await
             .map_err(|_| RunError::Stopped)?;
         match answered.await.map_err(|_| RunError::Stopped)?? {
@@ -3228,7 +3359,13 @@ impl Runs {
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
-            .send(Command::Stop(run_id, reason, location, answer))
+            .send(Command::Stop(
+                run_id,
+                reason,
+                location,
+                trace::raw_mark(),
+                answer,
+            ))
             .await
             .map_err(|_| RunError::Stopped)?;
         wait_for(answered.await.map_err(|_| RunError::Stopped)??).await
@@ -3254,7 +3391,7 @@ impl Runs {
         by: StoppedBy,
     ) -> impl Future<Output = Result<RunReport, RunError>> + Send + use<> {
         let (answer, answered) = oneshot::channel();
-        self.send_now(Command::SafeStop(run_id, by, answer));
+        self.send_now(Command::SafeStop(run_id, by, trace::raw_mark(), answer));
         async move {
             match answered.await.map_err(|_| RunError::Stopped)?? {
                 Waiting::Report(report) => wait_for(report).await,
@@ -4130,8 +4267,10 @@ struct Live {
     needs: Product,
     tags: Tags,
     inputs: String,
+    /// The settings fixed for its life, as its run file keeps them.
+    fixed_settings: String,
     ended_by: EndedBy,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     report: watch::Sender<Option<Ended>>,
@@ -4158,6 +4297,10 @@ struct Live {
     sampled_after: u64,
     /// Its progress, which its readers follow (ADR 0102).
     progress: Progress,
+    /// The lines of the raw calls that asked for its end or wait for it,
+    /// each written, if its call has not written it, once its end is
+    /// decided, before that end closes its Run trace (ADR 0099).
+    raw_endings: Vec<Arc<RawCallLine>>,
 }
 
 /// What a discard, which runs beside the registry, needs of it.
@@ -4399,6 +4542,7 @@ impl Registry {
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             if let Some(command) = self.unless_discarding(command) {
+                self.ending_line(&command);
                 self.answer(command).await;
             }
         }
@@ -4429,14 +4573,14 @@ impl Registry {
                 let started = self.start(start, secrets, connection, &link).await;
                 let _ = answer.send(started);
             }
-            Command::Finish(run_id, letting, answer) => {
+            Command::Finish(run_id, letting, _, answer) => {
                 let _ = answer.send(self.finish(&run_id, letting).await);
             }
             Command::ProgressMessage(run_id, message, answer) => {
                 let _ = answer.send(self.progress_message(&run_id, message).await);
             }
-            Command::Abort(run_id, by, forwarded, answer) => {
-                let _ = answer.send(self.abort(&run_id, by, forwarded).await);
+            Command::Abort(run_id, by, forwarded, raw, answer) => {
+                let _ = answer.send(self.abort(&run_id, by, forwarded, raw).await);
             }
             Command::End(run_id, end) => {
                 let _ = self.end_or_report(&run_id, end).await;
@@ -4468,13 +4612,13 @@ impl Registry {
             }
             Command::Checkpointed(run_id, checkpoint) => {
                 if let Some(live) = self.live.get_mut(&run_id) {
-                    let time = checkpoint.time.clone();
+                    let time = checkpoint.time;
                     live.progress
                         .change(|progressing| progressing.checkpoint_at = Some(time));
                     live.checkpoint = Some(*checkpoint);
                 }
             }
-            Command::Stop(run_id, reason, location, answer) => {
+            Command::Stop(run_id, reason, location, _, answer) => {
                 let _ = answer.send(self.stop(&run_id, reason, location).await);
             }
             Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
@@ -4492,8 +4636,8 @@ impl Registry {
             Command::Machine(answer) => {
                 let _ = answer.send(self.machine().await);
             }
-            Command::SafeStop(run_id, by, answer) => {
-                let _ = answer.send(self.safe_stop(&run_id, by).await);
+            Command::SafeStop(run_id, by, raw, answer) => {
+                let _ = answer.send(self.safe_stop(&run_id, by, raw).await);
             }
             Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
             Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
@@ -5044,10 +5188,10 @@ impl Registry {
                 }));
             }
             Command::Resume(_, _, answer) => _ = answer.send(Err(refused())),
-            Command::Finish(_, _, answer) | Command::Stop(_, _, _, answer) => {
+            Command::Finish(_, _, _, answer) | Command::Stop(_, _, _, _, answer) => {
                 _ = answer.send(Err(refused()));
             }
-            Command::Abort(_, _, _, answer) | Command::SafeStop(_, _, answer) => {
+            Command::Abort(_, _, _, _, answer) | Command::SafeStop(_, _, _, answer) => {
                 _ = answer.send(Err(refused()));
             }
             Command::Checkpoint(_, _, answer) => _ = answer.send(Err(refused())),
@@ -5089,7 +5233,7 @@ impl Registry {
         )
     }
 
-    fn now(&self) -> PointInTime {
+    fn now(&self) -> SystemTime {
         self.setup.engine.clock().point_in_time()
     }
 
@@ -5134,7 +5278,8 @@ impl Registry {
         start.tags = masked_tags(&self.setup.masks, &start.tags);
         // A run file a crash left at `off` is discarded, never read: the Run
         // starts again (ADR 0138).
-        self.discard_unclean(&run_id, start.settings.as_ref())
+        let discarded = self
+            .discard_unclean(&run_id, start.settings.as_ref())
             .await?;
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
@@ -5162,6 +5307,11 @@ impl Registry {
                     differences,
                 });
             }
+            // A start declares the whole Run again: every key fixed for
+            // its life keeps the value it began with (ADRs 0102 and 0120).
+            FixedSettings::of(start.settings.as_ref(), &self.setup.masks)
+                .unchanged(&run_id, &found.fixed_settings, Compared::Every)
+                .map_err(StartError::FixedSetting)?;
             if let Err(refused) = lifecycle::apply(found.lifecycle, RunEvent::Start) {
                 let folder = self.folder(&run_id);
                 return Err(match RunError::refused(&run_id, &folder, refused) {
@@ -5172,15 +5322,30 @@ impl Registry {
                     },
                 });
             }
-            if found.lifecycle == Lifecycle::Finished {
-                self.found_ended.insert(run_id.clone());
+            // The start table (ADR 0102): a Run this engine runs is in use,
+            // a finished one is answered as it ended, and any other is
+            // interrupted, which its caller resumes.
+            if self.live.contains_key(&run_id) {
+                let folder = self.folder(&run_id);
+                return Err(StartError::Live { run_id, folder });
             }
-            return Ok(Started::Existing(RunStarted {
+            if found.lifecycle != Lifecycle::Finished {
+                self.may_resume_after_limit(&run_id, connection).await?;
+                return Ok(Started::Interrupted(run_id));
+            }
+            self.found_ended.insert(run_id.clone());
+            return Ok(Started::Ended(RunStarted {
                 run_id,
-                started_as: StartedAs::Existing,
+                started_as: StartedAs::Ended,
                 lifecycle: found.lifecycle,
                 needs: found.needs,
             }));
+        }
+        // A Run the Run index lists whose state is gone is never started
+        // afresh (ADR 0102); one discarded, on purpose or after a crash at
+        // `off`, starts again. A generated Run ID names no listed Run.
+        if !discarded && start.run_id.is_some() {
+            self.listed_present(&run_id).await?;
         }
         let essential = self.engine_folders().essential();
         if let Some((folder, filesystem)) = self.critical_among(essential).await {
@@ -5210,13 +5375,20 @@ impl Registry {
     /// Run's Durability level now being the one its `settings` name: under
     /// its writer lock, as a discard does, so another engine's live Run is
     /// never touched.
+    #[cfg_attr(
+        windows,
+        expect(
+            clippy::result_large_err,
+            reason = "a Windows path is wider than a Unix one, and the error is a start's rare failure"
+        )
+    )]
     async fn discard_unclean(
         &mut self,
         run_id: &RunId,
         settings: Option<&RunSettings>,
-    ) -> Result<(), UncleanDiscard> {
+    ) -> Result<bool, UncleanDiscard> {
         if self.live.contains_key(run_id) {
-            return Ok(());
+            return Ok(false);
         }
         let folder = self.folder(run_id);
         let discarding = discard::Discarding {
@@ -5240,11 +5412,36 @@ impl Registry {
         })?;
         if discarded {
             tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
+            // Its Run index row is marked *erased*, as a discard marks it, so
+            // a later start under its Run ID begins it rather than finding a
+            // listed Run whose state is missing (ADR 0102).
+            if let Err(error) = self.setup.engine.run_index().erase(run_id.clone()).await {
+                tracing::warn!(%error, run_id = %run_id, "the discarded Run's Run index row was not marked erased");
+            }
             self.ended.forget(run_id);
             self.found_ended.remove(run_id);
             self.unrecorded.remove(run_id);
         }
-        Ok(())
+        Ok(discarded)
+    }
+
+    /// Refuses with `Unavailable` a start under the ID of a Run the Run
+    /// index lists, not erased, whose state was not found: a start never
+    /// begins afresh a Run whose state is lost (ADR 0102). An index that
+    /// cannot be read lists nothing, as a start's check of it says.
+    async fn listed_present(&self, run_id: &RunId) -> Result<(), StartError> {
+        match self.setup.engine.run_index().read(run_id.clone()).await {
+            Ok(Some(row)) if row.presence != Presence::Erased => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: "the Run index lists the Run, but its state is missing".to_owned(),
+            }),
+            Ok(_) => Ok(()),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %run_id, "the Run index cannot be read; the Run starts without it");
+                Ok(())
+            }
+        }
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -5257,6 +5454,7 @@ impl Registry {
                 caller: CALLER.to_owned(),
                 inputs: live.inputs.clone(),
                 lifecycle: live.lifecycle,
+                fixed_settings: live.fixed_settings.clone(),
             }));
         }
         let folder = self.folder(run_id);
@@ -5303,17 +5501,23 @@ impl Registry {
     /// something left, and none it cannot be placed outside of is one this
     /// engine cannot evaluate (ADR 0041). A ledger that cannot be read
     /// refuses it. The Run then holds the Limits this read, on the
-    /// connection it opened, so its charges open nothing (ADR 0140's E3).
+    /// connection it opened, so its charges open nothing (ADR 0140's E3),
+    /// and reads them again as its resolved `settings` say.
     async fn may_start(
         &self,
         run_id: &RunId,
         folder: &Path,
         connection: Option<ConnectionId>,
+        settings: Option<&RunSettings>,
     ) -> Result<Charging, StartError> {
         let now = self.limits.now();
-        let mut charging =
-            self.limits
-                .charging(run_id, folder, 1, self.limits.placement(connection));
+        let mut charging = self.limits.charging(
+            run_id,
+            folder,
+            1,
+            self.limits.placement(run_id, connection),
+            ledger_read_interval(settings),
+        );
         let may_start = self
             .owner
             .blocking(move || charging.may_start(now).map(|()| charging))
@@ -5327,6 +5531,64 @@ impl Registry {
                 folder: self.limits.ledger.path().to_owned(),
                 error: error.to_string(),
             }),
+        }
+    }
+
+    /// Refuses the start of the interrupted Run `run_id` that a Limit
+    /// stopped while a Limit that holds it still has nothing left: no
+    /// person raised it and its period has not started again (ADR 0102's
+    /// start table), as [`Registry::may_start`] refuses a new Run. A Run
+    /// stopped for another reason resumes whatever its Limits hold; its
+    /// next charge reads them.
+    async fn may_resume_after_limit(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+    ) -> Result<(), StartError> {
+        // A Run whose run file holds no report, killed while it ran, was
+        // stopped by no Limit; one whose file cannot be read fails the
+        // resume that follows with that cause.
+        let Ok(ended) = self.report_of(run_id).await else {
+            return Ok(());
+        };
+        let stopped_by_limit = matches!(
+            &*ended.borrow(),
+            Some(Ended::Report(report) | Ended::Unwritten(report))
+                if matches!(report.stop_reason, Some(StopReason::Limit(_)))
+        );
+        if !stopped_by_limit {
+            return Ok(());
+        }
+        // Only whether it may start: its charging, and the interval it
+        // would read at, go with this check.
+        let folder = self.folder(run_id);
+        self.may_start(run_id, &folder, connection, None)
+            .await
+            .map(drop)
+    }
+
+    /// The Run `run_id`'s own row as `start` begins it at `started_at`.
+    fn run_row(
+        &self,
+        run_id: &RunId,
+        start: &Start,
+        inputs: String,
+        started_at: SystemTime,
+    ) -> RunRow {
+        RunRow {
+            run_id: run_id.clone(),
+            kind: start.kind,
+            needs: start.needs,
+            epoch: 1,
+            inputs,
+            started_at,
+            policy_version: start.policy_version.clone(),
+            weakened: start.weakened.clone(),
+            binding: start.binding.as_ref().map(|binding| {
+                serde_json::to_string(binding).expect("invariant: a binding encodes")
+            }),
+            clean_up_digest: start.clean_up_digest.clone(),
+            fixed_settings: FixedSettings::of(start.settings.as_ref(), &self.setup.masks).kept(),
         }
     }
 
@@ -5345,7 +5607,9 @@ impl Registry {
             error,
         };
         self.check_index().await?;
-        let charging = self.may_start(&run_id, &folder, connection).await?;
+        let charging = self
+            .may_start(&run_id, &folder, connection, start.settings.as_ref())
+            .await?;
         let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(
@@ -5358,22 +5622,9 @@ impl Registry {
         .await
         .map_err(|error| unavailable(error.to_string()))?;
         let started_at = self.now();
-        let row = RunRow {
-            run_id: run_id.clone(),
-            kind: start.kind,
-            needs: start.needs,
-            epoch: 1,
-            inputs: inputs.clone(),
-            started_at: started_at.clone(),
-            policy_version: start.policy_version.clone(),
-            weakened: start.weakened.clone(),
-            binding: start.binding.as_ref().map(|binding| {
-                serde_json::to_string(binding).expect("invariant: a binding encodes")
-            }),
-            clean_up_digest: start.clean_up_digest.clone(),
-        };
-        let tags = start.tags.clone();
-        let initialize = start.initialize;
+        let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
+        let fixed_settings = row.fixed_settings.clone();
+        let (tags, initialize) = (start.tags.clone(), start.initialize);
         state
             .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
@@ -5400,6 +5651,7 @@ impl Registry {
             needs: start.needs,
             tags: start.tags,
             inputs,
+            fixed_settings,
             ended_by: start.ended_by,
             started_at,
             policy_version: start.policy_version,
@@ -5414,6 +5666,7 @@ impl Registry {
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
             sampled_after: self.setup.governor.storage_samples_begun(),
+            raw_endings: Vec::new(),
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -5449,10 +5702,10 @@ impl Registry {
             needs: live.needs,
             tags: live.tags.clone(),
             lifecycle,
-            verdict: report.map(|report| report.verdict),
+            verdict: report.map(|report| report.verdict.clone()),
             completeness: report.map(|report| report.completeness),
-            started_at: live.started_at.clone(),
-            ended_at: report.map(|report| report.ended_at.clone()),
+            started_at: live.started_at,
+            ended_at: report.map(|report| report.ended_at),
             owner: match report {
                 Some(_) => None,
                 None => self.setup.reached_at.clone(),
@@ -5654,6 +5907,7 @@ impl Registry {
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
+        let read_interval = ledger_read_interval(settings.as_ref());
         // A kind whose contribution names no setting for it logs its
         // Provenance (ADR 0138).
         let logs_provenance = self
@@ -5685,7 +5939,8 @@ impl Registry {
                     run_id,
                     folder,
                     epoch,
-                    self.limits.placement(connection),
+                    self.limits.placement(run_id, connection),
+                    read_interval,
                 ))),
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
@@ -5697,6 +5952,11 @@ impl Registry {
                 progress,
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
+                own_politeness: tokio::sync::Mutex::new(if self.driving(kind).admits {
+                    OwnHolding::Before
+                } else {
+                    OwnHolding::After
+                }),
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
@@ -5792,6 +6052,10 @@ impl Registry {
             .run
             .take()
             .expect("invariant: a running Run keeps its writer until its end is decided");
+        // Queued before the end's record, so its trace writes them.
+        for line in live.raw_endings.drain(..) {
+            line.write(Ok(()));
+        }
         let checkpoint_to = stopping.map(|_| CheckpointTo {
             destination: location.unwrap_or_else(|| live.folder.join(CHECKPOINT_FILE)),
             vfs,
@@ -5803,7 +6067,7 @@ impl Registry {
             run,
             writer: Arc::clone(&live.writer),
             lock: Arc::clone(&live.lock),
-            started_at: live.started_at.clone(),
+            started_at: live.started_at,
             policy_version: live.policy_version.clone(),
             weakened: live.weakened.clone(),
             clock,
@@ -5868,16 +6132,45 @@ impl Registry {
         let mut report = answered.borrow().clone();
         if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
             report.nothing_done = Some(NothingDone::AlreadyEnded {
-                ended_at: report.ended_at.clone(),
+                ended_at: report.ended_at,
             });
         }
         Ok(watch::Sender::new(report).subscribe())
     }
 
+    /// Keeps the line of the raw call whose mark `command` carries, when
+    /// the command ends the live Run it names or waits for its end, the
+    /// line is one of that Run's trace and the Run's end is not decided
+    /// yet, for that end to write (ADR 0099). The lines its calls already
+    /// wrote go first, so the Run keeps only those still waiting.
+    fn ending_line(&mut self, command: &Command) {
+        let (Command::Finish(run_id, _, raw, _)
+        | Command::Abort(run_id, _, _, raw, _)
+        | Command::Stop(run_id, _, _, raw, _)
+        | Command::SafeStop(run_id, _, raw, _)) = command
+        else {
+            return;
+        };
+        let Some(line) = raw.as_ref().and_then(|raw| raw.line_of(run_id)) else {
+            return;
+        };
+        if let Some(live) = self.live.get_mut(run_id)
+            && live.run.is_some()
+        {
+            live.raw_endings.retain(|kept| !kept.is_written());
+            live.raw_endings.push(Arc::clone(line));
+        }
+    }
+
     /// Asks a live Run of this engine's to stop at its next safe point as an
     /// abort by `by`, answers the report of an ended one, and stops one no
     /// engine of its own runs as an abort does.
-    async fn safe_stop(&mut self, run_id: &RunId, by: StoppedBy) -> Result<Waiting, RunError> {
+    async fn safe_stop(
+        &mut self,
+        run_id: &RunId,
+        by: StoppedBy,
+        raw: Option<RawMark>,
+    ) -> Result<Waiting, RunError> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
                 run.stop_at_safe_point(StopReason::Abort { by });
@@ -5887,18 +6180,21 @@ impl Registry {
         if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
             return self.ended_report(run_id).await.map(Waiting::Report);
         }
-        self.abort(run_id, by, Forwarded::No).await
+        self.abort(run_id, by, Forwarded::No, raw).await
     }
 
     /// Stops a live Run of this engine's, answers the report of one it
     /// ended, or, unless the abort came forwarded, takes the writer role of
     /// one no engine of its own runs, in a task of its own, since a held
-    /// lock is retried for about a second.
+    /// lock is retried for about a second. That task runs under the `raw`
+    /// mark of the raw call that asked, so an abort it forwards to the
+    /// Run's owner is marked raw there too (ADR 0099).
     async fn abort(
         &mut self,
         run_id: &RunId,
         by: StoppedBy,
         forwarded: Forwarded,
+        raw: Option<RawMark>,
     ) -> Result<Waiting, RunError> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
@@ -5928,7 +6224,11 @@ impl Registry {
         };
         let (answer, answered) = oneshot::channel();
         self.ending_owner.spawn(async move {
-            let _ = answer.send(take_over.abort().await);
+            let aborted = match raw {
+                Some(mark) => trace::raw_call(mark, take_over.abort()).await,
+                None => take_over.abort().await,
+            };
+            let _ = answer.send(aborted);
         });
         Ok(Waiting::TakeOver(answered))
     }
@@ -6062,6 +6362,26 @@ impl Registry {
         Ok(held)
     }
 
+    /// The answer to a resume of the Run `run_id` when it is live in this
+    /// engine, which does not resume it: refused when the resume's `fixed`
+    /// settings change a key fixed for the Run's life.
+    fn resumed_live(
+        &self,
+        run_id: &RunId,
+        fixed: &FixedSettings,
+    ) -> Option<Result<Resumed, RunError>> {
+        let live = self.live.get(run_id)?;
+        Some(
+            fixed
+                .unchanged(run_id, &live.fixed_settings, Compared::Given)
+                .map(|()| Resumed::Live {
+                    run_id: run_id.clone(),
+                    folder: self.folder(run_id),
+                })
+                .map_err(RunError::FixedSetting),
+        )
+    }
+
     /// Resumes an interrupted Run, as [`Runs::resume`] says.
     async fn resume(
         &mut self,
@@ -6078,9 +6398,10 @@ impl Registry {
             settings,
             retry_failed,
         } = resume;
-        // A Run this engine writes is answered as it is.
-        if let Some(live) = self.live.get(&run_id) {
-            return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
+        // Fixed keys the resume gives keep their values, in any state (ADR 0102).
+        let fixed = FixedSettings::of(settings.as_ref(), &self.setup.masks);
+        if let Some(live) = self.resumed_live(&run_id, &fixed) {
+            return live;
         }
         // A run file a crash left at `off` is discarded, never read: the Run
         // is then not found, and starts again (ADR 0138).
@@ -6090,11 +6411,10 @@ impl Registry {
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
+        fixed.unchanged(&run_id, &held.fixed_settings, Compared::Given)?;
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => {
-                return Ok(Resumed::existing(run_id, held.lifecycle, held.needs));
-            }
+            Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
@@ -6129,6 +6449,7 @@ impl Registry {
             needs: recorded.needs,
             tags: recorded.tags,
             inputs: recorded.inputs,
+            fixed_settings: held.fixed_settings.clone(),
             ended_by: self.driving(recorded.kind).ended_by,
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
@@ -6143,6 +6464,7 @@ impl Registry {
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
             sampled_after: self.setup.governor.storage_samples_begun(),
+            raw_endings: Vec::new(),
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;
@@ -6280,7 +6602,9 @@ impl Registry {
                 StartError::Discarding { run_id, folder } => {
                     RunError::Discarding { run_id, folder }
                 }
+                StartError::FixedSetting(changed) => RunError::FixedSetting(changed),
                 StartError::Conflict { .. }
+                | StartError::Live { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }
@@ -6699,9 +7023,9 @@ impl Recording {
         };
         let row = RunIndexRow {
             lifecycle: report.lifecycle,
-            verdict: Some(report.verdict),
+            verdict: Some(report.verdict.clone()),
             completeness: Some(report.completeness),
-            ended_at: Some(report.ended_at.clone()),
+            ended_at: Some(report.ended_at),
             owner: None,
             stop_reason: report.stop_reason.clone(),
             replayed: report.replayed(),
@@ -6714,7 +7038,7 @@ impl Recording {
             .publish_axes(RunAxes {
                 run_id: run_id.clone(),
                 lifecycle: report.lifecycle,
-                verdict: Some(report.verdict),
+                verdict: Some(report.verdict.clone()),
                 completeness: Some(report.completeness),
             })
             .await;
@@ -6761,7 +7085,7 @@ struct Closing {
     run: Run,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     clock: Clock,
@@ -6806,6 +7130,9 @@ impl Closing {
             parts,
             governor,
         } = self;
+        if let End::Stopped(reason) = &end {
+            run.stopped_at_once(reason.clone());
+        }
         run.owner.stop().await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),
@@ -6916,6 +7243,18 @@ pub enum AdmissionError {
     /// The Politeness it shares could not be opened.
     #[error(transparent)]
     Politeness(#[from] PolitenessError),
+}
+
+/// A Run's Politeness of its own (`politeness.sharing = run`), as its
+/// admission comes to hold it (#2171).
+enum OwnHolding {
+    /// Its admission has not opened: one opened now waits for it.
+    Before,
+    /// Opened, waiting for its admission to hold it.
+    Waiting(Box<OwnPoliteness>),
+    /// Its admission opened, or its driver opens none
+    /// ([`Driving::admits`]): one opened now is served by an actor.
+    After,
 }
 
 /// What a Run's admission opens from: the gate in admission the

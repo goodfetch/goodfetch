@@ -1,0 +1,45 @@
+# The runtime matrix of the SDKs' tests (ADR 0069): every runtime they are
+# tested on, pinned to its exact version, and each suite's set of them.
+# `xtask runtimes` (in `just lint`) holds it to the ADR's placement, and
+# .github/actions/host-tools and ci/host/fetch.sh install a job's set from
+# it through ci/host/runtimes.sh.
+#
+# A runtime's ID is the one its case-log entries carry: `node-<major>`,
+# `bun-<major>`, `deno-<major>`, `workerd`, `vercel-edge`, and
+# `cpython-3.<minor>`, with `t` for a free-threaded build. Its `version`
+# starts with its line; `lts` marks a Node line in active or maintenance LTS.
+# Each runtime and each set stays on one line, which ci/host/runtimes.sh
+# reads line by line.
+[runtimes]
+node-24 = { version = "24.19.0", lts = true }
+node-26 = { version = "26.13.0", lts = true }
+bun-1 = { version = "1.4.2" }
+deno-2 = { version = "2.9.7" }
+# The edge runtimes run the smoke scripts against a Daemon only (ADR 0049).
+workerd = {}
+vercel-edge = {}
+"cpython-3.11" = { version = "3.11.14" }
+"cpython-3.12" = { version = "3.12.12" }
+"cpython-3.13" = { version = "3.13.11" }
+"cpython-3.14" = { version = "3.14.2" }
+"cpython-3.14t" = { version = "3.14.2" }
+
+# Each suite's runtimes, in installation order: the first CPython is the
+# workspace's own environment's.
+#   pre-merge              the newest Node LTS and the newest CPython, on
+#                          Linux, as the gate and the hosted test-health jobs
+#                          run them;
+#   release-linux-x64-gnu  every runtime;
+#   release-linux          the other Linux cells: the oldest and newest Node
+#                          line and CPython, Bun, Deno and the free-threaded
+#                          builds;
+#   release-other          Windows and macOS: the same without the
+#                          free-threaded builds;
+#   nightly                the nightly-only job: the free-threaded builds on
+#                          macOS and Windows (ADR 0032's nightly tier).
+[sets]
+pre-merge = ["node-26", "cpython-3.14"]
+release-linux-x64-gnu = ["node-24", "node-26", "bun-1", "deno-2", "workerd", "vercel-edge", "cpython-3.11", "cpython-3.12", "cpython-3.13", "cpython-3.14", "cpython-3.14t"]
+release-linux = ["node-24", "node-26", "bun-1", "deno-2", "cpython-3.11", "cpython-3.14", "cpython-3.14t"]
+release-other = ["node-24", "node-26", "bun-1", "deno-2", "cpython-3.11", "cpython-3.14"]
+nightly = ["cpython-3.14t"]

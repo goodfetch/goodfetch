@@ -73,18 +73,20 @@ pub struct Request {
     pub params: Option<Value>,
 }
 
-/// The member of a request's params that holds its [`TraceContext`]
-/// (ADR 0132), an envelope field, not a catalog parameter: `xtask codegen`
-/// adds it to every request's params, and no generator gives it a member.
+/// The member of a request's params that holds its [`RequestMeta`] (ADR
+/// 0132), an envelope field, not a catalog parameter: `xtask codegen` adds
+/// it to every request's params, and no generator gives it a member.
 pub const META: &str = "_meta";
 
-/// A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
-/// and `tracestate`, which its runtime writes and never a program, with no
-/// Baggage. The schema checks only that each is a string: a receiver drops
-/// a value it cannot use, and never fails the call for it.
+/// What a request's `_meta` holds (ADR 0132), which its runtime writes and
+/// never a program: its Trace context, with no Baggage, and the raw mark of
+/// a call a program made through the raw `call` (ADR 0099). A closed
+/// object: the engine refuses any other key. The schema checks only that
+/// each Trace context field is a string: a receiver drops a value it cannot
+/// use, and never fails the call for it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct TraceContext {
+pub struct RequestMeta {
     /// The caller's span, as W3C Trace Context's `traceparent` header
     /// holds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,6 +96,42 @@ pub struct TraceContext {
     /// holds them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
+    pub tracestate: Option<String>,
+    /// Whether the program sent the call through the raw `call`, the way
+    /// down to an operation its SDK does not generate (ADR 0099): an SDK
+    /// sets it on that call alone, and refuses a `_meta` the program writes
+    /// into its params, so a program neither forges nor removes it. The
+    /// engine validates and enforces a raw call as any other.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub raw: bool,
+}
+
+impl RequestMeta {
+    /// Its Trace context.
+    #[must_use]
+    pub fn trace_context(self) -> TraceContext {
+        TraceContext {
+            traceparent: self.traceparent,
+            tracestate: self.tracestate,
+        }
+    }
+}
+
+/// A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+/// and `tracestate`, as the engine reads them from a request's
+/// [`RequestMeta`] and writes them in the `_meta` of a request it sends,
+/// which is raw only when it sends a raw call's on to its Run's owner (ADR
+/// 0099).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct TraceContext {
+    /// The caller's span, as W3C Trace Context's `traceparent` header
+    /// holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traceparent: Option<String>,
+    /// Its vendors' values, as W3C Trace Context's `tracestate` header
+    /// holds them.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tracestate: Option<String>,
 }
 

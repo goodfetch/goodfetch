@@ -9,7 +9,8 @@
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
-//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
+//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
+//! the lines of a Run trace's raw call log (ADR 0099), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
 //! committed JSON Schema bundle over the caller's transport, the endpoint table with `EndpointRunner`, which applies it to a
@@ -42,6 +43,7 @@
 mod browsers;
 pub mod callgrind;
 mod canaries;
+mod cargo_consumer;
 mod cli;
 mod colour;
 mod command_tree;
@@ -69,6 +71,10 @@ mod locales;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod no_console;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_exec;
 mod observation;
 mod player;
@@ -78,12 +84,14 @@ mod proving_ground;
 mod proving_ground_format;
 mod proxy_in_front;
 mod pty;
+mod raw_calls;
 mod received_requests;
 mod resident;
 mod resolver;
 mod runtime;
 mod runtime_file;
 mod script;
+mod sdk_items;
 mod seeded;
 mod snapshot;
 mod special_purpose;
@@ -105,14 +113,17 @@ mod variables;
 
 pub use browsers::{
     BROWSERS_PATH_VARIABLE, BrowserCacheError, DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE,
-    browser_cache, browser_cache_in_home, browser_cache_with_lightpanda, chrome_for_testing,
-    chrome_for_testing_debugged, chrome_for_testing_dumping_dom, chrome_for_testing_files,
-    lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
+    browser_cache, browser_cache_in_home, browser_cache_with_headless_shell,
+    browser_cache_with_lightpanda, chrome_for_testing, chrome_for_testing_debugged,
+    chrome_for_testing_dumping_dom, chrome_for_testing_files, chrome_headless,
+    chrome_headless_shell, lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
+    skipped_without_gui_session,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
+pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
@@ -164,6 +175,10 @@ pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 pub use no_console::{console_address_answer, runtime_file_members};
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
@@ -183,26 +198,28 @@ pub use proving_ground::{
     serve_arguments,
 };
 pub use proving_ground_format::{
-    ArticleAnswer, ArticleAnswers, FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest,
-    OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine,
-    ToolStatus,
+    ArticleAnswer, ArticleAnswers, ArticleLink, FixtureAddresses, OWN_TARGETS, Observations,
+    ObservedRequest, OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming,
+    Routes, ServeLine, ToolStatus,
 };
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
+pub use raw_calls::raw_call_lines;
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
-    proptest_config, proptest_config_for, runtime, runtime_with_one_blocking_thread,
-    with_the_blocking_pool_held,
+    proptest_config, proptest_config_for, real_time_runtime, runtime,
+    runtime_with_one_blocking_thread, with_the_blocking_pool_held,
 };
 pub use runtime_file::{
     DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{
-    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
-    engine_script,
+    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, StderrLines,
+    Step, engine_script,
 };
+pub use sdk_items::{public_methods, public_types_with_lifetimes, re_exports, sdk_sources};
 pub use snapshot::{SnapshotValues, redact, snapshot_settings};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
@@ -223,7 +240,9 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
-pub use trace::{CapturedLog, exercise_layer, logged, subscriber, subscriber_writing_to};
+pub use trace::{
+    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_writing_to,
+};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 #[cfg(all(
@@ -234,7 +253,8 @@ pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
 pub use variables::{
-    DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
+    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
+    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,
     RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, Variables, current_test,
+    SuiteError, TOOLS_VARIABLE, Variables, case_logs, current_test,
 };

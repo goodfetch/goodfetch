@@ -397,3 +397,47 @@ fn prints_its_environment() {
 
     print_and_exit(&lines.join("\n"), 0);
 }
+
+/// The line prefix of each file [`lays_out_a_browser_cache`] lists.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) const CACHE_FILE: &str = "goodfetch-browser-cache-file=";
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+#[ignore = "run as a child by browser_cache's tests of the build's copy (#2306)"]
+fn lays_out_a_browser_cache() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    /// Each file under `folder`, by its path from `root`.
+    fn files(root: &Path, folder: &Path, lines: &mut Vec<String>) {
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            let metadata = path.symlink_metadata().unwrap();
+            if metadata.is_dir() {
+                files(root, &path, lines);
+            } else if metadata.is_file() {
+                let file = serde_json::json!({
+                    "path": path.strip_prefix(root).unwrap(),
+                    "inode": metadata.ino(),
+                    "links": metadata.nlink(),
+                    "bytes": std::fs::read_to_string(&path).unwrap(),
+                });
+                lines.push(format!("{CACHE_FILE}{file}"));
+            }
+        }
+    }
+
+    let env = TestEnv::new();
+    let cache = goodfetch_test_support::browser_cache(&env).unwrap();
+    let build = goodfetch_test_support::chrome_for_testing_files(&cache).join("chrome-linux64");
+    let mut lines = Vec::new();
+    files(&build, &build, &mut lines);
+
+    #[expect(
+        clippy::print_stdout,
+        reason = "the probe lists its cache's files to its parent, which reads its output"
+    )]
+    {
+        println!("{}", lines.join("\n"));
+    }
+}

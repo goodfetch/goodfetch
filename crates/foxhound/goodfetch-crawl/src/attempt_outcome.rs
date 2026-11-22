@@ -7,19 +7,19 @@
 //! group left as it was.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_frontier::sitemap;
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Changes;
 use rusqlite::Connection;
 
 use crate::lease::{Commit, Committed};
 use crate::tier_choice::{self, Unit};
-use crate::work_items::{self, Changed, Leased, Unsuccessful};
+use crate::work_items::{self, Again, Changed, Leased, Unsuccessful};
 
 /// How a Record its Datasets refuse ends the attempt instead: the
 /// unsuccessful ending of its work item.
@@ -34,7 +34,7 @@ pub(crate) enum Ending {
         work_item: String,
         lease_epoch: u64,
         unsuccessful: Unsuccessful,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     },
     /// Its sitemap's `document` is read, its entries admitted under the
     /// Run's domain policy `egress` and within its `invariants` (ADR 0093),
@@ -69,11 +69,11 @@ pub(crate) enum Ended {
     LeaseLost,
     /// It ended unsuccessful, `ended` when the run file still held its
     /// lease, with the failure's code its Run's outcomes count, and
-    /// whether it waits again for a retry.
+    /// whether it waits again, for a retry or released.
     Unsuccessful {
         ended: bool,
         recorded: Option<String>,
-        retried: bool,
+        again: Again,
     },
     /// Its sitemap was read, when its lease still held: each work item
     /// its read added, keyed, in order, as its first lease takes it.
@@ -113,7 +113,7 @@ impl Outcome {
         let ended = match ending {
             Ending::Commit { commit, refused } => {
                 let (work_item, lease_epoch) = commit.attempt();
-                let (work_item, ended_at) = (work_item.to_owned(), commit.ended_at().clone());
+                let (work_item, ended_at) = (work_item.to_owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => Ended::Committed(committed),
                     Some(Err(refusal)) => end(
@@ -175,15 +175,14 @@ pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<Ended> {
-    let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
-    let recorded = match &unsuccessful {
-        Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
-            Some(failure.code.clone())
-        }
-        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
+    let (recorded, again) = match &unsuccessful {
+        Unsuccessful::Retried(failure) => (Some(failure.code.clone()), Again::Retried),
+        Unsuccessful::Failed(failure) => (Some(failure.code.clone()), Again::Not),
+        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => (None, Again::Not),
+        Unsuccessful::Released => (None, Again::Released),
     };
     let ended = work_items::end(
         connection,
@@ -196,7 +195,7 @@ pub(crate) fn end(
     Ok(Ended::Unsuccessful {
         ended,
         recorded,
-        retried,
+        again,
     })
 }
 

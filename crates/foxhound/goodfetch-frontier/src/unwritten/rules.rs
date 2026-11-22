@@ -25,7 +25,7 @@ use rusqlite::Connection;
 use rusqlite::hooks::Action;
 
 use super::Holding;
-use super::entries::table;
+use super::budget::hash_table_bytes;
 
 /// One learned rule, as the file's row holds it.
 #[derive(Clone, Debug)]
@@ -63,7 +63,7 @@ impl LearnedRules {
 
     /// The bytes held.
     pub(super) fn bytes(&self) -> u64 {
-        let lists = table::<(Box<str>, Vec<HeldRule>)>(self.by_host.capacity());
+        let lists = hash_table_bytes::<(Box<str>, Vec<HeldRule>)>(self.by_host.capacity());
         u64::try_from(self.entries.saturating_add(lists)).unwrap_or(u64::MAX)
     }
 

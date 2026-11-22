@@ -21,8 +21,9 @@
 //! [`SignalFiles`] keeps a Run's fetched files, one fetch per URL.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use aho_corasick::AhoCorasick;
 use goodfetch_counted_work::ParsedHtml;
 use goodfetch_engine::response_limits::{JsonFailure, LimitExceeded, Limits, parse_json};
 use goodfetch_engine::robots_txt;
@@ -549,12 +550,19 @@ impl SignalNames {
     }
 }
 
+/// The search for either markup signal's name, in any case: one pass over
+/// a text, where a comparison at every offset made the streaming pass's
+/// tests as slow as the Quick suite's kill on a loaded host (#2776).
+static SIGNAL_NAME_SEARCH: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(SIGNAL_NAMES)
+        .expect("invariant: two short literal names build a search")
+});
+
 /// Whether `text` holds either markup signal's name, in any case.
 fn names_in(text: &[u8]) -> bool {
-    SIGNAL_NAMES.iter().any(|name| {
-        text.windows(name.len())
-            .any(|window| window.eq_ignore_ascii_case(name.as_bytes()))
-    })
+    SIGNAL_NAME_SEARCH.is_match(text)
 }
 
 /// The matchers the markup's AI-use signals are read with.

@@ -23,13 +23,18 @@
 //! The file holds nothing to keep, so it skips `fsync`; it opens through a
 //! VFS named by a value (ADR 0060). Its format is of the Usage ledger's
 //! family (ADR 0066): its major never changes and newer minors only add. A
-//! Run with `politeness.sharing = run` takes its Permits from a file of its
-//! own in memory, under the same rules, its waiters woken within the
-//! engine.
+//! Run with `politeness.sharing = run` takes its Permits from tables of
+//! its own in memory, without SQLite ([`MemoryTables`]), under the same
+//! rules, its waiters woken within the engine: it opens nothing and runs
+//! no transaction (ADR 0140's `E6.private_transactions`). A crawl's
+//! admission holds that Politeness itself ([`OwnPoliteness`]): its takes
+//! and give backs wait on no task, and the writes of its pages' tasks are
+//! one-way messages its driver runs (#2171).
 //!
 //! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
-//! in one transaction, kept whole so the rules that guard the count in
-//! flight under a key change together.
+//! in one transaction, and the Run's own Politeness held in memory under
+//! the same rules, kept whole so the rules that guard the count in flight
+//! under a key change together.
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -49,8 +54,15 @@ use crate::sqlite_store::{
 };
 use crate::tasks::TaskOwner;
 use crate::transport;
+use delegation::FileBackend;
 
-/// How many jobs wait for the file's actor before their callers wait.
+mod delegation;
+mod memory;
+
+pub use memory::MemoryTables;
+
+/// How many jobs wait for the task that holds a Politeness before their
+/// callers wait.
 const MAILBOX: usize = 256;
 
 /// How many wakes a subscriber may fall behind; one further behind reads
@@ -108,6 +120,17 @@ const SCHEMA: &[&str] = &[
         PRIMARY KEY (key, run_id)
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT",
+    // Each key an engine serves from memory (ADR 0142's Delegation): the
+    // Run it names, under its run epoch and folder, whose writer lock tells
+    // whether it is live, and the engine's wake endpoint.
+    "CREATE TABLE IF NOT EXISTS delegations (
+        key TEXT NOT NULL PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        run_folder TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        endpoint TEXT NOT NULL
+    ) STRICT",
 ];
 
 /// The turn after the last of the waiters of a key, `?1`.
@@ -149,6 +172,15 @@ const GIVE_BACK: &str = "DELETE FROM permits WHERE permit_id = ?1";
 const NEXT_GENERATION: &str = "INSERT INTO returns (key, generation) VALUES (?1, 1)
     ON CONFLICT (key) DO UPDATE SET generation = generation + 1
     RETURNING generation";
+const DELEGATION: &str =
+    "SELECT run_id, epoch, run_folder, engine, endpoint FROM delegations WHERE key = ?1";
+const DELEGATE: &str =
+    "INSERT OR REPLACE INTO delegations (key, run_id, epoch, run_folder, engine, endpoint)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+const UNDELEGATE: &str = "DELETE FROM delegations WHERE key = ?1";
+const REHOLD: &str =
+    "UPDATE delegations SET run_id = ?2, epoch = ?3, run_folder = ?4 WHERE key = ?1";
+const WAITERS_OF: &str = "SELECT count(*) FROM waiters WHERE key = ?1";
 
 /// The engine's own statements, prepared once when the file opens, so no
 /// Permit prepares one (ADR 0140's `E6.opens`).
@@ -169,7 +201,18 @@ const PREPARED: &[&str] = &[
     REJOIN_TURNS,
     GIVE_BACK,
     NEXT_GENERATION,
+    DELEGATION,
+    DELEGATE,
+    UNDELEGATE,
+    REHOLD,
+    WAITERS_OF,
+    delegation::USED_ELSEWHERE,
+    delegation::JOIN_AHEAD,
 ];
+
+/// How many keys one transaction delegates at most; the keys asked for
+/// beyond them go into the next (ADR 0142).
+const DELEGATIONS_PER_TRANSACTION: usize = 1_000;
 
 /// The tables one contribution adds to the Politeness file: `CREATE TABLE
 /// IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements, run in order
@@ -268,6 +311,95 @@ pub trait KeyState: Sized + Send + 'static {
         key: &Self::Key,
         writes: &Self::Writes,
     ) -> rusqlite::Result<()>;
+
+    /// The values `reads` names, kept under `key` in `tables`, the tables
+    /// of a Run's own Politeness: as [`load`](KeyState::load) reads them
+    /// from a file.
+    fn load_from(tables: &MemoryTables, key: &Self::Key, reads: Self::Reads) -> Self;
+
+    /// Saves under `key` in `tables` the values `writes` names, as
+    /// [`save`](KeyState::save) writes them to a file.
+    fn save_to(&self, tables: &mut MemoryTables, key: &Self::Key, writes: &Self::Writes);
+
+    /// The row a transaction of the file that changes it outside a
+    /// Delegation counts on: `E6.transactions` by default.
+    const TRANSACTIONS: Row = Row::PolitenessTransactions;
+
+    /// Whether a key's Delegation may hold it in memory (#2172): `false`
+    /// by default, so a rule whose state cannot move between the file and
+    /// memory ([`delegate`](KeyState::delegate),
+    /// [`write_back`](KeyState::write_back)) keeps every Permit in the file.
+    const DELEGATES: bool = false;
+
+    /// The key of the Permits whose Delegation holds it, if any: such a
+    /// state is changed in memory while its engine holds that Delegation.
+    fn delegated_under(_key: &Self::Key) -> Option<&str> {
+        None
+    }
+
+    /// The values `reads` names, kept under `key` while a Delegation holds
+    /// them in `tables`; what the Delegation does not hold is read from
+    /// `connection`, outside any transaction.
+    ///
+    /// # Errors
+    ///
+    /// When the file's tables cannot be read.
+    fn load_delegated(
+        _connection: &Connection,
+        tables: &MemoryTables,
+        key: &Self::Key,
+        reads: Self::Reads,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self::load_from(tables, key, reads))
+    }
+
+    /// Whether `writes` names what a site asked for, such as a Crawl-delay:
+    /// written to the file as soon as it is learned, even under a
+    /// Delegation.
+    fn asked(_writes: &Self::Writes) -> bool {
+        false
+    }
+
+    /// Whether `writes` comes of reading what a site asks, whether the
+    /// read changed it or not: no Permit's work, so a transaction of the
+    /// file that makes it outside a Delegation counts on
+    /// `E6.other_transactions`, as one that writes it under a Delegation
+    /// does (#1899). What [`asked`](KeyState::asked) answers by default.
+    fn read_an_ask(writes: &Self::Writes) -> bool {
+        Self::asked(writes)
+    }
+
+    /// Loads into `tables` everything `connection` keeps under `key`, as a
+    /// Delegation of it starts, in the transaction that takes it.
+    ///
+    /// # Errors
+    ///
+    /// When its tables cannot be read.
+    fn delegate(
+        _connection: &Connection,
+        _key: &Self::Key,
+        _tables: &mut MemoryTables,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    /// Writes to `connection` everything `tables` keeps under `key`, as a
+    /// Delegation of it is given back, or a site's ask is learned.
+    ///
+    /// # Errors
+    ///
+    /// When its tables cannot be written.
+    fn write_back(
+        _tables: &MemoryTables,
+        _key: &Self::Key,
+        _connection: &Connection,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    /// Drops from `tables` what they keep under `key`, once its Delegation
+    /// was given back.
+    fn forget(_tables: &mut MemoryTables, _key: &Self::Key) {}
 }
 
 /// Loads the state kept under `key` in `connection` as `reads` says, runs
@@ -327,12 +459,38 @@ pub trait PermitRule: Send + Sync + 'static {
         now: SystemTime,
     ) -> (Option<SystemTime>, <Self::State as KeyState>::Writes);
 
+    /// The moment a crawl request granted at `now` is to be sent, on a
+    /// Politeness held in memory (#2171): its send's own waits are kept
+    /// and taken in `state` as if it went then, and what that wrote is
+    /// answered beside it. Its page's task waits until that moment, sends,
+    /// and settles the true instant without waiting again; the Politeness
+    /// keeps the later of the two. `None` by default: the rule reserves
+    /// nothing, and the send asks the Politeness as it does the file.
+    fn reserved(
+        &self,
+        _state: &mut Self::State,
+        _now: SystemTime,
+    ) -> Option<(SystemTime, <Self::State as KeyState>::Writes)> {
+        None
+    }
+
     /// Whether it may hold a request back on its own settings: `false`
     /// for a rule that neither caps, spaces nor rates its keys, under
     /// which a Run consults no Politeness store and never opens one for
     /// its admission, its gate backing its keys off itself (ADR 0138).
     fn paces(&self) -> bool {
         true
+    }
+
+    /// The most requests under a key it admits at once, whatever the
+    /// key's state: [`PermitRule::admit`] grants nothing for any state once
+    /// `in_flight` reaches it, so a run whose own requests in flight reach
+    /// it knows without a take that a take would grant nothing (#1899).
+    /// What such a take would answer instead, a back-off or a refusal
+    /// before [`Verdict::Busy`], the run learns at its next take, once one
+    /// of those requests ends. `None` by default: no such bound.
+    fn concurrency(&self) -> Option<u64> {
+        None
     }
 }
 
@@ -351,6 +509,11 @@ impl SharedRule {
     pub fn paces(&self) -> bool {
         self.0.paces()
     }
+
+    /// [`PermitRule::concurrency`].
+    pub fn concurrency(&self) -> Option<u64> {
+        self.0.concurrency()
+    }
 }
 
 impl fmt::Debug for SharedRule {
@@ -366,6 +529,8 @@ impl fmt::Debug for SharedRule {
 /// that takes or gives back a Permit.
 trait Erased: Send + Sync {
     fn paces(&self) -> bool;
+
+    fn concurrency(&self) -> Option<u64>;
 
     fn taken(
         &self,
@@ -384,11 +549,64 @@ trait Erased: Send + Sync {
         ending: Ending,
         now: SystemTime,
     ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)>;
+
+    fn taken_in_memory(
+        &self,
+        store: &mut memory::Store,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> (Taken, Option<Turn>);
+
+    fn given_back_in_memory(
+        &self,
+        store: &mut memory::Store,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Turn>);
+
+    /// [`KeyState::DELEGATES`] of its state.
+    fn delegates(&self) -> bool;
+
+    /// [`KeyState::delegate`] of its state.
+    fn delegate(
+        &self,
+        connection: &Connection,
+        key: &str,
+        tables: &mut MemoryTables,
+    ) -> rusqlite::Result<()>;
+
+    /// [`KeyState::write_back`] of its state.
+    fn write_back(
+        &self,
+        tables: &MemoryTables,
+        key: &str,
+        connection: &Connection,
+    ) -> rusqlite::Result<()>;
+
+    /// [`KeyState::forget`] of its state.
+    fn forget(&self, tables: &mut MemoryTables, key: &str);
+
+    /// Starts a request under `key` at `now` in the file, with no Permit:
+    /// a reclaimed Delegation's holder may have sent one then, so the
+    /// next counts its delay from it.
+    fn restarted(
+        &self,
+        transaction: &Connection,
+        key: &str,
+        now: SystemTime,
+    ) -> rusqlite::Result<()>;
 }
 
 impl<R: PermitRule> Erased for R {
     fn paces(&self) -> bool {
         PermitRule::paces(self)
+    }
+
+    fn concurrency(&self) -> Option<u64> {
+        PermitRule::concurrency(self)
     }
 
     fn taken(
@@ -412,6 +630,64 @@ impl<R: PermitRule> Erased for R {
     ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)> {
         given_back_in(transaction, permit, self, ending, now)
     }
+
+    fn taken_in_memory(
+        &self,
+        store: &mut memory::Store,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> (Taken, Option<Turn>) {
+        store.taken(key, holder, self, now, in_turn)
+    }
+
+    fn given_back_in_memory(
+        &self,
+        store: &mut memory::Store,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Turn>) {
+        store.given_back(permit, self, ending, now)
+    }
+
+    fn delegates(&self) -> bool {
+        R::State::DELEGATES
+    }
+
+    fn delegate(
+        &self,
+        connection: &Connection,
+        key: &str,
+        tables: &mut MemoryTables,
+    ) -> rusqlite::Result<()> {
+        R::State::delegate(connection, key, tables)
+    }
+
+    fn write_back(
+        &self,
+        tables: &MemoryTables,
+        key: &str,
+        connection: &Connection,
+    ) -> rusqlite::Result<()> {
+        R::State::write_back(tables, key, connection)
+    }
+
+    fn forget(&self, tables: &mut MemoryTables, key: &str) {
+        R::State::forget(tables, key);
+    }
+
+    fn restarted(
+        &self,
+        transaction: &Connection,
+        key: &str,
+        now: SystemTime,
+    ) -> rusqlite::Result<()> {
+        let mut state = R::State::load(transaction, key, self.reads(Step::Take))?;
+        let writes = self.started(&mut state, now);
+        state.save(transaction, key, &writes)
+    }
 }
 
 /// The Run that holds a Permit, under its run epoch.
@@ -423,6 +699,11 @@ pub struct Holder {
     pub epoch: u64,
     /// Its folder, whose writer lock tells whether it is live.
     pub run_folder: PathBuf,
+    /// Whether its keys are served from memory through Delegations, its
+    /// `politeness.delegation` (ADR 0142); otherwise each of its Permits is
+    /// a transaction of the file, unless its engine already holds the key's
+    /// Delegation for another Run.
+    pub delegates: bool,
 }
 
 /// A request's Permit, held while it is in flight.
@@ -430,12 +711,23 @@ pub struct Holder {
 pub struct Permit {
     id: i64,
     key: String,
+    /// The moment its request is to be sent, which its grant reserved
+    /// ([`PermitRule::reserved`]).
+    send_at: Option<SystemTime>,
+    /// Whether its engine's Delegation of its key granted it from memory.
+    delegated: bool,
 }
 
 impl Permit {
     /// The key it counts under.
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    /// The moment its request is to be sent, when its grant reserved one,
+    /// on a Politeness held in memory ([`PermitRule::reserved`]).
+    pub fn send_at(&self) -> Option<SystemTime> {
+        self.send_at
     }
 }
 
@@ -497,8 +789,9 @@ pub enum PolitenessError {
         /// SQLite's message.
         message: String,
     },
-    /// The file's actor has stopped.
-    #[error("the Politeness file's actor has stopped")]
+    /// The task that holds the Politeness, the file's actor or a Run's
+    /// admission, has stopped.
+    #[error("the task that holds the Politeness has stopped")]
     Closed,
 }
 
@@ -508,21 +801,86 @@ struct Context {
     engine: String,
     endpoint: Option<String>,
     holder_gone: HolderGone,
+    /// Where a Run's own Politeness wakes its waiters, all within the
+    /// engine; none for the file, whose waiters [`Politeness::wake_turn`]
+    /// wakes at their endpoints.
+    wakes: Option<broadcast::Sender<Wake>>,
 }
 
-type Job = Box<dyn FnOnce(&mut Connection, &Context) + Send>;
+impl Context {
+    /// Wakes the waiter whose turn it is, of a Run's own Politeness.
+    fn wake(&self, turn: Option<Turn>) {
+        if let (Some(turn), Some(wakes)) = (turn, &self.wakes) {
+            let _ = wakes.send(turn.wake);
+        }
+    }
 
-/// A waiter whose turn it is, to wake.
+    /// `turn` of a waiter of this engine's own, such as one a Delegation's
+    /// store in memory answers, to wake at this engine's endpoint.
+    fn local(&self, turn: Turn) -> Turn {
+        Turn {
+            endpoint: self.endpoint.clone().unwrap_or_default(),
+            ..turn
+        }
+    }
+}
+
+/// What a Politeness keeps its Permits, waiters and contributions' values
+/// in: the per-user file, or a Run's own store in memory.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one per Politeness actor, built once and moved once into its task"
+)]
+enum Backend {
+    File(FileBackend),
+    Memory(memory::Store),
+}
+
+type Job = Box<dyn FnOnce(&mut Backend, &Context) + Send>;
+
+/// A waiter whose turn it is, to wake; or, when `recall`, the engine
+/// that holds the Delegation of the wake's key, to recall it.
 #[derive(Debug)]
 struct Turn {
     endpoint: String,
     wake: Wake,
     generation: i64,
     now: SystemTime,
+    recall: bool,
 }
 
-/// The engine's handle on a Politeness file: a handle to the file's actor,
-/// which any task may clone.
+impl Turn {
+    /// The recall of `key`'s Delegation from the engine at `endpoint`,
+    /// which another engine's Run waits for (ADR 0142).
+    fn recall(endpoint: String, key: &str, run_id: &str, now: SystemTime) -> Self {
+        Self {
+            endpoint,
+            wake: Wake {
+                run_id: run_id.to_owned(),
+                key: key.to_owned(),
+            },
+            generation: 0,
+            now,
+            recall: true,
+        }
+    }
+}
+
+/// What an engine sends the engine that holds a key's Delegation when one
+/// of its Runs needs the key (ADR 0142): the holder writes the key's state
+/// and its Permits in flight to the file, gives the Delegation back and
+/// wakes the key's waiter whose turn it is. It never reads as a [`Wake`],
+/// which names a Run.
+#[derive(Debug, Serialize, Deserialize)]
+struct Recall {
+    /// The key whose Delegation is recalled.
+    recall: String,
+    /// The moment it was asked, in milliseconds since the Unix epoch.
+    at: i64,
+}
+
+/// The engine's handle on a Politeness, a file or a Run's own held in
+/// memory: a handle to the task that holds it, which any task may clone.
 #[derive(Clone)]
 pub struct Politeness(Arc<Inner>);
 
@@ -535,6 +893,8 @@ struct Inner {
     /// SQLite named it, once one did (ADR 0122).
     failures: watch::Sender<Option<String>>,
     work: CountedWork,
+    /// Whether it is a Politeness of one Run's own, held in memory.
+    in_memory: bool,
 }
 
 impl fmt::Debug for Politeness {
@@ -589,6 +949,25 @@ impl Politeness {
             .await?;
         let (wakes, _) = broadcast::channel(WAKES);
         let woken = wakes.clone();
+        let context = Context {
+            path,
+            engine,
+            endpoint: Some(endpoint.clone()),
+            holder_gone,
+            wakes: None,
+        };
+        let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
+        serve_on(owner, Backend::File(connection), context, jobs)?;
+        let politeness = Self::handle(
+            mailbox,
+            wakes,
+            (Some(endpoint), Some(folder)),
+            options.work.clone(),
+            false,
+        );
+        // The listener holds the handle weakly: it answers recalls while a
+        // handle lives, and never keeps the actor alive.
+        let handle = Arc::downgrade(&politeness.0);
         let cancelled = owner.token().clone();
         owner.spawn(async move {
             loop {
@@ -598,6 +977,10 @@ impl Politeness {
                         Ok(message) => {
                             if let Ok(wake) = serde_json::from_slice::<Wake>(&message) {
                                 let _ = woken.send(wake);
+                            } else if let Ok(recall) = serde_json::from_slice::<Recall>(&message)
+                                && let Some(inner) = handle.upgrade()
+                            {
+                                Self(inner).recalled(recall.recall, moment(recall.at)).await;
                             }
                         }
                         Err(error) => {
@@ -608,96 +991,79 @@ impl Politeness {
                 }
             }
         });
-        let context = Context {
-            path,
-            engine,
-            endpoint: Some(endpoint.clone()),
-            holder_gone,
-        };
-        Self::start(
-            connection,
-            context,
-            wakes,
-            Some(endpoint),
-            Some(folder),
-            options.work.clone(),
-            owner,
-        )
+        Ok(politeness)
     }
 
-    /// A Politeness file of one Run's own, in memory, for a Run with
+    /// A Politeness of one Run's own, in memory, for a Run with
     /// `politeness.sharing = run`: the same rules, shared with no other
-    /// Run, counting on `options`' Counted work (its VFS is the memory's).
-    ///
-    /// # Errors
-    ///
-    /// `Sqlite` when SQLite cannot create its tables or prepare its
-    /// statements.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future drops the file.
-    pub async fn in_memory(
-        options: &PolitenessOptions,
-        tables: Vec<PolitenessTables>,
-        owner: &TaskOwner,
-    ) -> Result<Self, PolitenessError> {
-        let path = PathBuf::from(":memory:");
-        let opened = path.clone();
-        let work = options.work.clone();
-        let connection = owner
-            .blocking(move || {
-                let mut connection =
-                    Connection::open_in_memory().map_err(|error| sqlite_error(&opened, &error))?;
-                counting(&connection, &work).map_err(|error| sqlite_error(&opened, &error))?;
-                create_tables(&mut connection, &opened, &tables)?;
-                Ok::<_, PolitenessError>(connection)
-            })
-            .await?;
+    /// Run, kept as plain values without SQLite, so it opens nothing and
+    /// runs no transaction; `options`' VFS is not used. It is held by the
+    /// one task that serves it, [`OwnPoliteness`], with no actor of its
+    /// own: the handle any task may clone sends that task its jobs (#2171).
+    pub fn own(options: &PolitenessOptions) -> (Self, OwnPoliteness) {
         let (wakes, _) = broadcast::channel(WAKES);
         let context = Context {
-            path,
+            path: PathBuf::from(":memory:"),
             engine: String::new(),
             endpoint: Some(IN_MEMORY_ENDPOINT.to_owned()),
             holder_gone: |_, _| false,
+            wakes: Some(wakes.clone()),
         };
-        Self::start(
-            connection,
-            context,
+        let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
+        let handle = Self::handle(
+            mailbox,
             wakes,
-            Some(IN_MEMORY_ENDPOINT.to_owned()),
-            None,
+            (Some(IN_MEMORY_ENDPOINT.to_owned()), None),
             options.work.clone(),
-            owner,
-        )
+            true,
+        );
+        let held = OwnPoliteness {
+            backend: Backend::Memory(memory::Store::default()),
+            context,
+            jobs,
+        };
+        (handle, held)
     }
 
-    fn start(
-        mut connection: Connection,
-        context: Context,
-        wakes: broadcast::Sender<Wake>,
-        endpoint: Option<String>,
-        wake_folder: Option<tempfile::TempDir>,
-        work: CountedWork,
+    /// A Politeness of one Run's own, in memory, as [`Politeness::own`]
+    /// makes it, served by an actor of `owner`'s, for a Run whose driver
+    /// holds no admission that would serve it.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when `owner` no longer starts tasks.
+    pub fn in_memory(
+        options: &PolitenessOptions,
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
-        let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
-        let failed = context.path.clone();
-        owner
-            .actor("politeness-file", jobs, move |group: Vec<Job>| {
-                for job in group {
-                    job(&mut connection, &context);
-                }
-            })
-            .map_err(|error| sqlite_error(&failed, &error))?;
-        Ok(Self(Arc::new(Inner {
+        let (politeness, held) = Self::own(options);
+        held.serve_on(owner)?;
+        Ok(politeness)
+    }
+
+    fn handle(
+        mailbox: mpsc::Sender<Job>,
+        wakes: broadcast::Sender<Wake>,
+        (endpoint, wake_folder): (Option<String>, Option<tempfile::TempDir>),
+        work: CountedWork,
+        in_memory: bool,
+    ) -> Self {
+        Self(Arc::new(Inner {
             mailbox,
             wakes,
             endpoint,
             _wake_folder: wake_folder,
             failures: watch::Sender::new(None),
             work,
-        })))
+            in_memory,
+        }))
+    }
+
+    /// Whether it is a Run's own, held in memory, whose
+    /// [`notes`](Self::note) its callers do not wait for (#2171); on the
+    /// file a note is a transaction its caller waits for.
+    pub fn held_in_memory(&self) -> bool {
+        self.0.in_memory
     }
 
     /// Where the file counts its work, and what keeps its tables counts
@@ -729,8 +1095,8 @@ impl Politeness {
     ///
     /// # Errors
     ///
-    /// `Sqlite` when the transaction failed, `Closed` when the file's actor
-    /// stopped.
+    /// `Sqlite` when the transaction failed, `Closed` when the task that
+    /// holds it stopped.
     ///
     /// # Cancel safety
     ///
@@ -744,13 +1110,10 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
-        let key = key.to_owned();
-        let holder = holder.clone();
-        let (taken, turn) = self
-            .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, &rule, now, true)
-            })
-            .await?;
+        if self.0.in_memory {
+            self.0.work.count(Row::PolitenessReadRoundTrips);
+        }
+        let (taken, turn) = self.taking(key, holder, rule, now, true).await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
         }
@@ -779,13 +1142,9 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
-        let key = key.to_owned();
-        let holder = holder.clone();
-        let (taken, _) = self
-            .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, &rule, now, false)
-            })
-            .await?;
+        // Its round trip counts on `F3.second_copy_round_trips`, where the
+        // second copy takes it.
+        let (taken, _) = self.taking(key, holder, rule, now, false).await?;
         Ok(taken)
     }
 
@@ -796,8 +1155,8 @@ impl Politeness {
     ///
     /// # Errors
     ///
-    /// `Sqlite` when the transaction failed, `Closed` when the file's actor
-    /// stopped.
+    /// `Sqlite` when the transaction failed, `Closed` when the task that
+    /// holds it stopped.
     ///
     /// # Cancel safety
     ///
@@ -811,8 +1170,8 @@ impl Politeness {
         now: SystemTime,
     ) -> Result<Option<SystemTime>, PolitenessError> {
         let (ready_at, turn) = self
-            .run(move |connection, context| {
-                give_back_in(connection, context, &permit, &rule, ending, now)
+            .run(move |backend, context| {
+                give_back_in(backend, context, &permit, &rule, ending, now)
             })
             .await?;
         if let Some(turn) = turn {
@@ -821,7 +1180,9 @@ impl Politeness {
         Ok(ready_at)
     }
 
-    /// Withdraws `holder` as a waiter of every key, as its Run stops.
+    /// Withdraws `holder` as a waiter of every key, as its Run stops at
+    /// `now`, and gives back the Delegations no running Run of the engine
+    /// took a Permit of, waking the waiters whose turn came.
     ///
     /// # Errors
     ///
@@ -830,18 +1191,25 @@ impl Politeness {
     /// # Cancel safety
     ///
     /// Dropping the future does not withdraw it once queued.
-    pub async fn stop_waiting(&self, holder: &Holder) -> Result<(), PolitenessError> {
+    pub async fn stop_waiting(
+        &self,
+        holder: &Holder,
+        now: SystemTime,
+    ) -> Result<(), PolitenessError> {
         let run_id = holder.run_id.clone();
-        self.run(move |connection, context| {
-            connection
-                .prepare_cached(STOP_WAITING)
-                .and_then(|mut cached| {
-                    cached.execute((&run_id, context.endpoint.as_deref().unwrap_or_default()))
-                })
-                .map(drop)
-                .map_err(|error| sqlite_error(&context.path, &error))
-        })
-        .await
+        let turns = self
+            .run(move |backend, context| match backend {
+                Backend::File(file) => file.stop_waiting(context, &run_id, now),
+                Backend::Memory(store) => {
+                    store.stop_waiting(&run_id);
+                    Ok(Vec::new())
+                }
+            })
+            .await?;
+        for turn in turns {
+            self.wake_turn(turn).await;
+        }
+        Ok(())
     }
 
     /// Changes the state `S` keeps under `key` in one transaction,
@@ -853,7 +1221,7 @@ impl Politeness {
     /// # Errors
     ///
     /// `Sqlite` or `Storage` when the transaction failed, `Closed` when the
-    /// file's actor stopped.
+    /// task that holds it stopped.
     ///
     /// # Cancel safety
     ///
@@ -870,30 +1238,176 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
-        self.run(move |connection, context| {
-            sqlite_store::immediate(connection, |transaction| {
-                changed(transaction, key.borrow(), reads, change)
-            })
-            .map_err(|error| sqlite_error(&context.path, &error))
-        })
+        self.run(change_job(key, reads, change)).await
+    }
+
+    /// Changes the state `S` keeps under `key` as [`Politeness::change`]
+    /// does, for a read its caller counts on a row of its own, such as a
+    /// robots.txt copy's on `E6.robots_reads`: on a Run's own Politeness
+    /// its round trip does not count on `F3.politeness_read_round_trips`
+    /// (#2171).
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::change`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::change`].
+    pub async fn change_counted_apart<S, K, T, F>(
+        &self,
+        key: K,
+        reads: S::Reads,
+        change: F,
+    ) -> Result<T, PolitenessError>
+    where
+        S: KeyState,
+        K: Borrow<S::Key> + Send + 'static,
+        T: Send + 'static,
+        F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
+    {
+        self.answered(change_job(key, reads, change)).await
+    }
+
+    /// Changes the state `S` keeps under `key` as [`Politeness::change`]
+    /// does, for a write whose caller needs no answer: on a Run's own
+    /// Politeness it is a one-way message, queued ahead of any take or
+    /// change queued after it and run by the task that holds it, where it
+    /// cannot fail once queued, so the caller never waits on that task
+    /// (#2171); on the file it is [`Politeness::change`], awaited.
+    ///
+    /// # Errors
+    ///
+    /// `Closed` when the task that holds it stopped, so the change was not
+    /// queued; on the file, as
+    /// [`Politeness::change`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before the change is queued drops the change.
+    pub async fn note<S, K, F>(
+        &self,
+        key: K,
+        reads: S::Reads,
+        change: F,
+    ) -> Result<(), PolitenessError>
+    where
+        S: KeyState,
+        K: Borrow<S::Key> + Send + 'static,
+        F: FnOnce(&mut S) -> S::Writes + Send + 'static,
+    {
+        let change = move |state: &mut S| ((), change(state));
+        if !self.0.in_memory {
+            return self.change(key, reads, change).await;
+        }
+        self.send(Box::new(move |backend, _| {
+            memory_of(backend).change(key.borrow(), reads, change);
+        }))
         .await
     }
 
-    /// Runs `work` on the file's actor and answers what it returned.
-    async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
-    where
-        T: Send + 'static,
-        F: FnOnce(&mut Connection, &Context) -> Result<T, PolitenessError> + Send + 'static,
-    {
-        let (answer, answered) = oneshot::channel();
-        let job: Job = Box::new(move |connection, context| {
-            let _ = answer.send(work(connection, context));
-        });
+    /// Gives `permit` back at `now` as [`Politeness::give_back`] does, for
+    /// a caller that needs no answer, such as a second copy's: on a Run's
+    /// own Politeness a one-way message that wakes the waiter whose turn it
+    /// is where it runs, on the file [`Politeness::give_back`], awaited.
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::note`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::note`].
+    pub async fn note_given_back(
+        &self,
+        permit: Permit,
+        rule: SharedRule,
+        ending: Ending,
+        now: SystemTime,
+    ) -> Result<(), PolitenessError> {
+        if !self.0.in_memory {
+            return self.give_back(permit, rule, ending, now).await.map(drop);
+        }
+        self.send(Box::new(move |backend, context| {
+            let (_, turn) = rule
+                .0
+                .given_back_in_memory(memory_of(backend), &permit, ending, now);
+            context.wake(turn);
+        }))
+        .await
+    }
+
+    /// Queues `job`, answering nothing.
+    async fn send(&self, job: Job) -> Result<(), PolitenessError> {
         self.0
             .mailbox
             .send(job)
             .await
-            .map_err(|_| PolitenessError::Closed)?;
+            .map_err(|_| PolitenessError::Closed)
+    }
+
+    /// Runs `work` on the task that holds the Politeness and answers what
+    /// it returned: on a Run's own, a round trip that counts on
+    /// `F3.politeness_read_round_trips` (#2171).
+    async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
+    {
+        if self.0.in_memory {
+            self.0.work.count(Row::PolitenessReadRoundTrips);
+        }
+        self.answered(work).await
+    }
+
+    /// Runs `work` on the task that holds the Politeness and answers what
+    /// it returned, its round trip counted by its caller.
+    async fn answered<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        let job: Job = Box::new(move |backend, context| {
+            let _ = answer.send(work(backend, context));
+        });
+        self.send(job).await?;
+        self.checked(answered).await
+    }
+
+    /// Takes a Permit under `key` for `holder` at `now`, in turn or beside
+    /// a request already sent, on the task that holds the Politeness: the
+    /// file's answers it once the group of jobs it came in has taken its
+    /// Delegations, its round trip counted by its caller.
+    async fn taking(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: SharedRule,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> Result<(Taken, Option<Turn>), PolitenessError> {
+        let key = key.to_owned();
+        let holder = holder.clone();
+        let (answer, answered) = oneshot::channel();
+        let job: Job = Box::new(move |backend, context| match backend {
+            Backend::File(file) => file.take(context, key, holder, rule, now, in_turn, answer),
+            Backend::Memory(store) => {
+                let _ = answer.send(Ok(rule
+                    .0
+                    .taken_in_memory(store, &key, &holder, now, in_turn)));
+            }
+        });
+        self.send(job).await?;
+        self.checked(answered).await
+    }
+
+    /// The answer `answered` receives; a full disk or an I/O error it
+    /// carries is the Politeness's storage failure (ADR 0122).
+    async fn checked<T>(
+        &self,
+        answered: oneshot::Receiver<Result<T, PolitenessError>>,
+    ) -> Result<T, PolitenessError> {
         let answer = answered.await.map_err(|_| PolitenessError::Closed)?;
         if let Err(PolitenessError::Storage { message, .. }) = &answer {
             tracing::warn!(%message, "a transaction of the Politeness file met a full disk or an I/O error and was rolled back");
@@ -908,9 +1422,71 @@ impl Politeness {
         answer
     }
 
+    /// Gives back this engine's Delegation of `key`, which another
+    /// engine recalled at `now`, and wakes the waiters whose turn came.
+    async fn recalled(&self, key: String, now: SystemTime) {
+        let turns = self
+            .answered(move |backend, context| match backend {
+                Backend::File(file) => file.recall(context, &key, now),
+                Backend::Memory(_) => Ok(Vec::new()),
+            })
+            .await;
+        match turns {
+            Ok(turns) => {
+                for turn in turns {
+                    self.wake_turn(turn).await;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "a recalled Delegation was not given back; the other engine waits for its own deadline");
+            }
+        }
+    }
+
     /// Wakes the waiter whose turn it is; one whose endpoint is gone loses
     /// its rows, and the next waiter's turn comes.
     async fn wake_turn(&self, mut turn: Turn) {
+        if turn.recall {
+            let recall = Recall {
+                recall: turn.wake.key.clone(),
+                at: milliseconds(turn.now),
+            };
+            let message = serde_json::to_vec(&recall).expect("invariant: a recall encodes");
+            match transport::wake(&turn.endpoint, &message).await {
+                Ok(()) => {}
+                // A holder whose endpoint is gone and whose Run is gone has
+                // its Delegation reclaimed by the recaller's next take: it
+                // is woken at once rather than at its own deadline. One
+                // whose Run is still live keeps its Delegation: taking it
+                // would break its hold, so the waiter waits for its deadline.
+                Err(error) if transport::is_gone(&error) => {
+                    let key = turn.wake.key.clone();
+                    let gone = self
+                        .run(move |backend, context| {
+                            let Backend::File(file) = backend else {
+                                return Ok(false);
+                            };
+                            file.holder_gone(context, &key)
+                        })
+                        .await;
+                    match gone {
+                        Ok(true) => {
+                            let _ = self.0.wakes.send(turn.wake);
+                        }
+                        Ok(false) => {
+                            tracing::debug!(%error, "a Delegation's live holder was not reached; the waiter waits for its own deadline");
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "a recalled Delegation's holder was not read; the waiter waits for its own deadline");
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(%error, "a Delegation's holder was not reached; the waiter waits for its own deadline");
+                }
+            }
+            return;
+        }
         loop {
             if self.0.endpoint.as_deref() == Some(turn.endpoint.as_str()) {
                 let _ = self.0.wakes.send(turn.wake);
@@ -925,13 +1501,13 @@ impl Politeness {
                     let generation = turn.generation;
                     let now = turn.now;
                     let next = self
-                        .run(move |connection, context| {
-                            connection
-                                .prepare_cached(GONE_WAITERS)
-                                .and_then(|mut cached| cached.execute([&gone]))
-                                .map_err(|error| sqlite_error(&context.path, &error))?;
-                            next_turn(connection, &key, generation, now)
-                                .map_err(|error| sqlite_error(&context.path, &error))
+                        .run(move |backend, context| {
+                            // A Run's own store wakes its waiters within the
+                            // engine: none of its endpoints is ever gone.
+                            let Backend::File(file) = backend else {
+                                return Ok(None);
+                            };
+                            file.gone_waiters(context, &gone, &key, generation, now)
                         })
                         .await;
                     match next {
@@ -949,6 +1525,25 @@ impl Politeness {
                 }
             }
         }
+    }
+}
+
+/// The job that changes the state `S` keeps under `key`, in one
+/// transaction on the file ([`Politeness::change`]).
+fn change_job<S, K, T, F>(
+    key: K,
+    reads: S::Reads,
+    change: F,
+) -> impl FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static
+where
+    S: KeyState,
+    K: Borrow<S::Key> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
+{
+    move |backend, context| match backend {
+        Backend::File(file) => file.change(context, key.borrow(), reads, change),
+        Backend::Memory(store) => Ok(store.change(key.borrow(), reads, change)),
     }
 }
 
@@ -985,27 +1580,15 @@ fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> Polit
     }
 }
 
-/// Counts `connection`'s opening and each transaction it commits on `work`,
-/// beneath every owner, so a contribution's transaction counts too (ADR
-/// 0140's E6): one Run's own file in memory, as [`open_file`] counts the
-/// user's file's.
-fn counting(connection: &Connection, work: &CountedWork) -> rusqlite::Result<()> {
-    work.count(Row::PolitenessOpens);
-    let work = work.clone();
-    connection.commit_hook(Some(move || {
-        work.count(Row::PolitenessTransactions);
-        false
-    }))
-}
-
 /// Opens the file, skips `fsync`, creates its tables and prepares its
-/// statements.
+/// statements; its opening's commits count on `E6.other_transactions`, and
+/// each later one on the row its job names.
 fn open_file(
     path: &Path,
     vfs: Option<&str>,
     work: &CountedWork,
     tables: &[PolitenessTables],
-) -> Result<Connection, PolitenessError> {
+) -> Result<FileBackend, PolitenessError> {
     let statements = statements(tables);
     File::new(path, vfs)
         .open(&Opening {
@@ -1016,7 +1599,7 @@ fn open_file(
             counting: Some(Counting {
                 work,
                 opens: Some(Row::PolitenessOpens),
-                transactions: Row::PolitenessTransactions,
+                transactions: Row::PolitenessOtherTransactions,
                 counts_switch: true,
             }),
             schema: Some(Schema {
@@ -1027,7 +1610,8 @@ fn open_file(
         .map_err(|error| open_failed(path, error))
         .and_then(|connection| {
             prepare_statements(&connection, tables)
-                .map(|()| connection)
+                .and_then(|()| delegation::Commits::count(&connection, work))
+                .map(|commits| FileBackend::new(connection, commits, work.clone()))
                 .map_err(|error| sqlite_error(path, &error))
         })
 }
@@ -1045,22 +1629,6 @@ fn prepare_statements(
         .copied()
         .collect();
     sqlite_store::prepare_immediate(connection, &prepared)
-}
-
-/// Creates the tables of the file `connection` holds, one Run's own in
-/// memory, checks its format version and prepares its statements.
-fn create_tables(
-    connection: &mut Connection,
-    path: &Path,
-    tables: &[PolitenessTables],
-) -> Result<(), PolitenessError> {
-    Schema {
-        format: &POLITENESS_FILE,
-        statements: &statements(tables),
-    }
-    .create(connection)
-    .map_err(|error| open_failed(path, error))?;
-    prepare_statements(connection, tables).map_err(|error| sqlite_error(path, &error))
 }
 
 /// The engine's own tables' statements, then each contribution's.
@@ -1129,6 +1697,7 @@ fn next_turn(
         },
         generation,
         now,
+        recall: false,
     }))
 }
 
@@ -1175,25 +1744,141 @@ fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::R
     Ok(reclaimed)
 }
 
-fn take_in(
-    connection: &Connection,
-    context: &Context,
-    key: &str,
-    holder: &Holder,
-    rule: &SharedRule,
-    now: SystemTime,
-    in_turn: bool,
-) -> Result<(Taken, Option<Turn>), PolitenessError> {
-    sqlite_store::immediate(connection, |transaction| {
-        rule.0
-            .taken(transaction, context, key, holder, now, in_turn)
-    })
-    .map_err(|error| sqlite_error(&context.path, &error))
+/// A Politeness of one Run's own, in memory ([`Politeness::own`]), held
+/// by the one task that serves it, such as its crawl's loop through the
+/// Run's admission: that task takes and gives back its Permits with no
+/// message, and runs the jobs the Run's other tasks send it through their
+/// handles ([`OwnPoliteness::serve`]), so the Run's Politeness has no actor
+/// of its own (#2171).
+pub struct OwnPoliteness {
+    backend: Backend,
+    context: Context,
+    jobs: mpsc::Receiver<Job>,
 }
 
-/// [`take_in`]'s work, in its transaction: the key's state is loaded once,
-/// for both admissions and the start, and only what the start wrote is
-/// saved.
+impl fmt::Debug for OwnPoliteness {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnPoliteness")
+            .finish_non_exhaustive()
+    }
+}
+
+impl OwnPoliteness {
+    /// Takes a Permit under `key` for `holder` at `now` as
+    /// [`Politeness::take`] does, after every job sent before it, and
+    /// wakes the waiter whose turn it is.
+    pub fn take(
+        &mut self,
+        key: &str,
+        holder: &Holder,
+        rule: &SharedRule,
+        now: SystemTime,
+    ) -> Taken {
+        self.drain();
+        let (taken, turn) =
+            rule.0
+                .taken_in_memory(memory_of(&mut self.backend), key, holder, now, true);
+        self.context.wake(turn);
+        taken
+    }
+
+    /// Gives `permit` back at `now` as [`Politeness::give_back`] does,
+    /// after every job sent before it; answers when its key may go again,
+    /// if later than `now`.
+    pub fn give_back(
+        &mut self,
+        permit: &Permit,
+        rule: &SharedRule,
+        ending: Ending,
+        now: SystemTime,
+    ) -> Option<SystemTime> {
+        self.drain();
+        let (ready_at, turn) =
+            rule.0
+                .given_back_in_memory(memory_of(&mut self.backend), permit, ending, now);
+        self.context.wake(turn);
+        ready_at
+    }
+
+    /// Withdraws `holder` as a waiter of every key, as its Run stops.
+    pub fn stop_waiting(&mut self, holder: &Holder) {
+        self.drain();
+        memory_of(&mut self.backend).stop_waiting(&holder.run_id);
+    }
+
+    /// Runs the next job a handle sent, and every one queued behind it;
+    /// pending for ever once no handle is left.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no job.
+    pub async fn serve(&mut self) {
+        match self.jobs.recv().await {
+            Some(job) => {
+                job(&mut self.backend, &self.context);
+                self.drain();
+            }
+            None => std::future::pending().await,
+        }
+    }
+
+    /// Runs every job queued now, in the order they were sent.
+    fn drain(&mut self) {
+        while let Ok(job) = self.jobs.try_recv() {
+            job(&mut self.backend, &self.context);
+        }
+    }
+
+    /// Serves it from an actor of `owner`'s.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when `owner` no longer starts tasks.
+    pub fn serve_on(self, owner: &TaskOwner) -> Result<(), PolitenessError> {
+        serve_on(owner, self.backend, self.context, self.jobs)
+    }
+}
+
+/// Serves `backend`'s jobs from an actor of `owner`'s.
+fn serve_on(
+    owner: &TaskOwner,
+    mut backend: Backend,
+    context: Context,
+    jobs: mpsc::Receiver<Job>,
+) -> Result<(), PolitenessError> {
+    let failed = context.path.clone();
+    owner
+        .actor("politeness-file", jobs, move |group: Vec<Job>| {
+            for job in group {
+                job(&mut backend, &context);
+            }
+            // The takes of the group that ask for a Delegation are answered
+            // together, after it: one transaction takes every Delegation
+            // they ask for.
+            if let Backend::File(file) = &mut backend {
+                file.take_asked_delegations(&context);
+            }
+        })
+        .map_err(|error| sqlite_error(&failed, &error))
+}
+
+/// The store of a Run's own Politeness, which only such a Politeness
+/// sends jobs that read it.
+fn memory_of(backend: &mut Backend) -> &mut memory::Store {
+    match backend {
+        Backend::Memory(store) => store,
+        Backend::File(_) => {
+            unreachable!("invariant: only a Run's own Politeness is held in memory")
+        }
+    }
+}
+
+/// A take's work in the file, in its transaction: the key's state is
+/// loaded once, for both admissions and the start, and only what the start
+/// wrote is saved. Another engine's live Run holding the key's Delegation
+/// makes it wait in turn and recall the Delegation from that engine; one
+/// that is gone has it reclaimed first.
 fn taken_in<R: PermitRule>(
     transaction: &Connection,
     context: &Context,
@@ -1203,6 +1888,16 @@ fn taken_in<R: PermitRule>(
     now: SystemTime,
     in_turn: bool,
 ) -> rusqlite::Result<(Taken, Option<Turn>)> {
+    if let Some(holding) = delegation::held_elsewhere(transaction, context, key, rule, now)? {
+        let mut recall = None;
+        if in_turn && let Some(endpoint) = &context.endpoint {
+            // The turn a woken waiter would pass on finds the key held
+            // too: the holder's give back wakes the waiter in turn.
+            wait_in_turn(transaction, key, &holder.run_id, endpoint, now)?;
+            recall = Some(Turn::recall(holding, key, &holder.run_id, now));
+        }
+        return Ok((Taken::Wait(None), recall));
+    }
     let taken = |transaction: &Connection| taken_room(transaction, key, &holder.run_id, now);
     let in_flight = taken(transaction)?;
     let mut state = R::State::load(transaction, key, rule.reads(Step::Take))?;
@@ -1234,6 +1929,8 @@ fn taken_in<R: PermitRule>(
             Taken::Granted(Permit {
                 id,
                 key: key.to_owned(),
+                send_at: None,
+                delegated: false,
             })
         }
         Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
@@ -1281,20 +1978,20 @@ fn wait_in_turn(
 }
 
 fn give_back_in(
-    connection: &Connection,
+    backend: &mut Backend,
     context: &Context,
     permit: &Permit,
     rule: &SharedRule,
     ending: Ending,
     now: SystemTime,
 ) -> Result<(Option<SystemTime>, Option<Turn>), PolitenessError> {
-    sqlite_store::immediate(connection, |transaction| {
-        rule.0.given_back(transaction, permit, ending, now)
-    })
-    .map_err(|error| sqlite_error(&context.path, &error))
+    match backend {
+        Backend::File(file) => file.give_back(context, permit, rule, ending, now),
+        Backend::Memory(store) => Ok(rule.0.given_back_in_memory(store, permit, ending, now)),
+    }
 }
 
-/// [`give_back_in`]'s work, in its transaction.
+/// A give back's work in the file, in its transaction.
 fn given_back_in<R: PermitRule>(
     transaction: &Connection,
     permit: &Permit,

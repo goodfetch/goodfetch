@@ -226,6 +226,7 @@ async fn browser_sending(stream: DuplexStream, host: &str, sent: &[u8]) -> Shown
 pub(super) struct Stores {
     store: KnownCertificates,
     pub(super) book: PinBook,
+    home: Home,
     _env: TestEnv,
 }
 
@@ -251,6 +252,7 @@ pub(super) fn stores() -> Stores {
     Stores {
         store,
         book,
+        home,
         _env: env,
     }
 }
@@ -580,7 +582,7 @@ fn a_damaged_pin_row_stops_the_host_as_a_changed_key() {
             jiff::Timestamp::UNIX_EPOCH,
         ))
         .unwrap();
-    rusqlite::Connection::open(stores.store.path())
+    rusqlite::Connection::open(stores.home.known_certificates())
         .unwrap()
         .execute("UPDATE pins SET spki_sha256 = x'0102'", [])
         .unwrap();

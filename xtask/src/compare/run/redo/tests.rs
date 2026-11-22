@@ -189,6 +189,7 @@ fn a_redo_is_refused_at_another_commit_or_on_another_machine() {
         profile_folder: "release",
         crawlee: nowhere,
         scrapy: nowhere,
+        foxhound_program: nowhere,
         browser: nowhere,
         collie: None,
         foxhound_settings: &[],
@@ -196,7 +197,7 @@ fn a_redo_is_refused_at_another_commit_or_on_another_machine() {
     let options = Options {
         only: vec![(Scenario::Raw, "foxhound")],
         ..crate::compare::options(
-            &crate::compare::recipe_arguments(&[]),
+            &crate::compare::tests::recipe_arguments(&[]),
             &crate::environment::Environment::of(&[]),
         )
         .expect("invariant: the recipe's arguments name no cell")

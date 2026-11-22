@@ -60,16 +60,16 @@
     reason = "the rule runs inside the Politeness file's transaction, a blocking call that may run inline on a runtime thread: one Mutex guards a gate's Entropy for one draw, never held with another lock or across an await, so there is no lock order to test under loom"
 )]
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
-    Ending, Hold, KeyState, PermitRule, Politeness, PolitenessError, PolitenessTables, Step,
-    Verdict, milliseconds, moment,
+    Ending, Hold, KeyState, MemoryTables, PermitRule, Politeness, PolitenessError,
+    PolitenessTables, Step, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::catalog::Setting;
@@ -591,6 +591,11 @@ impl Parts {
         pacing: true,
         ..Self::NONE
     };
+    /// The Crawl-delays its hosts' robots.txt ask for, alone.
+    pub(crate) const CRAWL_DELAYS: Self = Self {
+        crawl_delays: true,
+        ..Self::NONE
+    };
     /// Its limits and its pacing.
     pub(crate) const PACED: Self = Self {
         limits: true,
@@ -612,6 +617,9 @@ pub(crate) struct Wrote {
     pacing: bool,
     /// The location whose Crawl-delay it asked for or dropped.
     crawl_delay: Option<String>,
+    /// Whether it read a robots.txt's Crawl-delay, changed or not: a
+    /// site's ask (`KeyState::read_an_ask`), which saves nothing itself.
+    read_an_ask: bool,
 }
 
 impl Wrote {
@@ -620,12 +628,14 @@ impl Wrote {
         limits: true,
         pacing: false,
         crawl_delay: None,
+        read_an_ask: false,
     };
     /// Its pacing.
     const PACING: Self = Self {
         limits: false,
         pacing: true,
         crawl_delay: None,
+        read_an_ask: false,
     };
 
     /// What it and `other` wrote.
@@ -634,6 +644,7 @@ impl Wrote {
             limits: self.limits || other.limits,
             pacing: self.pacing || other.pacing,
             crawl_delay: self.crawl_delay.or(other.crawl_delay),
+            read_an_ask: self.read_an_ask || other.read_an_ask,
         }
     }
 }
@@ -647,6 +658,24 @@ pub(crate) struct DomainState {
     limits: Limits,
     pacing: Pacing,
     crawl_delays: BTreeMap<String, Duration>,
+}
+
+/// The domain keys' states a Run's own Politeness keeps in memory, by key.
+#[derive(Default)]
+pub(crate) struct Domains(HashMap<String, DomainState>);
+
+impl Domains {
+    /// The state kept under `key`, or none yet.
+    fn of<'a>(tables: &'a MemoryTables, key: &str) -> Option<&'a DomainState> {
+        tables.get::<Self>().and_then(|domains| domains.0.get(key))
+    }
+
+    /// The limits kept under `key`, or the defaults.
+    fn limits_in(tables: &MemoryTables, key: &str) -> Limits {
+        Self::of(tables, key)
+            .map(|kept| kept.limits)
+            .unwrap_or_default()
+    }
 }
 
 impl KeyState for DomainState {
@@ -697,6 +726,95 @@ impl KeyState for DomainState {
         }
         Ok(())
     }
+
+    fn load_from(tables: &MemoryTables, key: &str, reads: Parts) -> Self {
+        let Some(kept) = Domains::of(tables, key) else {
+            return Self::default();
+        };
+        Self {
+            limits: if reads.limits {
+                kept.limits
+            } else {
+                Limits::default()
+            },
+            pacing: if reads.pacing {
+                kept.pacing
+            } else {
+                Pacing::default()
+            },
+            crawl_delays: if reads.crawl_delays {
+                kept.crawl_delays.clone()
+            } else {
+                BTreeMap::new()
+            },
+        }
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, key: &str, wrote: &Wrote) {
+        let kept = tables
+            .get_mut::<Domains>()
+            .0
+            .entry(key.to_owned())
+            .or_default();
+        if wrote.limits {
+            kept.limits = self.limits;
+        }
+        if wrote.pacing {
+            kept.pacing = self.pacing;
+        }
+        if let Some(location) = &wrote.crawl_delay {
+            match self.crawl_delays.get(location) {
+                Some(delay) => kept.crawl_delays.insert(location.clone(), *delay),
+                None => kept.crawl_delays.remove(location),
+            };
+        }
+    }
+
+    /// A domain key's Delegation holds its whole state in memory (ADR
+    /// 0142): its limits and pacing go back to the file with the
+    /// Delegation, or as soon as a site asks to back off.
+    const DELEGATES: bool = true;
+
+    fn delegated_under(key: &str) -> Option<&str> {
+        Some(key)
+    }
+
+    /// A Crawl-delay a robots.txt asks for reaches the file at once, for
+    /// every engine.
+    fn asked(wrote: &Wrote) -> bool {
+        wrote.crawl_delay.is_some()
+    }
+
+    fn read_an_ask(wrote: &Wrote) -> bool {
+        wrote.read_an_ask
+    }
+
+    fn delegate(
+        connection: &Connection,
+        key: &str,
+        tables: &mut MemoryTables,
+    ) -> rusqlite::Result<()> {
+        let state = Self::load(connection, key, Parts::ALL)?;
+        tables.get_mut::<Domains>().0.insert(key.to_owned(), state);
+        Ok(())
+    }
+
+    /// Its Crawl-delays were written as they were asked for
+    /// ([`asked`](KeyState::asked)).
+    fn write_back(
+        tables: &MemoryTables,
+        key: &str,
+        connection: &Connection,
+    ) -> rusqlite::Result<()> {
+        let Some(kept) = Domains::of(tables, key) else {
+            return Ok(());
+        };
+        kept.save(connection, key, &Wrote::LIMITS.and(Wrote::PACING))
+    }
+
+    fn forget(tables: &mut MemoryTables, key: &str) {
+        tables.get_mut::<Domains>().0.remove(key);
+    }
 }
 
 impl DomainState {
@@ -745,6 +863,37 @@ impl DomainState {
         (None, wrote.and(self.start_noted(moment(now))))
     }
 
+    /// Reserves the send of a crawl request granted at `now` by a run of
+    /// `pace`, on a Politeness held in memory (#2171): the earliest moment
+    /// its delay after the key's last send and its rate's token allow, the
+    /// send then taken as if it went at that moment
+    /// ([`send_taken`](Self::send_taken)). Its page's task waits until it,
+    /// sends, and notes the true send, of which the later is kept.
+    pub(crate) fn send_reserved(&mut self, now: SystemTime, pace: Pace) -> (SystemTime, Wrote) {
+        let at = pace
+            .send_waits_until(&self.limits, &self.pacing, self.asked(), milliseconds(now))
+            .map_or(now, moment);
+        let (_, wrote) = self.send_taken(at, Some(pace));
+        (at, wrote)
+    }
+
+    /// Settles at `now` the send [`send_reserved`](Self::send_reserved)
+    /// reserved for `reserved`: the later of the two becomes the key's
+    /// last send and start, and a send later than its reservation moves
+    /// the rate's token of the sends as late, so the next reservation
+    /// counts its interval from the true send.
+    pub(crate) fn send_settled(&mut self, now: SystemTime, reserved: SystemTime) -> Wrote {
+        let late = milliseconds_from(now).saturating_sub(milliseconds_from(reserved));
+        let wrote = self.send_taken(now, None).1;
+        match self.pacing.theoretical_send {
+            Some(theoretical) if late > 0 => {
+                self.pacing.theoretical_send = Some(theoretical.saturating_add(late));
+                wrote.and(Wrote::PACING)
+            }
+            _ => wrote,
+        }
+    }
+
     /// Records a second start at `now`: the later of it and the last start
     /// becomes the last, and the rate's token moves to it
     /// ([`start_moved`](Self::start_moved)).
@@ -766,14 +915,17 @@ impl DomainState {
     }
 
     /// Records that the robots.txt at `location` asks for the Crawl-delay
-    /// `delay`, or for none, replacing what it asked before.
+    /// `delay`, or for none, replacing what it asked before; a state that
+    /// read its Crawl-delays ([`Parts::CRAWL_DELAYS`]) and holds that one
+    /// already writes nothing, so no ask reaches the file.
     pub(crate) fn crawl_delay_asked(&mut self, location: String, delay: Option<Duration>) -> Wrote {
-        match delay {
+        let before = match delay {
             Some(delay) => self.crawl_delays.insert(location.clone(), delay),
             None => self.crawl_delays.remove(&location),
         };
         Wrote {
-            crawl_delay: Some(location),
+            crawl_delay: (before != delay).then_some(location),
+            read_an_ask: true,
             ..Wrote::default()
         }
     }
@@ -842,6 +994,27 @@ pub(crate) struct DocumentReads {
 }
 
 impl DocumentStart {
+    /// Its value for a copy fetched at `copy_fetched_at`: the key's limits,
+    /// which `limits` reads, only when its document waits.
+    fn read<E>(
+        copy_fetched_at: Option<i64>,
+        reads: DocumentReads,
+        limits: impl FnOnce() -> Result<Limits, E>,
+    ) -> Result<Self, E> {
+        let limits = match document_waits(
+            Self::after(reads.fetched, copy_fetched_at),
+            reads.spacing,
+            reads.now,
+        ) {
+            Some(_) => limits()?,
+            None => Limits::default(),
+        };
+        Ok(Self {
+            copy_fetched_at,
+            limits,
+        })
+    }
+
     /// The moment its document counts from: `fetched`, else the copy's
     /// fetch. The copy keeps the millisecond its fetch ended in: it ended
     /// before the next.
@@ -883,18 +1056,7 @@ impl KeyState for DocumentStart {
             Some(_) => None,
             None => robots_txt::stored(connection, location)?.map(|copy| copy.fetched_at),
         };
-        let limits = match document_waits(
-            Self::after(reads.fetched, copy_fetched_at),
-            reads.spacing,
-            reads.now,
-        ) {
-            Some(_) => Limits::read(connection, key)?,
-            None => Limits::default(),
-        };
-        Ok(Self {
-            copy_fetched_at,
-            limits,
-        })
+        Self::read(copy_fetched_at, reads, || Limits::read(connection, key))
     }
 
     fn save(
@@ -908,6 +1070,55 @@ impl KeyState for DocumentStart {
         }
         Ok(())
     }
+
+    fn load_from(
+        tables: &MemoryTables,
+        (key, location): &(String, String),
+        reads: DocumentReads,
+    ) -> Self {
+        let copy_fetched_at = match reads.fetched {
+            Some(_) => None,
+            None => robots_txt::kept_in(tables, location).map(|copy| copy.fetched_at),
+        };
+        let kept = || Ok::<_, std::convert::Infallible>(Domains::limits_in(tables, key));
+        match Self::read(copy_fetched_at, reads, kept) {
+            Ok(start) => start,
+            Err(never) => match never {},
+        }
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, (key, _): &(String, String), took: &bool) {
+        if *took {
+            tables
+                .get_mut::<Domains>()
+                .0
+                .entry(key.clone())
+                .or_default()
+                .limits = self.limits;
+        }
+    }
+
+    /// Its domain key's limits are held by that key's Delegation.
+    fn delegated_under((key, _): &(String, String)) -> Option<&str> {
+        Some(key)
+    }
+
+    /// The robots.txt copy is the file's, shared by every engine; the
+    /// limits are the Delegation's.
+    fn load_delegated(
+        connection: &Connection,
+        tables: &MemoryTables,
+        (key, location): &(String, String),
+        reads: DocumentReads,
+    ) -> rusqlite::Result<Self> {
+        let copy_fetched_at = match reads.fetched {
+            Some(_) => None,
+            None => robots_txt::stored(connection, location)?.map(|copy| copy.fetched_at),
+        };
+        Self::read(copy_fetched_at, reads, || {
+            Ok(Domains::limits_in(tables, key))
+        })
+    }
 }
 
 impl PermitRule for DomainRule {
@@ -915,6 +1126,12 @@ impl PermitRule for DomainRule {
 
     fn paces(&self) -> bool {
         self.concurrency.is_some() || self.pace.paces()
+    }
+
+    /// `politeness.domain.concurrency`: a 429's ceiling only lowers the
+    /// cap below it ([`Limits::admit`]).
+    fn concurrency(&self) -> Option<u64> {
+        self.concurrency
     }
 
     fn reads(&self, step: Step) -> Parts {
@@ -970,11 +1187,18 @@ impl PermitRule for DomainRule {
             .map(moment);
         (ready_at, Wrote::LIMITS)
     }
+
+    /// The send of a crawl request granted at `now`, reserved with its
+    /// grant on a Politeness held in memory (`DomainState::send_reserved`).
+    fn reserved(&self, state: &mut DomainState, now: SystemTime) -> Option<(SystemTime, Wrote)> {
+        Some(state.send_reserved(now, self.pace))
+    }
 }
 
 /// A second request under the Permit a request of `key` holds started at
 /// `now`, such as its document after its origin's robots.txt: every run
-/// sharing `politeness` counts its delay from it (ADR 0086).
+/// sharing `politeness` counts its delay from it (ADR 0086). On a
+/// Politeness held in memory it is noted without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -989,10 +1213,10 @@ pub async fn started_again(
     now: SystemTime,
 ) -> Result<(), PolitenessError> {
     politeness
-        .change(
+        .note(
             key.to_owned(),
             Parts::PACED,
-            move |state: &mut DomainState| ((), state.start_noted(now)),
+            move |state: &mut DomainState| state.start_noted(now),
         )
         .await
 }
@@ -1011,7 +1235,10 @@ pub async fn started_again(
 /// counted from an earlier start therefore never lets a request reach the
 /// site within the delay or the interval of one whose send came later than
 /// its own admission. Hops and a handler's navigations pass `None`: they
-/// wait for nothing here, and their sends still count.
+/// wait for nothing here, and their sends still count, on a Politeness
+/// held in memory noted without waiting, ahead of any take queued after
+/// it (#2171). A crawl request's own send whose grant
+/// reserved its moment there goes through [`settled_at_send`] instead.
 ///
 /// # Errors
 ///
@@ -1026,6 +1253,21 @@ pub async fn started_at_send(
     clock: Clock,
     pace: Option<Pace>,
 ) -> Result<Option<SystemTime>, PolitenessError> {
+    if pace.is_none() {
+        let sent = sent_now(politeness, clock);
+        return politeness
+            .note(
+                key.to_owned(),
+                DomainState::send_reads(None),
+                move |state: &mut DomainState| {
+                    state
+                        .send_taken(sent.unwrap_or_else(|| clock.wall()), None)
+                        .1
+                },
+            )
+            .await
+            .map(|()| None);
+    }
     politeness
         .change(
             key.to_owned(),
@@ -1033,6 +1275,46 @@ pub async fn started_at_send(
             move |state: &mut DomainState| state.send_taken(clock.wall(), pace),
         )
         .await
+}
+
+/// A crawl request's own send of `key`, now, after it waited for the
+/// moment `reserved` its grant reserved on a Politeness held in memory
+/// (`DomainState::send_reserved`, #2171): noted without waiting, ahead of
+/// any take queued after it, the later of the two kept as the key's last
+/// send and the rate's token of the sends moved as late as the send came.
+///
+/// # Errors
+///
+/// When the task that holds the Politeness stopped.
+///
+/// # Cancel safety
+///
+/// Dropping the future before the note is queued drops it.
+pub async fn settled_at_send(
+    politeness: &Politeness,
+    key: &str,
+    clock: Clock,
+    reserved: SystemTime,
+) -> Result<(), PolitenessError> {
+    let sent = sent_now(politeness, clock);
+    politeness
+        .note(
+            key.to_owned(),
+            Parts::PACED,
+            move |state: &mut DomainState| {
+                state.send_settled(sent.unwrap_or_else(|| clock.wall()), reserved)
+            },
+        )
+        .await
+}
+
+/// The instant a send noted on `politeness` went, read now when its note
+/// runs later on the task that holds a Politeness held in memory, which
+/// the page does not wait for (#2171); `None` on the file, whose page
+/// sends only once the transaction recorded it, the transaction reading
+/// it then.
+fn sent_now(politeness: &Politeness, clock: Clock) -> Option<SystemTime> {
+    politeness.held_in_memory().then(|| clock.wall())
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
@@ -1148,7 +1430,8 @@ fn crawl_delays(
 /// Records, for every run sharing `politeness`, that the robots.txt at
 /// `location` asks the requests of `key` for the Crawl-delay `delay`, or
 /// for none (ADR 0086): each such run then waits it between starts on
-/// `key`, up to its own `site_preferences.max_crawl_delay`.
+/// `key`, up to its own `site_preferences.max_crawl_delay`. On a
+/// Politeness of its Run's own it is noted without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -1165,19 +1448,110 @@ pub async fn crawl_delay_read(
 ) -> Result<(), PolitenessError> {
     let location = location.to_owned();
     politeness
-        .change(
+        .note(
             key.to_owned(),
-            Parts::NONE,
-            move |state: &mut DomainState| ((), state.crawl_delay_asked(location, delay)),
+            Parts::CRAWL_DELAYS,
+            move |state: &mut DomainState| state.crawl_delay_asked(location, delay),
         )
         .await
+}
+
+/// The most asks a Run's [`CrawlDelays`] remembers: past it, one it let go
+/// is recorded again by its next read, as every read was before #1899.
+const REMEMBERED_ASKS: u64 = 10_000;
+
+/// The Crawl-delays a Run recorded in the Politeness it shares: each read
+/// of a robots.txt records what it asks ([`crawl_delay_read`]) only when
+/// the Run has not recorded that copy of it already, so a Run's attempts on
+/// one host cost the file one transaction a copy, not one each (#1899). A
+/// newer copy, fetched by this Run or another, is recorded once this Run
+/// reads it, whatever it asks. Clones share what they remember.
+#[derive(Clone)]
+pub struct CrawlDelays {
+    politeness: Politeness,
+    /// The copy this Run last recorded for each key and robots.txt
+    /// location, at most [`REMEMBERED_ASKS`]: held weakly, so it keeps no
+    /// copy the Run let go, and none of its addresses is another copy's.
+    recorded: moka::sync::Cache<Asked, Weak<goodfetch_engine::robots_txt::Fetched>>,
+}
+
+/// A key and the location of the robots.txt it read, as [`CrawlDelays`]
+/// remembers them.
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct Asked {
+    key: Box<str>,
+    location: Box<str>,
+}
+
+/// An [`Asked`] borrowed for a lookup, so a read of a recorded copy
+/// allocates nothing. Its derived hash is the key's, field for field.
+#[derive(Hash)]
+struct AskedLookup<'a> {
+    key: &'a str,
+    location: &'a str,
+}
+
+impl moka::Equivalent<Asked> for AskedLookup<'_> {
+    fn equivalent(&self, asked: &Asked) -> bool {
+        self.key == &*asked.key && self.location == &*asked.location
+    }
+}
+
+impl CrawlDelays {
+    /// What a Run records in `politeness`, nothing yet.
+    pub fn new(politeness: Politeness) -> Self {
+        Self {
+            politeness,
+            recorded: moka::sync::Cache::new(REMEMBERED_ASKS),
+        }
+    }
+
+    /// Records that the robots.txt at `location` asks the requests of `key`
+    /// for the Crawl-delay `delay`, or for none, as [`crawl_delay_read`]
+    /// does, unless this Run recorded the ask of `copy`, the copy `delay`
+    /// was read from, already.
+    ///
+    /// # Errors
+    ///
+    /// As [`crawl_delay_read`]; the ask is then recorded again by the next
+    /// read.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`crawl_delay_read`].
+    pub async fn read(
+        &self,
+        key: &str,
+        location: &str,
+        copy: &Arc<goodfetch_engine::robots_txt::Fetched>,
+        delay: Option<Duration>,
+    ) -> Result<(), PolitenessError> {
+        let asked = AskedLookup { key, location };
+        if self
+            .recorded
+            .get(&asked)
+            .is_some_and(|recorded| std::ptr::eq(recorded.as_ptr(), Arc::as_ptr(copy)))
+        {
+            return Ok(());
+        }
+        crawl_delay_read(&self.politeness, key, location, delay).await?;
+        self.recorded.insert(
+            Asked {
+                key: key.into(),
+                location: location.into(),
+            },
+            Arc::downgrade(copy),
+        );
+        Ok(())
+    }
 }
 
 /// Records, for every run sharing `politeness`, that a response of `key`
 /// arrived `latency` after its request was sent: each run with
 /// `politeness.domain.adaptive_delay` on then waits at least the weighted
 /// mean of that latency between starts on `key`, up to its own
-/// `politeness.backoff.max`.
+/// `politeness.backoff.max`. On a Politeness held in memory it is noted
+/// without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -1192,10 +1566,10 @@ pub async fn latency_measured(
     latency: Duration,
 ) -> Result<(), PolitenessError> {
     politeness
-        .change(
+        .note(
             key.to_owned(),
             Parts::PACING,
-            move |state: &mut DomainState| ((), state.latency_noted(latency)),
+            move |state: &mut DomainState| state.latency_noted(latency),
         )
         .await
 }

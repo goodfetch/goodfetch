@@ -46,7 +46,7 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
-use super::{Opener, Sessions, held_browser};
+use super::{Opener, Sessions, held_browser, set_outside_code};
 use crate::borrowed::CdpUrl;
 use crate::dialogs::Dialogs;
 use crate::interception::{HeldBrowser, Interception};
@@ -143,6 +143,7 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
         key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
         value: json!(32 << 20),
         layer: SettingsLayer::Run,
+        origin: None,
     };
     life.end(&Ending::MemoryExceeded {
         memory: 64 << 20,
@@ -181,7 +182,8 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
-        let mut open = std::pin::pin!(sessions.open_held(&run, None, Opener::Default, &context));
+        let mut open =
+            std::pin::pin!(sessions.open_held(&run, None, None, Opener::Default, &context));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -223,7 +225,9 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
             address_ordinal: None,
         },
     };
-    let position = sessions.open_held(&run, None, opener, &context).await?;
+    let position = sessions
+        .open_held(&run, None, None, opener, &context)
+        .await?;
     let session = super::session_id(run.id(), position);
     let open = Arc::clone(&sessions.state.lock().await.sessions[&session]);
     let commits = run.state().commits();
@@ -413,4 +417,28 @@ fn only_a_session_the_run_file_records_commits_its_end(#[case] opener: &str, #[c
     );
 
     assert_eq!(reply["result"], json!({ "commits": commits }), "{reply}");
+}
+
+/// A setting a program's own code sets at no scope is refused at a
+/// Session's or a page's opening with the place that does set it, never
+/// the Run, which refuses it too (ADR 0083): only configuration sets
+/// `proxy.providers`, only an Operator policy `stealth.allowed_builds`,
+/// only the project file `timeout.connect`; one some scope sets is left to that scope's own advice.
+#[rstest]
+#[case::configuration_alone(
+    "proxy.providers",
+    Some("set it in configuration or an Operator policy, which alone set it")
+)]
+#[case::an_operator_policy_alone("stealth.allowed_builds", Some("set it in an Operator policy"))]
+#[case::the_project_file_alone(
+    "timeout.connect",
+    Some("set it in the project file, which `connect()` and the CLI read before they connect")
+)]
+#[case::one_a_session_sets("browser.access_mode", None)]
+#[case::one_a_run_sets("timeout.navigation", None)]
+fn a_setting_no_scope_sets_is_refused_with_where_it_is_set(
+    #[case] key: &str,
+    #[case] fix: Option<&str>,
+) {
+    assert_eq!(set_outside_code(key), fix);
 }

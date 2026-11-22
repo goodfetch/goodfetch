@@ -1,0 +1,76 @@
+---
+source: xtask/tests/it/release.rs
+expression: changes(&workspace)
+---
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7 +7 @@ name = "goodfetch-collie"
+-version = "0.0.0"
++version = "1.4.0"
+@@ -15 +15 @@ name = "goodfetch-collie-client"
+-version = "0.0.0"
++version = "1.4.0"
+@@ -26 +26 @@ name = "goodfetch-foxhound"
+-version = "0.0.0"
++version = "1.4.0"
+--- a/crates/foxhound/goodfetch-foxhound/Cargo.toml
++++ b/crates/foxhound/goodfetch-foxhound/Cargo.toml
+@@ -3 +3 @@ name = "goodfetch-foxhound"
+-version.workspace = true
++version = "1.4.0"
+--- a/crates/goodfetch-collie-client/Cargo.toml
++++ b/crates/goodfetch-collie-client/Cargo.toml
+@@ -3 +3 @@ name = "goodfetch-collie-client"
+-version.workspace = true
++version = "1.4.0"
+--- a/crates/goodfetch-collie/Cargo.toml
++++ b/crates/goodfetch-collie/Cargo.toml
+@@ -3 +3 @@ name = "goodfetch-collie"
+-version.workspace = true
++version = "1.4.0"
+--- a/sdks/python/collie-client/pyproject.toml
++++ b/sdks/python/collie-client/pyproject.toml
+@@ -3 +3 @@ name = "goodfetch-collie-client"
+-version = "0.0.0"
++version = "1.4.0"
+--- a/sdks/python/collie/pyproject.toml
++++ b/sdks/python/collie/pyproject.toml
+@@ -3 +3 @@ name = "goodfetch-collie"
+-version = "0.0.0"
++version = "1.4.0"
+@@ -6 +6 @@ version = "0.0.0"
+-dependencies = ["goodfetch-collie-client==0.0.0"]
++dependencies = ["goodfetch-collie-client==1.4.0"]
+--- a/sdks/python/foxhound/pyproject.toml
++++ b/sdks/python/foxhound/pyproject.toml
+@@ -3,2 +3,2 @@ name = "goodfetch-foxhound"
+-version = "0.0.0"
+-dependencies = ["goodfetch-collie-client==0.0.0"]
++version = "1.4.0"
++dependencies = ["goodfetch-collie-client==1.4.0"]
+--- a/sdks/typescript/collie-client/package.json
++++ b/sdks/typescript/collie-client/package.json
+@@ -3 +3 @@
+-  "version": "0.0.0",
++  "version": "1.4.0",
+--- a/sdks/typescript/collie/package.json
++++ b/sdks/typescript/collie/package.json
+@@ -3 +3 @@
+-  "version": "0.0.0",
++  "version": "1.4.0",
+--- a/sdks/typescript/foxhound/package.json
++++ b/sdks/typescript/foxhound/package.json
+@@ -3 +3 @@
+-  "version": "0.0.0",
++  "version": "1.4.0",
+--- a/uv.lock
++++ b/uv.lock
+@@ -15 +15 @@ name = "goodfetch-collie"
+-version = "0.0.0"
++version = "1.4.0"
+@@ -26 +26 @@ name = "goodfetch-collie-client"
+-version = "0.0.0"
++version = "1.4.0"
+@@ -31 +31 @@ name = "goodfetch-foxhound"
+-version = "0.0.0"
++version = "1.4.0"

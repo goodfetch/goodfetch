@@ -3,12 +3,14 @@
 // builds. Hand-written, since no catalog entry shapes it; the client
 // package's runtime implements it.
 import type { Caller, OperationTypes } from "./caller.ts";
+import type { RawHost } from "./raw-call.ts";
+// The errors module itself, not the package index, which re-exports the
+// handles that import this module.
+import { SettingInvalidError } from "./generated/errors.ts";
 
 /** What a handle of ID `Id` reaches its engine through. */
-export interface HandleHost<
-  Id,
-  Types extends Record<keyof Types, OperationTypes>,
-> extends Caller<Types> {
+export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes>>
+  extends Caller<Types>, RawHost {
   /** The ID each of the handle's calls carries. */
   readonly id: Id;
   /** The host of a handle this one opens or builds, whose calls carry `id`. */
@@ -23,6 +25,79 @@ export interface HandleHost<
     operation: Name,
     params: Types[Name]["params"],
   ): Promise<void>;
+  /**
+   * Registers `listener` for `event` through `operation`, the handle's `on`
+   * (ADR 0081), whose call is sent now and stays in flight until the
+   * `Subscription` closes or the value goes. With `opens`, `event` opens
+   * a value whose own events the call also carries, and `listener` gets
+   * that value in place of the payload.
+   */
+  listen<Name extends keyof Types & string, Payload>(
+    operation: Name,
+    params: Types[Name]["params"],
+    event: string,
+    listener: Listener<Payload>,
+    opens?: Opens<Payload>,
+  ): Subscription;
+  /**
+   * Registers `listener` for `event` through `operation`, the handle's `on`
+   * whose events the engine publishes on its event stream (ADR 0081), such
+   * as `session.on`: the Connection's Subscription is sent first when none
+   * is in flight, then the call, which stays in flight until the
+   * `Subscription` closes or the value goes. The listener gets each `event`
+   * of the Connection's Subscription whose payload names the handle by
+   * `param`.
+   */
+  listenPublished<Name extends keyof Types & string, Payload>(
+    operation: Name,
+    params: Types[Name]["params"],
+    event: string,
+    param: string,
+    listener: Listener<Payload>,
+  ): Subscription;
+}
+
+/**
+ * A program's listener of a value's event (ADR 0081). It gets the event's
+ * payload and how many telemetry events of its scope the engine replaced
+ * since the last one sent, 0 for a lossless event; its events come one at a
+ * time, in order, and an awaitable it returns is awaited before the next.
+ * One that throws, or whose awaitable fails, is removed, and the next call
+ * on its value, or the `close()` that closes that value, raises
+ * `listener_failed`.
+ */
+export type Listener<Payload> = (payload: Payload, dropped: number) => unknown;
+
+/**
+ * A value an event opens (ADR 0081), such as the WebSocket of a page's
+ * `websocket`: the call that listens to that event also carries the
+ * value's own events, named `<namespace>.<event>`, each naming it by `id`.
+ */
+export interface Opens<Value> {
+  /** The namespace of its own events, such as `web_socket` for `web_socket.frame_received`. */
+  readonly namespace: string;
+  /** The field of each of those, and of the opening payload, that names it, such as `webSocketId`. */
+  readonly id: string;
+  /** Builds it from the opening payload, with what registers the listeners of its own events. */
+  readonly build: (payload: never, events: OpenedEvents) => Value;
+}
+
+/** What registers the listeners of an opened value's own events (ADR 0081). */
+export interface OpenedEvents {
+  /**
+   * Registers `listener` for `event`, one of the value's own events as the
+   * engine names it, until the `Subscription` returned closes or the call
+   * that opened the value ends.
+   */
+  listen<Payload>(event: string, listener: Listener<Payload>): Subscription;
+}
+
+/**
+ * What `on` returns (ADR 0081): it closes synchronously, since nothing
+ * waits, and removes the listener; closing it again changes nothing.
+ */
+export interface Subscription extends Disposable {
+  close(): void;
 }
 
 /** `Params` without the entries a caller left out. */
@@ -40,4 +115,42 @@ export function defined<Params extends object>(params: Params): Defined<Params> 
   );
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the entries are `params`'s own, less those whose value is `undefined`, which is what `Defined` says.
   return kept as Defined<Params>;
+}
+
+/** What a refused call's `timeout` tells its program to give instead (ADR 0080). */
+const TIMEOUT_FIX = "give at least 1 ms, or `timeout: null` for no timeout";
+
+/**
+ * A call's own `timeout`, sent as given once it can be a deadline (ADR
+ * 0080): left out for `setting`, the Duration setting it sets for the call
+ * alone, `null` for none, or a whole number of milliseconds of 1 or more.
+ *
+ * @throws {SettingInvalidError} before anything is sent, when `timeout` is
+ * 0, negative, fractional or not finite: its `limit` names `setting` at the
+ * run layer, given as an argument, and its `fix` the null form, as the
+ * engine's refusal of `0` does.
+ */
+export function timeoutOf<Timeout extends number | null | undefined>(
+  timeout: Timeout,
+  setting: string,
+): Timeout {
+  if (
+    timeout === undefined ||
+    timeout === null ||
+    (Number.isSafeInteger(timeout) && timeout >= 1)
+  ) {
+    return timeout;
+  }
+  const reason =
+    timeout === 0
+      ? "a timeout of 0 ms would end the call at once"
+      : `a timeout of ${String(timeout)} ms is no whole number of milliseconds of 1 or more`;
+  throw new SettingInvalidError(
+    `The call's \`timeout\`, its \`${setting}\`: ${reason}; ${TIMEOUT_FIX}.`,
+    {
+      fix: TIMEOUT_FIX,
+      limit: { key: setting, value: timeout, layer: "run", origin: "argument" },
+      details: { key: setting, layer: "run", reason },
+    },
+  );
 }

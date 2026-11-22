@@ -23,7 +23,7 @@ use crate::proving_ground::{ProvingGround, submission};
 /// Sends `GET path` with `host` from the address `local`, and returns the
 /// answer's status and body.
 fn get_from(local: IpAddr, server: SocketAddr, host: &str, path: &str) -> (u16, String) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_io()
         .build()
         .expect("a runtime");
@@ -100,4 +100,9 @@ fn a_crawl_that_moves_to_another_address_once_flagged_is_verified() {
     let answer = proving_ground.judge(&submission("limits/2", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
+    assert_ne!(
+        address,
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)),
+        "the crawl was never flagged, so it never moved"
+    );
 }

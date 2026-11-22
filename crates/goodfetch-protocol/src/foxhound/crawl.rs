@@ -21,11 +21,12 @@ use crate::catalog::{
 use crate::foxhound::dataset::DatasetDeclaration;
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::hook::CrawlHookDeclaration;
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
 use crate::page::{FormatsRequest, PageId, PageResponse};
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
+use crate::run::{RUN_ID_PATTERN, RunId, RunLimit, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -188,10 +189,11 @@ pub struct LabelDeclaration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
-    /// Its settings, nested by key: today `fetch.tier`, `session.page_check`,
-    /// which judges its pages in place of the Run's, and `session.source`,
-    /// which gives the Label a Session pool of its own (ADR 0093), any other
-    /// key refused with `setting_not_applicable`.
+    /// Its settings, nested by key: those whose scopes include `label`
+    /// (ADR 0093), such as `fetch.tier`, `session.page_check`, which judges
+    /// its pages in place of the Run's, and `session.source`, which gives
+    /// the Label a Session pool of its own; any other key is refused with
+    /// `setting_not_applicable`.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: serde_json::Map<String, Value>,
@@ -268,8 +270,11 @@ pub struct CrawlStartParams {
     /// The crawl's Labels, by name, each with its Payload's JSON Schema or
     /// none, and its own settings (ADRs 0082 and 0093): a scope between the
     /// Run and its requests. A Payload of a declared schema is checked
-    /// against it at every enqueue; a Label the crawl does not declare
-    /// takes any Payload.
+    /// against it at every enqueue. A seed, a sitemap rule or an enqueue
+    /// naming a Label the crawl does not declare fails with
+    /// `label_unknown`, and so does a start under the ID of a Run with
+    /// pending requests of a Label no longer declared, before any work; a
+    /// code-free crawl declares its own Label.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub labels: BTreeMap<String, LabelDeclaration>,
@@ -290,6 +295,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub extraction: Option<CrawlExtraction>,
+    /// The crawl's Hooks in code, in the order declared (ADR 0104). Never
+    /// kept in the Run's state: a start that resumes the Run declares them
+    /// again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hooks: Vec<CrawlHookDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -298,6 +309,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The Run's own Limits, as `run.start` takes them (ADRs 0041 and
+    /// 0080): at most one per Usage kind and currency. A start that names
+    /// the Run again lowers them and never raises them (ADR 0102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<RunLimit>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).
@@ -442,7 +459,7 @@ pub const CRAWL_SERVE: Operation = Operation {
 /// `crawl_request.handle`.
 pub const CRAWL_REQUEST_HANDLE: HandlerRequest = HandlerRequest {
     name: "crawl_request.handle",
-    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+    description: "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. A failure with the Error code `call_cancelled` by the program with nothing closed (details `{\"by\": \"program\"}`) gives the request back, the program's own stop (ADR 0093): it returns to pending with no attempt counted and is delivered again. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
     params: schema_of::<CrawlRequestHandleParams>,
     result: schema_of::<CrawlRequestHandled>,
     stability: Stability::Experimental,
@@ -501,6 +518,69 @@ pub const CLIENT_GONE: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A Label declared twice, or handled twice (ADR 0093).
+pub const LABEL_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_duplicate",
+    description: "The crawl declares a second Label of a name it already declares, or attaches a second handler to one Label, so the declaration failed at once, with no I/O. The details name the Label. Declare each Label once and attach one handler to it.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Label left without a handler (ADR 0093).
+pub const LABEL_UNHANDLED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_unhandled",
+    description: "The crawl declares a Label it attaches no handler to, and no default handler exists, so its Run was not started and nothing was sent. The details name the Label. Attach a handler to it with `crawl.handle`, or stop declaring it.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Label the crawl does not declare (ADRs 0093 and 0104).
+pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_unknown",
+    description: "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `response_unavailable` details (ADR 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseUnavailableDetails {
+    /// The URL of the request; absent for a request Politeness held unsent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// The response's HTTP status; `null` for a request held unsent.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<u16>,
+    /// The time the site's `Retry-After` asks for, in RFC 3339, read in
+    /// either of its forms; `null` when it asks for none.
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
+    pub retry_after: Option<std::time::SystemTime>,
+    /// What to do about it, such as re-admitting the request once the site
+    /// is back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
+}
+
+/// What `label_unknown` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LabelUnknownDetails {
+    /// The Label's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// The names of the Labels the crawl declares, in order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub declared: Vec<String>,
+}
 
 /// A call on an attempt that already ended (ADR 0093).
 pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -567,6 +647,7 @@ pub const TIMEOUT_HANDLER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -585,6 +666,7 @@ pub const CRAWL_HANDLE_STATUSES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -606,6 +688,7 @@ pub const CRAWL_CONTENT_TYPES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -620,6 +703,7 @@ pub const CRAWL_RETRY_MAX: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -634,6 +718,7 @@ pub const CRAWL_MAX_STAGED_ENQUEUES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -644,7 +729,7 @@ fn ten_thousand() -> Value {
 /// `crawl.retry.handler_failed` (ADR 0093).
 pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     name: "crawl.retry.handler_failed",
-    description: "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+    description: "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
     kind: ValueKind::Boolean,
     default: no,
     clearable: false,
@@ -652,6 +737,7 @@ pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -666,6 +752,7 @@ pub const CRAWL_RETRY_ENGINE_PANICKED: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -680,6 +767,7 @@ pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -694,6 +782,7 @@ pub const CRAWL_KEEP_ALIVE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -708,6 +797,7 @@ pub const CRAWL_DOMAIN_KEYS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -726,6 +816,7 @@ pub const CRAWL_DOMAIN_ORDER: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -807,6 +898,9 @@ pub const ENTRIES: Entries = Entries {
         CLIENT_GONE,
         LEASE_LOST,
         ATTEMPT_ENDED,
+        LABEL_DUPLICATE,
+        LABEL_UNHANDLED,
+        LABEL_UNKNOWN,
         EFFECT_STAGING_REFUSED,
         STAGING_FULL,
     ],

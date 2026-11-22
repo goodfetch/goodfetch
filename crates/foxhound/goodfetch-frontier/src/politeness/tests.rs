@@ -37,6 +37,7 @@ use super::{
 };
 use crate::robots_txt;
 
+mod crawl_delays;
 mod pacing;
 
 /// A rule's steps on a Politeness file's connection, each loading the
@@ -144,7 +145,7 @@ fn crawl_delay_asked(
     location: &str,
     delay: Option<Duration>,
 ) -> rusqlite::Result<()> {
-    changed(file, key, Parts::NONE, |state: &mut DomainState| {
+    changed(file, key, Parts::CRAWL_DELAYS, |state: &mut DomainState| {
         ((), state.crawl_delay_asked(location.to_owned(), delay))
     })
 }
@@ -802,5 +803,161 @@ proptest! {
         prop_assert!(waits.iter().all(|wait| (Duration::from_secs(2)..=Duration::from_secs(6)).contains(wait)), "{waits:?}");
         prop_assert!(waits.iter().any(|wait| *wait < Duration::from_secs(4)), "{waits:?}");
         prop_assert!(waits.iter().any(|wait| *wait > Duration::from_secs(4)), "{waits:?}");
+    }
+}
+
+/// A rule's steps on the tables a Run's own Politeness holds in memory
+/// (`politeness.sharing: run`, #2171) answer what they answer on a
+/// Politeness file: the same caps, delays, backoff, `Retry-After` and 429
+/// halving (spec #2138's story 31).
+mod held_in_memory {
+    use std::time::SystemTime;
+
+    use goodfetch_engine::politeness::{
+        Ending, Hold, KeyState, MemoryTables, PermitRule, Step, Verdict,
+    };
+    use rusqlite::Connection;
+    use serde_json::json;
+
+    use super::{
+        DomainRule, DomainState, Parts, Wrote, at, changed, concurrency, file, rule, unlimited,
+    };
+
+    /// Where a rule's steps load a key's state and save what they wrote.
+    trait Tables {
+        fn step<T>(
+            &mut self,
+            key: &str,
+            reads: Parts,
+            change: impl FnOnce(&mut DomainState) -> (T, Wrote),
+        ) -> T;
+    }
+
+    impl Tables for Connection {
+        fn step<T>(
+            &mut self,
+            key: &str,
+            reads: Parts,
+            change: impl FnOnce(&mut DomainState) -> (T, Wrote),
+        ) -> T {
+            changed(self, key, reads, change).unwrap()
+        }
+    }
+
+    impl Tables for MemoryTables {
+        fn step<T>(
+            &mut self,
+            key: &str,
+            reads: Parts,
+            change: impl FnOnce(&mut DomainState) -> (T, Wrote),
+        ) -> T {
+            let mut state = DomainState::load_from(self, key, reads);
+            let (answer, writes) = change(&mut state);
+            state.save_to(self, key, &writes);
+            answer
+        }
+    }
+
+    /// What a step answered: a take's verdict, or when a give back lets
+    /// its key go again.
+    #[derive(Clone, Debug, PartialEq)]
+    enum Answered {
+        Verdict(Verdict),
+        ReadyAt(Option<SystemTime>),
+    }
+
+    fn admit(
+        tables: &mut impl Tables,
+        rule: &DomainRule,
+        (key, in_flight): (&str, u64),
+        now: SystemTime,
+    ) -> Answered {
+        Answered::Verdict(tables.step(key, rule.reads(Step::Take), |state| {
+            (rule.admit(state, in_flight, now), Wrote::default())
+        }))
+    }
+
+    fn started(tables: &mut impl Tables, rule: &DomainRule, key: &str, now: SystemTime) {
+        tables.step(key, rule.reads(Step::Take), |state| {
+            ((), rule.started(state, now))
+        });
+    }
+
+    fn ended(
+        tables: &mut impl Tables,
+        rule: &DomainRule,
+        (key, in_flight): (&str, u64),
+        ending: Ending,
+        now: SystemTime,
+    ) -> Answered {
+        Answered::ReadyAt(tables.step(key, rule.reads(Step::GiveBack), |state| {
+            rule.ended(state, in_flight, ending, now)
+        }))
+    }
+
+    /// A key's cap, a delay since its last start, a backoff, a
+    /// `Retry-After` holding a stricter run, and a 429's halving growing
+    /// back, each on a key of its own, step by step.
+    fn steps(tables: &mut impl Tables) -> Vec<Answered> {
+        let (capped, free) = (concurrency(2), unlimited());
+        let delayed = rule(json!({ "politeness": { "domain": { "delay": 1_000 } } }));
+        let mut answered = vec![
+            admit(tables, &capped, ("cap.test", 1), at(0)),
+            admit(tables, &capped, ("cap.test", 2), at(0)),
+        ];
+        started(tables, &delayed, "delay.test", at(0));
+        answered.push(admit(tables, &delayed, ("delay.test", 0), at(0)));
+        answered.push(admit(tables, &delayed, ("delay.test", 0), at(1)));
+        answered.push(ended(
+            tables,
+            &free,
+            ("backoff.test", 0),
+            Ending::BackOff(None),
+            at(0),
+        ));
+        answered.push(admit(tables, &capped, ("backoff.test", 0), at(1)));
+        ended(
+            tables,
+            &free,
+            ("asked.test", 0),
+            Ending::BackOff(Some(at(600))),
+            at(0),
+        );
+        answered.push(admit(tables, &capped, ("asked.test", 0), at(1)));
+        ended(
+            tables,
+            &free,
+            ("halving.test", 3),
+            Ending::TooManyRequests(None),
+            at(0),
+        );
+        answered.push(admit(tables, &free, ("halving.test", 1), at(7)));
+        answered.push(admit(tables, &free, ("halving.test", 2), at(7)));
+        ended(tables, &free, ("halving.test", 0), Ending::Done, at(8));
+        ended(tables, &free, ("halving.test", 0), Ending::Done, at(10));
+        answered.push(admit(tables, &free, ("halving.test", 2), at(11)));
+        answered
+    }
+
+    /// Covers: story:3-81, story:3-159, setting:politeness.sharing
+    #[test]
+    fn a_runs_own_politeness_keeps_the_caps_delays_backoff_and_429_halving_of_the_file() {
+        let on_file = steps(&mut file());
+        let in_memory = steps(&mut MemoryTables::default());
+
+        assert_eq!(in_memory, on_file);
+        assert_eq!(
+            [&in_memory[..4], &in_memory[6..]].concat(),
+            [
+                Answered::Verdict(Verdict::Go),
+                Answered::Verdict(Verdict::Busy),
+                Answered::Verdict(Verdict::Until(at(1), Hold::Delay)),
+                Answered::Verdict(Verdict::Go),
+                Answered::Verdict(Verdict::Until(at(600), Hold::BackOff)),
+                Answered::Verdict(Verdict::Go),
+                Answered::Verdict(Verdict::Busy),
+                Answered::Verdict(Verdict::Go),
+            ]
+        );
     }
 }

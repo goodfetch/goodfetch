@@ -1,10 +1,9 @@
 //! The names `xtask codegen` refuses (ADRs 0079 and 0099), so that the
 //! catalog renames the entry for every surface and no SDK needs an alias or
-//! an override: a member a language gives meaning on every value, `call`,
-//! which is every handle's raw call, an error class that would shadow a
-//! built-in one, and two entries that would be one member or one class.
-//! This is TypeScript's part and the class names; Python's dunder names and
-//! Rust's own join with their SDKs' spellings (issue 1231).
+//! an override: a name Rust cannot make a raw identifier, a member a
+//! language gives meaning on every value, `call`, which is every handle's
+//! raw call, an error class that would shadow a built-in one, and two
+//! entries that would be one member or one class.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,10 +11,10 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::naming::{camel, pascal};
+use super::naming::{camel, pascal, rust_snake, rust_type};
 
 /// The members no entry may give a handle, each with why.
-const MEMBERS: [(&str, &str); 3] = [
+const MEMBERS: [(&str, &str); 7] = [
     (
         "then",
         "a value with a `then` member is thenable in TypeScript, so `await` would call it",
@@ -25,6 +24,22 @@ const MEMBERS: [(&str, &str); 3] = [
         "every TypeScript object already has a `constructor`",
     ),
     ("call", "`call` is the raw call every handle has"),
+    (
+        "clone",
+        "every Rust handle implements `Clone`, whose method is `clone`",
+    ),
+    (
+        "eq",
+        "every Rust handle implements `PartialEq`, whose method is `eq`",
+    ),
+    (
+        "fmt",
+        "every Rust handle implements `Debug`, whose method is `fmt`",
+    ),
+    (
+        "hash",
+        "every Rust handle implements `Hash`, whose method is `hash`",
+    ),
 ];
 
 /// The error classes TypeScript, the web platform and Python define, which
@@ -88,6 +103,10 @@ const BUILT_IN_ERRORS: [&str; 56] = [
     "ZeroDivisionError",
 ];
 
+/// What the SDKs declare beside the error classes under an `Error` name:
+/// the base class, and each Product's union of its errors (ADR 0079).
+const SDK_ERRORS: [&str; 3] = ["CollieError", "FoxhoundError", "GoodfetchError"];
+
 #[derive(Deserialize)]
 struct Named {
     name: String,
@@ -109,6 +128,7 @@ struct PluginKind {
 #[derive(Deserialize)]
 struct Names {
     operations: Vec<Named>,
+    events: Vec<Named>,
     error_groups: Vec<Named>,
     error_codes: Vec<ErrorCode>,
     plugin_kinds: Vec<PluginKind>,
@@ -143,6 +163,11 @@ fn listed(entries: &[String]) -> String {
     entries.join(" and ")
 }
 
+/// Whether `part` is a Python dunder name, such as `__init__`.
+fn is_dunder(part: &str) -> bool {
+    part.len() > 4 && part.starts_with("__") && part.ends_with("__")
+}
+
 /// Why each refused entry of `names` is refused, one line an entry.
 fn refusals(names: &Names) -> BTreeSet<String> {
     let mut refused = BTreeSet::new();
@@ -168,10 +193,42 @@ fn refusals(names: &Names) -> BTreeSet<String> {
         if let Some((_, why)) = MEMBERS.iter().find(|(name, _)| *name == camel(member)) {
             refused.insert(format!("{what} `{entry}`: {why}"));
         }
+        for part in entry.split('.') {
+            if rust_snake(part).is_none() {
+                refused.insert(format!(
+                    "{what} `{entry}`: Rust cannot make `{part}` a raw identifier"
+                ));
+            }
+            if is_dunder(part) {
+                refused.insert(format!(
+                    "{what} `{entry}`: `{part}` is a Python dunder name, which Python gives meaning"
+                ));
+            }
+        }
         members
             .entry((what, camel(&entry)))
             .or_default()
             .push(entry);
+    }
+    // Each Rust type an entry names: a Plugin kind's trait, and an event's
+    // marker, from the last part of its name.
+    let kinds = names
+        .plugin_kinds
+        .iter()
+        .map(|kind| ("Plugin kind", &kind.name, kind.name.as_str()));
+    let events = names.events.iter().map(|event| {
+        let marker = event
+            .name
+            .rsplit_once('.')
+            .map_or(event.name.as_str(), |(_, marker)| marker);
+        ("event", &event.name, marker)
+    });
+    for (what, entry, words) in kinds.chain(events) {
+        if rust_type(words).is_none() {
+            refused.insert(format!(
+                "{what} `{entry}`: its Rust type would be `Self`, which Rust cannot make a raw identifier"
+            ));
+        }
     }
     for ((_, member), entries) in &members {
         if entries.len() > 1 {
@@ -195,6 +252,11 @@ fn refusals(names: &Names) -> BTreeSet<String> {
         if BUILT_IN_ERRORS.contains(&class.as_str()) {
             refused.insert(format!(
                 "{what} `{name}`: its class `{class}` would shadow the built-in `{class}`"
+            ));
+        }
+        if SDK_ERRORS.contains(&class.as_str()) {
+            refused.insert(format!(
+                "{what} `{name}`: its class `{class}` would shadow the SDK's own `{class}`"
             ));
         }
         classes
@@ -228,6 +290,7 @@ mod tests {
             .collect();
         let names = Names::deserialize(json!({
             "operations": operations,
+            "events": [],
             "error_groups": [{ "name": "refused" }, { "name": "internal" }],
             "error_codes": error_codes,
             "plugin_kinds": [],
@@ -268,11 +331,37 @@ mod tests {
         assert_eq!(refused(&[], &error_codes), lines);
     }
 
+    /// A code's class may not take a built-in's name, nor the name of what
+    /// the SDKs declare beside the classes: the base class and each
+    /// Product's union of its errors.
+    ///
+    /// Covers: story:11-176
+    #[rstest]
+    #[case::a_built_in(
+        "type",
+        "Error code `type`: its class `TypeError` would shadow the built-in `TypeError`"
+    )]
+    #[case::the_base_class(
+        "goodfetch",
+        "Error code `goodfetch`: its class `GoodfetchError` would shadow the SDK's own `GoodfetchError`"
+    )]
+    #[case::a_products_union(
+        "foxhound",
+        "Error code `foxhound`: its class `FoxhoundError` would shadow the SDK's own `FoxhoundError`"
+    )]
+    fn a_code_whose_class_is_taken_is_refused(#[case] code: &str, #[case] line: &str) {
+        assert_eq!(
+            refused(&[], &json!([{ "name": code, "group": "refused" }])),
+            vec![line.to_owned()]
+        );
+    }
+
     /// Covers: story:11-176
     #[test]
     fn a_group_whose_class_is_a_built_in_one_is_refused() {
         let names = Names::deserialize(json!({
             "operations": [],
+            "events": [],
             "error_groups": [{ "name": "timeout" }],
             "error_codes": [],
             "plugin_kinds": [],

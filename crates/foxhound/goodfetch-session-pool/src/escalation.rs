@@ -26,7 +26,7 @@
 //! The per-domain record and the proxy-tier climb arrive with the next
 //! tickets of the spec.
 
-use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 
 /// Where a Session met a block: the tier its request was fetched on, none
@@ -58,9 +58,9 @@ pub enum Action {
 
 /// What a crawl does with a request whose Session met a block of `cause`
 /// where `met` says (the module's doc).
-pub fn on_block(cause: BlockCause, met: Met) -> Action {
+pub fn on_block(cause: &BlockCause, met: Met) -> Action {
     let challenge = matches!(cause, BlockCause::Challenge | BlockCause::Captcha);
-    if cause == BlockCause::IpBlock && met.from_transport && !met.forced {
+    if *cause == BlockCause::IpBlock && met.from_transport && !met.forced {
         return Action::Sample;
     }
     match met.tier {

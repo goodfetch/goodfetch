@@ -16,8 +16,9 @@ use std::time::Duration;
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::mask::Redaction;
 use goodfetch_engine::secrets::{
-    Carried, Keychain, Purpose, RunSecrets, SecretError, SecretProvider, Secrets,
+    Carried, Keychain, ProviderInputs, Purpose, RunSecrets, SecretError, SecretProvider, Secrets,
 };
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -261,8 +262,15 @@ impl Fixture {
                 Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
                 Clock::system(),
             )
-            .with(vendor.provider(), implementation)
-            .for_run(Duration::from_secs(30))
+            .with_configured(
+                vendor.provider(),
+                Arc::new(move |_: &ProviderInputs<'_>| Arc::clone(&implementation)),
+            )
+            .for_run_under(
+                &resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap(),
+                Duration::from_secs(30),
+                Redaction::On,
+            )
         })
     }
 

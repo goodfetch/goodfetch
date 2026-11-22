@@ -887,14 +887,14 @@ const ROWS: [Row; 139] = [
         happens: true,
         valgrind: None,
     },
-    // The file's other transactions, per Run: a Run's open, its robots.txt
-    // copy, a site's ask, a Delegation given back and the Run's end, which
-    // no attempt repeats, so their ceiling is the Run's own, beside the
-    // per-attempt rows' (ADR 0140's note of #1899 of 2026-11-22).
+    // The file's other transactions, per attempt, as ADR 0140's E6 counts
+    // the file's work: a Run's open, its robots.txt copy, a site's ask, a
+    // Delegation given back and the Run's end, which a Run of more attempts
+    // spreads thinner.
     Row {
         name: "E6.other_transactions",
         family: "B1",
-        unit: "runs",
+        unit: "attempts",
         happens: true,
         valgrind: None,
     },

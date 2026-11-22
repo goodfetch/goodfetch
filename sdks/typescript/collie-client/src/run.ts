@@ -20,9 +20,11 @@ import {
   collieOperations,
   type CollieOperationTypes,
   type PageId,
+  type RunProgress,
   type RunStarted,
   type SettingsExplanation,
 } from "./generated/index.ts";
+import { FOLLOWED_VALUE, followed } from "./followed.ts";
 import { Page } from "./generated/handles.ts";
 import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
 import { collieWire } from "./generated/wire.ts";
@@ -35,6 +37,7 @@ import type { RawSend } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
+import { Sequence } from "./sequence.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
 import { fromWire, toWire, type WirePath } from "./wire.ts";
 
@@ -554,6 +557,48 @@ export class Run extends RunMembers implements AsyncDisposable {
       { runId: this.#scope.id, ...(keys === undefined ? {} : { keys: [...keys] }) },
       {},
     );
+  }
+
+  /**
+   * The Run's progress (`run.progress`, ADR 0102), read with `for await`:
+   * what it does and why it waits. Its first read is sent when it is
+   * called and answers at once; each next value is the latest once a
+   * newer one comes, read when the program asks for it, so values it did
+   * not read in time coalesce. It ends with the value whose `last` is
+   * true: the Run ended, its `lifecycle` and `stopReason` saying how, or
+   * no engine works it (`writer: none`). `break`, `return()`, `close()`,
+   * `using`, the signal or releasing it unread cancel its read at once.
+   * On a closed Run it throws `closed`, sending nothing.
+   */
+  progress(options: { readonly signal?: AbortSignal | undefined } = {}): Sequence<RunProgress> {
+    warnEntry(collieOperations, "run.progress");
+    ensureOpen(this.#scope, "run.progress");
+    const scope = this.#scope;
+    const calls = this.#host.calls;
+    let take: (() => RunProgress | undefined) | undefined;
+    return new Sequence({
+      open: (opened) => {
+        const reading = followed<RunProgress>(
+          {
+            read: async (after, signal) => {
+              ensureOpen(scope, "run.progress");
+              const params = { runId: scope.id, ...(after === undefined ? {} : { after }) };
+              return calls.call("run.progress", params, { signal });
+            },
+            position: (value) => value.position,
+            last: (value) => value.last,
+          },
+          opened,
+        );
+        take = reading.take;
+        return reading.stream;
+      },
+      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+      // One read at a time, the next sent once the program read the last.
+      credits: 1,
+      regrant: 1,
+      signal: options.signal,
+    });
   }
 
   /**

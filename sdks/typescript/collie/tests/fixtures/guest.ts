@@ -1,5 +1,6 @@
 // A program that imports `@goodfetch/collie`, connects to the Attached
-// engine its environment names, runs the tracer and closes, recording what
+// engine its environment names, starts a Run, follows its progress to the
+// first value, finishes it and closes, recording what
 // the SDK changed in its process at each stage into the file its argument
 // names, with each process warning and the stage it came at: import, connect,
 // or the Run after them. It writes nothing to stdout or stderr itself, so
@@ -7,7 +8,6 @@
 // source.
 import { writeFileSync } from "node:fs";
 import { setImmediate } from "node:timers/promises";
-import { startAndFinish } from "../programs/tracer.ts";
 
 const out = process.argv[2];
 if (out === undefined) {
@@ -83,7 +83,11 @@ const collie = await Collie.connect({ env });
 // A warning comes on the next tick of the call that emits it.
 await setImmediate();
 stage = "run";
-const traced = await startAndFinish(collie);
+const run = await collie.start();
+// Following the progress prints no status line of its own (ADR 0102).
+for await (const _ of run.progress()) break;
+const report = await run.finish();
+await collie.close();
 const afterClose = state();
 await setImmediate();
 
@@ -96,6 +100,6 @@ writeFileSync(
     readAtImport,
     pid: process.pid,
     warnings,
-    lifecycle: traced.report.lifecycle,
+    lifecycle: report.lifecycle,
   }),
 );

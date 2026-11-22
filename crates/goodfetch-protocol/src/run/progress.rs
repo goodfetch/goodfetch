@@ -201,7 +201,7 @@ pub const RUN_PROGRESS_READ: Operation = Operation {
     name: "run.progress",
     description: "Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.",
     class: OperationClass::Read,
-    kind: OperationKind::RoundTrip,
+    kind: OperationKind::Followed,
     reach: Reach::AllSurfaces,
     params: schema_of::<RunProgressParams>,
     result: schema_of::<RunProgress>,

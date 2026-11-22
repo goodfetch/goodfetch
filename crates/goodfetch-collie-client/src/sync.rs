@@ -4,7 +4,7 @@
 //! and its Subscription with its readers, a Run's state, the names
 //! `markers` has warned of and the callsites `logging` keeps, the call an
 //! event stream shares with the values it opens and the wakers of its
-//! readers, each held only to read or write a few words, or to queue a
+//! readers, a Run's progress read in flight, each held only to read or write a few words, or to queue a
 //! message, never across an `.await`, whether a value a Run holds is
 //! closed, and the bytes a Connection's output holds unwritten. Locks are taken inside another only in the Subscription, in one
 //! order: the Connection's, then its readers', then a reader's queue; and

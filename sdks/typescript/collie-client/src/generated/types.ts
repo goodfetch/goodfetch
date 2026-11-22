@@ -182,6 +182,19 @@ export type RequestId = number | string;
  */
 export type CertificateExceptionKind = "trust_on_first_use" | "any";
 /**
+ * What a model said of the work it was given (ADR 0100): a signal, never
+ * proof.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `done`: It said it was done.
+ * - `gave_up`: It said it gave up, which stops the work with the reason `gave_up` (ADR 0117).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Claim".
+ */
+export type Claim = "done" | "gave_up" | (string & {});
+/**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
  *
@@ -903,6 +916,19 @@ export type SessionSource =
  */
 export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
+ * Whether a Run's own checks prove what it committed (ADR 0029).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `verified`: Every check the Run relies on passed, none was switched off, and no Effect is left uncertain.
+ * - `rejected`: A declared Success check failed.
+ * - `needs_review`: Everything else: a person reviews it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Verdict".
+ */
+export type Verdict = "verified" | "rejected" | "needs_review" | (string & {});
+/**
  * Why a call that ends a Run did nothing (ADR 0102's G1).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1023,19 +1049,6 @@ export type ProgressMessage = string;
  * via the `definition` "Resource".
  */
 export type Resource = "memory" | "storage";
-/**
- * Whether a Run's own checks prove what it committed (ADR 0029).
- *
- * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
- *
- * - `verified`: Every check the Run relies on passed, none was switched off, and no Effect is left uncertain.
- * - `rejected`: A declared Success check failed.
- * - `needs_review`: Everything else: a person reviews it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Verdict".
- */
-export type Verdict = "verified" | "rejected" | "needs_review" | (string & {});
 /**
  * One intercepted request a route's handler answers, which `route.*`
  * names.
@@ -4530,6 +4543,46 @@ export interface NotUnderstoodLimit {
    * The Usage kind it caps.
    */
   usageKind: string;
+}
+/**
+ * What `not_verified` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotVerifiedDetails".
+ */
+export interface NotVerifiedDetails {
+  /**
+   * Why it is not `verified`: failed, missing or switched-off checks, an
+   * early end, uncertain Effects.
+   */
+  reasons: AxisReason[];
+  /**
+   * The model's claim, when it made one.
+   */
+  reported?: Reported | null;
+  /**
+   * The work's Verdict, which is not `verified`; one this reader does not
+   * know is kept as received.
+   */
+  verdict: Verdict;
+}
+/**
+ * The model's claim and its message, absent from a result when no model
+ * claimed anything: the work stopped before a claim, or was replayed whole
+ * (ADR 0100).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Reported".
+ */
+export interface Reported {
+  /**
+   * What it claimed.
+   */
+  claim: Claim;
+  /**
+   * What it said with the claim, when it said something.
+   */
+  message?: string | null;
 }
 /**
  * How many seeds one reason kept from a handler.

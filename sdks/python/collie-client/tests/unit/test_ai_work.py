@@ -13,7 +13,11 @@ from dataclasses import dataclass, replace
 import pytest
 from goodfetch_collie_client.ai_work import AIWorkResult, Finished, Reported, Stopped
 from goodfetch_collie_client.generated.errors import NotVerifiedError
-from goodfetch_collie_client.generated.models import AxisReason, StopReason
+from goodfetch_collie_client.generated.models import (
+    AxisReason,
+    NotVerifiedDetails,
+    StopReason,
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,11 @@ def test_a_finished_result_its_checks_did_not_prove_raises_not_verified() -> Non
         ],
         "reported": {"claim": "done", "message": "found her"},
     }
+    assert error.typed_details == NotVerifiedDetails(
+        verdict="rejected",
+        reasons=[_reason("success_check_failed", "the heading was not shown", "c1")],
+        reported=Reported(claim="done", message="found her"),
+    )
     assert "rejected" in str(error)
 
 

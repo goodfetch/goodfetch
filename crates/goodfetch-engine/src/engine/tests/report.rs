@@ -7,8 +7,8 @@
 //! warnings handed over, `nothingDone` and `run.usage`. A test's own
 //! operations act on a live Run as an area does: `test.hand_over` charges
 //! Usage, hands over warnings and `nothingDone`, asks a stop or fails the
-//! Run; `test.drive` starts a Run its driver ends only once stopped, after
-//! a minute of its clock when `slow`; `test.cancelled_stop` drops a
+//! Run; `test.drive` starts a Run its driver ends only once its identity
+//! reads a stop, after a minute of its clock when `slow`; `test.cancelled_stop` drops a
 //! `run.stop` at its first await, as a Client's cancel does; `test.stray`
 //! holds a handle on a live Run outside its tasks, writes through it and
 //! lets it go, as a holder that missed the Run's clean-up does.
@@ -193,11 +193,13 @@ async fn drive(params: Value, context: CallContext) -> Result<Value, CallError> 
     };
     let slow = params["slow"].as_bool() == Some(true);
     let driver = run.clone();
+    // The driver reads its stop from the Run's identity alone (ADR 0145).
+    let identity = crate::runs::identity(&run).clone();
     run.spawn(async move {
         let stopping = async {
-            let reason = driver.stopping().await;
+            let reason = identity.stopping().await;
             if slow {
-                driver.clock().sleep(Duration::from_mins(1)).await;
+                identity.clock().sleep(Duration::from_mins(1)).await;
             }
             driver.end(Ending::Stopped(reason)).await;
         };

@@ -43,7 +43,9 @@
 //! whose end stops it (ADR 0078).
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
-//! whole so every change to a Run's state passes through one loop.
+//! whole so every change to a Run's state passes through one loop. A Run's
+//! identity and the value that asks it to stop are `run_identity`'s
+//! (ADR 0145).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -139,6 +141,7 @@ use crate::politeness::{
 };
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
+use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::{self, RunIndex};
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
@@ -1337,23 +1340,20 @@ impl std::fmt::Debug for Runs {
 /// A live Run, as its driver holds it.
 #[derive(Clone)]
 pub struct Run {
-    id: RunId,
-    folder: PathBuf,
+    identity: RunIdentity,
     state: RunState,
-    clock: Clock,
     admitting: Arc<Admitting>,
     shared: Arc<Shared>,
+    /// Its identity's task owner, which the registry alone stops.
     owner: Arc<TaskOwner>,
     runs: Runs,
-    settings: Option<Arc<RunSettings>>,
     entropy: Arc<tokio::sync::Mutex<Entropy>>,
 }
 
 /// What every handle of a live Run shares.
 struct Shared {
-    /// The reason it was asked to stop at its next safe point, once asked,
-    /// or the reason it stopped at once.
-    stop: watch::Sender<Option<StopReason>>,
+    /// What asks it to stop, which its identity's stop signal reads.
+    stop: StopAsker,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
     /// Its Slices of the Limits that hold it, until it ends: taken in the
@@ -1366,11 +1366,6 @@ struct Shared {
         reason = "the ledger's calls block: one Mutex guards a Run's charging, taken inside them, or tried without waiting, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
     )]
     charging: std::sync::Mutex<Option<Charging>>,
-    /// The runtime's metrics.
-    metrics: Metrics,
-    /// Its `tracing` span, a root of its own (ADR 0132), which each of its
-    /// tasks runs in.
-    span: tracing::Span,
     /// What it resolves its Secret references through.
     secrets: RunSecrets,
     /// Its data key, once made or unwrapped.
@@ -1410,6 +1405,12 @@ pub fn run_trace(run: &Run) -> &run_trace::RunTrace {
     &run.shared.trace
 }
 
+/// The identity of `run` (ADR 0145), which a function takes in place of
+/// the handle: `Run` gains no method for it.
+pub fn identity(run: &Run) -> &RunIdentity {
+    &run.identity
+}
+
 impl Shared {
     /// Its charging, locked: called inside the ledger's blocking calls,
     /// and as the Run is made, before anything else can hold it.
@@ -1436,7 +1437,7 @@ impl std::fmt::Debug for Run {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Run")
-            .field("id", &self.id)
+            .field("id", self.id())
             .finish_non_exhaustive()
     }
 }
@@ -1444,7 +1445,7 @@ impl std::fmt::Debug for Run {
 impl Run {
     /// Its Run ID.
     pub fn id(&self) -> &RunId {
-        &self.id
+        self.identity.id()
     }
 
     /// Its run state's writer.
@@ -1455,7 +1456,7 @@ impl Run {
     /// The runtime's metrics, which what the Run runs records in (ADR
     /// 0050).
     pub fn metrics(&self) -> &Metrics {
-        &self.shared.metrics
+        self.identity.metrics()
     }
 
     /// Its share of the engine's Resource governor (ADR 0040), through
@@ -1468,12 +1469,12 @@ impl Run {
 
     /// Its folder, which holds its state and its Run trace.
     pub fn folder(&self) -> &Path {
-        &self.folder
+        self.identity.folder()
     }
 
     /// The settings it was started with, when its start resolved them.
     pub fn settings(&self) -> Option<&RunSettings> {
-        self.settings.as_deref()
+        self.identity.settings()
     }
 
     /// What it resolves its Secret references through, holding every value
@@ -1561,10 +1562,10 @@ impl Run {
         } else {
             let (reference, layer) = self.runs.key_reference(self.settings()).await;
             self.runs
-                .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::No)
+                .key_encryption_key(self.secrets(), &reference, layer, self.id(), Making::No)
                 .await?
         };
-        Ok(RunKey::unwrap(self.id.clone(), &stored.wrapped, &kek)?)
+        Ok(RunKey::unwrap(self.id().clone(), &stored.wrapped, &kek)?)
     }
 
     /// Makes its data key, stored only wrapped by the key-encryption key
@@ -1576,11 +1577,11 @@ impl Run {
             Some(kek) => kek,
             None => {
                 self.runs
-                    .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::Yes)
+                    .key_encryption_key(self.secrets(), &reference, layer, self.id(), Making::Yes)
                     .await?
             }
         };
-        let key = RunKey::generate(self.id.clone())?;
+        let key = RunKey::generate(self.id().clone())?;
         let stored = StoredKey {
             wrapped: key.wrap(&kek)?,
             key_reference: reference.to_string(),
@@ -1597,14 +1598,14 @@ impl Run {
             })
             .await?;
         match earlier {
-            Some(earlier) => Ok(RunKey::unwrap(self.id.clone(), &earlier.wrapped, &kek)?),
+            Some(earlier) => Ok(RunKey::unwrap(self.id().clone(), &earlier.wrapped, &kek)?),
             None => Ok(key),
         }
     }
 
     /// The engine's clock.
     pub fn clock(&self) -> Clock {
-        self.clock
+        self.identity.clock()
     }
 
     /// The engine's sandbox probe, whose answer each browser launch reads.
@@ -1635,7 +1636,7 @@ impl Run {
         self.runs
             .engine
             .run_index()
-            .record_consent_wall(domain, self.id.clone(), at)
+            .record_consent_wall(domain, self.id().clone(), at)
             .await
     }
 
@@ -1662,7 +1663,7 @@ impl Run {
         let stop = run_index::RefetchStopped {
             domain,
             first_stopped: at,
-            last_run: self.id.clone(),
+            last_run: self.id().clone(),
             cause,
             project_file: self
                 .settings()
@@ -1709,7 +1710,7 @@ impl Run {
 
     /// Whether the Run was asked to stop at its next safe point.
     pub(crate) fn is_stopping(&self) -> bool {
-        self.shared.stop.borrow().is_some()
+        self.identity.is_stopping()
     }
 
     /// Answers once something asks the Run to stop at its next safe point,
@@ -1722,15 +1723,7 @@ impl Run {
     ///
     /// Dropping the future loses nothing; a later call answers the same.
     pub async fn stopping(&self) -> StopReason {
-        let mut stop = self.shared.stop.subscribe();
-        let asked = stop
-            .wait_for(Option::is_some)
-            .await
-            .map(|reason| reason.clone());
-        match asked {
-            Ok(Some(reason)) => reason,
-            _ => std::future::pending().await,
-        }
+        self.identity.stopping().await
     }
 
     /// Whether `run.finish` let the Run finish: a driver that waits for new
@@ -1758,13 +1751,14 @@ impl Run {
     fn watch_safe_points(&self, timeout: Option<Duration>, ended_by: EndedBy) {
         // A commit its writer could not make stops it from its last
         // acknowledged one, as at `critical` (ADR 0122).
-        self.stop_on_failures(self.state.storage_failures(), Some(&self.folder));
+        self.stop_on_failures(self.state.storage_failures(), Some(self.folder()));
         if let Some(timeout) = timeout {
             let timed = self.clone();
             self.spawn(async move {
+                let clock = timed.clock();
                 tokio::select! {
                     () = timed.cancellation().cancelled() => {}
-                    () = timed.clock.sleep(timeout) => timed.stop_at_safe_point(StopReason::Timeout),
+                    () = clock.sleep(timeout) => timed.stop_at_safe_point(StopReason::Timeout),
                 }
             });
         }
@@ -1918,13 +1912,7 @@ impl Run {
     /// Asks the Run to stop at its next safe point for `reason`; the first
     /// reason asked stays.
     fn stop_at_safe_point(&self, reason: StopReason) {
-        self.shared.stop.send_if_modified(|stop| {
-            let unset = stop.is_none();
-            if unset {
-                *stop = Some(reason);
-            }
-            unset
-        });
+        self.shared.stop.at_safe_point(reason);
     }
 
     /// Keeps `reason`, unless one was asked before, as what a call in
@@ -1932,12 +1920,7 @@ impl Run {
     /// the Client whose abort stops it at once, waking nothing that waits
     /// for a safe point: the Run ends now, not at one.
     fn stopped_at_once(&self, reason: StopReason) {
-        self.shared.stop.send_if_modified(|stop| {
-            if stop.is_none() {
-                *stop = Some(reason);
-            }
-            false
-        });
+        self.shared.stop.at_once(reason);
     }
 
     /// Its admission under `settings`: the gate in admission the
@@ -1963,7 +1946,7 @@ impl Run {
             return Ok(None);
         };
         let opening = settings.clone();
-        let (wall, now) = (self.clock.wall(), self.clock.now());
+        let (wall, now) = (self.clock().wall(), self.clock().now());
         let entropy = self.fork_entropy().await;
         let gate = self
             .state
@@ -1987,7 +1970,7 @@ impl Run {
         Ok(Some(admission.sharing(
             (politeness, own),
             holder,
-            self.clock,
+            self.clock(),
             settings,
         )))
     }
@@ -2041,9 +2024,9 @@ impl Run {
             .await?
             .clone();
         let holder = Holder {
-            run_id: self.id.to_string(),
+            run_id: self.id().to_string(),
             epoch: self.state.epoch(),
-            run_folder: self.folder.clone(),
+            run_folder: self.folder().to_owned(),
             delegates: settings.get::<bool>(&POLITENESS_DELEGATION),
         };
         Ok((politeness, holder))
@@ -2166,7 +2149,7 @@ impl Run {
     /// the Run: cancelling, waiting for and stopping the owner stay the
     /// Runs' registry's (ADR 0145's note of 2026-11-10).
     pub fn owner(&self) -> &TaskStarter {
-        &self.owner
+        self.identity.owner()
     }
 
     /// Records `entry`, one Provenance entry of the Run, such as of one of
@@ -2192,13 +2175,13 @@ impl Run {
         F: Future<Output = ()> + Send + 'static,
     {
         self.owner
-            .spawn(future.instrument(self.shared.span.clone()));
+            .spawn(future.instrument(self.identity.span().clone()));
     }
 
     /// Its `tracing` span, whose field is its Run ID: the parent of what its
     /// driver and its pages record (ADR 0132).
     pub fn span(&self) -> &tracing::Span {
-        &self.shared.span
+        self.identity.span()
     }
 
     /// Ends the Run as its driver says, once: its tasks stop, and its Run
@@ -2216,7 +2199,7 @@ impl Run {
         let _ = self
             .runs
             .commands
-            .send(Command::End(self.id.clone(), end))
+            .send(Command::End(self.id().clone(), end))
             .await;
     }
 
@@ -2233,14 +2216,14 @@ impl Run {
     /// Dropping the future may leave a temporary file beside the bodies,
     /// never a partial body.
     pub async fn store_body(&self, bytes: bytes::Bytes) -> std::io::Result<BodyHandle> {
-        let folder = self.folder.clone();
+        let folder = self.folder().to_owned();
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let (body, file) = self
             .owner
             .blocking(move || body::store(&folder, &bytes))
             .await?;
         Ok(BodyHandle {
-            run_id: self.id.clone(),
+            run_id: self.id().clone(),
             body,
             path: file.display().to_string(),
             size,
@@ -2278,7 +2261,7 @@ impl Run {
             .shared
             .storage
             .borrow()
-            .of(&self.folder)
+            .of(self.folder())
             .is_some_and(Filesystem::is_critical);
         if critical {
             return Err(KeepError::Storage {
@@ -2286,11 +2269,11 @@ impl Run {
                 os_code: None,
                 message: format!(
                     "the filesystem of `{}` is at the critical storage level",
-                    self.folder.display()
+                    self.folder().display()
                 ),
             });
         }
-        let folder = self.folder.clone();
+        let folder = self.folder().to_owned();
         let mut source = source;
         let staged = self
             .owner
@@ -2320,13 +2303,13 @@ impl Run {
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
     pub fn point_in_time(&self) -> SystemTime {
-        self.clock.point_in_time()
+        self.identity.point_in_time()
     }
 
     /// The wall time `wait` from now, as a point in time of the Run's, such
     /// as when a domain is next admitted (ADR 0102).
     pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
-        self.clock.point_in_time_after(wait)
+        self.identity.point_in_time_after(wait)
     }
 
     /// What the engine's Resource governor read and decided at its last
@@ -2877,7 +2860,7 @@ impl Run {
         let _ = self
             .runs
             .commands
-            .send(Command::Uses(self.id.clone(), product))
+            .send(Command::Uses(self.id().clone(), product))
             .await;
     }
 }
@@ -3431,7 +3414,7 @@ impl Runs {
     pub async fn usage(&self, run_id: RunId) -> Result<RunUsage, RunError> {
         match self.live(run_id.clone()).await {
             Ok(run) => run.usage().await.map_err(|error| RunError::Unavailable {
-                folder: run.folder.clone(),
+                folder: run.folder().to_owned(),
                 run_id,
                 error: error.to_string(),
             }),
@@ -4826,7 +4809,7 @@ impl Registry {
                 let warned = run.clone();
                 run.spawn(async move {
                     if let Err(error) = warned.warn_once(warning).await {
-                        tracing::warn!(%error, run_id = %warned.id, "the Run's `storage_low` warning was not kept");
+                        tracing::warn!(%error, run_id = %warned.id(), "the Run's `storage_low` warning was not kept");
                     }
                 });
             }
@@ -5924,14 +5907,21 @@ impl Registry {
             self.setup.metrics.counted_work().clone(),
             logs_provenance,
         );
-        Run {
+        let (identity, stop) = RunIdentity::new(run_identity::Parts {
             id: run_id.clone(),
             folder: folder.to_owned(),
-            state,
             clock: self.setup.engine.clock(),
+            settings,
+            metrics: self.setup.metrics.clone(),
+            span: tracing::info_span!(parent: None, "run", run_id = %run_id),
+            owner: Arc::clone(&owner),
+        });
+        Run {
+            identity,
+            state,
             admitting: Arc::clone(&self.admitting),
             shared: Arc::new(Shared {
-                stop: watch::Sender::new(None),
+                stop,
                 finish: watch::Sender::new(false),
                 #[expect(
                     clippy::disallowed_types,
@@ -5944,8 +5934,6 @@ impl Registry {
                     self.limits.placement(run_id, connection),
                     read_interval,
                 ))),
-                metrics: self.setup.metrics.clone(),
-                span: tracing::info_span!(parent: None, "run", run_id = %run_id),
                 secrets: keys.secrets,
                 key: tokio::sync::OnceCell::new_with(keys.key),
                 governor: self.setup.governor.join(share),
@@ -5966,7 +5954,6 @@ impl Registry {
             }),
             owner,
             runs: self.handle(connection),
-            settings: settings.map(Arc::new),
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
         }
     }
@@ -6724,24 +6711,25 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
 /// a filesystem at the `low` storage level or worse is skipped, as the run
 /// file still holds the state (ADR 0122).
 async fn periodic_checkpoints(run: Run, interval: Duration) {
+    let clock = run.clock();
     loop {
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => return,
-            () = run.clock.sleep(interval) => {}
+            () = clock.sleep(interval) => {}
         }
         let low = run
             .shared
             .storage
             .borrow()
-            .of(&run.folder)
+            .of(run.folder())
             .is_some_and(|filesystem| filesystem.level >= StorageLevel::Low);
         if low {
-            tracing::debug!(run_id = %run.id, "a periodic Checkpoint was skipped: its filesystem is low on space");
+            tracing::debug!(run_id = %run.id(), "a periodic Checkpoint was skipped: its filesystem is low on space");
             continue;
         }
-        if let Err(error) = run.runs.checkpoint(run.id.clone(), None).await {
-            tracing::warn!(%error, run_id = %run.id, "a periodic Checkpoint was not written");
+        if let Err(error) = run.runs.checkpoint(run.id().clone(), None).await {
+            tracing::warn!(%error, run_id = %run.id(), "a periodic Checkpoint was not written");
             if let RunError::WriteFailed {
                 folder, message, ..
             } = &error
@@ -6753,7 +6741,7 @@ async fn periodic_checkpoints(run: Run, interval: Duration) {
                     folder: Some(folder.display().to_string()),
                 };
                 if let Err(error) = run.warn(warning).await {
-                    tracing::warn!(%error, run_id = %run.id, "the warning of a failed periodic Checkpoint was not kept");
+                    tracing::warn!(%error, run_id = %run.id(), "the warning of a failed periodic Checkpoint was not kept");
                 }
             }
         }
@@ -6946,7 +6934,7 @@ async fn exceptions_used(run: &Run, clock: Clock) {
         actor: Actor::Engine,
         surface: None,
         layer: None,
-        run_id: Some(run.id.clone()),
+        run_id: Some(run.id().clone()),
     };
     let recorded = run
         .runs
@@ -6960,7 +6948,7 @@ async fn exceptions_used(run: &Run, clock: Clock) {
         )
         .await;
     if let Err(error) = recorded {
-        tracing::warn!(run_id = %run.id, %error, "the Audit log cannot record the certificate exceptions the Run used");
+        tracing::warn!(run_id = %run.id(), %error, "the Audit log cannot record the certificate exceptions the Run used");
     }
 }
 
@@ -7015,7 +7003,7 @@ impl Recording {
     /// not record goes to the registry alone, its Run index row left as it
     /// was, as after a crash (ADR 0122).
     async fn end(self, closing: Closing) {
-        let run_id = closing.run.id.clone();
+        let run_id = closing.run.id().clone();
         let ended = closing.end().await;
         let Some(report) = ended.report() else {
             if let Some(registry) = self.registry.upgrade() {
@@ -7144,7 +7132,7 @@ impl Closing {
         let limits = given_back(&run, &writer).await;
         exceptions_used(&run, clock).await;
         let facts = EndFacts {
-            run_id: run.id.clone(),
+            run_id: run.id().clone(),
             lifecycle,
             stop_reason,
             started_at,
@@ -7158,7 +7146,7 @@ impl Closing {
             finished,
         };
         let state = run.state.clone();
-        let (run_id, folder) = (run.id.clone(), run.folder.clone());
+        let (run_id, folder) = (run.id().clone(), run.folder().to_owned());
         // The Run's values stay in the engine's masks until its report,
         // which its error and warnings may hold, is masked and kept.
         let mask = run.secrets().mask().clone();

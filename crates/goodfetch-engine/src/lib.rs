@@ -72,6 +72,7 @@ pub mod rule_sources;
 pub mod run;
 pub mod run_files;
 pub mod run_files_operations;
+pub mod run_identity;
 mod run_index;
 pub mod run_key;
 pub mod run_state;

@@ -1978,6 +1978,18 @@
       "product": "foxhound"
     }
   ],
+  "kind_parts": [
+    {
+      "arrived_in": "0.1",
+      "description": "A crawl's progress: every Run's, with its requests by state, why its due requests wait, its requests in flight, its sitemaps, whether a keep-alive crawl is idle, and its concurrency.",
+      "kind": "crawl",
+      "name": "run.progress",
+      "product": "foxhound",
+      "type": {
+        "$ref": "#/$defs/CrawlRunProgress"
+      }
+    }
+  ],
   "metrics": [
     {
       "arrived_in": "0.1",

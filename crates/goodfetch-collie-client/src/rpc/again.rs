@@ -37,18 +37,22 @@ struct Resumed {
     granted: u64,
     /// The items received on it, each of which used one.
     received: u64,
-    /// Where the last item read stands.
-    last: Option<Value>,
+    /// Where the last item read stands: an event's position or a Record's
+    /// number.
+    last: Option<u64>,
 }
 
 impl Again {
     /// What a call of `method`, first sent as `line`, is sent again with;
-    /// none when it never is (see [`relink::again`]).
-    pub(super) fn of(method: &str, line: &[u8]) -> Option<Self> {
-        let resumed = match relink::again(method) {
-            relink::Again::Never => return None,
-            relink::Again::AsItWas => None,
-            relink::Again::Resumed(stream) => Some(Resumed {
+    /// none when it never is (see [`relink::resend`]), nor when it is
+    /// `notified` of items no new link resumes after, as a page's
+    /// listener's.
+    pub(super) fn of(method: &str, line: &[u8], notified: bool) -> Option<Self> {
+        let resumed = match relink::resend(method) {
+            relink::Resend::Never => return None,
+            relink::Resend::AsItWas if notified => return None,
+            relink::Resend::AsItWas => None,
+            relink::Resend::Resumed(stream) => Some(Resumed {
                 stream,
                 granted: 0,
                 received: 0,
@@ -69,12 +73,12 @@ impl Again {
     }
 
     /// Counts the items its stream's notification `method` carries, and
-    /// where the last stands, which `instance` published.
-    pub(super) fn read(&mut self, method: &str, params: &Value, instance: Option<&EngineInstance>) {
+    /// where the last stands.
+    pub(super) fn read(&mut self, method: &str, params: &Value) {
         let Some(resumed) = &mut self.resumed else {
             return;
         };
-        if let Some((items, last)) = resumed.stream.read(method, params, instance) {
+        if let Some((items, last)) = resumed.stream.read(method, params) {
             resumed.received = resumed.received.saturating_add(items);
             if last.is_some() {
                 resumed.last = last;
@@ -84,14 +88,19 @@ impl Again {
 
     /// The call `id`'s request on a new link and the notifications naming
     /// it, and what it is sent again with on the link after; none when its
-    /// line no longer reads as a request.
-    fn resent(mut self, id: i64) -> Option<(Vec<u8>, Vec<Vec<u8>>, Self)> {
+    /// line no longer reads as a request. A stream of events resumes after
+    /// the last as `instance`, the dropped link's engine, published it.
+    fn resent(
+        mut self,
+        id: i64,
+        instance: Option<&EngineInstance>,
+    ) -> Option<(Vec<u8>, Vec<Vec<u8>>, Self)> {
         let Some(resumed) = &mut self.resumed else {
             return Some((self.line.clone(), Vec::new(), self));
         };
         let mut request: Request = serde_json::from_slice(&self.line).ok()?;
-        if let (Some(params), Some(last)) = (&mut request.params, &resumed.last) {
-            relink::after(params, last);
+        if let (Some(params), Some(last)) = (&mut request.params, resumed.last) {
+            resumed.stream.resume(params, last, instance);
         }
         let line = line::encode(&request).ok()?;
         let credits = resumed.granted.saturating_sub(resumed.received);
@@ -119,22 +128,33 @@ impl Calls {
     /// Holds every call from now on, once the link dropped: queues again,
     /// by its id, each call in flight it may send again, ahead of those
     /// queued before, which keep their timers, and fails every other one
-    /// with `connection_lost`.
+    /// with `connection_lost`. A call whose engine kept its deadline is
+    /// timed by the Client again, from when it was taken. The dropped
+    /// link's output closes, so an answer to one of its engine's requests
+    /// fails as closed.
     fn hold(&mut self) {
-        self.held = true;
+        self.holding = true;
+        let (closed, _unwritten) = write_queue::write_queue();
+        self.writes = closed;
         // A call cancelled and not answered yet holds no place on the new
         // link.
         self.in_flight.clear();
+        let instance = self.instance.take();
         for (id, call) in std::mem::take(&mut self.pending) {
             let Pending {
                 method,
                 reply,
                 deadline,
+                engine_keeps,
                 notified,
                 cancellable,
                 again,
             } = call;
-            let Some((line, notes, again)) = again.and_then(|again| again.resent(id)) else {
+            let deadline = deadline.or_else(|| {
+                engine_keeps.map(|(at, kept)| (self.deadlines.insert_at(id, at), kept))
+            });
+            let resent = again.and_then(|again| again.resent(id, instance.as_ref()));
+            let Some((line, notes, again)) = resent else {
                 self.stop_timer(deadline.map(|(key, _)| key));
                 let lost = if notified.is_some() {
                     Error::lost_stream()
@@ -161,7 +181,7 @@ impl Calls {
                     notes,
                     bytes,
                     again: Some(again),
-                    resent: true,
+                    id_heard: true,
                 },
             );
         }
@@ -175,7 +195,7 @@ impl Calls {
             .max_calls_in_flight
             .map(|cap| usize::try_from(cap.get()).unwrap_or(usize::MAX));
         self.instance = Some(said.engine_instance);
-        self.held = false;
+        self.holding = false;
         self.drain();
     }
 }
@@ -302,11 +322,8 @@ async fn greet(relinking: &Relinking, id: i64) -> Result<Greeted, Attempt> {
             .ok_or_else(|| failed(&"the engine closed the new link before it answered `hello`"))?;
         match serde_json::from_str::<Message>(&read) {
             Ok(Message::Response(answer)) if answer.id == hello.id => {
-                let said = serde_json::from_value(answer.result).map_err(|error| {
-                    Attempt::Ended(Ended::GaveUp(format!(
-                        "the engine's answer to `hello` is no `hello` answer: {error}"
-                    )))
-                })?;
+                let said = serde_json::from_value(answer.result)
+                    .map_err(|error| Attempt::Ended(Ended::Unreadable(error.to_string())))?;
                 return Ok(Greeted {
                     input,
                     writes,

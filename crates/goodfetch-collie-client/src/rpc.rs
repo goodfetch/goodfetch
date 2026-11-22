@@ -40,12 +40,14 @@ use goodfetch_protocol::jsonrpc::{
     ErrorObject, Message, Notification, Request, RequestId, Version,
 };
 use goodfetch_protocol::log::LOG;
+use serde::Deserialize as _;
 use serde_json::Value;
 use tokio::io::{
     AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader, Lines,
 };
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 use tokio_util::time::DelayQueue;
 use tokio_util::time::delay_queue::Key;
@@ -178,6 +180,9 @@ enum Ended {
     Exited(EngineExitedDetails),
     /// The engine, reached again, refused its greeting with this error.
     Refused(ErrorObject),
+    /// The engine, reached again, answered its greeting with what is no
+    /// `hello` answer, for this cause.
+    Unreadable(String),
     /// Reaching the engine again failed within `timeout.connect`, the last
     /// attempt for this cause.
     GaveUp(String),
@@ -190,6 +195,7 @@ impl Ended {
             Self::Dropped => Error::dropped(),
             Self::Exited(details) => Error::engine_exited(details),
             Self::Refused(error) => Error::answered(error.clone()),
+            Self::Unreadable(cause) => Error::shape(serde::de::Error::custom(cause)),
             Self::GaveUp(cause) => Error::gave_up(io::Error::other(cause.clone())),
         }
     }
@@ -409,6 +415,9 @@ struct Pending {
     reply: oneshot::Sender<Result<Value, Error>>,
     /// Its timer of the Client's, if any, and the deadline it keeps.
     deadline: Option<(Key, Deadline)>,
+    /// The deadline its engine keeps, if any, and when it passes, which
+    /// the Client times again while the call waits for a new link.
+    engine_keeps: Option<(Instant, Deadline)>,
     notified: Option<mpsc::Sender<Heard>>,
     /// Whether the catalog says the engine cancels it, so its deadline
     /// passing, or its caller cancelling it, sends its `$/cancel` (ADR
@@ -442,9 +451,9 @@ struct Held {
     /// Its bytes and its notes'.
     bytes: usize,
     again: Option<Again>,
-    /// Whether it was sent on a link that dropped, so its caller already
-    /// heard its id.
-    resent: bool,
+    /// Whether its caller already heard its id, as it was sent on a link
+    /// that dropped.
+    id_heard: bool,
 }
 
 impl Held {
@@ -477,7 +486,7 @@ struct Calls {
     /// The engine instance the last `hello` answered.
     instance: Option<EngineInstance>,
     /// Whether it holds every call until a new link is greeted.
-    held: bool,
+    holding: bool,
 }
 
 impl Calls {
@@ -494,7 +503,7 @@ impl Calls {
             deadlines: DelayQueue::new(),
             relinking: None,
             instance: None,
-            held: false,
+            holding: false,
         }
     }
 
@@ -554,7 +563,7 @@ impl Calls {
         let again = self
             .relinking
             .as_ref()
-            .and_then(|_| Again::of(&method, &line));
+            .and_then(|_| Again::of(&method, &line, call.notified.is_some()));
         let held = Held {
             method,
             bytes: line.len(),
@@ -568,7 +577,7 @@ impl Calls {
             cancellable: noted.is_some_and(|noted| noted.engine_cancels),
             notes: Vec::new(),
             again,
-            resent: false,
+            id_heard: false,
         };
         if self.queued.is_empty() && self.has_place() {
             self.dispatch(id, held);
@@ -581,7 +590,7 @@ impl Calls {
     /// Whether the cap leaves a place for one more call sent, which none
     /// does while the calls are held for a new link.
     fn has_place(&self) -> bool {
-        !self.held && self.cap.is_none_or(|cap| self.in_flight.len() < cap)
+        !self.holding && self.cap.is_none_or(|cap| self.in_flight.len() < cap)
     }
 
     /// Sends the held call `id`, then its credits and notes; one whose
@@ -599,7 +608,7 @@ impl Calls {
             cancellable,
             notes,
             mut again,
-            resent,
+            id_heard,
             ..
         } = held;
         if notified.as_ref().is_some_and(mpsc::Sender::is_closed) {
@@ -612,14 +621,16 @@ impl Calls {
             return;
         }
         self.in_flight.insert(id);
+        let mut engine_keeps = None;
         let deadline = deadline.and_then(|(key, deadline)| match deadline.kept_by {
             KeptBy::Client => Some((key, deadline)),
             KeptBy::Engine => {
+                engine_keeps = Some((self.deadlines.deadline(&key), deadline));
                 self.deadlines.remove(&key);
                 None
             }
         });
-        if let Some(notified) = notified.as_ref().filter(|_| !resent) {
+        if let Some(notified) = notified.as_ref().filter(|_| !id_heard) {
             let _unheard = notified.try_send(Heard::Sent(id));
         }
         if let Some(credits) = credits {
@@ -637,6 +648,7 @@ impl Calls {
                 method,
                 reply,
                 deadline,
+                engine_keeps,
                 notified,
                 cancellable,
                 again,
@@ -687,7 +699,7 @@ impl Calls {
                 .expect("invariant: a queued call expires only by its own deadline");
             // Its timer started as it was taken, so it waited `after`.
             let (setting, after) = (deadline.setting, deadline.after);
-            held.fail(if self.held {
+            held.fail(if self.holding {
                 Error::relink_timed_out(setting, after)
             } else {
                 Error::queue_timed_out(setting, after)
@@ -735,14 +747,17 @@ impl Calls {
             return;
         };
         let id = named(notification.params.as_ref());
-        if notification.method == CREDIT {
-            let credits = notification
+        if notification.method == CREDIT
+            && let Some(CreditParams {
+                id: RequestId::Number(id),
+                credits,
+            }) = notification
                 .params
                 .as_ref()
-                .and_then(|params| params.get("credits")?.as_u64());
-            if let Some((again, credits)) = id.and_then(|id| self.again_of(id)).zip(credits) {
-                again.granted(credits);
-            }
+                .and_then(|params| CreditParams::deserialize(params).ok())
+            && let Some(again) = self.again_of(id)
+        {
+            again.granted(u64::from(credits));
         }
         if let Some(held) = id.and_then(|id| self.queued.get_mut(&id)) {
             held.bytes = held.bytes.saturating_add(line.len());
@@ -750,7 +765,7 @@ impl Calls {
             held.notes.push(line);
             return;
         }
-        if self.held {
+        if self.holding {
             tracing::trace!(target: "goodfetch::client", method = %notification.method, "a notification of a call the dropped link lost");
             return;
         }
@@ -811,11 +826,11 @@ impl Calls {
     /// items it carries and where the last stands.
     fn hand_over(&mut self, notification: Notification) {
         let Notification { method, params, .. } = notification;
-        if let Some((id, params)) = named(params.as_ref()).zip(params.as_ref()) {
-            let instance = self.instance.clone();
-            if let Some(again) = self.again_of(id) {
-                again.read(&method, params, instance.as_ref());
-            }
+        if let Some((again, params)) = named(params.as_ref())
+            .and_then(|id| self.again_of(id))
+            .zip(params.as_ref())
+        {
+            again.read(&method, params);
         }
         let call = named(params.as_ref())
             .and_then(|id| Some((id, self.pending.get(&id)?.notified.as_ref()?)));

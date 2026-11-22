@@ -10,7 +10,10 @@
 //! the Scripted engine as an Exposed Daemon, which exits 0 only once every
 //! step played, so its exit says the Client sent exactly what the script
 //! holds after the drop; and over the in-memory network, whose player
-//! fails on a message the script does not hold.
+//! fails on a message the script does not hold. The cases no script holds,
+//! reaching the engine again past `timeout.connect`, a call's own timeout
+//! while it waits for the new link, and a page's listener lost, play over
+//! the in-memory network on the paused clock, the test the engine.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -21,21 +24,28 @@ use std::future::Future;
 use std::io::{self, BufReader};
 use std::pin::Pin;
 use std::process::Stdio;
+use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, ExposedDaemon, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode, events};
+use goodfetch_collie_client::{
+    ClientConnection, ConnectTimeout, ConnectionRuntime, Error, ErrorCode, ListenerQueue, events,
+};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::HelloParams;
+use goodfetch_protocol::connection::{DeadlineExceededDetails, HelloParams, WaitedFor};
 use goodfetch_test_support::{
     Ending, Script, TestEnv, Tool, case_logs, engine_script, play_relinking, reported_address,
     tools,
 };
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, Lines, ReadHalf,
+    WriteHalf,
+};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
+use crate::connection::{hello, reply, said};
 use crate::scripted_daemon::daemon_hello;
 
 /// The script of a Session's listener whose Subscription resumes.
@@ -127,13 +137,9 @@ fn playing<T>(
                     || engine.relink(),
                 )
             });
-            let endpoint = Endpoint::Exposed(ExposedDaemon {
-                address: "127.0.0.1:7878".parse().unwrap(),
-                authority: "127.0.0.1:7878".to_owned(),
-            });
             let read = runtime.block_on(program(
                 Network::in_memory(Relinked(links)),
-                endpoint,
+                exposed(),
                 hello,
             ));
             assert_eq!(engine_thread.join().unwrap().unwrap(), Ending::Finished);
@@ -171,6 +177,15 @@ fn remote_daemon(env: &TestEnv, script: &Value) -> (goodfetch_test_support::Proc
         authority: reported.address,
     });
     (process, endpoint)
+}
+
+/// A remote Daemon's endpoint, which the in-memory network reaches all the
+/// same.
+fn exposed() -> Endpoint {
+    Endpoint::Exposed(ExposedDaemon {
+        address: "127.0.0.1:7878".parse().unwrap(),
+        authority: "127.0.0.1:7878".to_owned(),
+    })
 }
 
 /// An in-memory network whose every dial hands the engine's end of a new
@@ -414,4 +429,190 @@ fn a_dropped_link_resumes_a_stream_of_records_after_the_last_read(
     let numbers = playing(reached, RESUMES_RECORDS, hello, records);
 
     assert_eq!(numbers, [1, 2]);
+}
+
+/// The engine's ends of the links a Connection dials over the in-memory
+/// network, which the test reads and writes on the Client's runtime.
+struct Peer(mpsc::UnboundedReceiver<DuplexStream>);
+
+impl Peer {
+    /// The network whose dials reach the peer.
+    fn network() -> (Network, Self) {
+        let (links, dialed) = mpsc::unbounded_channel();
+        (Network::in_memory(Relinked(links)), Self(dialed))
+    }
+
+    /// The engine's end of the next link the Client dials.
+    async fn accept(&mut self) -> PeerLink {
+        let (reader, writer) = tokio::io::split(self.0.recv().await.unwrap());
+        PeerLink {
+            lines: tokio::io::BufReader::new(reader).lines(),
+            writer,
+        }
+    }
+}
+
+/// The engine's end of one link.
+struct PeerLink {
+    lines: Lines<tokio::io::BufReader<ReadHalf<DuplexStream>>>,
+    writer: WriteHalf<DuplexStream>,
+}
+
+impl PeerLink {
+    /// The next line the Client wrote.
+    async fn line(&mut self) -> String {
+        self.lines.next_line().await.unwrap().unwrap()
+    }
+
+    /// Reads `hello` and answers it.
+    async fn greeted(&mut self) {
+        let hello = self.line().await;
+        assert!(hello.contains(r#""method":"hello""#), "{hello}");
+        self.writer
+            .write_all(&reply(&hello, &said()))
+            .await
+            .unwrap();
+    }
+
+    /// Every line the Client wrote until it closed the link.
+    async fn rest(mut self) -> Vec<String> {
+        let mut rest = Vec::new();
+        while let Some(line) = self.lines.next_line().await.unwrap() {
+            rest.push(line);
+        }
+        rest
+    }
+}
+
+/// A Connection to a remote Daemon opened within `timeout` over the
+/// in-memory network, the peer it reaches and the engine's end of its
+/// first link, greeted.
+async fn opened(timeout: ConnectTimeout) -> (ClientConnection, Peer, PeerLink) {
+    let (network, mut peer) = Peer::network();
+    let endpoint = exposed();
+    let (opened, link) = tokio::join!(
+        ClientConnection::open_within(
+            ConnectionRuntime::driven(Handle::current()),
+            &network,
+            &endpoint,
+            hello(),
+            timeout,
+            ListenerQueue::DEFAULT,
+            None,
+        ),
+        async {
+            let mut link = peer.accept().await;
+            link.greeted().await;
+            link
+        },
+    );
+    (opened.unwrap().0, peer, link)
+}
+
+/// The engine drops the link and takes no other: past `timeout.connect`,
+/// counted from the drop, the Client stops trying, and the read it held to
+/// send again fails with `closed`, as does every later call.
+///
+/// Covers: story:11-6, setting:timeout.connect
+#[test]
+fn a_link_not_reached_again_within_timeout_connect_closes_the_connection() {
+    let runtime = goodfetch_test_support::runtime();
+
+    let (held, later) = runtime.block_on(async {
+        let (connection, peer, mut link) =
+            opened(ConnectTimeout::After(Duration::from_secs(2))).await;
+        let (held, ()) = tokio::join!(connection.raw_call("run.list"), async move {
+            link.line().await;
+            drop((link, peer));
+        });
+        (held, connection.raw_call("run.list").await)
+    });
+
+    let codes = [held, later].map(|failed| failed.unwrap_err().code());
+    assert_eq!(codes, [ErrorCode::CLOSED; 2]);
+}
+
+/// While the new link's engine does not answer `hello`, a call waits for
+/// it within its own timeout, whoever kept it: the read in flight at the
+/// drop, whose timeout the engine kept, and the call made meanwhile each
+/// fail unsent with `deadline_exceeded`, waiting for `hello`.
+///
+/// Covers: story:11-6, error:deadline_exceeded
+#[test]
+fn a_call_waiting_for_a_new_link_fails_past_its_own_timeout() {
+    let runtime = goodfetch_test_support::runtime();
+
+    let failed = runtime.block_on(async {
+        let (connection, mut peer, mut link) = opened(ConnectTimeout::Off).await;
+        let in_flight = connection
+            .raw_call("run.list")
+            .timeout(Duration::from_secs(3));
+        let (in_flight, (made, _unanswered)) = tokio::join!(in_flight, async {
+            link.line().await;
+            drop(link);
+            let unanswered = peer.accept().await;
+            let made = connection
+                .call::<Value>("run.list", &json!({}))
+                .timeout(Duration::from_secs(1))
+                .await;
+            (made, unanswered)
+        });
+        connection.close().await.unwrap();
+        [in_flight.map(drop), made.map(drop)]
+    });
+
+    let read = failed.map(|failed| {
+        let failure = failed.unwrap_err();
+        let details: DeadlineExceededDetails = failure.details().unwrap();
+        (
+            failure.code(),
+            details.waited_for,
+            details.limit.key,
+            details.limit.value,
+        )
+    });
+    assert_eq!(
+        read,
+        [3000, 1000].map(|millis| (
+            ErrorCode::DEADLINE_EXCEEDED,
+            WaitedFor::HELLO,
+            "timeout".to_owned(),
+            json!(millis),
+        ))
+    );
+}
+
+/// A page's listener, whose events no new link resumes after, fails with
+/// `connection_lost` once the link drops, and the new link is never sent
+/// it.
+///
+/// Covers: story:11-6, error:connection_lost
+#[test]
+fn a_dropped_link_loses_a_page_listener() {
+    let runtime = goodfetch_test_support::runtime();
+
+    let (lost, resent) = runtime.block_on(async {
+        let (connection, mut peer, mut link) = opened(ConnectTimeout::Off).await;
+        let mut console = connection.stream::<Value>(
+            "page.on",
+            &json!({"page_id": "page-1", "event": "console"}),
+            "$/events",
+        );
+        let (lost, ()) = tokio::join!(console.next(), async move {
+            // The call, then its credits.
+            link.line().await;
+            link.line().await;
+            drop(link);
+        });
+        let mut relinked = peer.accept().await;
+        relinked.greeted().await;
+        connection.close().await.unwrap();
+        (lost.unwrap().unwrap_err(), relinked.rest().await)
+    });
+
+    assert_eq!(
+        (lost.code(), lost.operation(), resent),
+        (ErrorCode::CONNECTION_LOST, Some("page.on"), Vec::new()),
+        "{lost:?}"
+    );
 }

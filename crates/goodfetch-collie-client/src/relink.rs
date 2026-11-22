@@ -14,10 +14,9 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{OperationClass, OperationKind, Product};
 use goodfetch_protocol::connection::{EngineInstance, HelloParams};
 use goodfetch_protocol::entries;
-use goodfetch_protocol::events::{EVENTS, EVENTS_SUBSCRIBE};
-use goodfetch_protocol::foxhound::dataset::{RECORD, RUN_RECORDS};
+use goodfetch_protocol::events::{EVENTS, EVENTS_SUBSCRIBE, LastRead, Position};
 use goodfetch_protocol::log::LogLevel;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
@@ -26,6 +25,13 @@ use crate::transport::{self, Endpoint, Link, Network};
 
 /// The wait before the first attempt.
 const FIRST_DELAY: Duration = Duration::from_millis(250);
+
+/// Foxhound's stream of a Run's Records and the notification that carries
+/// each, as the wire names them: outside `crates/foxhound/`, no code names
+/// Foxhound's part of the protocol (ADR 0099), and the Records' resumption
+/// lives here with the events'.
+const RUN_RECORDS: &str = "run.records";
+const RECORD: &str = "$/record";
 
 /// The longest wait between two attempts.
 const LONGEST_DELAY: Duration = Duration::from_secs(10);
@@ -121,7 +127,7 @@ pub(crate) fn delay(attempt: u32) -> Duration {
 
 /// What a call in flight at the drop is to a new link.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Again {
+pub(crate) enum Resend {
     /// It fails with `connection_lost`: an Effect, a stream the Client
     /// cannot resume, or an operation the catalog does not know.
     Never,
@@ -132,17 +138,18 @@ pub(crate) enum Again {
 }
 
 /// What a call of `method` in flight at the drop is to a new link, as the
-/// catalog classes it (ADR 0011).
-pub(crate) fn again(method: &str) -> Again {
+/// catalog classes it (ADR 0011). Foxhound's catalog holds Collie's
+/// operations too, as `call`'s check of a call's kind reads it.
+pub(crate) fn resend(method: &str) -> Resend {
     let Some(operation) =
         entries::operations_of(Product::Foxhound).find(|operation| operation.name == method)
     else {
-        return Again::Never;
+        return Resend::Never;
     };
     match (operation.class, operation.kind) {
-        (OperationClass::Effect, _) => Again::Never,
-        (_, OperationKind::Sequence) => Stream::of(method).map_or(Again::Never, Again::Resumed),
-        _ => Again::AsItWas,
+        (OperationClass::Effect, _) => Resend::Never,
+        (_, OperationKind::Sequence) => Stream::of(method).map_or(Resend::Never, Resend::Resumed),
+        _ => Resend::AsItWas,
     }
 }
 
@@ -161,45 +168,48 @@ impl Stream {
     fn of(method: &str) -> Option<Self> {
         match method {
             _ if method == EVENTS_SUBSCRIBE.name => Some(Self::Events),
-            _ if method == RUN_RECORDS.name => Some(Self::Records),
+            RUN_RECORDS => Some(Self::Records),
             _ => None,
         }
     }
 
     /// The items the stream's notification `method` carries, each of which
-    /// used one credit, and where the last stands, which `instance`
-    /// published; none for a notification that carries none.
-    pub(crate) fn read(
-        self,
-        method: &str,
-        params: &Value,
-        instance: Option<&EngineInstance>,
-    ) -> Option<(u64, Option<Value>)> {
+    /// used one credit, and where the last stands: an event's position or
+    /// a Record's number; none for a notification that carries none.
+    pub(crate) fn read(self, method: &str, params: &Value) -> Option<(u64, Option<u64>)> {
         match self {
             Self::Events if method == EVENTS => {
                 let events = params.get("events")?.as_array()?;
                 let last = events
                     .last()
-                    .and_then(|event| event.get("position"))
-                    .zip(instance)
-                    .map(|(position, instance)| {
-                        json!({"engine_instance": instance, "position": position})
-                    });
+                    .and_then(|event| event.get("position")?.as_u64());
                 Some((u64::try_from(events.len()).unwrap_or(u64::MAX), last))
             }
             Self::Records if method == RECORD => {
-                let number = params.get("record")?.get("number")?;
-                Some((1, Some(number.clone())))
+                let number = params.get("record")?.get("number")?.as_u64();
+                Some((1, number))
             }
             Self::Events | Self::Records => None,
         }
     }
-}
 
-/// `params` resumed after `last`, the place the last item read stands.
-pub(crate) fn after(params: &mut Value, last: &Value) {
-    if let Some(params) = params.as_object_mut() {
-        params.insert("after".to_owned(), last.clone());
+    /// `params` resumed after `last`, where the last item read stands, an
+    /// event's as `instance` published it; unchanged when an event's
+    /// publisher is unknown, so the stream starts with the next one.
+    pub(crate) fn resume(self, params: &mut Value, last: u64, instance: Option<&EngineInstance>) {
+        let after = match self {
+            Self::Events => instance.and_then(|instance| {
+                serde_json::to_value(LastRead {
+                    engine_instance: instance.clone(),
+                    position: Position(last),
+                })
+                .ok()
+            }),
+            Self::Records => Some(Value::from(last)),
+        };
+        if let Some((params, after)) = params.as_object_mut().zip(after) {
+            params.insert("after".to_owned(), after);
+        }
     }
 }
 

@@ -148,6 +148,7 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCrawl"
 entry = "crawl.start"
+only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -2272,6 +2273,7 @@ receiver = "(module)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl"]
 form = "type"
 
@@ -2281,6 +2283,7 @@ receiver = "(module)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to (ADR 0103)."
+only = "Python's crawl declaration joins with #1468."
 words = ["dataset"]
 form = "type"
 
@@ -2290,6 +2293,7 @@ receiver = "(module)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles (ADR 0093)."
+only = "Python's crawl declaration joins with #1468."
 words = ["label"]
 form = "type"
 
@@ -2299,6 +2303,7 @@ receiver = "(module)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler's attempt holds (ADR 0093): its page and the calls that add to the crawl."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "context"]
 form = "type"
 
@@ -2388,6 +2393,7 @@ receiver = "(module)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound.startCrawl` opens (ADR 0102)."
+only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 

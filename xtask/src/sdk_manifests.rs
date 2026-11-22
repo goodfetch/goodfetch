@@ -14,10 +14,11 @@
 //!   SDK's manifest, unless its line's `only` says why that SDK lacks it.
 //!
 //! A receiver is the same across SDKs within the same package, the
-//! `@goodfetch/` or `goodfetch-` prefix aside; a Rust `blocking::` twin is
-//! its async receiver, and a Rust crate's root is a TypeScript module's.
-//! A Python receiver, whose package is an import name such as
-//! `goodfetch_collie`, is not yet matched to another SDK's (issue 3115).
+//! `@goodfetch/` or `goodfetch-` prefix aside; a Python package is its import
+//! name, `goodfetch_collie_client` as `collie-client` and a submodule such as
+//! `goodfetch_collie.testing` as the subpath `collie/testing`. A Rust
+//! `blocking::` twin is its async receiver, a Python `Async<Name>` twin is
+//! `<Name>` (ADR 0081), and a Rust crate's root is a TypeScript module's.
 //! `xtask sdk-exports` matches a manifest to the members its SDK exports
 //! ([`exports`]), TypeScript's, Rust's and Python's, checks that each
 //! listed member carries its entry's doc text and markers, and that each
@@ -77,6 +78,10 @@ const TYPE: &str = "type";
 const CONSTANT: &str = "constant";
 /// The prefix of a Rust receiver's blocking twin (ADR 0081).
 const BLOCKING: &str = "blocking::";
+/// The prefix of a Python receiver's async twin (ADR 0081).
+const ASYNC: &str = "Async";
+/// The prefix of a Python package's import name.
+const PYTHON_PREFIX: &str = "goodfetch_";
 /// The receiver of a member at a TypeScript module's top level; a Rust
 /// crate's root is `(crate)`.
 const MODULE: &str = "(module)";
@@ -177,17 +182,41 @@ impl Member {
         self.words.join("_")
     }
 
-    /// Its receiver and package as every SDK names them.
-    fn shared_receiver(&self) -> (&str, &str) {
-        let package = self
-            .package
-            .strip_prefix("@goodfetch/")
-            .or_else(|| self.package.strip_prefix("goodfetch-"))
-            .unwrap_or(&self.package);
-        let receiver = self
-            .receiver
-            .strip_prefix(BLOCKING)
-            .unwrap_or(&self.receiver);
+    /// Its package and receiver as every SDK names them, the line being
+    /// `language`'s: `collie-client` for `@goodfetch/collie-client`,
+    /// `goodfetch-collie-client` and `goodfetch_collie_client`, and
+    /// `collie/testing` for `goodfetch_collie.testing`; `Run` for Rust's
+    /// `blocking::Run` and Python's `AsyncRun` (ADR 0081).
+    fn shared_receiver(&self, language: Language) -> (String, &str) {
+        let package = match language {
+            Language::Python => {
+                let module = self
+                    .package
+                    .strip_prefix(PYTHON_PREFIX)
+                    .unwrap_or(&self.package);
+                let mut path = module.split('.');
+                let first = path.next().unwrap_or_default().replace('_', "-");
+                std::iter::once(first)
+                    .chain(path.map(str::to_owned))
+                    .collect::<Vec<_>>()
+                    .join("/")
+            }
+            Language::TypeScript | Language::Rust => self
+                .package
+                .strip_prefix("@goodfetch/")
+                .or_else(|| self.package.strip_prefix("goodfetch-"))
+                .unwrap_or(&self.package)
+                .to_owned(),
+        };
+        let receiver = match language {
+            Language::Rust => self.receiver.strip_prefix(BLOCKING),
+            Language::Python => self
+                .receiver
+                .strip_prefix(ASYNC)
+                .filter(|name| name.starts_with(|first: char| first.is_ascii_uppercase())),
+            Language::TypeScript => None,
+        }
+        .unwrap_or(&self.receiver);
         let receiver = if receiver == CRATE { MODULE } else { receiver };
         (package, receiver)
     }
@@ -344,7 +373,7 @@ fn check_entries(
                 ),
             ));
         }
-        let (_, receiver) = member.shared_receiver();
+        let (_, receiver) = member.shared_receiver(manifest.language);
         let written = generated.iter().any(|written| {
             written.receiver == receiver
                 && written.entry == member.entry
@@ -371,10 +400,10 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
         .iter()
         .filter(|other| other.language != manifest.language)
     {
-        let mut words: BTreeMap<(&str, &str), BTreeSet<&[String]>> = BTreeMap::new();
+        let mut words: BTreeMap<(String, &str), BTreeSet<&[String]>> = BTreeMap::new();
         for member in &other.members {
             words
-                .entry(member.shared_receiver())
+                .entry(member.shared_receiver(other.language))
                 .or_default()
                 .insert(&member.words);
         }
@@ -383,7 +412,8 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
             .iter()
             .filter(|member| member.only.is_none())
         {
-            let Some(held) = words.get(&member.shared_receiver()) else {
+            let shared = member.shared_receiver(manifest.language);
+            let Some(held) = words.get(&shared) else {
                 continue;
             };
             if !held.contains(member.words.as_slice()) {
@@ -394,7 +424,7 @@ fn check_others(manifest: &Listed, listed: &[Listed], findings: &mut Vec<Finding
                         "{} lists no member of the words {:?} on `{}`; add it there, or say why only this SDK has it in the line's `only` (ADR 0099)",
                         other.path,
                         member.words,
-                        member.shared_receiver().1
+                        shared.1
                     ),
                 ));
             }

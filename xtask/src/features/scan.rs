@@ -2,7 +2,9 @@
 //! and 0075): a `/// Covers:` declaration on a test function, or a `//! Covers:`
 //! one on a test module for every test in it, read with `syn` from each
 //! Cargo target's module tree and named as nextest names the test, an rstest
-//! case included. Each declaration's level comes from the path of the file
+//! case and a `prop_state_machine!` or `proptest!` test included; a
+//! `Covers:` line inside any other macro fails the scan, which cannot read
+//! its tests. Each declaration's level comes from the path of the file
 //! that holds the test. The sibling modules `listed` and `covers` read the
 //! other idioms. `tests` lists every Rust test the same way, declaring or
 //! not, which `xtask clients check` reads too.
@@ -303,8 +305,45 @@ impl Target<'_> {
             match item {
                 syn::Item::Fn(function) => self.function(module, function, inherited, tests)?,
                 syn::Item::Mod(child) => self.module(module, child, inherited, tests)?,
+                syn::Item::Macro(invocation) => {
+                    self.invocation(module, &invocation.mac, inherited, tests)?;
+                }
                 _ => {}
             }
+        }
+        Ok(())
+    }
+
+    /// Reads the tests a `prop_state_machine!` or `proptest!` invocation
+    /// declares. Any other macro, or one of these in a form the scan does not
+    /// know, declares nothing: a `Covers:` line inside it fails the scan,
+    /// naming its file and line.
+    fn invocation(
+        &self,
+        module: &Module<'_>,
+        invocation: &syn::Macro,
+        inherited: &Inherited,
+        tests: &mut Vec<Test>,
+    ) -> Result<()> {
+        let name = invocation
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+            .unwrap_or_default();
+        if (name == "prop_state_machine" || name == "proptest")
+            && let Ok(PropertyTests(functions)) = syn::parse2(invocation.tokens.clone())
+        {
+            for function in &functions {
+                self.function(module, function, inherited, tests)?;
+            }
+            return Ok(());
+        }
+        if let Some(line) = covers_line(invocation.tokens.clone()) {
+            bail!(
+                "{}:{line}: a `Covers:` line inside `{name}!`, whose tests the scan cannot read; declare the Features on a test function, or on a `prop_state_machine!` or `proptest!` test written as `fn <name>(…);` or `fn <name>(…) {{ … }}`",
+                relative(self.root, module.path)
+            );
         }
         Ok(())
     }
@@ -443,6 +482,67 @@ struct Module<'a> {
     inline: bool,
 }
 
+/// The `fn` items of a `prop_state_machine!` or `proptest!` invocation, each
+/// as the test function it expands to in the invoking module: its
+/// attributes, its name and its body, empty for a state machine's.
+struct PropertyTests(Vec<syn::ItemFn>);
+
+impl syn::parse::Parse for PropertyTests {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        // The `#![proptest_config(…)]` both macros take first.
+        input.call(syn::Attribute::parse_inner)?;
+        let mut functions = Vec::new();
+        while !input.is_empty() {
+            let attributes = input.call(syn::Attribute::parse_outer)?;
+            input.parse::<syn::Token![fn]>()?;
+            let name: syn::Ident = input.parse()?;
+            let arguments: proc_macro2::Group = input.parse()?;
+            if arguments.delimiter() != proc_macro2::Delimiter::Parenthesis {
+                return Err(syn::Error::new(
+                    arguments.span(),
+                    "expected the test's arguments",
+                ));
+            }
+            // A state machine's test ends at `;`, a property test's body is
+            // a block.
+            let body: syn::Block = if input.peek(syn::Token![;]) {
+                input.parse::<syn::Token![;]>()?;
+                syn::parse_quote!({})
+            } else {
+                input.parse()?
+            };
+            functions.push(syn::parse_quote! {
+                #(#attributes)*
+                fn #name() #body
+            });
+        }
+        Ok(Self(functions))
+    }
+}
+
+/// The line of the first `Covers:` declaration among a macro's tokens, where
+/// a `///` or `//!` line is a `#[doc = "…"]` attribute.
+fn covers_line(tokens: proc_macro2::TokenStream) -> Option<usize> {
+    tokens.into_iter().find_map(|tree| {
+        let proc_macro2::TokenTree::Group(group) = tree else {
+            return None;
+        };
+        let declares = group.delimiter() == proc_macro2::Delimiter::Bracket
+            && syn::parse2::<syn::Meta>(group.stream())
+                .ok()
+                .and_then(|meta| doc_text(&meta))
+                .is_some_and(|text| {
+                    text.split('\n')
+                        .any(|line| line.trim().starts_with("Covers:"))
+                });
+        if declares {
+            Some(group.span().start().line)
+        } else {
+            covers_line(group.stream())
+        }
+    })
+}
+
 /// The file a `#[path = "…"]` attribute names, if the module has one.
 fn path_attribute(attributes: &[syn::Attribute]) -> Result<Option<String>> {
     let Some(attribute) = attributes
@@ -517,7 +617,7 @@ fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<S
     let mut features = Vec::new();
     let mut declaring = false;
     for attribute in attributes {
-        let Some(text) = doc_text(attribute) else {
+        let Some(text) = doc_text(&attribute.meta) else {
             declaring = false;
             continue;
         };
@@ -537,12 +637,13 @@ fn covers<'a>(attributes: impl IntoIterator<Item = &'a syn::Attribute>) -> Vec<S
     features
 }
 
-/// A doc attribute's text, `None` for any other attribute.
-fn doc_text(attribute: &syn::Attribute) -> Option<String> {
-    if !attribute.path().is_ident("doc") {
+/// A doc attribute's text, as its `doc = "…"` meta holds it; `None` for any
+/// other attribute.
+fn doc_text(meta: &syn::Meta) -> Option<String> {
+    if !meta.path().is_ident("doc") {
         return None;
     }
-    match &attribute.meta {
+    match meta {
         syn::Meta::NameValue(syn::MetaNameValue {
             value:
                 syn::Expr::Lit(syn::ExprLit {

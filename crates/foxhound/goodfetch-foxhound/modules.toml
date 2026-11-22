@@ -2,7 +2,7 @@
 # `settings` is Collie's settings with Foxhound's own typed keys beside
 # them, which `xtask codegen` writes from Foxhound's catalog (ADR 0083).
 [modules]
-blocking = ["foxhound"]
+blocking = ["crawl", "crawl_requests", "foxhound"]
 composition = ["sample"]
 crawl = ["crawl_requests", "foxhound", "sync"]
 crawl_requests = ["sync"]

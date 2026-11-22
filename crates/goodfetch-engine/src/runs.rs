@@ -50,7 +50,11 @@
 //! charging, with what a refusal does to it, the ledger's charging
 //! module's; its Secrets with the making of its data key `keys`', its Run
 //! report's warnings with why it did nothing `report`'s, and its end, with
-//! the signal that it was let finish, `end`'s (ADR 0145).
+//! the signal that it was let finish, `end`'s (ADR 0145). The record that
+//! a Run uses another Product's entry is a command of the registry's
+//! handle, [`Runs::uses`], and the two records a Run leaves in the Run
+//! index for "Needs you" are `run_index`'s, over its identity: the `Run`
+//! handle only forwards to them.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -84,9 +88,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
 use goodfetch_protocol::security::SECURITY_REDACTION;
-use goodfetch_protocol::settings::{
-    ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
-};
+use goodfetch_protocol::settings::{ExplainedSetting, SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
 use rusqlite::Connection;
@@ -144,7 +146,7 @@ use crate::politeness::{
 use crate::robots_txt::{Answer, Fetched, NotRead, OwnCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport, RunFiles};
 use crate::run_identity::{self, RunIdentity, StopAsker};
-use crate::run_index::{self, RunIndex};
+use crate::run_index::RunIndex;
 use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
@@ -1550,11 +1552,10 @@ impl Run {
     ///
     /// Dropping the future after the write began still records it.
     pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
-        let at = self.point_in_time();
         self.runs
             .engine
             .run_index()
-            .record_consent_wall(domain, self.id().clone(), at)
+            .record_consent_wall(&self.identity, domain)
             .await
     }
 
@@ -1577,21 +1578,10 @@ impl Run {
         domain: String,
         cause: String,
     ) -> Result<(), RunStateError> {
-        let at = self.point_in_time();
-        let stop = run_index::RefetchStopped {
-            domain,
-            first_stopped: at,
-            last_run: self.id().clone(),
-            cause,
-            project_file: self
-                .settings()
-                .and_then(|settings| settings.project_setting(WALL_REFETCH_DOMAINS.name))
-                .map(str::to_owned),
-        };
         self.runs
             .engine
             .run_index()
-            .record_refetch_stop(stop, at)
+            .record_refetch_stop(&self.identity, domain, cause)
             .await
     }
 
@@ -1899,7 +1889,8 @@ impl Run {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.owner
+        self.identity
+            .owner()
             .spawn(future.instrument(self.identity.span().clone()));
     }
 
@@ -2150,18 +2141,14 @@ impl Run {
         self.shared.charging.settle(reservation, cost).await
     }
 
-    /// Records that the Run uses an entry of `product`'s, so that from now
-    /// on it needs the larger of its Product and `product` (ADR 0098).
+    /// Records that the Run uses an entry of `product`'s, as
+    /// [`Runs::uses`] does for its Run ID.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after it was sent still records it.
+    /// As [`Runs::uses`]'s.
     pub async fn uses(&self, product: Product) {
-        let _ = self
-            .runs
-            .commands
-            .send(Command::Uses(self.id().clone(), product))
-            .await;
+        self.runs.uses(self.id().clone(), product).await;
     }
 }
 
@@ -2505,6 +2492,17 @@ impl Runs {
     /// Dropping the future ends only the wait.
     pub async fn ended(&self, run_id: RunId) -> Result<RunReport, RunError> {
         self.finish_or_wait(run_id, Letting::Wait).await
+    }
+
+    /// Records that the live Run `run_id` uses an entry of `product`'s, so
+    /// that from now on it needs the larger of its Product and `product`
+    /// (ADR 0098). A Run that is not live records nothing.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent still records it.
+    pub async fn uses(&self, run_id: RunId, product: Product) {
+        let _ = self.commands.send(Command::Uses(run_id, product)).await;
     }
 
     async fn finish_or_wait(&self, run_id: RunId, letting: Letting) -> Result<RunReport, RunError> {

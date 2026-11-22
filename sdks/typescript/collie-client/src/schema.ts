@@ -142,6 +142,17 @@ export async function parse<S extends Schema>(
   return { value: result.value as SchemaOutput<S> };
 }
 
+/**
+ * The JSON Schema the engine receives for `schema` (ADR 0082): a typed
+ * one's input side, the form the values it parses travel in, as draft
+ * 2020-12, and a hand-written one as it is.
+ */
+export function wireSchema(schema: Schema): Readonly<Record<string, unknown>> {
+  return isTyped(schema)
+    ? schema["~standard"].jsonSchema.input({ target: "draft-2020-12" })
+    : schema;
+}
+
 /** Whether `schema` is a typed one rather than a JSON Schema written by hand. */
 function isTyped(schema: Schema): schema is TypedSchema {
   return "~standard" in schema;

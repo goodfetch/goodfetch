@@ -2398,6 +2398,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1011
+title = "As a developer using both SDKs in one program, I want each Product's package to pin the client package at exactly its own version and a library serving both to take the client package as a peer dependency, so that two Product versions never meet in one environment and their values stay one type (ADR 0095)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1012
 title = "As a contributor, I want Foxhound's npm and PyPI packages to depend on no Collie package but the client package, and Foxhound's entries to stay out of Collie's crates, so that Collie's surfaces stay Collie's (ADRs 0087, 0095)."
 milestone = "M2 Client surfaces"
@@ -2436,6 +2445,24 @@ status = "active"
 [[story]]
 id = 1016
 title = "As a developer, I want a second Label of one name or a second handler for a Label to fail at once with `label_duplicate`, a Label without a handler to fail the Run start with `label_unhandled`, and an enqueue to an undeclared Label to fail with `label_unknown`, so that a wiring mistake never becomes a silent gap (ADR 0093; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1017
+title = "As a developer, I want a misspelled Label handle, a Payload of the wrong shape and a Payload argument on a Label that has none to be type errors in TypeScript, Python and Rust, so that the compiler finds wiring mistakes before a Run does (ADRs 0082, 0093; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1018
+title = "As a developer, I want a Payload checked against its Label's schema at enqueue, JSON only and at most `crawl.payload.max_size` (64 KiB), failing with `payload_invalid`, and a resume after a schema change checked per ADR 0082, so that a handler's input is never a surprise (ADR 0082; P21)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

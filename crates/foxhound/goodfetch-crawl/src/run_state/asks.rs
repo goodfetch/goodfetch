@@ -143,7 +143,7 @@ pub(crate) enum Ask {
     /// blocked request. `None` once the crawl closed its intake.
     Readmit {
         blocked: bool,
-        answer: Written<Option<u64>>,
+        answer: Written<Option<Result<u64, CallError>>>,
     },
     /// A redirect hop's question.
     Hop {
@@ -280,12 +280,17 @@ impl Asking {
     }
 
     /// Re-admits every failure, and with `blocked` every blocked request,
-    /// and answers how many; `None` once the crawl closed its intake.
+    /// and answers how many; `None` once the crawl closed its intake. None
+    /// is re-admitted, with `label_unknown`, when one names a Label the
+    /// crawl no longer declares.
     ///
     /// # Errors
     ///
     /// As [`Asking::seed`]'s.
-    pub(crate) async fn readmit(&self, blocked: bool) -> Result<Option<u64>, StateError> {
+    pub(crate) async fn readmit(
+        &self,
+        blocked: bool,
+    ) -> Result<Option<Result<u64, CallError>>, StateError> {
         self.written(|answer| Ask::Readmit { blocked, answer })
             .await
     }

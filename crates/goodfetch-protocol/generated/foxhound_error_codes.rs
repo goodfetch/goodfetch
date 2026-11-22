@@ -72,7 +72,7 @@ pub const LABEL_UNHANDLED: ErrorCode = ErrorCode::from_static("label_unhandled")
 
 /// `label_unknown`, in the `program` group, not retryable.
 ///
-/// A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.
+/// A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.
 pub const LABEL_UNKNOWN: ErrorCode = ErrorCode::from_static("label_unknown");
 
 /// `lease_lost`, in the `unavailable` group, retryable.

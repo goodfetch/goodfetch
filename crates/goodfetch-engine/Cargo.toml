@@ -127,6 +127,7 @@ zbus = { workspace = true, features = ["tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { workspace = true, features = ["keychain"] }
+security-framework = { workspace = true }
 
 # Ties an Attached engine to its parent and its children to itself through
 # kill-on-close Job Objects (ADR 0024), and gives the Resource governor its

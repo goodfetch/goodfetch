@@ -146,6 +146,29 @@ impl Process {
         self.signal("INT")
     }
 
+    /// Sends it `CTRL_BREAK_EVENT`, Windows' interrupt of a console
+    /// program, without waiting for it to exit. The event goes to its
+    /// process group, which [`TestEnv::spawn`] gave it alone; the test
+    /// shares its console.
+    ///
+    /// [`TestEnv::spawn`]: crate::TestEnv::spawn
+    #[cfg(windows)]
+    #[expect(
+        unsafe_code,
+        reason = "GenerateConsoleCtrlEvent is a Windows C call, which Rust's standard library does not offer"
+    )]
+    pub fn interrupt(&self) -> io::Result<()> {
+        use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, GenerateConsoleCtrlEvent};
+
+        let group = self.child().id();
+        // SAFETY: the call takes no pointer; it names the group by the ID
+        // of the child that leads it.
+        if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, group) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     /// Sends it `SIGTERM`, as a service manager or `kill` does, through
     /// `kill -TERM`, without waiting for it to exit.
     #[cfg(unix)]

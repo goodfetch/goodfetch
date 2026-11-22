@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Journal, Keys, Waiting};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
@@ -353,21 +354,28 @@ impl Stored {
     /// Re-admits the failures, the blocked ones too when `blocked`, unless
     /// the intake closed: how many, `None` then, with their rows, each
     /// under the domain key its queue takes it by, as its next lease does,
-    /// and what that changed of the crawl's requests by state.
+    /// and what that changed of the crawl's requests by state. None is
+    /// re-admitted, with `label_unknown`, when one names a Label the crawl
+    /// no longer declares (ADR 0093).
     fn readmit(
         &self,
         connection: &Connection,
         blocked: bool,
-    ) -> rusqlite::Result<(Option<u64>, Given)> {
+    ) -> rusqlite::Result<(Option<Result<u64, CallError>>, Given)> {
         let mut changed = Changed::default();
-        let readmitted = self
-            .intake
-            .admitting(|| work_items::readmit(connection, blocked, &mut changed))?;
+        let readmitted = self.intake.admitting(|| {
+            let retried = work_items::readmitted_labels(connection, blocked)?;
+            if let Err(refused) = self.invariants.payloads().readmits(&retried) {
+                return Ok(Err(refused));
+            }
+            work_items::readmit(connection, blocked, &mut changed).map(Ok)
+        })?;
         let rows = match &readmitted {
-            Some(ids) => work_items::leasable(connection, ids)?,
-            None => Vec::new(),
+            Some(Ok(ids)) => work_items::leasable(connection, ids)?,
+            Some(Err(_)) | None => Vec::new(),
         };
-        let count = readmitted.map(|ids| u64::try_from(ids.len()).unwrap_or(u64::MAX));
+        let count = readmitted
+            .map(|readmitted| readmitted.map(|ids| u64::try_from(ids.len()).unwrap_or(u64::MAX)));
         Ok((count, (rows, changed)))
     }
 

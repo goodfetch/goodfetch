@@ -2,7 +2,9 @@
 //! catalog, and what each Product's catalog holds, by the Product mark of
 //! where each entry is defined (ADRs 0095 and 0099).
 
-use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, KindPart, Operation, Product, SharedType, Yielding,
+};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
@@ -69,6 +71,10 @@ pub const MODULES: [&Entries; 56] = [
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
 ];
+
+/// Every part a kind of Run adds to an entry's value (ADR 0102), which the
+/// catalog's `kind_parts` lists so that its Product's SDKs type it.
+pub const KIND_PARTS: [&KindPart; 1] = [&foxhound::progress::CRAWL_RUN_PROGRESS];
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).

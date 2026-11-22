@@ -1286,6 +1286,74 @@
       ],
       "type": "object"
     },
+    "CrawlConcurrency": {
+      "description": "A crawl's concurrency (ADRs 0040 and 0102).",
+      "properties": {
+        "allowance_set_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AllowanceSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What set the Memory allowance behind it."
+        },
+        "governor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GovernorLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Resource governor's level, once it sampled."
+        },
+        "handler_concurrency": {
+          "arrived_in": "0.1",
+          "description": "`crawl.handler.concurrency`, per serving Connection.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "handlers": {
+          "arrived_in": "0.1",
+          "description": "How many handlers run.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "open_pages": {
+          "arrived_in": "0.1",
+          "description": "The browser pages open, once it sampled.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_allowance": {
+          "arrived_in": "0.1",
+          "description": "The browser pages the governor allows now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "handlers",
+        "handler_concurrency"
+      ],
+      "type": "object"
+    },
     "CrawlExtraction": {
       "additionalProperties": false,
       "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetched_at`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
@@ -2101,6 +2169,183 @@
     },
     "CrawlRequestPushed": {
       "description": "What `crawl_request.push` answers once every Record is staged.",
+      "type": "object"
+    },
+    "CrawlRunProgress": {
+      "additionalProperties": true,
+      "description": "A crawl's progress (ADR 0102): what a crawl adds to every Run's, a part\nno area supplied being absent.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the engine read it."
+        },
+        "checkpoint_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When its last Checkpoint was written, once one was."
+        },
+        "concurrency": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrawlConcurrency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its handlers running and the Resource governor's level."
+        },
+        "epoch": {
+          "arrived_in": "0.1",
+          "description": "Its run epoch (ADR 0003), which a resume or a migration advances.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idle": {
+          "arrived_in": "0.1",
+          "description": "Whether `crawl.keep_alive` holds it `running` with an empty Frontier\nand nothing in flight, until `run.add_seed` gives it work.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "in_flight": {
+          "arrived_in": "0.1",
+          "description": "Each request being fetched or handled.",
+          "items": {
+            "$ref": "#/$defs/InFlightRequest"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "last": {
+          "arrived_in": "0.1",
+          "description": "Whether it is the sequence's last value: the Run ended, or no\nengine this one reaches works it, so nothing more comes until a\nstart with its Run ID resumes it.",
+          "type": "boolean"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where the Run is."
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgressMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The program's own status line, once it set one."
+        },
+        "pauses": {
+          "arrived_in": "0.1",
+          "description": "Each Human pause waiting (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/HumanPause"
+          },
+          "type": "array"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "Its place among the Run's progress values, which only goes up:\n`run.progress`'s `after` takes it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requests": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestProgress"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its requests by state."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "sitemaps": {
+          "arrived_in": "0.1",
+          "description": "Each sitemap seed's sitemaps.",
+          "items": {
+            "$ref": "#/$defs/SitemapReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it stopped, once it did."
+        },
+        "storage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStorage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The worst storage level among the filesystems the Run writes to,\nonce one is above `normal` (ADR 0122)."
+        },
+        "waiting": {
+          "arrived_in": "0.1",
+          "description": "Why its due requests wait, one group per reason.",
+          "items": {
+            "$ref": "#/$defs/WaitGroup"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "writer": {
+          "$ref": "#/$defs/RunWriter",
+          "arrived_in": "0.1",
+          "description": "Whether an engine works it."
+        }
+      },
+      "required": [
+        "run_id",
+        "position",
+        "at",
+        "lifecycle",
+        "writer",
+        "epoch",
+        "pauses",
+        "last"
+      ],
       "type": "object"
     },
     "CrawlRunReport": {
@@ -5028,6 +5273,32 @@
       ],
       "type": "object"
     },
+    "HeldDomain": {
+      "description": "A domain a reason holds.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain's key, its registrable domain unless `crawl.domain_keys`\nnames another.",
+          "type": "string"
+        },
+        "next_admitted_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When it is next admitted; none until a request in flight ends."
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
     "HtmlFormat": {
       "anyOf": [
         {
@@ -5174,6 +5445,74 @@
       },
       "required": [
         "src"
+      ],
+      "type": "object"
+    },
+    "InFlightPhase": {
+      "description": "Where a request in flight is.",
+      "oneOf": [
+        {
+          "const": "fetching",
+          "description": "Its document is being fetched.",
+          "type": "string"
+        },
+        {
+          "const": "handling",
+          "description": "Its handler handles it.",
+          "type": "string"
+        },
+        {
+          "const": "waiting_for_permit",
+          "description": "Its handler waits for a navigation gate's permit: a navigation of\nits page waits for its domain's Politeness, and its handler timeout\ndoes not run meanwhile (ADR 0093).",
+          "type": "string"
+        }
+      ]
+    },
+    "InFlightRequest": {
+      "description": "A request being fetched or handled (ADR 0102).",
+      "properties": {
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Its attempt, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "phase": {
+          "$ref": "#/$defs/InFlightPhase",
+          "arrived_in": "0.1",
+          "description": "Where it is."
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The request's ID.",
+          "type": "string"
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the attempt began."
+        },
+        "tier": {
+          "arrived_in": "0.1",
+          "description": "The fetch tier that fetches its document, when one does.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "url",
+        "phase",
+        "attempt",
+        "started_at"
       ],
       "type": "object"
     },
@@ -9445,6 +9784,102 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "RequestProgress": {
+      "description": "A crawl's requests by state (ADR 0102).",
+      "properties": {
+        "blocked": {
+          "arrived_in": "0.1",
+          "description": "How many a site blocked.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by_block_cause": {
+          "arrived_in": "0.1",
+          "description": "The blocked ones, by Block cause.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "by_error_code": {
+          "arrived_in": "0.1",
+          "description": "The failed ones, by Error code.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "by_skip_reason": {
+          "arrived_in": "0.1",
+          "description": "The skipped ones, by skip reason.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "failed": {
+          "arrived_in": "0.1",
+          "description": "How many failed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fetching": {
+          "arrived_in": "0.1",
+          "description": "How many are being fetched.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "handling": {
+          "arrived_in": "0.1",
+          "description": "How many a handler handles.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "in_human_pause": {
+          "arrived_in": "0.1",
+          "description": "How many wait in a Human pause.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "arrived_in": "0.1",
+          "description": "How many wait to be fetched.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skipped": {
+          "arrived_in": "0.1",
+          "description": "How many were skipped.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "succeeded": {
+          "arrived_in": "0.1",
+          "description": "How many succeeded.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pending",
+        "fetching",
+        "handling",
+        "in_human_pause",
+        "succeeded",
+        "failed",
+        "skipped",
+        "blocked"
+      ],
       "type": "object"
     },
     "RequestSeed": {
@@ -14576,6 +15011,56 @@
       ],
       "type": "object"
     },
+    "WaitGroup": {
+      "description": "The due requests one reason holds (ADR 0102).",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many requests it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "The domains it holds, at most [`HELD_DOMAINS`].",
+          "items": {
+            "$ref": "#/$defs/HeldDomain"
+          },
+          "type": "array"
+        },
+        "more_domains": {
+          "arrived_in": "0.1",
+          "description": "How many more domains it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, such as [`DOMAIN_CONCURRENCY`]; a reason a newer engine\nsends is kept as it came.",
+          "type": "string"
+        },
+        "setting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The setting behind the wait, with its value and the layer that set\nit, as `deadline_exceeded`'s `limit` names one; none when no setting\nsets it, as for the governor."
+        }
+      },
+      "required": [
+        "reason",
+        "count",
+        "domains"
+      ],
+      "type": "object"
+    },
     "WaitUntil": {
       "description": "When a navigation answers, by the state its document reached\n(Playwright's `waitUntil`).",
       "oneOf": [
@@ -15436,7 +15921,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+      "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -16807,6 +17292,18 @@
       "description": "After the sample crawl visits a page.",
       "name": "sample_crawled_page",
       "product": "foxhound"
+    }
+  ],
+  "kind_parts": [
+    {
+      "arrived_in": "0.1",
+      "description": "A crawl's progress: every Run's, with its requests by state, why its due requests wait, its requests in flight, its sitemaps, whether a keep-alive crawl is idle, and its concurrency.",
+      "kind": "crawl",
+      "name": "run.progress",
+      "product": "foxhound",
+      "type": {
+        "$ref": "#/$defs/CrawlRunProgress"
+      }
     }
   ],
   "metrics": [
@@ -19159,7 +19656,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.",
+      "description": "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. A request to retry whose Label the crawl no longer declares, which a resume may drop, fails the call with `label_unknown`, naming that Label and those declared, and nothing is re-admitted: on an ended Run, against the Labels its latest start declared, before the Run returns to `running`. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.",
       "events": [],
       "kind": "round_trip",
       "name": "run.retry_failed",

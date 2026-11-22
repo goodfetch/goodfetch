@@ -220,7 +220,8 @@ impl Keychain {
 }
 
 /// This OS's keychain, or none where it does not open, such as a Linux
-/// host whose session has no Secret Service.
+/// host whose session has no Secret Service or a macOS user with no
+/// default keychain.
 #[cfg(target_os = "linux")]
 async fn open_os() -> Option<Backend> {
     let opened = secret_service::SecretService::open().await;
@@ -252,8 +253,15 @@ async fn open_os() -> Option<Backend> {
     }
 }
 
+/// The user's login keychain, or none where the user has no default
+/// keychain, as a user with no login session or a process whose `HOME`
+/// holds no keychain preferences, where every call of the store would
+/// fail: the same as a Linux session without a Secret Service.
 #[cfg(target_os = "macos")]
 fn os_store() -> keyring_core::Result<Arc<CredentialStore>> {
+    use security_framework::os::macos::keychain::{SecKeychain, SecPreferencesDomain};
+    SecKeychain::default_for_domain(SecPreferencesDomain::User)
+        .map_err(apple_native_keyring_store::keychain::decode_error)?;
     Ok(apple_native_keyring_store::keychain::Store::new()?)
 }
 

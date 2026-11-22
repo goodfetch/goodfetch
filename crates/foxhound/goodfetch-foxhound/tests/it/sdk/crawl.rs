@@ -18,16 +18,19 @@ use axum::body::{self, Body};
 use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::{Router, routing};
+use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::{Settings, egress, fetch, network};
 use goodfetch_foxhound::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRunReport, Error, ErrorCode, Foxhound, Label, RunId,
-    Seed, blocking, error_code,
+    ConnectOptions, Crawl, CrawlContext, CrawlRunReport, Error, ErrorCode, Foxhound, Label,
+    LabelDeclaration, RunId, Schema, Seed, blocking, error_code,
 };
 use goodfetch_protocol::foxhound::crawl::LabelUnknownDetails;
+use goodfetch_protocol::foxhound::frontier::PayloadInvalidDetails;
 use goodfetch_protocol::foxhound::report::CountOf;
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use tokio::sync::{Semaphore, mpsc};
 use tower_service::Service as _;
 
@@ -803,4 +806,175 @@ fn a_declaration_mistake_fails_at_once() {
             error_code::LABEL_UNKNOWN
         ]
     );
+}
+
+/// A shelf's Payload, whose number `schemars` bounds from 1.
+#[derive(Clone, Debug, JsonSchema, Serialize, Deserialize)]
+struct Shelf {
+    #[schemars(range(min = 1))]
+    number: u32,
+}
+
+/// A price's Payload, whose amount may be no JSON number.
+#[derive(Clone, Debug, JsonSchema, Serialize, Deserialize)]
+struct Price {
+    amount: f64,
+}
+
+/// The `shelf` Label, its Payloads typed by the schema `schemars` derives
+/// for [`Shelf`].
+fn shelves() -> LabelDeclaration<'static, Shelf> {
+    LabelDeclaration::new("shelf").payload(&Schema::derived())
+}
+
+/// A book's Payload schema written by hand: its ISBN, a text.
+fn isbn() -> Schema<Value> {
+    Schema::json(json!({
+        "type": "object",
+        "properties": { "isbn": { "type": "string" } },
+        "required": ["isbn"],
+    }))
+    .unwrap()
+}
+
+/// What a `payload_invalid` names: its Label, each issue's path, and the
+/// setting a Payload too long passes.
+fn payload_refusal(error: &Error) -> (String, Vec<String>, Option<String>) {
+    assert_eq!(error.code(), error_code::PAYLOAD_INVALID, "{error}");
+    let details: PayloadInvalidDetails = error.details().unwrap();
+    let paths = details.issues.into_iter().map(|issue| issue.path).collect();
+    (details.label, paths, details.limit)
+}
+
+/// A Label's Payload schema reaches the engine as JSON Schema, the one
+/// `schemars` derives for its type or one written by hand (ADR 0082): a
+/// seed whose Payload it refuses fails the start with `payload_invalid`,
+/// naming each issue's path, and one that is not JSON fails before
+/// anything is sent.
+///
+/// Covers: story:11-1018, error:payload_invalid, operation:crawl.start
+#[test]
+fn a_seed_whose_payload_its_labels_schema_refuses_fails_the_start_with_payload_invalid() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let shelf = crawl.label(shelves()).unwrap();
+        let book = crawl
+            .label(LabelDeclaration::<Value>::new("book").payload(&isbn()))
+            .unwrap();
+        let price = crawl
+            .label(LabelDeclaration::new("price").payload(&Schema::<Price>::derived()))
+            .unwrap();
+        crawl
+            .handle(&shelf, |_ctx: CrawlContext<Shelf>| async { Ok(()) })
+            .unwrap();
+        crawl
+            .handle(&book, |_ctx: CrawlContext<Value>| async { Ok(()) })
+            .unwrap();
+        crawl
+            .handle(&price, |_ctx: CrawlContext<Price>| async { Ok(()) })
+            .unwrap();
+
+        let mut refused = Vec::new();
+        for seed in [
+            Seed::new("https://shop.test/shelf", &shelf, Shelf { number: 0 }),
+            Seed::new("https://shop.test/book", &book, json!({ "isbn": 7 })),
+            Seed::new(
+                "https://shop.test/price",
+                &price,
+                Price { amount: f64::NAN },
+            ),
+        ] {
+            let started = foxhound.start_crawl(&crawl, [seed]).await;
+            refused.push(payload_refusal(&started.unwrap_err()));
+        }
+        foxhound.close().await.unwrap();
+
+        let expected = [
+            ("shelf", "/number"),
+            ("book", "/isbn"),
+            ("price", "/amount"),
+        ]
+        .map(|(label, path)| (label.to_owned(), vec![path.to_owned()], None));
+        assert_eq!(refused, expected);
+    });
+}
+
+/// An enqueue whose Payload its Label's schema refuses, or whose JSON is
+/// longer than `crawl.payload.max_size`, 64 KiB by default, fails with
+/// `payload_invalid`, which the handler reads, naming each issue's path
+/// or the setting, and the handler's own attempt goes on.
+///
+/// Covers: story:11-1018, error:payload_invalid, setting:crawl.payload.max_size, operation:crawl_request.enqueue
+#[test]
+fn an_enqueue_whose_payload_its_label_refuses_fails_with_payload_invalid_naming_why() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITE).unwrap();
+    let start = site.url("shop.test", "/book");
+    let (seen, mut refusals) = mpsc::unbounded_channel();
+    real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let mut crawl = Crawl::new();
+        let page = crawl.label::<()>("page").unwrap();
+        let shelf = crawl.label(shelves()).unwrap();
+        let book = crawl
+            .label(LabelDeclaration::<Value>::new("book").payload(&isbn()))
+            .unwrap();
+        let (to_shelf, to_book) = (shelf.clone(), book.clone());
+        crawl
+            .handle(&page, move |ctx: CrawlContext<()>| async move {
+                let url = ctx.url().to_owned();
+                let long = json!({ "isbn": "9".repeat(65 * 1024) });
+                let enqueued = [
+                    ctx.enqueue(format!("{url}?shelf"), &to_shelf, Shelf { number: 0 })
+                        .await,
+                    ctx.enqueue(format!("{url}?isbn"), &to_book, json!({ "isbn": 7 }))
+                        .await,
+                    ctx.enqueue(format!("{url}?long"), &to_book, long).await,
+                ];
+                for refused in enqueued {
+                    seen.send(payload_refusal(&refused.unwrap_err())).unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
+        crawl
+            .handle(&shelf, |_ctx: CrawlContext<Shelf>| async { Ok(()) })
+            .unwrap();
+        crawl
+            .handle(&book, |_ctx: CrawlContext<Value>| async { Ok(()) })
+            .unwrap();
+
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&start, &page, ())])
+            .await
+            .unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+
+        let requests = report.requests.unwrap();
+        assert_eq!(
+            (requests.succeeded, requests.failed),
+            (1, 0),
+            "{requests:?}"
+        );
+    });
+    let mut refused = Vec::new();
+    while let Ok(refusal) = refusals.try_recv() {
+        refused.push(refusal);
+    }
+    let expected = [
+        ("shelf", Some("/number"), None),
+        ("book", Some("/isbn"), None),
+        ("book", None, Some("crawl.payload.max_size")),
+    ]
+    .map(|(label, path, limit)| {
+        (
+            label.to_owned(),
+            path.map(str::to_owned).into_iter().collect(),
+            limit.map(str::to_owned),
+        )
+    });
+    assert_eq!(refused, expected);
 }

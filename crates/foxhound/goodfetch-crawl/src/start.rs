@@ -259,7 +259,7 @@ async fn start(
             ended_by: DRIVING.ended_by,
             initialize: Some(initialize(
                 invariants,
-                (declared, datasets, recording),
+                (declared.clone(), datasets, recording),
                 keys,
                 seeding,
                 admitted,
@@ -302,14 +302,14 @@ async fn start(
         // An interrupted Run resumes under the declarations this start
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
-            let kept = (opening, serving.payloads().clone(), extraction);
+            let kept = (opening, declared, serving.payloads().clone(), extraction);
             redeclared.keep(&run_id, kept, hooks, &crawls).await;
             let resumed = resume_run(&context, run_id, None, settings).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }
         Started::Ended(ended) => {
-            let kept = (opening, serving.payloads().clone(), extraction);
+            let kept = (opening, declared, serving.payloads().clone(), extraction);
             redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             limits.give(&ended, &context).await?;
             Ok(ended)

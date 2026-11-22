@@ -1,6 +1,7 @@
 //! An interrupted command whose call is cancellable sends `$/cancel`, and
 //! the engine stops the work (ADRs 0069 and 0080): `events subscribe
-//! --follow` stays in flight until `SIGINT`, which the engine answers by
+//! --follow` stays in flight until an interrupt, `SIGINT` or on Windows
+//! `CTRL_BREAK_EVENT`, which the engine answers by
 //! cancelling the subscription, and the command exits `130`.
 
 use std::io::{BufRead as _, BufReader, Read as _};

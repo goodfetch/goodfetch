@@ -1,0 +1,47 @@
+{
+  "description": "A Foxhound Client's hello accepted by a Foxhound engine, then its run.start answered with one of Foxhound's own Error codes, here client_gone of the unavailable group, which stands for any code only Foxhound's part of the catalog carries; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The Connection the attempt's request went on ended before its handler answered.",
+          "data": {
+            "code": "client_gone",
+            "retryable": true,
+            "fix": "Start the program again: the attempt is retried on another Connection that serves the crawl."
+          }
+        }
+      }
+    }
+  ]
+}

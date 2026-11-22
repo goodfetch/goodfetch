@@ -191,6 +191,16 @@ struct HandlerRequest {
     result: TypeName,
 }
 
+/// What a kind of Run adds to an entry every Run's answer shares, such as a
+/// crawl's parts of `run.progress` (ADR 0102): only the type it takes,
+/// which its Product's layer defines.
+#[derive(Debug, Deserialize)]
+struct KindPart {
+    product: Product,
+    #[serde(rename = "type")]
+    part: TypeName,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct PluginMethod {
     pub(super) name: String,
@@ -276,6 +286,9 @@ struct Projection {
     /// Absent from a catalog that defines no handler request.
     #[serde(default)]
     handler_requests: Vec<HandlerRequest>,
+    /// Absent from a catalog that defines no kind part.
+    #[serde(default)]
+    kind_parts: Vec<KindPart>,
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
@@ -495,12 +508,18 @@ impl Layer {
             .into_iter()
             .filter(|entry| own(entry.product))
             .collect();
+        let kind_parts: Vec<KindPart> = all
+            .kind_parts
+            .into_iter()
+            .filter(|entry| own(entry.product))
+            .collect();
         let roots = roots(
             &operations,
             &events,
             &error_codes,
             &plugin_kinds,
             &handler_requests,
+            &kind_parts,
         );
         let reached = projection::reached(&roots, &all.definitions)?;
         let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
@@ -604,6 +623,7 @@ fn roots(
     error_codes: &[ErrorCode],
     plugin_kinds: &[PluginKind],
     handler_requests: &[HandlerRequest],
+    kind_parts: &[KindPart],
 ) -> Value {
     let reference = |name: &TypeName| serde_json::json!({ "$ref": format!("#/$defs/{}", name.0) });
     let operations = operations
@@ -621,12 +641,14 @@ fn roots(
     let handler_requests = handler_requests
         .iter()
         .flat_map(|request| [reference(&request.params), reference(&request.result)]);
+    let kind_parts = kind_parts.iter().map(|part| reference(&part.part));
     Value::Array(
         operations
             .chain(events)
             .chain(details)
             .chain(methods)
             .chain(handler_requests)
+            .chain(kind_parts)
             .collect(),
     )
 }
@@ -795,6 +817,39 @@ mod tests {
         assert_eq!(
             layer.definitions.keys().cloned().collect::<Vec<_>>(),
             vec!["HandleParams".to_owned(), "Handled".to_owned()]
+        );
+    }
+
+    /// What a kind of Run adds to an entry of the other Product, such as a
+    /// crawl's parts of `run.progress`, is its own Product's: its layer
+    /// defines the type, which Collie's layer never sees.
+    #[test]
+    fn the_foxhound_layer_defines_the_types_its_kind_parts_take() {
+        let collie = projection(&[]);
+        let mut foxhound = projection(&[]);
+        foxhound["kind_parts"] = json!([{
+            "name": "run.progress",
+            "kind": "crawl",
+            "product": "foxhound",
+            "description": "A crawl's parts.",
+            "type": { "$ref": "#/$defs/CrawlParts" },
+            "arrived_in": "0.1",
+        }]);
+        foxhound["$defs"]["CrawlParts"] = json!({ "type": "object" });
+        let bundle = json!({ "$defs": {} });
+
+        let defined = |product| {
+            Layer::new(&bundle, &collie, &foxhound, product, "0.0.0")
+                .unwrap()
+                .definitions
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            (defined(Product::Collie), defined(Product::Foxhound)),
+            (vec!["Empty".to_owned()], vec!["CrawlParts".to_owned()])
         );
     }
 

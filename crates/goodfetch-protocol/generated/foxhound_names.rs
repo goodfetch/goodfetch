@@ -22,6 +22,9 @@ pub const HANDLER_REQUESTS: &[&str] = &["crawl_hook.handle", "crawl_request.hand
 /// The hook stages only Foxhound carries.
 pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 
+/// The kind parts only Foxhound carries.
+pub const KIND_PARTS: &[&str] = &["run.progress"];
+
 /// The metrics only Foxhound carries.
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.queued", "goodfetch.work_item.retried"];
 

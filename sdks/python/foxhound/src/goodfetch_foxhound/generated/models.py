@@ -9,12 +9,15 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.models import (
+    AllowanceSource,
     AxisReason,
     Checkpoint,
     Completeness,
     EndingError,
     ExplainedSetting,
     FormatsRequest,
+    GovernorLevel,
+    HumanPause,
     Lifecycle,
     Locator,
     NothingDone,
@@ -23,14 +26,18 @@ from goodfetch_collie_client.generated.models import (
     PageResponse,
     PlanReport,
     PluginRun,
+    ProgressMessage,
     ProjectSettings,
     RecordingReport,
     RunId,
     RunLimit,
+    RunStorage,
     RunUsage,
     RunWarning,
+    RunWriter,
     SampleEchoed,
     SessionId,
+    SettingLimit,
     StopReason,
     Tags,
     UncertainEffect,
@@ -114,6 +121,27 @@ class CountOf(BaseModel):
     """How many."""
     name: str
     """The reason, code or cause."""
+
+
+class CrawlConcurrency(BaseModel):
+    """A crawl's concurrency (ADRs 0040 and 0102)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    allowance_set_by: AllowanceSource | None = None
+    """What set the Memory allowance behind it."""
+    governor: GovernorLevel | None = None
+    """The Resource governor's level, once it sampled."""
+    handler_concurrency: Annotated[int, Field(ge=0)]
+    """`crawl.handler.concurrency`, per serving Connection."""
+    handlers: Annotated[int, Field(ge=0)]
+    """How many handlers run."""
+    open_pages: Annotated[int | None, Field(ge=0)] = None
+    """The browser pages open, once it sampled."""
+    page_allowance: Annotated[int | None, Field(ge=0)] = None
+    """The browser pages the governor allows now."""
 
 
 class CrawlHookDeclaration(BaseModel):
@@ -668,6 +696,22 @@ class HandlerSkip(BaseModel):
     """The handler's own text."""
 
 
+class HeldDomain(BaseModel):
+    """A domain a reason holds."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    domain: str
+    """
+    The domain's key, its registrable domain unless `crawl.domain_keys`
+    names another.
+    """
+    next_admitted_at: PointInTime | None = None
+    """When it is next admitted; none until a request in flight ends."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -676,6 +720,42 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class InFlightPhase(StrEnum):
+    """Where a request in flight is."""
+
+    fetching = "fetching"
+    """Its document is being fetched."""
+    handling = "handling"
+    """Its handler handles it."""
+    waiting_for_permit = "waiting_for_permit"
+    """
+    Its handler waits for a navigation gate's permit: a navigation of
+    its page waits for its domain's Politeness, and its handler timeout
+    does not run meanwhile (ADR 0093).
+    """
+
+
+class InFlightRequest(BaseModel):
+    """A request being fetched or handled (ADR 0102)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempt: Annotated[int, Field(ge=0)]
+    """Its attempt, from 1."""
+    phase: InFlightPhase
+    """Where it is."""
+    request_id: str
+    """The request's ID."""
+    started_at: PointInTime
+    """When the attempt began."""
+    tier: str | None = None
+    """The fetch tier that fetches its document, when one does."""
+    url: str
+    """Its URL."""
 
 
 class LabelDeclaration(BaseModel):
@@ -1027,6 +1107,36 @@ class RequestCounts(BaseModel):
     """How many failed."""
     pending: Annotated[int, Field(ge=0)]
     """How many were left pending."""
+    skipped: Annotated[int, Field(ge=0)]
+    """How many were skipped."""
+    succeeded: Annotated[int, Field(ge=0)]
+    """How many succeeded."""
+
+
+class RequestProgress(BaseModel):
+    """A crawl's requests by state (ADR 0102)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blocked: Annotated[int, Field(ge=0)]
+    """How many a site blocked."""
+    by_block_cause: list[CountOf] | None = None
+    """The blocked ones, by Block cause."""
+    by_error_code: list[CountOf] | None = None
+    """The failed ones, by Error code."""
+    by_skip_reason: list[CountOf] | None = None
+    """The skipped ones, by skip reason."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many failed."""
+    fetching: Annotated[int, Field(ge=0)]
+    """How many are being fetched."""
+    handling: Annotated[int, Field(ge=0)]
+    """How many a handler handles."""
+    in_human_pause: Annotated[int, Field(ge=0)]
+    """How many wait in a Human pause."""
+    pending: Annotated[int, Field(ge=0)]
+    """How many wait to be fetched."""
     skipped: Annotated[int, Field(ge=0)]
     """How many were skipped."""
     succeeded: Annotated[int, Field(ge=0)]
@@ -1585,6 +1695,32 @@ class ValueTransform(StrEnum):
     """An exact text looked up in the transform's table."""
 
 
+class WaitGroup(BaseModel):
+    """The due requests one reason holds (ADR 0102)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many requests it holds."""
+    domains: list[HeldDomain]
+    """The domains it holds, at most [`HELD_DOMAINS`]."""
+    more_domains: Annotated[int | None, Field(ge=0)] = None
+    """How many more domains it holds."""
+    reason: str
+    """
+    The reason, such as [`DOMAIN_CONCURRENCY`]; a reason a newer engine
+    sends is kept as it came.
+    """
+    setting: SettingLimit | None = None
+    """
+    The setting behind the wait, with its value and the layer that set
+    it, as `deadline_exceeded`'s `limit` names one; none when no setting
+    sets it, as for the governor.
+    """
+
+
 class WallFilter(StrEnum):
     """Which Records a page takes by a Wall read past (ADR 0052)."""
 
@@ -1897,6 +2033,67 @@ class CrawlRequestOutcome5(UnknownMember):
     kind: Literal["unknown"]
     tag: str
     """The tag the engine sent."""
+
+
+class CrawlRunProgress(BaseModel):
+    """
+    A crawl's progress (ADR 0102): what a crawl adds to every Run's, a part
+    no area supplied being absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    at: PointInTime
+    """When the engine read it."""
+    checkpoint_at: PointInTime | None = None
+    """When its last Checkpoint was written, once one was."""
+    concurrency: CrawlConcurrency | None = None
+    """Its handlers running and the Resource governor's level."""
+    epoch: Annotated[int, Field(ge=0)]
+    """Its run epoch (ADR 0003), which a resume or a migration advances."""
+    idle: bool | None = None
+    """
+    Whether `crawl.keep_alive` holds it `running` with an empty Frontier
+    and nothing in flight, until `run.add_seed` gives it work.
+    """
+    in_flight: list[InFlightRequest] | None = None
+    """Each request being fetched or handled."""
+    last: bool
+    """
+    Whether it is the sequence's last value: the Run ended, or no
+    engine this one reaches works it, so nothing more comes until a
+    start with its Run ID resumes it.
+    """
+    lifecycle: Lifecycle
+    """Where the Run is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    pauses: list[HumanPause]
+    """Each Human pause waiting (ADR 0092)."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place among the Run's progress values, which only goes up:
+    `run.progress`'s `after` takes it.
+    """
+    requests: RequestProgress | None = None
+    """Its requests by state."""
+    run_id: RunId
+    """The Run's ID."""
+    sitemaps: list[SitemapReport] | None = None
+    """Each sitemap seed's sitemaps."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, once it did."""
+    storage: RunStorage | None = None
+    """
+    The worst storage level among the filesystems the Run writes to,
+    once one is above `normal` (ADR 0122).
+    """
+    waiting: list[WaitGroup] | None = None
+    """Why its due requests wait, one group per reason."""
+    writer: RunWriter
+    """Whether an engine works it."""
 
 
 class DatasetList(BaseModel):

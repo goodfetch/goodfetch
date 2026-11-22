@@ -1,0 +1,38 @@
+{
+  "description": "A Foxhound Client's hello refused with not_in_product by a Collie engine, which ends the exchange.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "This Client needs Foxhound, and this engine is Collie 0.0.0.",
+          "data": {
+            "code": "not_in_product",
+            "retryable": false,
+            "needs": "foxhound",
+            "product": "collie",
+            "product_version": "0.0.0",
+            "fix": "Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`pip install goodfetch-foxhound`).",
+            "install": "pip install goodfetch-foxhound"
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

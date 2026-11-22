@@ -45,7 +45,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tasks::TaskOwner;
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::foxhound::crawl::{
@@ -218,7 +218,7 @@ pub async fn follow<F, Fut, E>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
-    (clock, owner, work): (&Clock, &TaskOwner, &CountedWork),
+    (clock, owner, work): (&Clock, &TaskStarter, &CountedWork),
     fetch: F,
 ) -> Result<Fetched, Stop>
 where
@@ -357,7 +357,7 @@ pub(crate) async fn follow_reading<F, Fut, E, R>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
-    (clock, owner, reading): (&Clock, &TaskOwner, &Arc<R>),
+    (clock, owner, reading): (&Clock, &TaskStarter, &Arc<R>),
     mut fetch: F,
 ) -> Result<Followed<R::Read>, Unfollowed>
 where
@@ -461,7 +461,7 @@ async fn next_hop<R: Reading>(
     hop: &Hop,
     fetched: &mut Fetched,
     following: &Following,
-    (owner, reading): (&TaskOwner, &Arc<R>),
+    (owner, reading): (&TaskStarter, &Arc<R>),
 ) -> Result<Step<R::Read>, Stop> {
     // A response its Label does not take is the chain's end, unread.
     if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {

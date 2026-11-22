@@ -56,7 +56,7 @@ use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
-use goodfetch_engine::tasks::TaskOwner;
+use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
 use goodfetch_protocol::formats::{CLEAN_UP_RULES, Compatibility};
@@ -684,7 +684,7 @@ impl Versions {
     /// blocking tasks; the embedded part, recorded in Provenance and warned
     /// of once, however many of its pages asked at once, when its files no
     /// longer read. Each comes with its digest.
-    pub(crate) async fn lists(&self, run: &Run, owner: &TaskOwner) -> HeldLists {
+    pub(crate) async fn lists(&self, run: &Run, owner: &TaskStarter) -> HeldLists {
         let held = lock(&self.holding)
             .get(run.id())
             .map(|held| (held.digest.clone(), held.artifact.clone()));
@@ -805,7 +805,7 @@ impl Versions {
         digest: &str,
         artifact: Option<Arc<HeldArtifact>>,
         run: &Run,
-        owner: &TaskOwner,
+        owner: &TaskStarter,
     ) -> Result<FilterLists, Unobtained> {
         let found = match (artifact, self.home.get()) {
             (Some(artifact), _) => Some(artifact.files()),
@@ -885,7 +885,7 @@ const LISTS_AT_ONCE: usize = 3;
 /// blocking tasks, [`LISTS_AT_ONCE`] at a time, then put together: the
 /// lists' load, most of a Run's start-up, takes about the largest list's
 /// time instead of all three's.
-async fn embedded(owner: &TaskOwner) -> Result<FilterLists, LoadError> {
+async fn embedded(owner: &TaskStarter) -> Result<FilterLists, LoadError> {
     let loaded: Vec<Result<EmbeddedList, LoadError>> =
         futures_util::stream::iter([List::Ads, List::Trackers, List::Annoyances])
             .map(|list| owner.blocking(move || EmbeddedList::load(list)))

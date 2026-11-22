@@ -38,7 +38,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
 use std::num::NonZeroUsize;
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Deref};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -102,9 +102,24 @@ impl OwnerKind {
     }
 }
 
-/// An owner of tasks: what it starts stops with it.
+/// An owner of tasks: what it starts stops with it. It is its starting
+/// side ([`TaskStarter`], which it dereferences to) and the side its holder
+/// alone keeps: cancelling it, waiting for its tasks, stopping it, and
+/// awaiting a panic of its tasks.
 #[derive(Debug)]
 pub struct TaskOwner {
+    starter: TaskStarter,
+}
+
+/// The starting side of a [`TaskOwner`]: it starts a task, blocking work,
+/// an analysis or an actor, makes a child owner and reads its
+/// cancellation, and has no way to cancel, wait for or stop the owner. A
+/// Run hands out its own owner as this alone, so whoever starts work on a
+/// Run never ends it: the Runs' registry does (ADR 0145's note of
+/// 2026-11-10). A child made from it is a full owner, which its holder
+/// stops.
+#[derive(Debug)]
+pub struct TaskStarter {
     token: CancellationToken,
     tracker: TaskTracker,
     /// Its actors, which outlive its other tasks: a stop ends them only
@@ -134,59 +149,26 @@ impl TaskOwner {
     /// CPU pool of at most `cores` threads.
     pub fn root_on_cores(policy: BlockingPolicy, cores: NonZeroUsize) -> Self {
         Self {
-            token: CancellationToken::new(),
-            tracker: TaskTracker::new(),
-            actors: TaskTracker::new(),
-            closing: CancellationToken::new(),
-            policy,
-            analyses: Arc::new(cpu_pool::CpuPool::new(
-                cpu_pool::THREAD_NAME,
-                cores.get(),
-                cpu_pool::KEEP_ALIVE,
-            )),
-            panics: Panics::new(OwnerKind::Engine),
-        }
-    }
-
-    /// An owner under this one, of its kind, with its blocking policy:
-    /// cancelling this one cancels it, never the other way round. Its tasks
-    /// are its own, which its holder waits for, and whose panics are told
-    /// to its holder ([`TaskOwner::panicked`]), and to this one's holder
-    /// too when both are the engine's own ([`OwnerKind::Engine`]).
-    #[must_use]
-    pub fn child(&self) -> Self {
-        self.under(self.panics.kind(), self.panics.part())
-    }
-
-    /// An owner under this one, as [`TaskOwner::child`], of `kind`, such
-    /// as a Connection's or a Run's.
-    #[must_use]
-    pub fn child_for(&self, kind: OwnerKind) -> Self {
-        self.under(kind, self.panics.part())
-    }
-
-    /// An owner under this one, as [`TaskOwner::child`], for `part`, a part
-    /// every Run shares, such as the Run registry, which the log of a panic
-    /// of its tasks or of those of its children names (ADR 0148).
-    #[must_use]
-    pub fn part(&self, part: &'static str) -> Self {
-        self.under(self.panics.kind(), part)
-    }
-
-    fn under(&self, kind: OwnerKind, part: &'static str) -> Self {
-        Self {
-            token: self.token.child_token(),
-            tracker: TaskTracker::new(),
-            actors: TaskTracker::new(),
-            closing: CancellationToken::new(),
-            policy: self.policy,
-            analyses: Arc::clone(&self.analyses),
-            panics: self.panics.child(kind, part),
+            starter: TaskStarter {
+                token: CancellationToken::new(),
+                tracker: TaskTracker::new(),
+                actors: TaskTracker::new(),
+                closing: CancellationToken::new(),
+                policy,
+                analyses: Arc::new(cpu_pool::CpuPool::new(
+                    cpu_pool::THREAD_NAME,
+                    cores.get(),
+                    cpu_pool::KEEP_ALIVE,
+                )),
+                panics: Panics::new(OwnerKind::Engine),
+            },
         }
     }
 
     /// Its cancellation token, which its tasks watch at each cancellation
-    /// point.
+    /// point: its holder's, since cancelling the token cancels the owner.
+    /// Its starting side hands out a child of it alone
+    /// ([`TaskStarter::child_token`]).
     pub fn token(&self) -> &CancellationToken {
         &self.token
     }
@@ -216,10 +198,119 @@ impl TaskOwner {
     }
 
     /// The part whose task panicked first among its own and its children's
-    /// that tell it ([`TaskOwner::part`]): the name the engine's log gives
+    /// that tell it ([`TaskStarter::part`]): the name the engine's log gives
     /// when that panic stops it; none while none has panicked.
     pub fn panicked_part(&self) -> Option<&'static str> {
         self.panics.0.first.get().copied()
+    }
+
+    /// Asks its tasks to stop at their next cancellation point.
+    pub fn cancel(&self) {
+        self.token.cancel();
+    }
+
+    /// How many of the tasks it started still run, its actors aside.
+    pub fn running(&self) -> usize {
+        self.tracker.len()
+    }
+
+    /// Waits for every task it started, without cancelling them, its
+    /// actors last, each ending once every sender of its mailbox is gone.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting; the tasks keep running and no new
+    /// one can be started.
+    pub async fn wait(&self) {
+        self.tracker.close();
+        self.tracker.wait().await;
+        self.actors.close();
+        self.actors.wait().await;
+    }
+
+    /// Cancels its tasks, waits for them, then ends its actors once each
+    /// handled what its mailbox holds, never waiting for a sender held
+    /// anywhere else to go (#1763). Tasks still running
+    /// [`STOP_TOLD_AFTER`] after the cancellation are logged once at
+    /// `warn`, with how many, and still waited for.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`TaskOwner::wait`]: the tasks are already cancelled.
+    pub async fn stop(&self) {
+        self.cancel();
+        self.tracker.close();
+        if tokio::time::timeout(STOP_TOLD_AFTER, self.tracker.wait())
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                owner = self.panics.kind().as_str(),
+                running = self.tracker.len(),
+                "a stop's tasks still run after their cancellation, and it waits for them"
+            );
+            self.tracker.wait().await;
+        }
+        self.closing.cancel();
+        self.actors.close();
+        self.actors.wait().await;
+    }
+}
+
+impl Deref for TaskOwner {
+    type Target = TaskStarter;
+
+    fn deref(&self) -> &TaskStarter {
+        &self.starter
+    }
+}
+
+impl TaskStarter {
+    /// An owner under this one, of its kind, with its blocking policy:
+    /// cancelling this one cancels it, never the other way round. Its tasks
+    /// are its own, which its holder waits for, and whose panics are told
+    /// to its holder ([`TaskOwner::panicked`]), and to this one's holder
+    /// too when both are the engine's own ([`OwnerKind::Engine`]).
+    #[must_use]
+    pub fn child(&self) -> TaskOwner {
+        self.under(self.panics.kind(), self.panics.part())
+    }
+
+    /// An owner under this one, as [`TaskStarter::child`], of `kind`, such
+    /// as a Connection's or a Run's.
+    #[must_use]
+    pub fn child_for(&self, kind: OwnerKind) -> TaskOwner {
+        self.under(kind, self.panics.part())
+    }
+
+    /// An owner under this one, as [`TaskStarter::child`], for `part`, a part
+    /// every Run shares, such as the Run registry, which the log of a panic
+    /// of its tasks or of those of its children names (ADR 0148).
+    #[must_use]
+    pub fn part(&self, part: &'static str) -> TaskOwner {
+        self.under(self.panics.kind(), part)
+    }
+
+    fn under(&self, kind: OwnerKind, part: &'static str) -> TaskOwner {
+        TaskOwner {
+            starter: Self {
+                token: self.token.child_token(),
+                tracker: TaskTracker::new(),
+                actors: TaskTracker::new(),
+                closing: CancellationToken::new(),
+                policy: self.policy,
+                analyses: Arc::clone(&self.analyses),
+                panics: self.panics.child(kind, part),
+            },
+        }
+    }
+
+    /// A token cancelled with the owner, which a task watches at each
+    /// cancellation point: a child of the owner's own, so that cancelling
+    /// it cancels itself alone, never the owner.
+    #[must_use]
+    pub fn child_token(&self) -> CancellationToken {
+        self.token.child_token()
     }
 
     /// Its blocking policy.
@@ -255,7 +346,7 @@ impl TaskOwner {
     }
 
     /// Its blocking threads, as a handle that runs blocking work as
-    /// [`TaskOwner::blocking`] does for whoever holds it, such as a run
+    /// [`TaskStarter::blocking`] does for whoever holds it, such as a run
     /// file's readers, which its writer's handles hold; the owner waits for
     /// that work too.
     pub fn blocking_threads(&self) -> BlockingThreads {
@@ -281,7 +372,7 @@ impl TaskOwner {
     /// # Cancel safety
     ///
     /// Dropping the future before a thread of the pool takes `work` runs
-    /// nothing; once `work` started, as [`TaskOwner::blocking`]: it runs to
+    /// nothing; once `work` started, as [`TaskStarter::blocking`]: it runs to
     /// its end, the owner waits for it, and a panic in it is told to the
     /// owner's parent.
     pub async fn analysis<T, F>(&self, counted: &CountedWork, work: F) -> T
@@ -293,14 +384,14 @@ impl TaskOwner {
         self.on_pool(work).await
     }
 
-    /// [`TaskOwner::analysis`] of a handler's read of its page, counted
+    /// [`TaskStarter::analysis`] of a handler's read of its page, counted
     /// apart from the page's own reads, on `F1.analysis_handoffs.handler`
     /// (#2189): a page makes at most one hand-off of its own, and its
     /// handler one for each read it makes.
     ///
     /// # Cancel safety
     ///
-    /// As [`TaskOwner::analysis`].
+    /// As [`TaskStarter::analysis`].
     pub async fn handler_analysis<T, F>(&self, counted: &CountedWork, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
@@ -386,7 +477,7 @@ impl TaskOwner {
         })
     }
 
-    /// Starts an actor as [`TaskOwner::actor`] does, which also ends once
+    /// Starts an actor as [`TaskStarter::actor`] does, which also ends once
     /// `handle` breaks: its mailbox is dropped then, with every message it
     /// still holds, so a sender's later message is refused, whoever holds a
     /// sender still.
@@ -459,62 +550,10 @@ impl TaskOwner {
         }
         Ok(())
     }
-
-    /// Asks its tasks to stop at their next cancellation point.
-    pub fn cancel(&self) {
-        self.token.cancel();
-    }
-
-    /// How many of the tasks it started still run, its actors aside.
-    pub fn running(&self) -> usize {
-        self.tracker.len()
-    }
-
-    /// Waits for every task it started, without cancelling them, its
-    /// actors last, each ending once every sender of its mailbox is gone.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future stops waiting; the tasks keep running and no new
-    /// one can be started.
-    pub async fn wait(&self) {
-        self.tracker.close();
-        self.tracker.wait().await;
-        self.actors.close();
-        self.actors.wait().await;
-    }
-
-    /// Cancels its tasks, waits for them, then ends its actors once each
-    /// handled what its mailbox holds, never waiting for a sender held
-    /// anywhere else to go (#1763). Tasks still running
-    /// [`STOP_TOLD_AFTER`] after the cancellation are logged once at
-    /// `warn`, with how many, and still waited for.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`TaskOwner::wait`]: the tasks are already cancelled.
-    pub async fn stop(&self) {
-        self.cancel();
-        self.tracker.close();
-        if tokio::time::timeout(STOP_TOLD_AFTER, self.tracker.wait())
-            .await
-            .is_err()
-        {
-            tracing::warn!(
-                owner = self.panics.kind().as_str(),
-                running = self.tracker.len(),
-                "a stop's tasks still run after their cancellation, and it waits for them"
-            );
-            self.tracker.wait().await;
-        }
-        self.closing.cancel();
-        self.actors.close();
-        self.actors.wait().await;
-    }
 }
 
 /// An owner's blocking threads, under its policy, for whoever holds the
-/// handle ([`TaskOwner::blocking_threads`]).
+/// handle ([`TaskStarter::blocking_threads`]).
 #[derive(Clone, Debug)]
 pub struct BlockingThreads {
     tracker: TaskTracker,
@@ -523,11 +562,11 @@ pub struct BlockingThreads {
 }
 
 impl BlockingThreads {
-    /// Runs `work`, which blocks, as [`TaskOwner::blocking`] does.
+    /// Runs `work`, which blocks, as [`TaskStarter::blocking`] does.
     ///
     /// # Cancel safety
     ///
-    /// As [`TaskOwner::blocking`]'s.
+    /// As [`TaskStarter::blocking`]'s.
     pub async fn run<T, F>(&self, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,

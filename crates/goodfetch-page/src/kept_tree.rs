@@ -84,7 +84,7 @@ impl Unstarted {
         } = self;
         let owner = run.clone();
         run.owner().spawn(async move {
-            let stopping = owner.owner().token().clone();
+            let stopping = owner.owner().child_token();
             let mut kept = Some(kept);
             while let Some(Some(read)) = stopping.run_until_cancelled(mailbox.recv()).await {
                 let work = owner.metrics().counted_work().clone();

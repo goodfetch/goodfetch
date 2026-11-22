@@ -151,7 +151,7 @@ use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
-use crate::tasks::{OwnerKind, TaskOwner};
+use crate::tasks::{OwnerKind, TaskOwner, TaskStarter};
 use crate::trace::{self, Link, RawMark};
 use crate::transition;
 
@@ -2162,8 +2162,10 @@ impl Run {
         CALLER
     }
 
-    /// Its owner, whose tasks and blocking work stop with the Run.
-    pub fn owner(&self) -> &TaskOwner {
+    /// Its owner's starting side, whose tasks and blocking work stop with
+    /// the Run: cancelling, waiting for and stopping the owner stay the
+    /// Runs' registry's (ADR 0145's note of 2026-11-10).
+    pub fn owner(&self) -> &TaskStarter {
         &self.owner
     }
 

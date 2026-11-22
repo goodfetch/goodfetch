@@ -343,8 +343,10 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # one, raises its group's class with the code kept. The program fills a
 # field with a Secret's value, the canary, which no rendering of any error
 # (message, string form, debug form, stack) nor any log line holds. Played
-# by the Scripted engine: attached in TypeScript and Python (asyncio, Trio
-# and the sync API), and as the Daemon Rust's client crate reaches.
+# by the Scripted engine in TypeScript and Python (asyncio, Trio and the
+# sync API), attached and as a Daemon, and as the Daemon Rust's client crate
+# reaches; linked, Rust's engine answers the same failures from a test
+# composition's handlers (issue 3146).
 [[capability]]
 name = "errors"
 
@@ -352,7 +354,6 @@ name = "errors"
 id = "errors-and-outcomes"
 covers = ["story:11-28", "story:11-30", "story:11-187"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # Partial results (ADR 0079; issue 3161): a value of a declared type is
 # complete. A navigation into a redirect loop raises `too_many_redirects`,

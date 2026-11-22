@@ -17,6 +17,7 @@ mod compile_fail;
 mod connection;
 #[cfg(unix)]
 mod daemon;
+mod ending_a_run;
 mod errors_and_outcomes;
 mod events;
 mod file_saving;

@@ -164,7 +164,7 @@ def test_carries_every_member_of_collies_connection_under_the_same_name(
     ) == (True, set(), set())
 
 
-@pytest.mark.covers("story:11-1003", "story:11-1004")
+@pytest.mark.covers("story:11-1003", "story:11-1004", "story:11-1011")
 @three_ways
 async def test_a_helper_typed_for_the_connection_takes_it_and_catches_its_error(
     way: Way,
@@ -173,7 +173,9 @@ async def test_a_helper_typed_for_the_connection_takes_it_and_catches_its_error(
 
     `connection_library`'s helper takes the client package's
     `AsyncConnection` and catches the client package's `ClosedError`, as it
-    does on Collie's Connection.
+    does on Collie's Connection. The library takes the client package by a
+    range of the Product's line, and Foxhound's package pins it exactly, so
+    the environment's one copy is both's.
     """
     foxhound, played = await foxhound_on(way, "run/foxhound-started-and-finished.json")
 

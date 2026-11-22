@@ -141,7 +141,7 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
 /// crate's `Error` catches what either fails with. The helper is a
 /// library's, `tests/libraries/connection-library`, which takes the client
 /// crate by a semver range: Cargo builds the program's one copy for both.
-/// Covers: story:11-1003, story:11-1004, story:11-179, story:11-180
+/// Covers: story:11-1003, story:11-1004, story:11-1011, story:11-179, story:11-180
 #[test]
 fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();

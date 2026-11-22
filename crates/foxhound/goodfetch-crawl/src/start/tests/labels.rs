@@ -208,6 +208,128 @@ fn a_resume_whose_pending_requests_name_a_label_no_longer_declared_is_refused_be
     );
 }
 
+/// A resume passes a Run whose failed or blocked request names a Label
+/// the crawl no longer declares, as only pending requests are judged; the
+/// live crawl's `run.retry_failed` then refuses to re-admit it, failing
+/// with `label_unknown`, its details naming the Label and those the crawl
+/// declares, and re-admits nothing (ADRs 0093 and 0102). Once the Run
+/// ended, the call refuses it the same against the Labels its run file
+/// records, before it reopens the Run (#2825). A blocked request is
+/// judged with `blocked` alone.
+///
+/// Covers: error:label_unknown, operation:run.retry_failed
+#[rstest]
+#[case::failed(false)]
+#[case::blocked(true)]
+fn a_retry_of_a_request_whose_label_the_crawl_no_longer_declares_is_refused_live_and_ended(
+    #[case] blocked: bool,
+) {
+    let env = TestEnv::new();
+    let mut ends = |_: &Value| {
+        if blocked {
+            Reply::Blocked("rate_limit")
+        } else {
+            Reply::Fails("handler_failed", false)
+        }
+    };
+    let keep_alive = json!({ "crawl": { "keep_alive": true } });
+    // A resume does not check its seeds (ADR 0102).
+    let seeds = json!([{ "url": "https://shop.test/old", "label": "old" }]);
+
+    let (ended, resumed, refused, before, after, finished) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "labels": { "old": {}, "page": {} },
+                        "run_id": "dropped",
+                        "seeds": seeds,
+                        "settings": keep_alive,
+                    }),
+                    &mut ends,
+                )
+                .await;
+            let ended = client
+                .call("run.outcomes", json!({ "run_id": "dropped" }), &mut ends)
+                .await;
+            client
+                .call("run.pause", json!({ "run_id": "dropped" }), &mut ends)
+                .await;
+            let resumed = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "labels": { "page": {} },
+                        "run_id": "dropped",
+                        "seeds": seeds,
+                        "settings": keep_alive,
+                    }),
+                    &mut ends,
+                )
+                .await;
+            let before = work_items(&run_file(&env, "dropped"));
+            let refused = client
+                .call(
+                    "run.retry_failed",
+                    json!({ "run_id": "dropped", "blocked": blocked }),
+                    &mut ends,
+                )
+                .await;
+            let after = work_items(&run_file(&env, "dropped"));
+            client
+                .call("run.finish", json!({ "run_id": "dropped" }), &mut ends)
+                .await;
+            let report = json!({ "run_id": "dropped" });
+            let reported = client.call("run.report", report.clone(), &mut ends).await;
+            let ended_refused = client
+                .call(
+                    "run.retry_failed",
+                    json!({ "run_id": "dropped", "blocked": blocked }),
+                    &mut ends,
+                )
+                .await;
+            let finished = (
+                reported,
+                ended_refused,
+                work_items(&run_file(&env, "dropped")),
+                client.call("run.report", report, &mut ends).await,
+            );
+            (ended, resumed, refused, before, after, finished)
+        },
+    );
+    let (reported, ended_refused, ended_after, reported_after) = finished;
+
+    let label_unknown = (
+        json!("label_unknown"),
+        json!({ "label": "old", "declared": ["page"] }),
+    );
+    assert_eq!(
+        (
+            &ended["result"]["outcomes"][0]["kind"],
+            resumed.get("error"),
+            refusal(&refused),
+            &after,
+            &reported["result"]["lifecycle"],
+            refusal(&ended_refused),
+            &ended_after,
+            &reported_after["result"],
+        ),
+        (
+            &json!(if blocked { "blocked" } else { "failed" }),
+            None,
+            label_unknown.clone(),
+            &before,
+            &json!("finished"),
+            label_unknown,
+            &before,
+            &reported["result"],
+        ),
+        "{refused}\n{ended_refused}"
+    );
+}
+
 /// A start under the ID of a paused Run that declares a new Label beside
 /// those its pending requests name resumes the Run, which takes that new
 /// Label's enqueue (ADR 0102).

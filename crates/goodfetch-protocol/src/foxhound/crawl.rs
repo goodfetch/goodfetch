@@ -570,7 +570,7 @@ pub const LABEL_UNHANDLED: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Label the crawl does not declare (ADRs 0093 and 0104).
 pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "label_unknown",
-    description: "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+    description: "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

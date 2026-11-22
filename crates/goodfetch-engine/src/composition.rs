@@ -119,6 +119,8 @@ pub(crate) struct ConnectionContext {
     /// the user's stores.
     pub(crate) engine: EngineContext,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
+    /// Whether it reached an Exposed Daemon's address (ADR 0049).
+    pub(crate) exposed: bool,
     /// The log events the Connection receives, at the level it asks for.
     pub(crate) log: ConnectionLog,
 }
@@ -265,6 +267,13 @@ impl CallContext {
             .get()
             .copied()
             .unwrap_or(false)
+    }
+
+    /// Whether the Connection reached an Exposed Daemon's address (ADR
+    /// 0049), where the project configuration a Client sends has only the
+    /// run layer's authority (ADR 0083).
+    pub fn exposed(&self) -> bool {
+        self.connection.exposed
     }
 
     /// The driver of Runs of `kind`, when the composition has one.

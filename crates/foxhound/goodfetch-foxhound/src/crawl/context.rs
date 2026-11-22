@@ -238,8 +238,28 @@ impl<P> CrawlContext<P> {
         self.attempt.end(Ending::RetryRequested(message.to_owned()))
     }
 
-    /// Pushes `record` into `dataset` (`crawl_request.push`): it is staged
-    /// with the attempt and commits once the handler returns `Ok`.
+    /// Pushes one Record or several, in one message, into a Dataset the
+    /// crawl declares from inside a handler's attempt, a handler context's
+    /// `push`, and answers once they are staged: they commit once with the
+    /// attempt's other outputs when the handler returns, and are discarded
+    /// with them when the attempt ends any other way. Each Record is
+    /// checked first. A push of no Record fails with `invalid_params`. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`, and
+    /// none of the Records is staged. A Record that is no JSON object,
+    /// fails its Dataset's JSON Schema or lacks one of its key's fields is
+    /// not staged: its rejection is staged instead, entering the Dataset's
+    /// rejection table (`run.rejected_records`) if the attempt commits,
+    /// while the Records that hold are staged and the attempt keeps what it
+    /// staged before; the call then fails with `record_invalid`, naming
+    /// each such Record by its position in the list and each of its issues
+    /// by its path. An attempt that already ended fails with
+    /// `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This pushes the one Record `record` into `dataset`
+    /// (`crawl_request.push`), which commits once the handler returns
+    /// `Ok`.
     ///
     /// # Errors
     ///
@@ -268,9 +288,26 @@ impl<P> CrawlContext<P> {
         async move { pushed.await.map(drop) }
     }
 
-    /// Enqueues the request of `url`, handled by `label`'s handler with
-    /// `payload` (`crawl_request.enqueue`), and answers what the Frontier
-    /// did with it: added, or not, with why.
+    /// Adds one request to a crawl from inside a handler's attempt, a
+    /// handler context's `enqueue`, and answers what the Frontier did with
+    /// it: added, with its crawl request's ID and its URL as parsed, or not
+    /// added, with its reason (`duplicate`, `out_of_scope`,
+    /// `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`,
+    /// `path_budget` or a URL cap's name). A relative URL resolves against
+    /// the document's base URL: its `<base href>`, resolved against the URL
+    /// the document was reached at after its redirects, or that URL itself.
+    /// A request is `duplicate` when one of its identity was already
+    /// admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`,
+    /// `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters
+    /// sorted) and its body's hash, or the `key` the program declares in
+    /// their place; it is still fetched at its own URL. The request sits
+    /// one level deeper than the one whose attempt added it. An attempt
+    /// whose lease no longer holds fails with `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This enqueues the request of `url`, handled by `label`'s handler
+    /// with `payload` (`crawl_request.enqueue`).
     ///
     /// # Errors
     ///
@@ -311,11 +348,32 @@ impl<P> CrawlContext<P> {
         self.send(CRAWL_REQUEST_ENQUEUE.name, params)
     }
 
-    /// Enqueues the link of each element `links` matches on the attempt's
-    /// page, each `href` resolved against the document's base URL, all
-    /// handled by `label`'s handler with `payload`
-    /// (`crawl_request.enqueue_links`), and answers what the Frontier did
-    /// with each: added, not added with why, or no link.
+    /// Adds every link a locator matches on the page a handler's attempt
+    /// was given, a handler context's `enqueueLinks`, each a `GET` of its
+    /// `href` resolved against the document's base URL (its `<base href>`,
+    /// resolved against the URL the document was reached at after its
+    /// redirects, or that URL itself), its query percent-encoded in the
+    /// document's encoding as a browser encodes it, and answers each
+    /// matched element in document order: added, with its crawl request's
+    /// ID and URL; not added, with its reason, as `crawl_request.enqueue`
+    /// answers; `no_link` for an element without an `href`; or
+    /// `skipped_by_payload` for one whose entry in `payloads` is `null`.
+    /// Every link takes `payload`, or its own entry of `payloads`, the
+    /// program's Payload function's answers for the elements
+    /// `crawl_request.links` read; a Payload that does not fit its Label
+    /// fails the call with `payload_invalid` and adds none. `limit` adds at
+    /// most that many links: once they are added, each later element whose
+    /// link the Frontier would judge is not added, with `link_limit`.
+    /// `include` and `exclude` only narrow the crawl's scope; a pattern the
+    /// engine cannot match fails with `pattern_unsupported`. A page no
+    /// fetch tier serves fails with `closed`, and an attempt whose lease no
+    /// longer holds with `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// This enqueues the link of each element `links` matches, all handled
+    /// by `label`'s handler with `payload`
+    /// (`crawl_request.enqueue_links`).
     ///
     /// # Errors
     ///

@@ -130,6 +130,7 @@ async fn reopened(
             settings: run_layer(&settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
+            exposed: context.exposed(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;

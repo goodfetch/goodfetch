@@ -83,6 +83,7 @@ async fn explain(
             settings: given,
             origin: Some(params.origin.unwrap_or(RunOrigin::Settings)),
             acting_for_model: context.surface().acts_for_model(),
+            exposed: context.exposed(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;

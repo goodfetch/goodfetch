@@ -16,6 +16,11 @@ impl Foxhound {
         Self { engine: 0, pid: 0 }
     }
 
+    /// Starts a Run, and answers once it is started.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub async fn launch(&self) {}
+
     /// Closes it.
     pub async fn close(&self) {}
 

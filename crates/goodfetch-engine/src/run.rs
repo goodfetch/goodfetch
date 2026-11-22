@@ -967,6 +967,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
+            exposed: context.exposed(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
@@ -1154,6 +1155,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
+            exposed: context.exposed(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;

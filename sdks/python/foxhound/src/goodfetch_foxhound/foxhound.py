@@ -161,6 +161,19 @@ class AsyncFoxhound(AsyncConnection):
     ) -> AsyncRun:
         """Starts a Run and returns once it is started, as `AsyncCollie.start`.
 
+        Starts a Run its program drives, and answers once it is started. A Run ID
+        names the Run for good, and a start under one acts on what the Run index
+        holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped,
+        failed, or running with no live writer, resumes from its committed state at
+        the next run epoch, `resumed`, as `run.resume` does; a finished Run is
+        answered as it ended with no handler called, `ended`. A Run live with a
+        writer, in this engine or another, fails with `run_in_use`; a Run started
+        with other inputs or by another caller with `run_conflict` listing each
+        difference; a Run the Run index lists whose state is missing or unreadable
+        with `run_state_unavailable`, never starting afresh.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
         Leaving the scope or `close()` stops the Run with a Checkpoint, and
         `finish()` ends it. The Run is the Collie client package's own
         `AsyncRun` (ADR 0095).
@@ -189,7 +202,15 @@ class AsyncFoxhound(AsyncConnection):
     async def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:
-        """What the Connection runs with, as `AsyncCollie.explain_settings` says."""
+        """What the Connection runs with, as `AsyncCollie.explain_settings` says.
+
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+        """
         return await self._connection.explain_settings(keys)
 
     async def close(self) -> None:
@@ -285,6 +306,19 @@ class Foxhound(Connection):
     ) -> Run:
         """Starts a Run and returns once it is started, as `Collie.start`.
 
+        Starts a Run its program drives, and answers once it is started. A Run ID
+        names the Run for good, and a start under one acts on what the Run index
+        holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped,
+        failed, or running with no live writer, resumes from its committed state at
+        the next run epoch, `resumed`, as `run.resume` does; a finished Run is
+        answered as it ended with no handler called, `ended`. A Run live with a
+        writer, in this engine or another, fails with `run_in_use`; a Run started
+        with other inputs or by another caller with `run_conflict` listing each
+        difference; a Run the Run index lists whose state is missing or unreadable
+        with `run_state_unavailable`, never starting afresh.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
         Leaving the scope or `close()` stops the Run with a Checkpoint, and
         `finish()` ends it. The Run is the Collie client package's own `Run`
         (ADR 0095).
@@ -323,7 +357,15 @@ class Foxhound(Connection):
     def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:
-        """What the Connection runs with, as `Collie.explain_settings` says."""
+        """What the Connection runs with, as `Collie.explain_settings` says.
+
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+        """
         explaining = functools.partial(
             self._connection.explain_settings, None if keys is None else list(keys)
         )

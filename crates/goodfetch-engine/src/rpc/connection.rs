@@ -512,6 +512,7 @@ async fn serve_carried(
         events,
         engine,
         daemon,
+        exposed: matches!(access, Access::Exposed(..)),
         log,
     });
     let mut session = Session {
@@ -1113,6 +1114,7 @@ impl Session<'_> {
                 settings: own.clone(),
                 origin: Some(RunOrigin::Settings),
                 acting_for_model: surface.acts_for_model(),
+                exposed: self.connection.exposed,
             })
             .await
             .map(drop)

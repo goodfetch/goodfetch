@@ -1,8 +1,11 @@
 //! `xtask sdk-exports`: an SDK's manifest lists every public hand-written
 //! member its packages export, once however many entries export it, and no
-//! member they do not export or the generator writes (ADRs 0069, 0099). The
-//! fixture's TypeScript package is read by the repository's TypeScript, its
-//! Rust crate and its Python packages from their source.
+//! member they do not export or the generator writes (ADRs 0069, 0099). A
+//! listed member carries its entry's doc text and markers, and every entry
+//! of the catalog reaches a public member in each SDK or is listed as
+//! unreached there with its reason. The fixture's TypeScript package is read
+//! by the repository's TypeScript, its Rust crate and its Python packages
+//! from their source.
 //! Covers: story:11-186
 
 use rstest::rstest;
@@ -17,6 +20,16 @@ const PYTHON_MANIFEST: &str = "sdks/python/manifest.toml";
 const PYTHON_ENTRY: &str = "sdks/python/collie/src/goodfetch_collie/__init__.py";
 const PYTHON_COLLIE: &str = "sdks/python/collie/src/goodfetch_collie/collie.py";
 const PYTHON_HANDLE: &str = "sdks/python/collie-client/src/goodfetch_collie_client/handle.py";
+const RUST_FOXHOUND: &str = "crates/foxhound/goodfetch-foxhound/src/foxhound.rs";
+const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
+/// The description of `run.start`, the entry a member of each SDK serves.
+const DESCRIPTION: &str = "Starts a Run, and answers once it is started.";
+/// The Experimental line of a Rust or Python member's doc.
+const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
+/// `run.start`'s deprecation in the catalog of the test.
+const DEPRECATION: &str = "{ \"since\": \"0.1.0\", \"replacement\": null, \"earliest_removal\": \"1.0.0\", \"note\": \"Gone.\" }";
+/// The line of `crawl.start`, which no SDK of the test reaches.
+const UNREACHED: &str = "[[unreached]]\nentries = [\"crawl.start\"]\nreason = \"The test's SDK has no Foxhound package.\"\n";
 /// The finding on a line naming no member its SDK exports.
 const UNUSED: &str = "unused-line";
 /// The finding on a line naming a member the generator writes.
@@ -503,4 +516,209 @@ fn check_fails_on_a_python_all_it_cannot_read(#[case] all: &str, #[case] named: 
         outcome.stderr
     );
     assert_eq!(outcome.code, 2);
+}
+
+/// A member serving an entry carries the entry's description as its doc
+/// text, however its lines wrap it, as the generator writes a generated
+/// member's (ADR 0099).
+#[rstest]
+#[case::typescript(COLLIE, "\n   * ")]
+#[case::rust(RUST_FOXHOUND, "\n    /// ")]
+#[case::python(PYTHON_COLLIE, "\n        ")]
+fn check_passes_a_doc_text_wrapped_on_other_lines(#[case] file: &str, #[case] wrap: &str) {
+    let workspace = workspace();
+    workspace.edit(
+        file,
+        DESCRIPTION,
+        &DESCRIPTION.replace("answers ", &format!("answers{wrap}")),
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[rstest]
+#[case::typescript(COLLIE, MANIFEST, "Collie.start")]
+#[case::rust(RUST_FOXHOUND, RUST_MANIFEST, "Foxhound.launch")]
+#[case::python(PYTHON_COLLIE, PYTHON_MANIFEST, "Collie.launch")]
+fn check_refuses_a_member_lacking_its_doc_text(
+    #[case] file: &str,
+    #[case] manifest: &str,
+    #[case] member: &str,
+) {
+    let workspace = workspace();
+    workspace.edit(file, DESCRIPTION, "Starts a Run.");
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("missing-doc", &format!("{manifest} {member}"))],
+        "{}",
+        outcome.stdout
+    );
+    assert!(outcome.stdout.contains(DESCRIPTION), "{}", outcome.stdout);
+    assert_eq!(outcome.code, 1);
+}
+
+/// An Experimental entry's member carries TypeScript's tag `@experimental`,
+/// or the Experimental line of a Rust or Python doc (ADR 0099).
+#[rstest]
+#[case::typescript(COLLIE, "   *\n   * @experimental\n".to_owned(), MANIFEST, "Collie.start")]
+#[case::rust(
+    RUST_FOXHOUND,
+    format!("    ///\n    /// {EXPERIMENTAL}\n"),
+    RUST_MANIFEST,
+    "Foxhound.launch"
+)]
+#[case::python(
+    PYTHON_COLLIE,
+    format!("\n        {EXPERIMENTAL}\n"),
+    PYTHON_MANIFEST,
+    "Collie.launch"
+)]
+fn check_refuses_a_member_lacking_its_experimental_marker(
+    #[case] file: &str,
+    #[case] marker: String,
+    #[case] manifest: &str,
+    #[case] member: &str,
+) {
+    let workspace = workspace();
+    workspace.edit(file, &marker, "");
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("missing-marker", &format!("{manifest} {member}"))],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// Deprecates `run.start` in the catalog of the test.
+fn deprecate_run_start(workspace: &Workspace) {
+    let from = format!(
+        "{DESCRIPTION}\",\n      \"stability\": \"experimental\",\n      \"deprecated\": null"
+    );
+    let to = format!(
+        "{DESCRIPTION}\",\n      \"stability\": \"experimental\",\n      \"deprecated\": {DEPRECATION}"
+    );
+    workspace.edit(CATALOG, &from, &to);
+}
+
+/// A deprecated entry's member carries the language's own marker:
+/// TypeScript's tag `@deprecated`, Rust's `#[deprecated]`, PEP 702's
+/// `@deprecated`.
+#[test]
+fn check_refuses_members_lacking_their_deprecated_marker() {
+    let workspace = workspace();
+    deprecate_run_start(&workspace);
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding("missing-marker", &format!("{MANIFEST} Collie.start")),
+            finding(
+                "missing-marker",
+                &format!("{RUST_MANIFEST} Foxhound.launch")
+            ),
+            finding(
+                "missing-marker",
+                &format!("{PYTHON_MANIFEST} Collie.launch")
+            ),
+        ],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn check_passes_members_carrying_their_deprecated_marker() {
+    let workspace = workspace();
+    deprecate_run_start(&workspace);
+    workspace.edit(
+        COLLIE,
+        "   * @experimental\n",
+        "   * @experimental\n   * @deprecated Gone.\n",
+    );
+    workspace.edit(
+        RUST_FOXHOUND,
+        "    pub async fn launch",
+        "    #[deprecated(note = \"Gone.\")]\n    pub async fn launch",
+    );
+    workspace.edit(
+        PYTHON_COLLIE,
+        "    def launch",
+        "    @deprecated(\"Gone.\")\n    def launch",
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// An entry reaches an SDK through a member the generator writes on a
+/// handle, as `run.abort` does, or a line serving it; one that reaches
+/// neither needs an `[[unreached]]` line with its reason in one of the
+/// SDK's manifests.
+#[rstest]
+#[case::python(PYTHON_MANIFEST, PYTHON_MANIFEST)]
+#[case::rust(RUST_MANIFEST, "crates/goodfetch-collie-client/manifest.toml")]
+fn check_refuses_an_entry_reaching_no_member_of_an_sdk(
+    #[case] manifest: &str,
+    #[case] subject: &str,
+) {
+    let workspace = workspace();
+    let text = workspace.read_text(manifest);
+    let line = text
+        .find("[[unreached]]")
+        .expect("the manifest lists crawl.start as unreached");
+    workspace.write(manifest, &text.as_bytes()[..line]);
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unreached", &format!("{subject} crawl.start"))],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// An `[[unreached]]` line names only entries the SDK must reach and does
+/// not: never one a member serves, one the generator writes a member for,
+/// one only a person calls, or no entry at all.
+#[rstest]
+#[case::entry_a_line_serves("reached-unreached", "run.start")]
+#[case::entry_a_generated_member_serves("reached-unreached", "run.abort")]
+#[case::person_only_entry("person-only", "usage.raise")]
+#[case::unknown_entry("unknown-entry", "run.begin")]
+fn check_refuses_an_unreached_line_naming_no_unreached_entry(
+    #[case] kind: &str,
+    #[case] entry: &str,
+) {
+    let workspace = workspace();
+    workspace.append(
+        MANIFEST,
+        &UNREACHED.replace("\"crawl.start\"", &format!("\"{entry}\"")),
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(kind, &format!("{MANIFEST} {entry}"))],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
 }

@@ -767,12 +767,18 @@ class AsyncRun(AsyncRunMembers):
     ) -> SettingsExplanation:
         """What the Run runs with (ADR 0083), as `config explain` shows it.
 
-        Each setting under `keys`, each a key or a prefix of keys such as
-        `timeout`, every one when left out, with the effective value the Run
-        opened with, the layer and origin that set it and the layer that
-        locked it: its own `settings` over its Connection's. A Run that is
-        no longer live fails with `run_not_found`, and a closed Run's value
-        with `closed`.
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+
+        It names this Run's ID, so it explains each setting under `keys`, each
+        a key or a prefix of keys such as `timeout`, every one when left out,
+        with the value the Run opened with and the origin that set it: its own
+        `settings` over its Connection's. A Run that is no longer live fails
+        with `run_not_found`, and a closed Run's value with `closed`.
         """
         params = explain_params(keys, run_id=self.id)
         return result_of(
@@ -782,13 +788,24 @@ class AsyncRun(AsyncRunMembers):
     def progress(self) -> AsyncSequence[RunProgress]:
         """The Run's progress (`run.progress`, ADR 0102), read with `async for`.
 
-        What it does and why it waits. Its first read is sent when it is
-        called and answers at once; each next value is the latest once a
-        newer one comes, read when the program asks for it, so values it
-        did not read in time coalesce. It ends with the value whose `last`
-        is true: the Run ended, its `lifecycle` and `stop_reason` saying
-        how, or no engine works it (`writer: none`). Leaving an `async with`
-        block, `aclose()`, `close()` or releasing it cancel its read at once.
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last
+        read, it waits for a change and answers the latest value, so values in
+        between are coalesced. The value whose `last` is true ends the sequence: the
+        Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works
+        it (`writer: none`) until a start with its Run ID resumes it. A Run another
+        engine works is read through that engine, the owner the Run index names, and
+        one no engine works from its committed state; a read never takes the Run's
+        writer lock. A Run ID the Run index does not list fails with
+        `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Its first read, without `after`, is sent when it is called; each next
+        one is sent once the program reads the value before it, with that
+        value's `position` as `after`, so values it did not read in time
+        coalesce. Leaving an `async with` block, `aclose()`, `close()`
+        or releasing it cancel its read at once.
 
         Raises:
             ClosedError: The Run is closed; nothing is sent.
@@ -813,7 +830,18 @@ class AsyncRun(AsyncRunMembers):
     async def close(self) -> None:
         """Closes the Run; idempotent.
 
-        A Run still running is stopped, resumable by its Run ID.
+        A Run still running is stopped with `run.abort`, resumable by its Run
+        ID, and the Run report it answers is not returned; one no longer
+        running is closed with nothing sent.
+
+        Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in
+        flight commits, and its work items return to pending. Answers its Run
+        report; an ended Run's report is answered as it is. A Run whose engine died
+        is stopped by this engine, which takes its writer role at the next run
+        epoch; a Run another engine writes is stopped by that engine, the owner the
+        Run index names.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
 
         Raises:
             ListenerFailedError: A listener of the Run, or of a value it
@@ -892,12 +920,33 @@ class Run(RunMembers):
     def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:
-        """What the Run runs with, as `AsyncRun.explain_settings` says."""
+        """What the Run runs with, as `AsyncRun.explain_settings` says.
+
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+        """
         params = explain_params(keys, run_id=self.id)
         return result_of(SettingsExplanation, self._host.call("config.explain", params))
 
     def progress(self) -> Sequence[RunProgress]:
         """The Run's progress, read with `for`, as `AsyncRun.progress` says.
+
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last
+        read, it waits for a change and answers the latest value, so values in
+        between are coalesced. The value whose `last` is true ends the sequence: the
+        Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works
+        it (`writer: none`) until a start with its Run ID resumes it. A Run another
+        engine works is read through that engine, the owner the Run index names, and
+        one no engine works from its committed state; a read never takes the Run's
+        writer lock. A Run ID the Run index does not list fails with
+        `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
 
         Any thread may read it. Leaving a `with` block, `close()` or
         releasing it cancel its read at once.
@@ -923,7 +972,17 @@ class Run(RunMembers):
     def close(self) -> None:
         """Closes the Run; idempotent.
 
-        A Run still running is stopped, resumable by its Run ID.
+        A Run still running is stopped with `run.abort`, resumable by its Run
+        ID, as `AsyncRun.close` says.
+
+        Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in
+        flight commits, and its work items return to pending. Answers its Run
+        report; an ended Run's report is answered as it is. A Run whose engine died
+        is stopped by this engine, which takes its writer role at the next run
+        epoch; a Run another engine writes is stopped by that engine, the owner the
+        Run index names.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_entry("run.abort", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         try:

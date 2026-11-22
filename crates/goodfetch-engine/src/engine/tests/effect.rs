@@ -31,6 +31,7 @@ use crate::effect::{Effects, Reconciled, Reconciliation};
 use crate::engine::Engine;
 use crate::product::{Channel, Identity};
 use crate::run_state::RunStateOptions;
+use crate::runs;
 use crate::transport::{self, Network};
 
 /// The window's mark: a command that may change a page or a site goes out
@@ -76,7 +77,11 @@ fn window(effects: &Effects) -> Contribution {
                     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                     let run = context.runs().live(run_id).await.map_err(failed)?;
                     effects
-                        .sending(&run, None, params["command"].as_str().unwrap())
+                        .sending(
+                            (runs::identity(&run), run.state()),
+                            None,
+                            params["command"].as_str().unwrap(),
+                        )
                         .await
                         .map_err(failed)?;
                     Ok::<Value, CallError>(json!({ "marked": true }))
@@ -96,7 +101,12 @@ fn window(effects: &Effects) -> Contribution {
                         _ => Reconciliation::LeaveUncertain,
                     };
                     let reconciled = effects
-                        .reconcile(&run, params["entry"].as_str().unwrap(), answer, &context)
+                        .reconcile(
+                            (runs::identity(&run), run.state()),
+                            params["entry"].as_str().unwrap(),
+                            answer,
+                            &context,
+                        )
                         .await?;
                     Ok::<Value, CallError>(match reconciled {
                         Reconciled::Answered(effect) => json!({ "answered": effect }),

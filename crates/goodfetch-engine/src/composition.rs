@@ -18,6 +18,8 @@
 
 mod call_streams;
 pub(crate) mod params;
+#[cfg(test)]
+mod tests;
 
 use std::any::Any;
 use std::collections::{BTreeMap, HashMap};

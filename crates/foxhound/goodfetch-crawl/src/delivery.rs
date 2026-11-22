@@ -2183,7 +2183,12 @@ impl QueuedOutcome {
                     &committed.suspected,
                 )
                 .await;
-                goodfetch_engine::key_value_store::forget_files(&run, committed.files).await;
+                goodfetch_engine::key_value_store::forget_files(
+                    goodfetch_engine::runs::identity(&run),
+                    run.state(),
+                    committed.files,
+                )
+                .await;
                 finished.keyed = committed.keyed;
             }
             attempt_outcome::Ended::LeaseLost => {

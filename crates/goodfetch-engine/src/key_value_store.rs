@@ -37,8 +37,9 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::run::{run_error, through_owner};
 use crate::run_files::{self, FileKind};
-use crate::run_state::{RunStateError, RunStateTables};
-use crate::runs::{Run, RunError, RunReader};
+use crate::run_identity::RunIdentity;
+use crate::run_state::{RunState, RunStateError, RunStateTables};
+use crate::runs::{self, Run, RunError, RunReader};
 use crate::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 
 /// The store's table, which every run file holds. A row holds JSON in
@@ -490,20 +491,21 @@ pub fn apply(
 }
 
 /// Forgets each of `files`, kept files of `run`'s folder that committed
-/// writes took out, once no record names it.
+/// writes took out, once no record names it, through `state`, its run
+/// file's writer.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future leaves the files not yet forgotten in the folder,
 /// where no record names them.
-pub async fn forget_files(run: &Run, files: Vec<String>) {
+pub async fn forget_files(run: &RunIdentity, state: &RunState, files: Vec<String>) {
     for file in files {
-        forget(run, Some(file)).await;
+        forget(run, state, Some(file)).await;
     }
 }
 
 /// The failure of a write to `run`'s state.
-fn unwritten(run: &Run, error: &RunStateError, context: &CallContext) -> CallError {
+fn unwritten(run: &RunIdentity, error: &RunStateError, context: &CallContext) -> CallError {
     run_error(
         RunError::Unavailable {
             run_id: run.id().clone(),
@@ -515,7 +517,7 @@ fn unwritten(run: &Run, error: &RunStateError, context: &CallContext) -> CallErr
 }
 
 /// The failure of keeping bytes in `run`'s folder.
-fn unkept(run: &Run, error: &std::io::Error, context: &CallContext) -> CallError {
+fn unkept(run: &RunIdentity, error: &std::io::Error, context: &CallContext) -> CallError {
     run_error(
         RunError::Unavailable {
             run_id: run.id().clone(),
@@ -546,14 +548,14 @@ fn unread(
 }
 
 /// Has the kept file `file` deleted from `run`'s folder once no record
-/// names it, in the writer's order after the commit that took it out.
-async fn forget(run: &Run, file: Option<String>) {
+/// names it, in the order of `state`, its run file's writer, after the
+/// commit that took it out.
+async fn forget(run: &RunIdentity, state: &RunState, file: Option<String>) {
     let Some(sha256) = file else {
         return;
     };
     let folder = run.folder().to_owned();
-    if let Err(error) = run
-        .state()
+    if let Err(error) = state
         .write(move |connection| run_files::forget(connection, &folder, &sha256))
         .await
     {
@@ -614,12 +616,12 @@ async fn handle_set(
         return Ok(KeyValueStoreSet {});
     }
     let run = live(&params.run_id, &context).await?;
-    let removed = run
-        .state()
+    let (identity, state) = (runs::identity(&run), run.state());
+    let removed = state
         .write(move |connection| set(connection, &key, &value))
         .await
-        .map_err(|error| unwritten(&run, &error, &context))?;
-    forget(&run, removed.file).await;
+        .map_err(|error| unwritten(identity, &error, &context))?;
+    forget(identity, state, removed.file).await;
     Ok(KeyValueStoreSet {})
 }
 
@@ -725,9 +727,10 @@ async fn handle_get_bytes(
 }
 
 /// Keeps `bytes`, over [`INLINE_MAX_BYTES`], as a file of `run`'s folder
-/// and references it from `key`'s row, and answers what the row held.
+/// and references it from `key`'s row through `state`, its run file's
+/// writer, and answers what the row held.
 async fn set_kept(
-    run: &Run,
+    (run, state): (&RunIdentity, &RunState),
     key: String,
     content_type: String,
     bytes: Vec<u8>,
@@ -745,7 +748,7 @@ async fn set_kept(
     };
     // Placed in the write that records it, so a `forget` of the same bytes
     // ordered before it deletes no file the row names.
-    run.state()
+    state
         .write(move |connection| {
             if let Err(error) = staged.place() {
                 return Ok(Err(error));
@@ -780,16 +783,17 @@ async fn handle_set_bytes(
         return Ok(KeyValueStoreSet {});
     }
     let run = live(&params.run_id, &context).await?;
+    let (identity, state) = (runs::identity(&run), run.state());
     let removed = if bytes.len() > INLINE_MAX_BYTES {
-        set_kept(&run, key, content_type, bytes, &context).await?
+        set_kept((identity, state), key, content_type, bytes, &context).await?
     } else {
         let held = Content::Inline(bytes);
-        run.state()
+        state
             .write(move |connection| set_bytes(connection, &key, &content_type, &held))
             .await
-            .map_err(|error| unwritten(&run, &error, &context))?
+            .map_err(|error| unwritten(identity, &error, &context))?
     };
-    forget(&run, removed.file).await;
+    forget(identity, state, removed.file).await;
     Ok(KeyValueStoreSet {})
 }
 
@@ -823,12 +827,12 @@ async fn handle_delete(
         return Ok(KeyValueStoreDeleted { existed });
     }
     let run = live(&params.run_id, &context).await?;
-    let removed = run
-        .state()
+    let (identity, state) = (runs::identity(&run), run.state());
+    let removed = state
         .write(move |connection| delete(connection, &key))
         .await
-        .map_err(|error| unwritten(&run, &error, &context))?;
-    forget(&run, removed.file).await;
+        .map_err(|error| unwritten(identity, &error, &context))?;
+    forget(identity, state, removed.file).await;
     Ok(KeyValueStoreDeleted {
         existed: removed.existed,
     })

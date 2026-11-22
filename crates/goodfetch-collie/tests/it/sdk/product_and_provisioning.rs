@@ -6,9 +6,11 @@
 //! Foxhound's install command on crates.io, and its provisioning part on an
 //! empty Browser cache (#3100): the first page downloads the pinned build
 //! from the Proving ground's `browser-builds.test`, never the internet, and
-//! a read-only cache, `egress.offline` or a host that answers `404` fails
-//! it with `browser_not_installed`, `artifact_unavailable_offline` or
-//! `artifact_download_failed`, while `connect()` succeeds. The client
+//! `egress.offline` or a host that answers `404` fails it with
+//! `artifact_unavailable_offline` or `artifact_download_failed`, while
+//! `connect()` succeeds. A read-only cache's `browser_not_installed` is the
+//! `browser-cache-not-writable` case's, on Unix, whose folder modes make
+//! one. The client
 //! crate's `product_and_provisioning` plays the case on the Scripted engine
 //! as a Daemon. TypeScript's `product-and-provisioning-errors.test.ts` and
 //! Python's `test_product_and_provisioning_errors.py` are its twins.
@@ -212,7 +214,7 @@ fn first_use_on_an_empty_cache_downloads_the_pinned_build_from_the_mirror_and_op
 fn first_use_on_a_read_only_cache_fails_with_browser_not_installed() {
     let _case = ClientCaseRun::start(
         case_logs().as_deref(),
-        "product-and-provisioning-errors",
+        "browser-cache-not-writable",
         RustMode::Linked,
     )
     .unwrap();

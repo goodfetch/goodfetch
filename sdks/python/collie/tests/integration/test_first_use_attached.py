@@ -9,12 +9,15 @@ cache is empty and its `browser.mirror` is the Proving ground's
 and a cache the engine cannot write, `egress.offline` or a mirror that
 answers 404 raises `BrowserNotInstalledError`,
 `ArtifactUnavailableOfflineError` or `ArtifactDownloadFailedError`, while
-`connect()` succeeds. `test_product_and_provisioning_errors.py` plays the
-same case on the Scripted engine; TypeScript's
+`connect()` succeeds; the cache the engine cannot write is the
+`browser-cache-not-writable` case's, on Unix.
+`test_product_and_provisioning_errors.py` plays the same case on the
+Scripted engine; TypeScript's
 `product-and-provisioning-errors.test.ts` is its twin.
 """
 
 import json
+import tomllib
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
@@ -53,11 +56,18 @@ PINNED_BUILD = cast(
 BUILD = {"kind": "browser", "name": "chrome-for-testing", "build": PINNED_BUILD}
 """The pinned build, as each provisioning error names it."""
 
-PINNED_BY = {"product": "collie", "product_version": "0.0.0"}
+ENGINE_VERSION = cast(
+    "dict[str, dict[str, dict[str, str]]]",
+    tomllib.loads((WORKSPACE / "Cargo.toml").read_text("utf-8")),
+)["workspace"]["package"]["version"]
+"""The real engine's Product version, the workspace's version."""
+
+PINNED_BY = {"product": "collie", "product_version": ENGINE_VERSION}
 """The Product version that pins it."""
 
 DESCRIBED = (
-    f"the browser build chrome-for-testing {PINNED_BUILD}, pinned by Collie 0.0.0"
+    f"the browser build chrome-for-testing {PINNED_BUILD}, pinned by Collie"
+    f" {ENGINE_VERSION}"
 )
 """The build and what pins it, as each provisioning error's message names them."""
 
@@ -153,7 +163,7 @@ async def test_downloads_the_pinned_build_from_the_mirror_and_opens_the_page(
 
 @pytest.mark.covers("story:11-294", "error:browser_not_installed")
 @pytest.mark.parametrize("browser_download", [BrowserDownload.READ_ONLY_CACHE])
-@CASE
+@pytest.mark.client_case(id="browser-cache-not-writable", mode="attached")
 @three_ways
 async def test_a_cache_the_engine_cannot_write_raises_browser_not_installed(
     way: Way, env: Mapping[str, str], client_case: ClientCaseRecord

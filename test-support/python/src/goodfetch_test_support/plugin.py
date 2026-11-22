@@ -16,7 +16,8 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 - `browser_download`, which a test of an engine's first use overrides with
   a `BrowserDownload`: an empty Browser cache, whose missing build the
   engine downloads from the Proving ground's `browser-builds.test` or
-  cannot (#3100);
+  cannot (#3100); a test that asks for `READ_ONLY_CACHE` is skipped on
+  Windows, whose folders have no read-only mode;
 - `anyio_backend`, over asyncio and trio, named: a session where trio does
   not import fails rather than drop it (ADR 0069);
 - `client_case`, the `ClientCaseRecord` of the Client conformance case a
@@ -186,6 +187,13 @@ def test_env(
     test when a process it started is still alive; a failed test's folder
     stays for its evidence, as a Rust test's does.
     """
+    # At run time, as a `skipif` would leave the test out of the case list's
+    # listing on every platform.
+    if browser_download is BrowserDownload.READ_ONLY_CACHE and sys.platform == "win32":
+        pytest.skip(
+            "`goodfetch-test-env` makes a cache read-only with its folder's mode,"
+            " which a Windows folder lacks"
+        )
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
     children = item.config.stash.get(_CHILDREN, None)

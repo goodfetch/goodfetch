@@ -11,7 +11,8 @@
 // `browser-builds.test`, never the internet (#3100): the first page
 // downloads the pinned build and opens, and a cache the engine cannot
 // write, `egress.offline` or a host that answers 404 raises the
-// provisioning code's class, while `connect()` succeeds.
+// provisioning code's class, while `connect()` succeeds; the cache the
+// engine cannot write is the `browser-cache-not-writable` case's, on Unix.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -320,8 +321,27 @@ const PINNED_BUILD = pinnedBuild();
 /** The pinned build, as the real engine's provisioning errors name it. */
 const REAL_BUILD = { kind: "browser", name: "chrome-for-testing", build: PINNED_BUILD };
 
+/** The workspace's manifest, whose version the real engine's Product has. */
+const WORKSPACE_MANIFEST = join(import.meta.dirname, "..", "..", "..", "..", "Cargo.toml");
+
+/** The real engine's Product version, the workspace's `[workspace.package]` version. */
+function engineVersion(): string {
+  const manifest = readFileSync(WORKSPACE_MANIFEST, "utf8");
+  const version = /^\[workspace\.package\]\r?\nversion = "([^"]+)"/mu.exec(manifest)?.[1];
+  if (version === undefined) {
+    throw new Error(`${WORKSPACE_MANIFEST} names no [workspace.package] version`);
+  }
+  return version;
+}
+
+/** The real engine's Product version, which pins the build. */
+const ENGINE_VERSION = engineVersion();
+
+/** The Product version that pins the build, as the real engine's errors name it. */
+const REAL_PINNED_BY = { product: "collie", product_version: ENGINE_VERSION };
+
 /** The build and what pins it, as each provisioning error's message names them. */
-const DESCRIBED = `the browser build chrome-for-testing ${PINNED_BUILD}, pinned by Collie 0.0.0`;
+const DESCRIBED = `the browser build chrome-for-testing ${PINNED_BUILD}, pinned by Collie ${ENGINE_VERSION}`;
 
 /** The empty Browser cache `goodfetch-test-env --browser-download` points the engine at. */
 function cacheOf(env: Readonly<Record<string, string>>): string {
@@ -387,7 +407,13 @@ describe(
 
       test(
         "raises BrowserNotInstalledError, not retryable, naming the build, what pins it and its browser install",
-        { tags: [...CASE, "error:browser_not_installed"] },
+        {
+          tags: [
+            "client_case/browser-cache-not-writable",
+            "attached",
+            "error:browser_not_installed",
+          ],
+        },
         async ({ env, clientCase }) => {
           const refused = await firstPageFailure(env);
           const cache = cacheOf(env);
@@ -405,18 +431,19 @@ describe(
               fix,
             });
             expect(refused).toHaveProperty("details", {
-              missing: { kind: "pinned", artifact: REAL_BUILD, pinned_by: PINNED_BY, cache },
+              missing: { kind: "pinned", artifact: REAL_BUILD, pinned_by: REAL_PINNED_BY, cache },
             });
           });
         },
       );
     });
 
-    describe("from a mirror that answers 404", () => {
+    describe("under egress.offline", () => {
+      // A mirror it never reaches: the refusal comes before any download.
       test.override("browserDownload", "not-found");
 
       test(
-        "raises ArtifactUnavailableOfflineError under egress.offline, before any download",
+        "raises ArtifactUnavailableOfflineError, before any download",
         { tags: [...CASE, "error:artifact_unavailable_offline", "setting:egress.offline"] },
         async ({ env, clientCase }) => {
           const refused = await firstPageFailure(env, { settings: { egress: { offline: true } } });
@@ -439,13 +466,17 @@ describe(
               });
               expect(refused).toHaveProperty("details", {
                 artifact: REAL_BUILD,
-                pinned_by: PINNED_BY,
+                pinned_by: REAL_PINNED_BY,
                 cache,
               });
             },
           );
         },
       );
+    });
+
+    describe("from a mirror that answers 404", () => {
+      test.override("browserDownload", "not-found");
 
       test(
         "raises ArtifactDownloadFailedError, retryable, naming the host and its status",
@@ -467,7 +498,7 @@ describe(
               });
               expect(refused).toHaveProperty("details", {
                 artifact: REAL_BUILD,
-                pinned_by: PINNED_BY,
+                pinned_by: REAL_PINNED_BY,
                 host: BUILDS_HOST,
                 failure: "http_status",
                 status: 404,

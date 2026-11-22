@@ -25,7 +25,8 @@
 // `withBrowser` (the home's Browser cache laid out, and the Proving ground's
 // hosts reachable, for a program whose engine opens a page),
 // `browserDownload` (an empty Browser cache, whose missing build the
-// engine downloads from the Proving ground or cannot), `toolManifest` and
+// engine downloads from the Proving ground or cannot; a test that asks for
+// `read-only-cache` is skipped on Windows), `toolManifest` and
 // `testEnvProgram`.
 import { test as base, type TestAPI } from "vitest";
 import { clientCaseRecord, type ClientCaseRecord } from "./case-log.ts";
@@ -39,6 +40,10 @@ import {
   type Program,
   type TestEnvDescription,
 } from "./test-env.ts";
+
+/** Why a test that asks for a read-only Browser cache is skipped on Windows. */
+const READ_ONLY_CACHE_ON_WINDOWS =
+  "`goodfetch-test-env` makes a cache read-only with its folder's mode, which a Windows folder lacks";
 
 /** What a test takes from test support's `test`. */
 export interface TestSupportFixtures {
@@ -88,6 +93,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   testEnv: async (
     {
       task,
+      skip,
       processes,
       toolManifest,
       testEnvProgram,
@@ -99,6 +105,11 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
     },
     use,
   ) => {
+    // At run time, as a skipIf would leave the test out of the case list's
+    // listing on every platform.
+    if (browserDownload === "read-only-cache" && process.platform === "win32") {
+      skip(READ_ONLY_CACHE_ON_WINDOWS);
+    }
     const started = await startTestEnv({
       processes,
       testName: task.fullName,

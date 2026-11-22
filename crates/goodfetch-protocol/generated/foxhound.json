@@ -20335,7 +20335,7 @@
       "clearable": false,
       "default": "https://storage.googleapis.com/chrome-for-testing-public",
       "deprecated": null,
-      "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+      "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
       "fixed_for_run": false,
       "name": "browser.mirror",
       "product": "collie",

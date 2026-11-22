@@ -92,11 +92,12 @@ struct Arguments {
     /// Points the home's engines at an empty Browser cache and, from the
     /// Proving ground's `browser-builds.test`, downloads a missing build
     /// that host serves (`served`) or answers `404` for (`not-found`), or
-    /// makes the cache one they cannot write (`read-only-cache`).
+    /// makes the cache one they cannot write (`read-only-cache`, on Unix,
+    /// whose folders have a read-only mode).
     #[arg(
         long,
         value_enum,
-        value_name = "HOST",
+        value_name = "HOW",
         requires = "proving_ground",
         conflicts_with = "browser"
     )]

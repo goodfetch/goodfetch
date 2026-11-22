@@ -3,12 +3,15 @@
 //! client, its bytes checked against the pinned digest, with no cookie, no
 //! identifier, no query beyond the pinned path and the user agent
 //! `goodfetch-download`, which names no version, so a download says nothing
-//! about its install. Under `egress.offline` each is refused before it
-//! connects, and its caller raises `artifact_unavailable_offline` naming the
-//! command that supplies it beforehand (ADR 0115). It streams the answer into
-//! a file while hashing it and reports its progress; it is the one
-//! translation point of this boundary's failures into [`Failure`] (ADR
-//! 0127).
+//! about its install. A Chrome for Testing build is fetched instead below
+//! `browser.mirror` when configuration sets one: an Operator-configured
+//! endpoint (ADR 0017), as the Clean-up rules' sources that [`Fetching`]
+//! also serves, so the endpoint policy judges it. Under `egress.offline`
+//! each is refused before it connects, and its caller raises
+//! `artifact_unavailable_offline` naming the command that supplies it
+//! beforehand (ADR 0115). It streams the answer into a file while hashing it
+//! and reports its progress; it is the one translation point of this
+//! boundary's failures into [`Failure`] (ADR 0127).
 
 use std::fmt::{self, Write as _};
 use std::io::Write as _;
@@ -25,7 +28,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::clock::Clock;
 use crate::dns::HostMapping;
-use crate::egress::{ConfiguredKind, EndpointPolicy};
+use crate::egress::{ConfiguredKind, EndpointPolicy, Refused};
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure, Server};
 use crate::settings::Resolved;
@@ -352,8 +355,8 @@ pub(crate) enum Failure {
     /// No answer, or a connection that broke.
     Network,
     /// `egress.no_private_endpoints` refused the mirror before it
-    /// connected, as this says for people.
-    Refused(String),
+    /// connected.
+    Refused(Refused),
     /// An answer other than `200 OK`.
     Status(u16),
     /// What it received is not the pinned bytes.
@@ -490,7 +493,7 @@ async fn send_mirrored(
         .send(request)
         .await
         .map_err(|failure| match failure {
-            EndpointFailure::Refused(refused) => Failure::Refused(refused.to_string()),
+            EndpointFailure::Refused(refused) => Failure::Refused(refused),
             EndpointFailure::Failed(_) => Failure::Network,
         })
 }

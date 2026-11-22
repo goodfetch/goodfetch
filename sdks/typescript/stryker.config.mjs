@@ -6,8 +6,10 @@
 // generator's own, as `.cargo/mutants.toml` does for Rust.
 //
 // Vitest's runner, since StrykerJS 10.1.0 fixed stryker-js#6210, runs only
-// the SDK's tests that reach each mutant. A surviving mutant fails nothing:
-// no threshold breaks the run (ADR 0072, no mutation score is gated).
+// the SDK's tests that reach each mutant, as each test's coverage shows,
+// the Node programs it starts included (test support's
+// `mutation-children.ts`). A surviving mutant fails nothing: no threshold
+// breaks the run (ADR 0072, no mutation score is gated).
 
 /** @type {import("@stryker-mutator/api/core").PartialStrykerOptions} */
 const config = {
@@ -15,11 +17,14 @@ const config = {
   testRunner: "vitest",
   plugins: ["@stryker-mutator/vitest-runner"],
   // Forks, as `just test` runs them: some tests change the working directory,
-  // which StrykerJS's default pool, threads, refuses.
+  // which StrykerJS's default pool, threads, refuses. Every test of the SDK
+  // runs once to learn its coverage, not only those whose imports reach a
+  // mutated file (`related`): a test that reaches a file only through the
+  // program it starts, such as `collie/src/bin.ts`, imports none.
   vitest: {
     configFile: "sdks/typescript/vitest.stryker.config.ts",
     dir: "sdks/typescript",
-    related: true,
+    related: false,
     pool: "forks",
   },
   // The checkout is the run's own: a copy of the repository and its build

@@ -441,8 +441,9 @@ mutants base="":
 # target/mutants-sdks/python/<package>.log and its results to the package's
 # `mutants/` (`uv run mutmut results` there); a surviving mutant never fails
 # it. mutmut forks each mutant's tests, so its half needs Linux or macOS.
-# Neither run mutates what a test's child process imports, nor skips the
-# quarantined tests as `just test` does (#3199).
+# Each run reaches the programs a test starts, which run its mutant (test
+# support's `mutation-children.ts` and `--mutation-children`), and skips the
+# tests on the test quarantine list, as `just test` does.
 # Mutation-tests the SDKs' runtimes: `just mutants-sdks [typescript | python | all]`.
 mutants-sdks sdk="all":
     #!/usr/bin/env bash
@@ -455,7 +456,14 @@ mutants-sdks sdk="all":
     export GOODFETCH_TEST_SUITE=pre-merge
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+    # Each runner's arguments that skip the quarantined tests (ADR 0064).
+    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
     if [[ "{{ sdk }}" != python ]]; then
+      # StrykerJS sets Vitest's name pattern itself, so its setup file
+      # (sdks/typescript/vitest.stryker.setup.ts) skips the tests the
+      # quarantine's pattern does not match.
+      pattern=$(jq -r '.vitest[]? | ltrimstr("--testNamePattern=")' <<< "$exclusions")
+      if [[ -n "$pattern" ]]; then export GOODFETCH_STRYKER_NAME_PATTERN="$pattern"; fi
       # Each StrykerJS test runner writes `stryker-setup-<n>.js` into the
       # working directory and deletes it when it stops, unless StrykerJS
       # kills it first (StrykerJS 10.1.1).
@@ -471,8 +479,13 @@ mutants-sdks sdk="all":
         grep -q '^\[tool\.mutmut\]$' "$manifest" || continue
         package=$(dirname "$manifest")
         log="$logs/$(basename "$package").log"
+        # The package's quarantined tests, named from its `mutants/` copy,
+        # where pytest runs.
+        deselect=$(jq -r --arg prefix "--deselect=$package/" \
+          '[.pytest[]? | select(startswith($prefix)) | "--deselect=" + ltrimstr($prefix)] | @sh' \
+          <<< "$exclusions")
         status=0
-        (cd "$package" && uv run --frozen mutmut run) 2>&1 | tee "$log" || status=$?
+        (cd "$package" && PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }$deselect" uv run --frozen mutmut run) 2>&1 | tee "$log" || status=$?
         # mutmut also stops with 1 when the tests pass but none reaches a
         # mutant, as when the runtime has no function to mutate (Foxhound's
         # today): that package is reported, not failed.

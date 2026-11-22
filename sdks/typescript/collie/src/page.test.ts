@@ -2,7 +2,7 @@
 // of the shared corpus over the in-memory transport. The script fails the
 // test on a message it does not expect and on a step left unused, so a
 // member that sent a second request, or none, fails here.
-import type { Page, PageField, PageResponse } from "@goodfetch/collie-client";
+import type { Page, PageField, Response } from "@goodfetch/collie-client";
 import { failure, playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, expectTypeOf } from "vitest";
 import { fillTheForm } from "../tests/programs/form.ts";
@@ -70,11 +70,13 @@ describe("a Run's page", () => {
       const answered = await page.evaluate("6 * 7");
       const undefinedAnswer = await page.evaluate("undefined");
 
-      expect(missing).toMatchObject({ status: 404, url: "https://shop.test/missing" });
+      expect(missing?.status()).toBe(404);
+      expect(missing?.ok()).toBe(false);
+      expect(missing?.url()).toBe("https://shop.test/missing");
       expect(reloaded).toBeNull();
       expect(answered).toBe(42);
       expect(undefinedAnswer).toBeNull();
-      expectTypeOf<Awaited<ReturnType<Page["goto"]>>>().toEqualTypeOf<PageResponse | null>();
+      expectTypeOf<Awaited<ReturnType<Page["goto"]>>>().toEqualTypeOf<Response | null>();
       await page.close();
       await run.finish();
       await collie.close();

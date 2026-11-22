@@ -24,6 +24,7 @@ use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
+mod answered;
 mod errors;
 mod listeners;
 mod markers;
@@ -32,6 +33,7 @@ mod settings;
 mod signature;
 mod wire;
 
+use answered::{answer, answered, response_import};
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
 };
@@ -583,35 +585,6 @@ const TIMEOUT: &str = "timeout";
 /// own `timeout` no deadline can be before it is sent (ADR 0080).
 const TIMEOUT_OF: &str = "timeoutOf";
 
-/// The type `member` answers: the operation's result type, or the type of
-/// its one property, which an optional one gives with `null` for absent.
-fn answered(member: &Member<'_>, result: &str) -> String {
-    match &member.unwrapped {
-        None => format!("types.{result}"),
-        Some(unwrapped) if unwrapped.required => {
-            format!("types.{result}[{:?}]", camel(&unwrapped.property))
-        }
-        Some(unwrapped) => {
-            format!(
-                "NonNullable<types.{result}[{:?}]> | null",
-                camel(&unwrapped.property)
-            )
-        }
-    }
-}
-
-/// What `member` returns of `call`: its result, or its result's one
-/// property, `null` when an optional one is absent.
-fn answer(member: &Member<'_>, call: &str) -> String {
-    match &member.unwrapped {
-        None => call.to_owned(),
-        Some(unwrapped) if unwrapped.required => {
-            format!("(await {call}).{}", camel(&unwrapped.property))
-        }
-        Some(unwrapped) => format!("(await {call}).{} ?? null", camel(&unwrapped.property)),
-    }
-}
-
 /// The documented signatures that come before `member`'s implementation:
 /// its doc alone, or each overload: the current one, then one per
 /// deprecated form, which a call resolves to and a linter reports, then one
@@ -715,7 +688,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
             None => (
                 String::new(),
                 format!("Promise<{}>", answered(member, result)),
-                format!("    return {};\n", answer(member, &call)),
+                answer(member, &call),
             ),
             // Its result is typed by the fields the caller passes, which
             // the member takes as a type parameter (ADR 0147).
@@ -830,8 +803,9 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
         ("", String::new())
     };
     let settings = settings::handles_import(handles)?;
+    let response = response_import(handles);
     Ok(format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listener_types} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\n{registry}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listener_types} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\n{response}{registry}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     ))
 }
 

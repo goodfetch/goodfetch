@@ -2,9 +2,19 @@
 // commit (ADR 0069), which launches the browser of the test's own Browser
 // cache and reaches the Proving ground's pages through the test's home
 // (`withBrowser`). The form program is the one the unit tests run on the
-// Scripted engine.
+// Scripted engine. `goto`, `goBack`, `goForward` and `request` answer a
+// `Response`, whose body reads, decodes and fails as ADRs 0085, 0118 and 0119
+// say; Rust's `tests/it/sdk/page.rs` and Python's `test_page_attached.py` are
+// their twins.
 import { Collie } from "@goodfetch/collie";
-import { failure, judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
+import {
+  failure,
+  goodfetchFailure,
+  judgeTask,
+  provingGroundUrl,
+  taskStartUrl,
+  test,
+} from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "./programs/form.ts";
 
@@ -45,7 +55,11 @@ describe("a program's pages on an Attached engine", () => {
       const navigated = await page.goto(missing);
 
       await clientCase.check("a 404 is a value: the document's Response", () =>
-        expect(navigated).toMatchObject({ status: 404, url: missing }),
+        expect([navigated?.status(), navigated?.url(), navigated?.ok()]).toEqual([
+          404,
+          missing,
+          false,
+        ]),
       );
     },
   );
@@ -140,6 +154,133 @@ describe("a program's pages on an Attached engine", () => {
       await clientCase.check("a locator of the closed page fails with closed", () =>
         expect(click).toMatchObject({ code: "closed", group: "program" }),
       );
+    },
+  );
+});
+
+/** The Proving ground's host of edge cases of the HTTP layer. */
+const FETCH_EDGE = "fetch-edge.test";
+
+describe("a page's responses on an Attached engine", () => {
+  test.override("provingGroundSeed", 3394);
+  test.override("withBrowser", true);
+
+  test(
+    "reads a navigation's head and its document's text",
+    { tags: ["attached", "story:11-84", "story:11-85", "operation:response.body"] },
+    async ({ env, provingGround }) => {
+      const product = await taskStartUrl(provingGround, "catalog/2");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const response = await page.goto(product);
+      const [text, body] = await Promise.all([response?.text(), response?.body()]);
+
+      expect([response?.status(), response?.url(), response?.ok()]).toEqual([200, product, true]);
+      expect(response?.headers()["content-type"]).toMatch(/^text\/html/);
+      expect(response?.encoding()).toBe("UTF-8");
+      expect(text).toContain('<h1 class="name">');
+      expect(text).toBe(new TextDecoder().decode(body));
+    },
+  );
+
+  test(
+    "decodes text with a legacy charset and JSON past a BOM, and names the URL of no JSON",
+    {
+      tags: [
+        "attached",
+        "story:11-85",
+        "operation:page.request",
+        "operation:response.body",
+        "error:response_not_json",
+      ],
+    },
+    async ({ env, provingGround }) => {
+      const shiftJis = provingGroundUrl(provingGround, FETCH_EDGE, "/text/shift-jis");
+      const bom = provingGroundUrl(provingGround, FETCH_EDGE, "/json/bom");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const textResponse = await page.request(shiftJis);
+      const japanese = await textResponse.text();
+      const notJson = await failure(textResponse.json());
+      const parsed = await (await page.request(bom)).json();
+
+      expect([japanese, parsed]).toEqual(["日本語", { bom: true }]);
+      expect(notJson).toMatchObject({ code: "response_not_json", url: shiftJis });
+    },
+  );
+
+  test(
+    "raises response_truncated for a cut body from body, text and json",
+    { tags: ["attached", "story:11-85", "operation:response.body", "error:response_truncated"] },
+    async ({ env, provingGround }) => {
+      const cut = provingGroundUrl(provingGround, FETCH_EDGE, "/cut/content-length");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const response = await page.request(cut);
+      const failures = [
+        await goodfetchFailure(response.body()),
+        await goodfetchFailure(response.text()),
+        await goodfetchFailure(response.json()),
+      ];
+
+      expect(failures.map((failed) => failed.code)).toEqual(
+        Array.from({ length: 3 }, () => "response_truncated"),
+      );
+    },
+  );
+
+  test(
+    "raises body_unavailable naming the waiter for a body the browser dropped",
+    { tags: ["attached", "story:11-85", "operation:response.body", "error:body_unavailable"] },
+    async ({ env, provingGround }) => {
+      const first = await taskStartUrl(provingGround, "catalog/2");
+      const then = await taskStartUrl(provingGround, "actionability/20");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const left = await page.goto(first);
+      if (left === null) {
+        throw new Error("a document has a response");
+      }
+      await page.goto(then);
+      const dropped = await failure(left.text());
+
+      expect(dropped).toMatchObject({
+        code: "body_unavailable",
+        fix: expect.stringContaining("page.waitForRequestFinished"),
+      });
+    },
+  );
+
+  test(
+    "answers the document's Response going back and forward, and null past the history",
+    { tags: ["attached", "story:11-84", "operation:page.go_back", "operation:page.go_forward"] },
+    async ({ env, provingGround }) => {
+      const first = await taskStartUrl(provingGround, "catalog/2");
+      const then = await taskStartUrl(provingGround, "actionability/20");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+      await page.goto(first);
+      await page.goto(then);
+
+      const back = await page.goBack();
+      const forward = await page.goForward();
+      const past = await page.goForward();
+
+      expect([back?.url(), forward?.url(), past]).toEqual([first, then, null]);
     },
   );
 });

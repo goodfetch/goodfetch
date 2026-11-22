@@ -1324,6 +1324,123 @@ form = "read"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
+member = "Response"
+entry = "none"
+reason = "The response a page's request got: a navigation's document, or what `page.request` answered, whose body it reads."
+words = ["response"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "constructor"
+entry = "none"
+reason = "A page's handle makes it, for the member that answers a response; a program never constructs one."
+only = "Rust's `Response` has no constructor at all."
+words = ["response"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "statusText"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, from 200 to 299."
+words = ["ok"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `document.characterSet` names it, such as `Shift_JIS` (ADR 0119); `null` for another response, and for a navigation that answered at `commit`, before its document was decoded."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "requestId"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "fromServiceWorker"
+entry = "none"
+reason = "Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding (ADR 0119): a navigation's document with the one the browser decoded it with, `encoding()`; any other response with its BOM, then its `Content-Type` charset, then for HTML a `<meta>` as Chrome's prescan reads it or an XML declaration at its very start, for an XML type that declaration, and UTF-8 last."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON: decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
 member = "KeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store: `run.keyValueStore`, whose methods serve the `key_value_store` operations."
@@ -2502,10 +2619,6 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 [[unreached]]
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
-
-[[unreached]]
-entries = ["response.body"]
-reason = "Issue 1476 adds `ctx.response.body()`, the bytes of the response a page kept."
 
 [[unreached]]
 entries = ["key_value_store.keys"]

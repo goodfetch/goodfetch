@@ -69,6 +69,7 @@ export {
   judgeTask,
   provingGroundOf,
   provingGroundRoutes,
+  provingGroundUrl,
   taskStartUrl,
   type TaskResult,
   type ProvingGroundDescription,

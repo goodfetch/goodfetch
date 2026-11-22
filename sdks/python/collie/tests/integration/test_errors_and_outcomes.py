@@ -34,7 +34,7 @@ from goodfetch_collie import (
     TargetNotUniqueError,
     UnavailableError,
 )
-from goodfetch_collie_client.generated.models import PageResponse
+from goodfetch_collie_client.response import AsyncResponse
 from goodfetch_test_support import (
     Canary,
     ClientCaseRecord,
@@ -78,7 +78,7 @@ COVERS = pytest.mark.covers(
 class Played:
     """What the case's calls answered, in the script's order."""
 
-    missing: PageResponse | None
+    missing: AsyncResponse | None
     unbound: GoodfetchError
     input_refused: GoodfetchError
     not_unique: GoodfetchError

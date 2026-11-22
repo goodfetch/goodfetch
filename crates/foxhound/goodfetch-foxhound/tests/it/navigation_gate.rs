@@ -1694,8 +1694,8 @@ fn code(answer: &Value) -> Value {
 
 /// A handler's page past its work item's lease sends nothing more (ADRs
 /// 0003 and 0087; spec #594's P31): once the lease ended, a click, a
-/// navigation and a `page.request`, each the first call on a page of the
-/// handler's, are refused with `attempt_ended` and the site gets no request
+/// navigation and a `page.request`, each the first call past it on a page
+/// of the handler's, are refused with `attempt_ended` and the site gets no request
 /// after the lease's end; each page then moves to `Closing`, so a later call
 /// on it raises `closed`. A page a program opened in a Run of its own
 /// carries no lease and still navigates long after.
@@ -1863,7 +1863,8 @@ fn next_seed_delivered(engine: &mut Attached, others: &mut Vec<Value>) {
 
 /// What a handler past its lease gets: the codes of a click on its first
 /// page, a navigation of its second and a `page.request` of its third, each
-/// the first call on its page, then of a navigation of each page.
+/// the first call past the lease on its page, then of a navigation of each
+/// page.
 fn past_the_lease(
     engine: &mut Attached,
     pages: &[String],

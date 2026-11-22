@@ -49,7 +49,7 @@ struct Visited {
 
 /// What a connection that reaches the Proving ground on a forced `http`
 /// tier opens with.
-fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
+pub(super) fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
     let resolve: BTreeMap<String, Vec<String>> = site
         .description()
         .resolve

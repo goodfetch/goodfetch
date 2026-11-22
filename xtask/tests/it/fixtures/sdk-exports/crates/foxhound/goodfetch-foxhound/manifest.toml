@@ -28,6 +28,14 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
+member = "launch"
+entry = "run.start"
+words = ["launch"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
 member = "close"
 entry = "none"
 reason = "Closes it."
@@ -69,3 +77,7 @@ entry = "none"
 reason = "Blocks until it is done."
 words = ["wait"]
 form = "read"
+
+[[unreached]]
+entries = ["crawl.start"]
+reason = "The test's crate has no crawl."

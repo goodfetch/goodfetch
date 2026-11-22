@@ -63,11 +63,17 @@ export class KeyValueStore {
   }
 
   /**
-   * The JSON value stored for `key`, as committed, or `null` when the key is
-   * absent. A key holding bytes fails with `value_invalid`, naming `getBytes`.
+   * Answers the JSON value a Run's Key-value store holds for a key, as
+   * committed, or null when the key is absent. A key holding bytes fails
+   * with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+   * reads a Run no program holds without resuming it. Through a crawl
+   * attempt (`attempt`), it reads what the attempt staged first.
+   *
    * Given a schema, it answers the output the schema's own parse builds, and
    * a stored value the schema rejects fails with `value_invalid`, naming the
    * first issue's path.
+   *
+   * @experimental
    */
   async get(key: string): Promise<JSONValue>;
   async get<S extends Schema>(key: string, schema: S): Promise<SchemaOutput<S> | null>;
@@ -85,11 +91,19 @@ export class KeyValueStore {
   }
 
   /**
-   * Commits `value` for `key`, replacing the one it held: the last commit
-   * wins. Given a schema, `value` has its input type, is parsed by it before
+   * Commits a JSON value for a key in a live Run's Key-value store,
+   * replacing the one it held: the last commit wins. A null value fails
+   * with `value_invalid`; remove a key with `delete`. Through a crawl
+   * attempt (`attempt`), the write is staged with the attempt and commits
+   * or is discarded with it; once the attempt ended, it fails with
+   * `attempt_ended`.
+   *
+   * Given a schema, `value` has its input type, is parsed by it before
    * anything is sent and is stored as given, the form the schema reads back.
    * A value that is not JSON (`NaN`, a `Map`, a `bigint`) or that the schema
    * rejects fails with `value_invalid`, naming its path, and nothing is sent.
+   *
+   * @experimental
    */
   async set(key: string, value: StoredValue): Promise<void>;
   async set<S extends Schema>(
@@ -121,9 +135,12 @@ export class KeyValueStore {
   }
 
   /**
-   * The bytes stored for `key` with their content type, as committed, or `null`
-   * when the key is absent. A key holding JSON fails with `value_invalid`,
-   * naming `get`.
+   * Answers the bytes and content type a Run's Key-value store holds for a
+   * key, as committed, or null when the key is absent. A key holding JSON
+   * fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+   * a crawl attempt (`attempt`), it reads what the attempt staged first.
+   *
+   * @experimental
    */
   async getBytes(key: string): Promise<StoredBytes | null> {
     this.#ensureOpen("key_value_store.get_bytes");
@@ -131,16 +148,26 @@ export class KeyValueStore {
   }
 
   /**
-   * Commits `content`, of `contentType`, for `key`, replacing what it held: the
-   * last commit wins. Bytes over 1 MiB are kept as a file of the Run, which its
+   * Commits bytes with their content type for a key in a live Run's
+   * Key-value store, replacing what it held: the last commit wins. Bytes
+   * over 1 MiB are kept as a file in the Run's folder, which its
    * Checkpoints carry.
+   *
+   * @experimental
    */
   async setBytes(key: string, content: Uint8Array, contentType: string): Promise<void> {
     this.#ensureOpen("key_value_store.set_bytes");
     await this.#host.setBytes(this.#runId, key, content, contentType);
   }
 
-  /** Removes `key`, and answers whether it existed. */
+  /**
+   * Removes a key from a live Run's Key-value store and answers whether it
+   * existed. Through a crawl attempt (`attempt`), the removal is staged
+   * with the attempt, and whether the key existed counts what the attempt
+   * staged.
+   *
+   * @experimental
+   */
   async delete(key: string): Promise<boolean> {
     this.#ensureOpen("key_value_store.delete");
     return this.#host.delete(this.#runId, key);

@@ -3,7 +3,8 @@
 # and SDKs): each names the catalog entry it serves, or `entry = "none"` with
 # its reason, and the canonical words and form it is spelled from, in the
 # forms of `sdks/typescript/manifest.toml`, whose header says what `xtask
-# sdk-manifests` refuses. A `blocking::` receiver is its async receiver's
+# sdk-manifests` refuses and what doc text, markers and `[[unreached]]`
+# lines `xtask sdk-exports` asks for. A `blocking::` receiver is its async receiver's
 # twin. `xtask sdk-exports` matches it to what the crate exports, read from
 # its source: each item its public modules declare or re-export from its own
 # modules, on `(crate)` at the root or on the module's path, as `blocking` or
@@ -2107,3 +2108,71 @@ entry = "none"
 reason = "The in-memory network `dial` opens Connections on."
 words = ["in", "memory"]
 form = "runtime"
+
+[[unreached]]
+entries = [
+  "audit.export",
+  "audit.verify",
+  "certs.list",
+  "daemon.health",
+  "daemon.status",
+  "daemon.stop",
+  "engine.info",
+  "events.subscribe",
+  "needs_you.dismiss",
+  "needs_you.list",
+  "run.list",
+  "run.resume",
+  "signing_key.create",
+  "signing_key.directory",
+  "usage.list",
+  "usage.set",
+]
+reason = "Operations of the engine as a whole, on no handle the generators write members on (ADR 0081), and no hand-written member serves them yet. A connection sends `usage.set` for each of its `limits` (ADR 0080), and a start under a Run ID resumes it as `run.resume` does (ADR 0102)."
+
+[[unreached]]
+entries = ["sample.echo"]
+reason = "The engine's sample operation, which tests and benchmarks call; no Product member serves it."
+
+[[unreached]]
+entries = ["connection.set_log_level"]
+reason = "The Connection sends it itself, following the level the program's `tracing` subscriber enables for the engine's logs (ADR 0078); no member sets it."
+
+[[unreached]]
+entries = [
+  "dialog.accept",
+  "dialog.dismiss",
+  "page.add_init_script",
+  "page.on_dialog",
+  "page.route",
+  "route.abort",
+  "route.continue",
+  "route.fallback",
+  "route.fetch",
+  "route.fulfill",
+  "session.route",
+]
+reason = "Routes, dialogs and init scripts take a handler or script the program registers, which the generators do not write; issues 1297 and 2266 add their members."
+
+[[unreached]]
+entries = ["download.save_as"]
+reason = "Issue 3288 adds `save_as` to a download kept with the Run."
+
+[[unreached]]
+entries = ["effect.open", "effect.close"]
+reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
+
+[[unreached]]
+entries = ["page.body"]
+reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
+
+[[unreached]]
+entries = [
+  "key_value_store.get",
+  "key_value_store.set",
+  "key_value_store.get_bytes",
+  "key_value_store.set_bytes",
+  "key_value_store.delete",
+  "key_value_store.keys",
+]
+reason = "The Rust SDK has no Key-value store yet; issue 1284 adds the Run's."

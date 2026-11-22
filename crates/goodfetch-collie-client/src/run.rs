@@ -168,11 +168,19 @@ fn log_start(started: &RunStarted) {
 }
 
 impl Run {
-    /// Closes the Run for every clone: a Run that still runs stops at its
-    /// next safe point, `stopped` and `incomplete`, as an abort by its
-    /// program (`run.abort`), resumable by its Run ID; an ended one stays
-    /// as it is. Any later call on it, or on a handle it opened, fails
-    /// with `closed`. Closing again does nothing.
+    /// Closes the Run for every clone: a Run that still runs is aborted by
+    /// its program (`run.abort`), resumable by its Run ID; an ended one
+    /// stays as it is. Any later call on it, or on a handle it opened,
+    /// fails with `closed`. Closing again does nothing.
+    ///
+    /// Stops a Run at its next safe point, `stopped` and `incomplete`: no
+    /// attempt in flight commits, and its work items return to pending.
+    /// Answers its Run report; an ended Run's report is answered as it is.
+    /// A Run whose engine died is stopped by this engine, which takes its
+    /// writer role at the next run epoch; a Run another engine writes is
+    /// stopped by that engine, the owner the Run index names.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
     /// # Errors
     ///
@@ -189,13 +197,24 @@ impl Run {
         self.host.held_run().close().await
     }
 
-    /// The Run's progress (`run.progress`, ADR 0102): what it does and why
-    /// it waits. Its first read is sent when the stream is first polled and
-    /// answers at once; each next value is the latest once a newer one
-    /// comes, read when the program asks for it, so values it did not read
-    /// in time coalesce. It ends after the value whose `last` is true: the
-    /// Run ended, its `lifecycle` and `stop_reason` saying how, or no
-    /// engine works it (`writer: none`).
+    /// Reads a Run's progress: what it does and why it waits. Without
+    /// `after`, it answers at once; given `after`, the position of the value
+    /// the reader last read, it waits for a change and answers the latest
+    /// value, so values in between are coalesced. The value whose `last` is
+    /// true ends the sequence: the Run ended, and its `lifecycle` and
+    /// `stop_reason` say how, or no engine works it (`writer: none`) until a
+    /// start with its Run ID resumes it. A Run another engine works is read
+    /// through that engine, the owner the Run index names, and one no engine
+    /// works from its committed state; a read never takes the Run's writer
+    /// lock. A Run ID the Run index does not list fails with
+    /// `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The stream (`run.progress`, ADR 0102) sends its first read when it
+    /// is first polled; each next read gives `after`, so each next value is
+    /// the latest once a newer one comes, read when the program asks for
+    /// it. The stream ends after the value whose `last` is true.
     ///
     /// ```no_run
     /// # async fn follow(run: goodfetch_collie_client::Run) -> Result<(), goodfetch_collie_client::Error> {
@@ -234,10 +253,16 @@ impl Run {
         }
     }
 
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the Run runs with (ADR 0083), as `config explain` shows it
-    /// (`config.explain`), which awaiting asks: each setting, or those
-    /// [`Query::keys`] names, with the effective value the Run opened
-    /// with, the layer and origin that set it and the layer that locked
+    /// (`config.explain`), which awaiting asks, naming this Run: each
+    /// setting, or those [`Query::keys`] names, with the origin that set
     /// it, its own settings over its Connection's. A Run that is no longer
     /// live fails with `run_not_found`, and a closed Run's value with
     /// `closed`.
@@ -265,20 +290,42 @@ impl<T> Query<T, ConfigExplainParams> {
 
 impl ClientConnection {
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
-    /// `finish()` ends it. The start of a Run this Connection drives
-    /// (`run.start`), which awaiting sends.
+    /// `finish()` ends it.
+    ///
+    /// Starts a Run its program drives, and answers once it is started. A
+    /// Run ID names the Run for good, and a start under one acts on what
+    /// the Run index holds (ADR 0102): no such Run begins it, `new`; an
+    /// interrupted Run, stopped, failed, or running with no live writer,
+    /// resumes from its committed state at the next run epoch, `resumed`,
+    /// as `run.resume` does; a finished Run is answered as it ended with no
+    /// handler called, `ended`. A Run live with a writer, in this engine or
+    /// another, fails with `run_in_use`; a Run started with other inputs or
+    /// by another caller with `run_conflict` listing each difference; a Run
+    /// the Run index lists whose state is missing or unreadable with
+    /// `run_state_unavailable`, never starting afresh.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Run this Connection drives (`run.start`), which
+    /// awaiting sends.
     pub fn start(&self) -> Start {
         crate::markers::warn_operation("run.start");
         Start::new(self.clone())
     }
 
+    /// Shows each setting's effective value, the layer that set it and the
+    /// layer that locked it, from the built-in defaults, the Operator
+    /// policy, user configuration, the project configuration given and the
+    /// run layer: the Connection's own settings with the run values given
+    /// over them, or a live Run's as it opened when `run_id` names one; and
+    /// lists the keys only the other Product honours as that Product's.
+    ///
     /// What the Connection runs with (ADR 0083), as `config explain` shows
     /// it (`config.explain`), which awaiting asks: each setting, or those
-    /// [`Query::keys`] names, with its effective value, the layer and
-    /// origin that set it and the layer that locked it, the Connection's
-    /// own settings over the project file it carries, configuration and
-    /// the Operator policy, which each Run it starts inherits. Once the
-    /// Connection is closed it fails with `closed`.
+    /// [`Query::keys`] names, with the origin that set it, the
+    /// Connection's own settings over the project file it carries, which
+    /// each Run it starts inherits. Once the Connection is closed it fails
+    /// with `closed`.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
         crate::markers::warn_operation(CONFIG_EXPLAIN.name);
         Query::new(

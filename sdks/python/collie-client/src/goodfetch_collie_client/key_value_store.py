@@ -58,9 +58,15 @@ class AsyncKeyValueStore:
     def keys(self, *, prefix: str | None = None) -> AsyncSequence[str]:
         """The committed keys that start with `prefix`, every key when left out.
 
-        In the order of their Unicode scalar values. The call is sent at
-        once and read with `async for`; leaving the loop, `aclose()`,
-        `close()` or releasing the iterator cancels it.
+        Sends the committed keys of a Run's Key-value store that start with
+        `prefix`, in the order of their Unicode scalar values, in `$/key`
+        notifications, one per credit granted with `$/credit`, then answers how many
+        it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        The call is sent at once and read with `async for`; leaving the loop,
+        `aclose()`, `close()` or releasing the iterator cancels it.
 
         Raises:
             ClosedError: The Run is closed.
@@ -80,9 +86,15 @@ class KeyValueStore:
     def keys(self, *, prefix: str | None = None) -> Sequence[str]:
         """The committed keys that start with `prefix`, every key when left out.
 
-        In the order of their Unicode scalar values. The call is sent at
-        once and read with `for`; `close()`, leaving a `with` block or
-        releasing the iterator cancels it.
+        Sends the committed keys of a Run's Key-value store that start with
+        `prefix`, in the order of their Unicode scalar values, in `$/key`
+        notifications, one per credit granted with `$/credit`, then answers how many
+        it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        The call is sent at once and read with `for`; `close()`, leaving a
+        `with` block or releasing the iterator cancels it.
 
         Raises:
             ClosedError: The Run is closed.

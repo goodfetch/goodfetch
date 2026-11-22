@@ -163,6 +163,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
   This closes the drift the research found in hand-written ports (S1, T).
 
+  > Note (agent decision, on a default, not read by the owner), 2026-11-22, [#3095](https://github.com/goodfetch/goodfetch/issues/3095): `xtask sdk-exports` checks the first two failures on every SDK's manifest. A listed member's doc text, whitespace flattened, contains its entry's catalog description, flattened the same way: TSDoc in TypeScript, the `///` lines in Rust, the docstring in Python. An Experimental entry's member carries TSDoc's `@experimental` in TypeScript and, in Rust and Python, the docstring line "Experimental: outside semver until it is promoted (ADR 0030)."; a deprecated entry's member carries `@deprecated`, `#[deprecated]` or PEP 702's `@deprecated`. An entry is reached in a language when one of that language's manifest lines names it, or when the generator writes a handle member, a sub-object's member, a read or a listener for it; the private operations table and the raw `call` reach nothing. A person-only entry (ADR 0041) needs no member. Any other entry that no member of a language reaches yet takes an `[[unreached]]` line in one of that language's manifests, with its `entries` and the `reason`, an issue that will reach it; an `[[unreached]]` entry that a member does reach, that is person-only or that the catalog lacks fails.
+
 ### The raw catalog call (G8)
 
 - **The method.** `call(operation, params?, options?)` exists on the Connection and on every handle, named after ADR 0077's "raw catalog call" and JSON-RPC's own word.

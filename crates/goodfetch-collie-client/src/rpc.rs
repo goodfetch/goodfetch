@@ -16,21 +16,38 @@
 //! until the engine answers it; a queued one cancelled, or past its
 //! timeout, is never sent. Past the Connection's own bounds, a call fails
 //! at once, unsent, with `connection_overloaded` (see [`CallBounds`]).
+//!
+//! Once told how ([`Sender::relink_with`]), as a remote Daemon's
+//! Connection, it reaches the engine again by itself when the link drops,
+//! within `timeout.connect` (spec 606): it holds every call meanwhile,
+//! greets the new link with `hello` ahead of them, then sends again, by the
+//! same id, each call in flight that [`relink::again`] lets it, a stream
+//! after the last item read with the credits it still had; every other one
+//! fails with `connection_lost`, never sent again (ADR 0079).
+
+mod again;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::poll_fn;
+use std::io;
 use std::num::NonZeroU64;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use goodfetch_protocol::connection::{CANCEL, CancelParams, EngineExitedDetails};
+use goodfetch_protocol::connection::{CANCEL, CancelParams, EngineExitedDetails, EngineInstance};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
-use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::{
+    ErrorObject, Message, Notification, Request, RequestId, Version,
+};
 use goodfetch_protocol::log::LOG;
+use serde::Deserialize as _;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader, Lines,
+};
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 use tokio_util::time::DelayQueue;
 use tokio_util::time::delay_queue::Key;
@@ -41,9 +58,12 @@ use crate::handler::Streams;
 use crate::line;
 use crate::logging;
 use crate::opening_process::OpeningProcess;
+use crate::relink::Relinking;
 use crate::trace_context::{self, TraceContext, TraceContextSource};
 use crate::transport::{Exit, Link};
 use crate::write_queue::{self, QueuedLines, WriteQueue};
+
+use self::again::Again;
 
 /// How long a Connection whose engine ended it waits to hear how, before
 /// its calls fail without that evidence, as the other SDKs wait.
@@ -64,6 +84,9 @@ pub(crate) struct Outgoing {
     /// at once as the credits it grants allow; none for a call that streams
     /// nothing.
     pub(crate) notified: Option<mpsc::Sender<Heard>>,
+    /// Whether its items come on the call itself, as a page's listener's,
+    /// not on the event stream: a new link resumes it only as `relink` says.
+    pub(crate) streams_itself: bool,
 }
 
 /// How long a call may wait, from when the Connection takes it.
@@ -138,6 +161,10 @@ enum Command {
     /// Sends at most this many calls at once, as the engine's `hello`
     /// answered.
     Cap(usize),
+    /// Reaches the engine again as the [`Relinking`] says whenever the
+    /// link drops from now on, the engine instance `hello` answered
+    /// publishing the events read until then.
+    Relink(Arc<Relinking>, EngineInstance),
     /// Ends the Connection: no more calls, the output closed, every call
     /// in flight or queued failed as cancelled by the close.
     Close,
@@ -154,6 +181,13 @@ enum Ended {
     Dropped,
     /// Its engine ended, as `details` tell.
     Exited(EngineExitedDetails),
+    /// The engine, reached again, refused its greeting with this error.
+    Refused(ErrorObject),
+    /// The engine, reached again, answered its greeting unreadably so.
+    Unreadable(String),
+    /// Reaching the engine again failed within `timeout.connect`, the last
+    /// attempt for this cause.
+    GaveUp(String),
 }
 
 impl Ended {
@@ -162,6 +196,9 @@ impl Ended {
             Self::Closed => Error::closed(),
             Self::Dropped => Error::dropped(),
             Self::Exited(details) => Error::engine_exited(details),
+            Self::Refused(error) => Error::answered(error.clone()),
+            Self::Unreadable(cause) => Error::shape(serde::de::Error::custom(cause)),
+            Self::GaveUp(cause) => Error::gave_up(io::Error::other(cause.clone())),
         }
     }
 
@@ -284,6 +321,14 @@ impl Sender {
         self.hand(Command::Cap(cap));
     }
 
+    /// Reaches the engine again as `relinking` says whenever the link
+    /// drops from now on, sending again the calls made from now on that
+    /// [`relink::again`] lets it, before any call but `hello` is made;
+    /// `instance` is the one `hello` answered.
+    pub(crate) fn relink_with(&self, relinking: Relinking, instance: EngineInstance) {
+        self.hand(Command::Relink(Arc::new(relinking), instance));
+    }
+
     /// Ends the Connection without waiting.
     pub(crate) fn close(&self) {
         self.hand(Command::Close);
@@ -370,13 +415,16 @@ async fn write(mut writer: Box<dyn AsyncWrite + Send + Unpin>, mut lines: Queued
 struct Pending {
     method: String,
     reply: oneshot::Sender<Result<Value, Error>>,
-    /// Its timer of the Client's, if any.
-    deadline: Option<Key>,
+    /// Its timer of the Client's, if any, and the deadline it keeps.
+    deadline: Option<(Key, Deadline)>,
+    /// The deadline its engine keeps and when it passes, timed while held.
+    engine_keeps: Option<(Instant, Deadline)>,
     notified: Option<mpsc::Sender<Heard>>,
     /// Whether the catalog says the engine cancels it, so its deadline
     /// passing, or its caller cancelling it, sends its `$/cancel` (ADR
     /// 0080).
     cancellable: bool,
+    again: Option<Again>,
 }
 
 impl Pending {
@@ -403,6 +451,9 @@ struct Held {
     notes: Vec<Vec<u8>>,
     /// Its bytes and its notes'.
     bytes: usize,
+    again: Option<Again>,
+    /// Whether its caller heard its id, sent on a link that dropped.
+    id_heard: bool,
 }
 
 impl Held {
@@ -430,6 +481,12 @@ struct Calls {
     /// one cancelled or past its timeout too, until the engine answers it.
     in_flight: BTreeSet<i64>,
     deadlines: DelayQueue<i64>,
+    /// How it reaches the engine again once the link drops, if it does.
+    relinking: Option<Arc<Relinking>>,
+    /// The engine instance the last `hello` answered.
+    instance: Option<EngineInstance>,
+    /// Whether it holds every call until a new link is greeted.
+    holding: bool,
 }
 
 impl Calls {
@@ -444,7 +501,26 @@ impl Calls {
             queued_bytes: 0,
             in_flight: BTreeSet::new(),
             deadlines: DelayQueue::new(),
+            relinking: None,
+            instance: None,
+            holding: false,
         }
+    }
+
+    /// Acts on `command`: false once the Connection is to end.
+    fn command(&mut self, command: Option<Command>) -> bool {
+        match command {
+            Some(Command::Call(call, noted)) => self.take(call, noted.as_ref()),
+            Some(Command::Notify(notification)) => self.notify(&notification),
+            Some(Command::Cancel(call)) => self.cancel_call(&call),
+            Some(Command::Cap(cap)) => self.cap(cap),
+            Some(Command::Relink(relinking, instance)) => {
+                self.relinking = Some(relinking);
+                self.instance = Some(instance);
+            }
+            Some(Command::Close) | None => return false,
+        }
+        true
     }
 
     /// Takes `call`: refuses it past the Connection's bounds, then sends
@@ -484,6 +560,10 @@ impl Calls {
             // Its caller cancels it with `Cancel`, queued or sent.
             let _noted = noted.id.0.set(id);
         }
+        let again = self
+            .relinking
+            .as_ref()
+            .and_then(|_| Again::of(&method, &line, call.streams_itself));
         let held = Held {
             method,
             bytes: line.len(),
@@ -496,6 +576,8 @@ impl Calls {
             credits: noted.and_then(|noted| noted.credits),
             cancellable: noted.is_some_and(|noted| noted.engine_cancels),
             notes: Vec::new(),
+            again,
+            id_heard: false,
         };
         if self.queued.is_empty() && self.has_place() {
             self.dispatch(id, held);
@@ -505,14 +587,16 @@ impl Calls {
         }
     }
 
-    /// Whether the cap leaves a place for one more call sent.
+    /// Whether the cap leaves a place for one more call sent, which none
+    /// does while the calls are held for a new link.
     fn has_place(&self) -> bool {
-        self.cap.is_none_or(|cap| self.in_flight.len() < cap)
+        !self.holding && self.cap.is_none_or(|cap| self.in_flight.len() < cap)
     }
 
     /// Sends the held call `id`, then its credits and notes; one whose
     /// caller stopped listening before it was sent, and so never learnt
-    /// its id, is never sent.
+    /// its id, is never sent, nor is one sent again whose caller stopped
+    /// listening.
     fn dispatch(&mut self, id: i64, held: Held) {
         let Held {
             method,
@@ -523,6 +607,8 @@ impl Calls {
             credits,
             cancellable,
             notes,
+            mut again,
+            id_heard,
             ..
         } = held;
         if notified.as_ref().is_some_and(mpsc::Sender::is_closed) {
@@ -535,17 +621,22 @@ impl Calls {
             return;
         }
         self.in_flight.insert(id);
+        let mut engine_keeps = None;
         let deadline = deadline.and_then(|(key, deadline)| match deadline.kept_by {
-            KeptBy::Client => Some(key),
+            KeptBy::Client => Some((key, deadline)),
             KeptBy::Engine => {
+                engine_keeps = Some((self.deadlines.deadline(&key), deadline));
                 self.deadlines.remove(&key);
                 None
             }
         });
-        if let Some(notified) = &notified {
+        if let Some(notified) = notified.as_ref().filter(|_| !id_heard) {
             let _unheard = notified.try_send(Heard::Sent(id));
         }
         if let Some(credits) = credits {
+            if let Some(again) = &mut again {
+                again.granted(u64::from(credits));
+            }
             self.send(&credited(id, credits));
         }
         for note in notes {
@@ -557,8 +648,10 @@ impl Calls {
                 method,
                 reply,
                 deadline,
+                engine_keeps,
                 notified,
                 cancellable,
+                again,
             },
         );
     }
@@ -596,8 +689,8 @@ impl Calls {
     }
 
     /// Fails the call `id`, whose deadline passed: one queued with that
-    /// deadline, never sent, and one sent with the Client's timeout,
-    /// cancelled when the engine cancels it.
+    /// deadline, never sent on the link it waits for, and one sent with the
+    /// Client's timeout, cancelled when the engine cancels it.
     fn expire(&mut self, id: i64) {
         if let Some(held) = self.unqueue(id) {
             tracing::debug!(target: "goodfetch::client", id, "a queued call timed out");
@@ -605,7 +698,12 @@ impl Calls {
                 .deadline
                 .expect("invariant: a queued call expires only by its own deadline");
             // Its timer started as it was taken, so it waited `after`.
-            held.fail(Error::queue_timed_out(deadline.setting, deadline.after));
+            let (setting, after) = (deadline.setting, deadline.after);
+            held.fail(if self.holding {
+                Error::relink_timed_out(setting, after)
+            } else {
+                Error::queue_timed_out(setting, after)
+            });
             return;
         }
         if let Some(call) = self.pending.remove(&id) {
@@ -633,7 +731,7 @@ impl Calls {
             return;
         }
         if let Some(sent) = self.pending.remove(&id) {
-            self.stop_timer(sent.deadline);
+            self.stop_timer(sent.deadline.map(|(key, _)| key));
             if sent.cancellable {
                 self.send(&cancelled(id));
             }
@@ -641,16 +739,34 @@ impl Calls {
     }
 
     /// Sends `notification`, or holds it until its call, still queued, is
-    /// sent.
+    /// sent; while the calls are held for a new link, one naming no call
+    /// queued is not sent. A stream that resumes counts the credits it
+    /// grants.
     fn notify(&mut self, notification: &Notification) {
         let Some(line) = encoded(notification) else {
             return;
         };
-        let queued = named(notification.params.as_ref()).and_then(|id| self.queued.get_mut(&id));
-        if let Some(held) = queued {
+        let id = named(notification.params.as_ref());
+        if notification.method == CREDIT
+            && let Some(CreditParams {
+                id: RequestId::Number(id),
+                credits,
+            }) = notification
+                .params
+                .as_ref()
+                .and_then(|params| CreditParams::deserialize(params).ok())
+            && let Some(again) = self.again_of(id)
+        {
+            again.granted(u64::from(credits));
+        }
+        if let Some(held) = id.and_then(|id| self.queued.get_mut(&id)) {
             held.bytes = held.bytes.saturating_add(line.len());
             self.queued_bytes = self.queued_bytes.saturating_add(line.len());
             held.notes.push(line);
+            return;
+        }
+        if self.holding {
+            tracing::trace!(target: "goodfetch::client", method = %notification.method, "a notification of a call the dropped link lost");
             return;
         }
         let _closed = self.writes.send(line);
@@ -693,7 +809,7 @@ impl Calls {
             return;
         };
         if let Some(call) = self.pending.remove(&id) {
-            self.stop_timer(call.deadline);
+            self.stop_timer(call.deadline.map(|(key, _)| key));
             let _gone = call.reply.send(outcome);
         } else {
             tracing::debug!(target: "goodfetch::client", id, "a reply to a call no longer waiting for it");
@@ -706,9 +822,16 @@ impl Calls {
     /// Hands `notification` to the streaming call in flight whose id its
     /// params name; one that names no such call changes nothing. A call
     /// that has not taken what it was handed fails: its engine sent past
-    /// the credits the call granted.
+    /// the credits the call granted. A stream that resumes counts the
+    /// items it carries and where the last stands.
     fn hand_over(&mut self, notification: Notification) {
         let Notification { method, params, .. } = notification;
+        if let Some((again, params)) = named(params.as_ref())
+            .and_then(|id| self.again_of(id))
+            .zip(params.as_ref())
+        {
+            again.read(&method, params);
+        }
         let call = named(params.as_ref())
             .and_then(|id| Some((id, self.pending.get(&id)?.notified.as_ref()?)));
         let Some((id, notified)) = call else {
@@ -723,7 +846,7 @@ impl Calls {
             let Some(call) = self.pending.remove(&id) else {
                 return;
             };
-            self.stop_timer(call.deadline);
+            self.stop_timer(call.deadline.map(|(key, _)| key));
             tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
             call.fail(Error::shape(serde::de::Error::custom(
                 "the engine streamed past the credits the call granted",
@@ -742,6 +865,17 @@ impl Calls {
     }
 }
 
+/// The lines a link's input reads.
+type Input = Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>;
+
+/// How serving a link ended.
+enum Served {
+    /// The Client closed the Connection.
+    Closed,
+    /// The engine's side ended the link, for this cause.
+    Dropped(String),
+}
+
 /// Takes calls, matches replies and deadlines to them, hands the engine's
 /// requests to `streams`, and fails what is left when the Connection ends,
 /// by `close()`, by every handle dropped or by the engine closing its
@@ -749,7 +883,8 @@ impl Calls {
 /// in flight or queued fails with `call_cancelled` and one made behind the
 /// close with `closed`; when the engine's side did, all fail as closed, or
 /// with `engine_exited` when `ending` tells how its engine ended. Every
-/// call made after fails as one made behind the close.
+/// call made after fails as one made behind the close. Once told how, it
+/// reaches the engine again instead when the link drops.
 async fn correlate(
     reader: Box<dyn AsyncRead + Send + Unpin>,
     mut commands: mpsc::UnboundedReceiver<Command>,
@@ -758,46 +893,29 @@ async fn correlate(
     ending: Ending,
 ) {
     let mut input = BufReader::new(reader).lines();
-    // Whether the engine's side ended the Connection, rather than the Client.
-    let mut dropped = false;
-    loop {
-        tokio::select! {
-            command = commands.recv() => match command {
-                Some(Command::Call(call, noted)) => calls.take(call, noted.as_ref()),
-                Some(Command::Notify(notification)) => calls.notify(&notification),
-                Some(Command::Cancel(call)) => calls.cancel_call(&call),
-                Some(Command::Cap(cap)) => calls.cap(cap),
-                Some(Command::Close) | None => break,
-            },
-            Some(expired) = poll_fn(|context| calls.deadlines.poll_expired(context)) => {
-                calls.expire(expired.into_inner());
-            }
-            line = input.next_line() => match line {
-                Ok(Some(line)) => calls.answer(&line, &streams),
-                Ok(None) => {
-                    tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
-                    dropped = true;
-                    break;
-                }
-                Err(error) => {
-                    tracing::debug!(target: "goodfetch::client", %error, "the Connection's input failed");
-                    dropped = true;
-                    break;
-                }
-            },
+    let ended = loop {
+        let cause = match serve(&mut input, &mut commands, &mut calls, &streams).await {
+            Served::Closed => break Ended::Closed,
+            Served::Dropped(cause) => cause,
+        };
+        let Some(relinking) = calls.relinking.clone() else {
+            break Ended::Dropped;
+        };
+        match again::relink(&relinking, cause, &mut commands, &mut calls).await {
+            Ok(reached) => input = reached,
+            Err(ended) => break ended,
         }
-    }
+    };
     streams.end();
     // Calls made while it waits to hear how the engine ended wait in the
     // commands, and fail below with that evidence.
-    let ended = match ending.exit {
-        Some(exit) if dropped => Ended::Exited(
+    let ended = match (ended, ending.exit) {
+        (Ended::Dropped, Some(exit)) => Ended::Exited(
             tokio::time::timeout(EXIT_GRACE, exit)
                 .await
                 .unwrap_or_else(|_| EngineExitedDetails::without_evidence()),
         ),
-        _ if dropped => Ended::Dropped,
-        _ => Ended::Closed,
+        (ended, _) => ended,
     };
     let ended = ending.ended.get_or_init(|| ended);
     commands.close();
@@ -807,6 +925,37 @@ async fn correlate(
         }
     }
     calls.end(ended);
+}
+
+/// Serves the link `input` reads until the Client closes the Connection
+/// or the engine's side ends the link.
+async fn serve(
+    input: &mut Input,
+    commands: &mut mpsc::UnboundedReceiver<Command>,
+    calls: &mut Calls,
+    streams: &Streams,
+) -> Served {
+    loop {
+        tokio::select! {
+            command = commands.recv() => if !calls.command(command) {
+                return Served::Closed;
+            },
+            Some(expired) = poll_fn(|context| calls.deadlines.poll_expired(context)) => {
+                calls.expire(expired.into_inner());
+            }
+            line = input.next_line() => match line {
+                Ok(Some(line)) => calls.answer(&line, streams),
+                Ok(None) => {
+                    tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
+                    return Served::Dropped("the engine closed the link".to_owned());
+                }
+                Err(error) => {
+                    tracing::debug!(target: "goodfetch::client", %error, "the Connection's input failed");
+                    return Served::Dropped(error.to_string());
+                }
+            },
+        }
+    }
 }
 
 /// The `$/cancel` of the call `id`.

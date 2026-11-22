@@ -374,10 +374,15 @@ rows! {
     /// `E6.delegation_transactions`: a transaction on a Politeness file
     /// that takes Delegations, every key a group of jobs asks for together.
     PolitenessDelegationTransactions => "E6.delegation_transactions", "politeness_permit", "delegation_transactions";
-    /// `E6.other_transactions`: any other transaction on a Politeness file:
-    /// its open, the robots.txt copy, a site's ask read or written when
-    /// learned, a Delegation given back, waiters withdrawn.
-    PolitenessOtherTransactions => "E6.other_transactions", "politeness_permit", "other_transactions";
+    /// `E6.run_transactions`: a Run's own transaction on a Politeness file,
+    /// neither a Permit's nor a Delegation's take nor an origin's: the
+    /// file's open, a Delegation given back, waiters withdrawn, the Run's
+    /// stop (#1899).
+    PolitenessRunTransactions => "E6.run_transactions", "politeness_permit", "run_transactions";
+    /// `E6.origin_transactions`: a transaction on a Politeness file of what
+    /// an origin's site gives or asks: its robots.txt copy, and a site's
+    /// ask read or written when learned (#1899).
+    PolitenessOriginTransactions => "E6.origin_transactions", "politeness_permit", "origin_transactions";
     /// `E6.opens`: a Politeness file opened. Its statement preparations are
     /// the benchmark's, read from Callgrind, as no wrapper sees them.
     PolitenessOpens => "E6.opens", "politeness_permit", "opens";

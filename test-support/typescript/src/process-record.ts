@@ -4,6 +4,7 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { TestSupportError } from "./errors.ts";
+import { reachMutationChild } from "./mutation-children.ts";
 
 /** How a recorded process ended: its exit code, or the signal that ended it, and the error that kept it from starting, if one did. */
 export interface Exit {
@@ -37,10 +38,15 @@ export interface SpawnOptions {
 export class ProcessRecord {
   readonly #processes: RecordedProcess[] = [];
 
-  /** Starts `command` with `args` and records it. */
+  /**
+   * Starts `command` with `args` and records it. In a StrykerJS run, a Node
+   * program runs the run's mutant, and what it covers counts for the test.
+   */
   spawn(command: string, args: readonly string[], options: SpawnOptions): RecordedProcess {
+    // oxlint-disable-next-line no-underscore-dangle -- StrykerJS's own name for its namespace.
+    const mutation = reachMutationChild(options.env, globalThis.__stryker__);
     const child = spawn(command, args, {
-      env: options.env,
+      env: mutation.env,
       cwd: options.cwd,
       detached: process.platform !== "win32" && options.detached === true,
       stdio: ["pipe", "pipe", "pipe"],
@@ -54,6 +60,7 @@ export class ProcessRecord {
     });
     const exit = new Promise<Exit>((resolve) => {
       child.once("close", (code, signal) => {
+        mutation.ended();
         resolve({ code, signal, error: spawnError });
       });
     });

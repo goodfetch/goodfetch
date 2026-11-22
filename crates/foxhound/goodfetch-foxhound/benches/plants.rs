@@ -233,8 +233,11 @@ struct Planted;
 /// The same, its transaction counted on `E6.delegation_transactions`.
 struct PlantedDelegation;
 
-/// The same, its transaction counted on `E6.other_transactions`.
-struct PlantedOther;
+/// The same, its transaction counted on `E6.run_transactions`.
+struct PlantedRun;
+
+/// The same, its transaction counted on `E6.origin_transactions`.
+struct PlantedOrigin;
 
 /// Implements [`KeyState`] for a planted state, its transactions counted
 /// on `row`.
@@ -283,7 +286,8 @@ macro_rules! planted {
 
 planted!(Planted, Row::PolitenessTransactions);
 planted!(PlantedDelegation, Row::PolitenessDelegationTransactions);
-planted!(PlantedOther, Row::PolitenessOtherTransactions);
+planted!(PlantedRun, Row::PolitenessRunTransactions);
+planted!(PlantedOrigin, Row::PolitenessOriginTransactions);
 
 /// The plant of the row named `name`, one of the Politeness permit's (E6).
 pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
@@ -310,10 +314,17 @@ pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
                 beside(runtime, insert).expect("invariant: the planted file takes a write");
             })
         }
-        "E6.other_transactions" => {
+        "E6.run_transactions" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
-                let insert = file.change("planted", false, |_: &mut PlantedOther| ((), true));
+                let insert = file.change("planted", false, |_: &mut PlantedRun| ((), true));
+                beside(runtime, insert).expect("invariant: the planted file takes a write");
+            })
+        }
+        "E6.origin_transactions" => {
+            let (runtime, file) = politeness(work);
+            Arc::new(move |_: &str| {
+                let insert = file.change("planted", false, |_: &mut PlantedOrigin| ((), true));
                 beside(runtime, insert).expect("invariant: the planted file takes a write");
             })
         }

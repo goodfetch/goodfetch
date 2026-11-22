@@ -1005,10 +1005,11 @@ fn the_crawl_does_the_politeness_work_its_rows_count() {
     assert_eq!(work.read(Row::PolitenessDelegationTransactions), 1);
     // Each request reads the robots.txt's Crawl-delay again; one that did
     // not change is no ask to write to the file.
+    let others =
+        work.read(Row::PolitenessRunTransactions) + work.read(Row::PolitenessOriginTransactions);
     assert!(
-        work.read(Row::PolitenessOtherTransactions) < requests / 2,
-        "{} other Politeness transactions for {requests} requests",
-        work.read(Row::PolitenessOtherTransactions)
+        others < requests / 2,
+        "{others} other Politeness transactions for {requests} requests"
     );
     assert_eq!(work.read(Row::PolitenessOpens), 1, "the file opens once");
     assert!(

@@ -70,8 +70,12 @@ class TestEnv:
         process: subprocess.Popen[bytes],
         description: Mapping[str, object],
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
+        child_variables: Mapping[str, str] | None = None,
     ) -> None:
-        """Takes the running `goodfetch-test-env` and its checked description."""
+        """Takes the running `goodfetch-test-env` and its checked description.
+
+        `child_variables` join the description's cleared environment map.
+        """
         self._process = process
         self._teardown_deadline = teardown_deadline
         self._started: list[tuple[list[str], subprocess.Popen[bytes]]] = []
@@ -79,7 +83,10 @@ class TestEnv:
         """The test's own folder, removed when the test ends."""
         self.home = Path(cast("str", description["home"]))
         """`<folder>/home`, the `GOODFETCH_HOME` of everything the test starts."""
-        self.env: Mapping[str, str] = dict(cast("dict[str, str]", description["env"]))
+        self.env: Mapping[str, str] = {
+            **cast("dict[str, str]", description["env"]),
+            **(child_variables or {}),
+        }
         """The cleared environment of every child the test starts."""
         self.seed = cast("int", description["seed"])
         """The test's seed, fixed by its name unless `GOODFETCH_TEST_SEED` is set."""
@@ -106,6 +113,7 @@ class TestEnv:
         daemon: Product | None = None,
         browser: bool = False,
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
+        child_variables: Mapping[str, str] | None = None,
     ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
 
@@ -120,6 +128,9 @@ class TestEnv:
             teardown_deadline: How many seconds teardown waits for
                 `goodfetch-test-env` to end once its stdin closes; 10 unless a
                 test sets a shorter one.
+            child_variables: Variables to add to the cleared environment map
+                of every child the test starts, as a mutmut run's
+                `--mutation-children` adds its own (`mutation_children`).
 
         Raises:
             ToolsError: The manifest or its `test_env` entry is missing.
@@ -160,7 +171,12 @@ class TestEnv:
         except BaseException:
             _stop(process)
             raise
-        return cls(process, cast("dict[str, object]", description), teardown_deadline)
+        return cls(
+            process,
+            cast("dict[str, object]", description),
+            teardown_deadline,
+            child_variables,
+        )
 
     def start(
         self,

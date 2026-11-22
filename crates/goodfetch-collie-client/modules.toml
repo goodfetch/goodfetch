@@ -56,7 +56,11 @@
 # the bytes it has not written, and refuses a call past them (issue 3189),
 # which `connection` reads and `rpc` applies; `write_queue` holds the lines
 # the Connection's writer has not written and counts their bytes.
-# Event resumption joins as its own module with the ticket that adds it.
+# `relink` is how a remote Daemon's Connection reaches its engine again
+# once the link drops (spec 606): the backoff, the same `hello`, and which
+# calls in flight are sent again, a stream's after the last item read, as
+# the catalog classes them (ADR 0079); `connection` sets it up and `rpc`
+# applies it.
 [modules]
 ai_work = ["error"]
 answer = []
@@ -64,7 +68,7 @@ blocking = ["answer", "call", "connection", "error", "event_stream", "field_valu
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
-connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
+connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]
@@ -81,8 +85,9 @@ markers = ["logging", "sync"]
 opening_process = ["error"]
 published = ["error", "listener_queue", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
+relink = ["logging", "sync", "transport"]
 response = ["call", "connection", "error", "host"]
-rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "trace_context", "transport", "write_queue"]
+rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "relink", "trace_context", "transport", "write_queue"]
 run = ["answer", "call", "connection", "error", "event_stream", "generated", "host", "limits", "logging", "markers", "settings", "sync"]
 schema = []
 settings = ["call", "error", "markers"]

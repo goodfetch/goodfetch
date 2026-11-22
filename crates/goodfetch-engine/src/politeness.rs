@@ -363,7 +363,7 @@ pub trait KeyState: Sized + Send + 'static {
     /// Whether `writes` comes of reading what a site asks, whether the
     /// read changed it or not: no Permit's work, so a transaction of the
     /// file that makes it outside a Delegation counts on
-    /// `E6.other_transactions`, as one that writes it under a Delegation
+    /// `E6.origin_transactions`, as one that writes it under a Delegation
     /// does (#1899). What [`asked`](KeyState::asked) answers by default.
     fn read_an_ask(writes: &Self::Writes) -> bool {
         Self::asked(writes)
@@ -1643,7 +1643,7 @@ fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> Polit
 }
 
 /// Opens the file, skips `fsync`, creates its tables and prepares its
-/// statements; its opening's commits count on `E6.other_transactions`, and
+/// statements; its opening's commits count on `E6.run_transactions`, and
 /// each later one on the row its job names.
 fn open_file(
     path: &Path,
@@ -1661,7 +1661,7 @@ fn open_file(
             counting: Some(Counting {
                 work,
                 opens: Some(Row::PolitenessOpens),
-                transactions: Row::PolitenessOtherTransactions,
+                transactions: Row::PolitenessRunTransactions,
                 counts_switch: true,
             }),
             schema: Some(Schema {

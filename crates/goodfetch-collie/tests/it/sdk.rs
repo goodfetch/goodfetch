@@ -21,6 +21,7 @@ use serde_json::json;
 mod closing;
 mod engine_choice;
 mod engine_exited;
+mod errors_and_outcomes;
 mod events;
 #[cfg(unix)]
 mod fork;

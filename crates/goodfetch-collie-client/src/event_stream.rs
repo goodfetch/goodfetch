@@ -348,6 +348,9 @@ impl Flow {
                     timeout: None,
                     reply,
                     notified: Some(notified),
+                    // A published stream's events come on the Connection's
+                    // event stream, its call only arming them.
+                    streams_itself: matches!(source, Source::Own(_)),
                 });
                 None
             }

@@ -17,7 +17,10 @@ goodfetch-collie-client = { workspace = true }
 [tool.mutmut]
 source_paths = ["src"]
 do_not_mutate = ["src/goodfetch_foxhound/generated/*"]
-pytest_add_cli_args = ["--case-list=../../../../conformance/clients/cases.toml"]
+pytest_add_cli_args = [
+  "--case-list=../../../../conformance/clients/cases.toml",
+  "--mutation-children",
+]
 pytest_add_cli_args_test_selection = ["tests/unit"]
 
 [build-system]

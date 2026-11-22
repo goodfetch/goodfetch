@@ -7,16 +7,22 @@ installed, a call made in the program's current span sends that span's
 its raw mark; a call made outside any span sends no `_meta`, nor does
 `hello`, the Connection's own, though opened in the span. The sync API
 sends the context of the thread that calls it, not the private thread's:
-two threads in two spans share one `Collie`. The Scripted engine fails on
+two threads in two spans share one `Collie`. Without `opentelemetry-api`,
+a program imports the SDK, which tries no OpenTelemetry import, and its
+call sends no `_meta` and fails nothing. The Scripted engine fails on
 params it does not expect and on a step left unused, so a play with no
 warning, or a Daemon's clean exit, says each call carried exactly that.
 TypeScript's `trace-context.test.ts` and Rust's `trace_context.rs` are its
 twins.
 """
 
+import json
+import subprocess
+import sys
 import threading
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from collie_calls import engine_warnings, exit_code, open_collie
@@ -34,6 +40,12 @@ from opentelemetry import trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
 
 COVERS = pytest.mark.covers("story:11-138")
+
+PROGRAM = Path(__file__).parents[1] / "programs" / "collie_without_opentelemetry.py"
+"""The program that runs where `opentelemetry-api` does not import."""
+
+PROGRAM_DEADLINE_SECONDS = 60.0
+"""How long the program may take, its engine's start included."""
 
 PROGRAM_SPAN = NonRecordingSpan(
     SpanContext(
@@ -154,3 +166,26 @@ def test_each_thread_of_the_sync_api_sends_its_own_trace_context(
         collie.close()
 
     assert engine_warnings(caplog) == []
+
+
+@COVERS
+def test_without_opentelemetry_the_sdk_imports_none_and_a_call_sends_no_meta(
+    test_env: TestEnv,
+    product: ToolProduct,
+) -> None:
+    """Where `opentelemetry-api` is absent, nothing of it is tried, sent or failed."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/without-opentelemetry.json"
+    )
+
+    played = subprocess.run(
+        [sys.executable, str(PROGRAM)],
+        capture_output=True,
+        cwd=test_env.folder,
+        env=dict(env),
+        timeout=PROGRAM_DEADLINE_SECONDS,
+        check=False,
+    )
+
+    assert played.returncode == 0, played.stderr.decode(errors="replace")
+    assert json.loads(played.stdout) == {"tried_on_import": [], "loaded": []}

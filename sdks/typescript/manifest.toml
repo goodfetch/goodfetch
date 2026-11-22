@@ -205,7 +205,6 @@ receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
-only = "Rust's context has no page yet; issue 3229 adds it with issue 2803's `Page`."
 words = ["page"]
 form = "read"
 
@@ -222,7 +221,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "enqueueLinks"
 entry = "crawl_request.enqueue_links"
-only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
 words = ["enqueue", "links"]
 form = "round_trip"
 
@@ -239,7 +237,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
-only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
 words = ["records"]
 form = "opener"
 
@@ -2271,7 +2268,7 @@ receiver = "(module)"
 member = "EnqueueLinksOptions"
 entry = "none"
 reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
-only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
+only = "Rust's `enqueue_links` takes the locator, the Label and the Payload alone, as its `enqueue` does."
 words = ["enqueue", "links", "options"]
 form = "type"
 
@@ -2320,7 +2317,7 @@ receiver = "(module)"
 member = "RecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.records()` takes."
-only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
+only = "Rust's `CrawlRun::records` takes the Dataset alone, reads every Record from the first, its value as JSON, and does not resume on a new connection."
 words = ["records", "options"]
 form = "type"
 

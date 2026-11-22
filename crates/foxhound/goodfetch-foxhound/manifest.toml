@@ -288,6 +288,14 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
 member = "crawl_requests"
 entry = "none"
 reason = "The Run's Crawl requests, the stream beneath `Crawl::serve`, for a program that answers them itself (ADRs 0093 and 0112)."
@@ -428,6 +436,23 @@ receiver = "CrawlContext"
 member = "enqueue"
 entry = "crawl_request.enqueue"
 words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "page"
+entry = "none"
+reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093), or `response_not_document` when the response is not one."
+words = ["page"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
 form = "round_trip"
 
 [[member]]
@@ -616,6 +641,14 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "blocking"
 member = "CrawlContext"
 entry = "none"
@@ -717,6 +750,23 @@ receiver = "blocking::CrawlContext"
 member = "enqueue"
 entry = "crawl_request.enqueue"
 words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "page"
+entry = "none"
+reason = "The attempt's page as a blocking `Page`, `crawl_request.handle`'s `page_id` (ADRs 0081 and 0093), or `response_not_document` when the response is not one."
+words = ["page"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
 form = "round_trip"
 
 # Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`

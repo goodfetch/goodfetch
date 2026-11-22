@@ -15,6 +15,7 @@ use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 
 mod blocked;
+mod catalog;
 mod crawl;
 mod limits;
 mod public_items;

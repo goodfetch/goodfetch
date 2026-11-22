@@ -31,14 +31,15 @@ use goodfetch_protocol::foxhound::crawl::{
     Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
-    DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails,
+    DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails, DatasetRecord, RECORD,
+    RUN_RECORDS, RecordRead, RunRecordsParams,
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams, Tags};
+use serde::Deserialize as _;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize as _, Serialize};
 use serde_json::{Value, json};
 
 use crate::Foxhound;
@@ -46,11 +47,13 @@ use crate::crawl_requests::CrawlRequests;
 use crate::sync::{AtomicU64, Mutex};
 
 mod context;
+mod handles;
 #[cfg(test)]
 mod tests;
 
 pub use context::CrawlContext;
 use context::{Attempt, Ending, retry_requested};
+pub use handles::{Dataset, Label, Seed};
 
 /// The source of each crawl's own number, which its Labels and Datasets
 /// carry, so a crawl tells its own from another's.
@@ -298,7 +301,7 @@ impl<'a> Crawl<'a> {
                 ended = &mut report => break ended,
                 Some(()) = attempts.next(), if !attempts.is_empty() => {}
                 call = run.requests.next(&run_id), if reading => match call {
-                    Some(call) => attempts.push(self.attempt(call, &run.connection, &declared)),
+                    Some(call) => attempts.push(self.attempt(call, run, &declared)),
                     None => reading = false,
                 },
             }
@@ -310,13 +313,8 @@ impl<'a> Crawl<'a> {
     /// Runs one attempt with its Label's handler and answers the engine:
     /// a `ctx.skip` or `ctx.retry` the handler called ends the attempt as
     /// it asked, whatever the handler then returned (ADR 0109).
-    async fn attempt(
-        &self,
-        call: HandlerCall,
-        connection: &ClientConnection,
-        declared: &Arc<[String]>,
-    ) {
-        let (outcome, ending) = match self.handler_of(&call, connection, declared) {
+    async fn attempt(&self, call: HandlerCall, run: &CrawlRun, declared: &Arc<[String]>) {
+        let (outcome, ending) = match self.handler_of(&call, run, declared) {
             Ok((label, handler, delivered)) => {
                 let held = Arc::clone(&delivered.attempt);
                 let outcome = AssertUnwindSafe(async move { handler(delivered)?.await })
@@ -337,10 +335,10 @@ impl<'a> Crawl<'a> {
     fn handler_of(
         &self,
         call: &HandlerCall,
-        connection: &ClientConnection,
+        run: &CrawlRun,
         declared: &Arc<[String]>,
     ) -> Result<(Arc<str>, &Handler<'a>, Delivered), Error> {
-        let delivered = delivered(call, connection, self.id, declared)
+        let delivered = delivered(call, &run.connection, &run.run, self.id, declared)
             .map_err(|error| params_unread(&error))?;
         let label = delivered.attempt.params.crawl_request.label.as_str();
         let Some((name, Some(handler))) = self.labels.iter().find(|(name, _)| **name == *label)
@@ -446,8 +444,9 @@ fn payload_invalid(error: serde_json::Error) -> Error {
     Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
 }
 
-/// The attempt `call` delivers, of the crawl `crawl` whose Labels are
-/// `declared`, with its request's Payload, `null` when it has none.
+/// The attempt `call` delivers on `connection`, of `run`, whose page it
+/// reads, and of the crawl `crawl` whose Labels are `declared`, with its
+/// request's Payload, `null` when it has none.
 ///
 /// # Errors
 ///
@@ -456,13 +455,16 @@ fn payload_invalid(error: serde_json::Error) -> Error {
 fn delivered(
     call: &HandlerCall,
     connection: &ClientConnection,
+    run: &Run,
     crawl: CrawlId,
     declared: &Arc<[String]>,
 ) -> Result<Delivered, serde_json::Error> {
     let mut params = CrawlRequestHandleParams::deserialize(call.params())?;
     let payload = params.crawl_request.payload.take().unwrap_or(Value::Null);
+    let page = params.page_id.clone().map(|page_id| run.page_of(page_id));
     let attempt = Arc::new(Attempt::new(
         connection.clone(),
+        page,
         params,
         crawl,
         Arc::clone(declared),
@@ -555,92 +557,6 @@ fn panicked(label: &str, panic: &(dyn Any + Send)) -> Error {
             exception_stack: String::new(),
         },
     )
-}
-
-/// A Label a crawl declares (ADR 0093), whose requests carry a Payload of
-/// type `P`: what a seed, an enqueue and a handler name. Cloning it is
-/// cheap.
-pub struct Label<P> {
-    name: Arc<str>,
-    crawl: CrawlId,
-    payload: PhantomData<fn() -> P>,
-}
-
-impl<P> Label<P> {
-    /// The Label's name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl<P> Clone for Label<P> {
-    fn clone(&self) -> Self {
-        Self {
-            name: Arc::clone(&self.name),
-            crawl: self.crawl,
-            payload: PhantomData,
-        }
-    }
-}
-
-impl<P> fmt::Debug for Label<P> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("Label").field(&self.name).finish()
-    }
-}
-
-/// A Dataset a crawl declares (ADR 0103), whose Records are of type `I`:
-/// what a handler pushes into. Cloning it is cheap.
-pub struct Dataset<I> {
-    name: Arc<str>,
-    crawl: CrawlId,
-    record: PhantomData<fn(I)>,
-}
-
-impl<I> Dataset<I> {
-    /// The Dataset's name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl<I> Clone for Dataset<I> {
-    fn clone(&self) -> Self {
-        Self {
-            name: Arc::clone(&self.name),
-            crawl: self.crawl,
-            record: PhantomData,
-        }
-    }
-}
-
-impl<I> fmt::Debug for Dataset<I> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("Dataset").field(&self.name).finish()
-    }
-}
-
-/// A request a crawl starts from: a URL, the Label its handler is, and
-/// its Payload.
-#[derive(Debug)]
-pub struct Seed {
-    url: String,
-    label: Arc<str>,
-    crawl: CrawlId,
-    /// The Payload's JSON, or why it has none.
-    payload: Result<Value, Error>,
-}
-
-impl Seed {
-    /// The request of `url`, handled by `label`'s handler with `payload`.
-    pub fn new<P: Serialize>(url: impl Into<String>, label: &Label<P>, payload: P) -> Self {
-        Self {
-            url: url.into(),
-            label: Arc::clone(&label.name),
-            crawl: label.crawl,
-            payload: serde_json::to_value(payload).map_err(payload_invalid),
-        }
-    }
 }
 
 impl Foxhound {
@@ -824,9 +740,68 @@ impl CrawlRun {
                 run_id: self.id().clone(),
             },
             connection: self.connection.clone(),
+            run: self.run.clone(),
             crawl: self.crawl,
             declared: Arc::clone(&self.declared),
         })
+    }
+
+    /// The committed Records of `dataset`, in number order from the first
+    /// (`run.records`, ADR 0103): while the Run is live the stream follows
+    /// it, handing each Record once it commits, and it ends once the Run
+    /// ended and every Record was handed. Each is a [`DatasetRecord`],
+    /// its value the Record's JSON. Reading never slows the crawl.
+    ///
+    /// ```no_run
+    /// use goodfetch_foxhound::{ConnectOptions, Crawl, Foxhound, Seed};
+    ///
+    /// # async fn crawl() -> Result<(), goodfetch_foxhound::Error> {
+    /// let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
+    /// let mut crawl = Crawl::new();
+    /// let page = crawl.label::<()>("page")?;
+    /// let titles = crawl.dataset::<String>("titles")?;
+    /// crawl.handle(&page, |_ctx| async { Ok(()) })?;
+    /// let run = foxhound
+    ///     .start_crawl(&crawl, [Seed::new("https://shop.test/", &page, ())])
+    ///     .await?;
+    /// crawl.serve(&run).await?;
+    /// let mut records = run.records(&titles);
+    /// while let Some(record) = records.next().await {
+    ///     let record = record?;
+    ///     println!("{}: {}", record.number, record.value);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// An item is `dataset_unknown` for a Dataset the crawl does not
+    /// declare, `closed` once the connection has ended, and the engine's
+    /// error when the read fails, after which the stream ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the stream cancels the read, and leaves the Run as it is.
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> EventStream<DatasetRecord> {
+        let reads = self.connection.stream::<RecordRead>(
+            RUN_RECORDS.name,
+            &self.records_params(dataset),
+            RECORD,
+        );
+        EventStream::from_items(reads.map(|read| read.map(|read| read.record)))
+    }
+
+    /// The read of all of `dataset`'s Records in the Run, from the first,
+    /// which [`CrawlRun::records`] and its blocking twin send.
+    pub(crate) fn records_params<I>(&self, dataset: &Dataset<I>) -> RunRecordsParams {
+        RunRecordsParams {
+            run_id: self.id().clone(),
+            dataset: dataset.name.to_string(),
+            after: None,
+            through: None,
+            wall: None,
+        }
     }
 
     /// The Run's report, which the engine answers once the Run ends.
@@ -857,6 +832,7 @@ struct Reading {
     ended: Option<Mutex<Reply<CrawlRunReport>>>,
     forget: Forget,
     connection: ClientConnection,
+    run: Run,
     crawl: CrawlId,
     declared: Arc<[String]>,
 }
@@ -895,7 +871,13 @@ impl Reading {
     /// The [`CrawlCall`] of `call`, or the refusal of params that do not
     /// read, which answers it.
     fn call_of(&self, call: HandlerCall) -> Result<CrawlCall, Error> {
-        match delivered(&call, &self.connection, self.crawl, &self.declared) {
+        match delivered(
+            &call,
+            &self.connection,
+            &self.run,
+            self.crawl,
+            &self.declared,
+        ) {
             Ok(Delivered { attempt, payload }) => Ok(CrawlCall {
                 call,
                 context: CrawlContext::new(attempt, payload),

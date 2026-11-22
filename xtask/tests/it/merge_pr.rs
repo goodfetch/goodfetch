@@ -150,8 +150,9 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                      tip=$(git rev-parse origin/main)\n\
                      mkdir -p \"target/stress-listings/$tip\" && : >\"target/stress-listings/$tip/listed\"\n\
                    fi\n\
-                   mkdir -p target/gate-runs\n\
-                   if [ ! -f \"{no_plan}\" ]; then echo previous=none >target/gate-runs/{head}.plan; fi\n\
+                   records=\"$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-gate-runs\"\n\
+                   mkdir -p \"$records\"\n\
+                   if [ ! -f \"{no_plan}\" ]; then echo previous=none >\"$records/{head}.plan\"; fi\n\
                    mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
                    if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status >\"{signals}\"; fi\n\
                    echo $$ >\"{reached}\"\n\

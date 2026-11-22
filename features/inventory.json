@@ -2106,6 +2106,16 @@
       ]
     },
     {
+      "id": "error:retry_requested",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:route_already_handled",
       "kind": "error",
       "area": 5,

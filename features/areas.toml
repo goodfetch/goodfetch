@@ -199,6 +199,13 @@ number = 3
 kind = "error"
 prefix = "handler_"
 
+# A handler's own request to retry its attempt, `ctx.retry` (ADR 0093,
+# issue 2804).
+[[area]]
+number = 3
+kind = "error"
+prefix = "retry_requested"
+
 # A crawl's wiring mistakes (ADR 0093, ADR 0104, issue 2800).
 [[area]]
 number = 3

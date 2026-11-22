@@ -220,6 +220,14 @@ class ResponseUnavailableError(PageError):
         self.retry_after = retry_after_of(self.details)
 
 
+class RetryRequestedError(PageError):
+    """The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="retry_requested", group="page", retryable=True, **fields)
+
+
 class SampleCrawlRefusedError(RefusedError):
     """The sample crawl refused its pages."""
 
@@ -262,6 +270,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "response_not_document": ResponseNotDocumentError,
     "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,
+    "retry_requested": RetryRequestedError,
     "sample_crawl_refused": SampleCrawlRefusedError,
     "staging_full": StagingFullError,
 }

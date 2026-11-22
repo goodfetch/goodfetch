@@ -102,5 +102,7 @@ fn no_public_type_of_the_sdk_has_a_lifetime_parameter() {
         "{files:?}"
     );
 
-    assert_eq!(public_types_with_lifetimes(&files), Vec::<String>::new());
+    // A crawl's lifetime is the one its handlers borrow for, so a handler
+    // may borrow from the scope that serves it (ADR 0112's exception).
+    assert_eq!(public_types_with_lifetimes(&files), ["Crawl".to_owned()]);
 }

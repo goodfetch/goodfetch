@@ -376,7 +376,9 @@ fn browser_requests_past_the_places_wait_for_a_session_with_room_and_open_none()
     // together, so the third is drawn while both Sessions are busy.
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "placed", "seeds": seeds, "settings": settings },
+        "params": {
+            "run_id": "placed", "seeds": seeds, "settings": settings, "labels": { "page": {} },
+        },
     }));
     let mut held = Vec::new();
     while held.len() < 2 {

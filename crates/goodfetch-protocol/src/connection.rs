@@ -1035,6 +1035,31 @@ pub const CONNECTION_OVERLOADED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `connection_overloaded` names: the Connection's own bound the call
+/// would pass, and its value. The Client raises it, never the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConnectionOverloadedDetails {
+    /// The bound reached.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bound: OverloadedBound,
+    /// Its value: a number of calls, or of bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: u64,
+}
+
+/// A Connection's own bound on what it holds, as `connection_overloaded`
+/// names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OverloadedBound {
+    /// `connection.max_pending_calls`: the calls waiting for their answer,
+    /// sent or queued.
+    PendingCalls,
+    /// `connection.max_queued_write_bytes`: the bytes waiting to be written
+    /// to the engine.
+    QueuedWriteBytes,
+}
+
 /// A new call refused by a Connection that holds as many calls in flight
 /// as the engine serves on one (ADR 0038; issue 2312).
 pub const TOO_MANY_CALLS: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1224,7 +1249,7 @@ mod opening;
 
 pub use bounds::{
     CONNECTION_MAX_LISTENER_QUEUE, CONNECTION_MAX_PENDING_CALLS, CONNECTION_MAX_QUEUED_WRITE_BYTES,
-    applies_client_bounds,
+    applies_client_bound,
 };
 pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
 pub use opening::{NETWORK_MAX_HELLO_SIZE, TIMEOUT_HELLO};

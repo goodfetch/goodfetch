@@ -161,8 +161,8 @@ impl RawCall {
         let call = Call::new(sender, &operation, Ok(Value::Object(params)));
         let call = match timeout {
             Timeout::Default => call,
-            Timeout::Off => call.no_timeout().wire_timeout(),
-            Timeout::After(after) => call.timeout(after).wire_timeout(),
+            Timeout::Off => call.no_timeout().wire_timeout(WIRE_TIMEOUT),
+            Timeout::After(after) => call.timeout(after).wire_timeout(WIRE_TIMEOUT),
         };
         Ok(match note {
             Some(note) => call.note(note),

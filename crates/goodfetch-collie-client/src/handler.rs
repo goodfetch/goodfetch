@@ -18,7 +18,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
 use crate::error::{BoxError, Error};
-use crate::line;
+use crate::line::{self, Output, WeakOutput};
 use crate::opening_process::OpeningProcess;
 use crate::sync::{Mutex, MutexGuard};
 use goodfetch_protocol::error_code::ErrorCode;
@@ -63,7 +63,7 @@ impl Streams {
 
     /// Hands `request` to its method's stream, or answers it with the
     /// method error when none serves it. Answers go out through `lines`.
-    pub(crate) fn hand(&self, request: Request, lines: &mpsc::UnboundedSender<Vec<u8>>) {
+    pub(crate) fn hand(&self, request: Request, lines: &Output) {
         let call = HandlerCall {
             id: request.id,
             method: request.method,
@@ -133,7 +133,7 @@ pub struct HandlerCall {
     method: String,
     params: Value,
     /// The Connection's output, which a held request never keeps open.
-    lines: mpsc::WeakUnboundedSender<Vec<u8>>,
+    lines: WeakOutput,
     answered: bool,
     /// The process whose Connection read the request, the only one whose
     /// answer reaches the engine.

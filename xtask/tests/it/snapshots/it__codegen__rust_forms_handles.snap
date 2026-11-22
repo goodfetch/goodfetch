@@ -175,7 +175,8 @@ impl Page {
                 timeout: None,
             },
         );
-        call.wire_timeout().map(|result| result.status)
+        call.wire_timeout("timeout.navigation")
+            .map(|result| result.status)
     }
 
     /// Whether the page's document has loaded.
@@ -239,7 +240,7 @@ impl Page {
                     poll: None,
                 },
             )
-            .wire_timeout()
+            .wire_timeout("timeout.wait")
     }
 
     /// What an action looks for on a page, resolved again at each use.

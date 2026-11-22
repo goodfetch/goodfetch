@@ -20,7 +20,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::Error;
-use crate::rpc::{CallId, Outgoing, Sender};
+use crate::rpc::{CallId, Deadline, KeptBy, Outgoing, Sender};
 use crate::trace_context::{self, TraceContext};
 
 /// A call's reply, as `.await` gives it.
@@ -62,9 +62,10 @@ pub(crate) enum Timeout {
 pub struct Call<T, P = Value> {
     request: Request<P>,
     timeout: Timeout,
-    /// Whether the operation takes its own `timeout`, which the call's
-    /// then sets instead of a timer of the client's (ADR 0080).
-    wire: bool,
+    /// The setting of the operation's own `timeout`, such as
+    /// `timeout.navigation`, when it takes one, which the call's then sets
+    /// instead of a timer of the client's (ADR 0080).
+    wire: Option<&'static str>,
     read: Read<T>,
 }
 
@@ -75,7 +76,7 @@ impl<T: DeserializeOwned, P> Call<T, P> {
         Self {
             request: Request::new(sender, method, params),
             timeout: Timeout::Default,
-            wire: false,
+            wire: None,
             read: read(),
         }
     }
@@ -86,7 +87,10 @@ impl<T, P> Call<T, P> {
     /// `deadline_exceeded`, or with the engine's `deadline_exceeded` for an
     /// operation that takes its own `timeout`. A cancellable call the
     /// client's own timer ends is cancelled with `$/cancel`, as a dropped
-    /// one is (ADR 0080). A reply that comes later changes nothing.
+    /// one is (ADR 0080). A reply that comes later changes nothing. A call
+    /// still queued behind the engine's cap on calls in flight when its
+    /// timeout passes is never sent, and fails with `deadline_exceeded`
+    /// whose `waited_for` is `calls_in_flight`.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Timeout::After(timeout);
         self
@@ -98,10 +102,12 @@ impl<T, P> Call<T, P> {
         self
     }
 
-    /// Sends the call's timeout as the operation's own `timeout` member
-    /// rather than keeping a timer of the client's (ADR 0080).
-    pub(crate) fn wire_timeout(mut self) -> Self {
-        self.wire = true;
+    /// Sends the call's timeout as the operation's own `timeout` member,
+    /// that of `setting`, rather than keeping a timer of the client's (ADR
+    /// 0080); until the call is sent, it bounds its wait for a place among
+    /// the engine's calls in flight.
+    pub(crate) fn wire_timeout(mut self, setting: &'static str) -> Self {
+        self.wire = Some(setting);
         self
     }
 
@@ -169,15 +175,26 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
             wire,
             read,
         } = self;
-        let timer = match timeout {
-            Timeout::After(after) if !wire => Some(after),
+        let deadline = match (timeout, wire) {
+            (Timeout::After(after), None) => Some(Deadline {
+                setting: WIRE_TIMEOUT,
+                after,
+                kept_by: KeptBy::Client,
+            }),
+            // A zero timeout the engine refuses, so the call is sent at
+            // once to hear the refusal.
+            (Timeout::After(after), Some(setting)) if !after.is_zero() => Some(Deadline {
+                setting,
+                after,
+                kept_by: KeptBy::Engine,
+            }),
             _ => None,
         };
         let trace_context = request.sender.trace_context();
         Box::pin(async move {
             let reply = request
-                .send(trace_context, timer, |params| {
-                    if wire {
+                .send(trace_context, deadline, |params| {
+                    if wire.is_some() {
                         set_wire_timeout(params, timeout);
                     }
                 })
@@ -287,14 +304,14 @@ impl<P> Request<P> {
 impl<P: Serialize> Request<P> {
     /// Sends the request, its params as JSON once `edit` changed them,
     /// carrying `trace_context`, the Trace context its caller had, and
-    /// answers its reply's JSON once the handle noted it; a timer of the
-    /// client's fails it past `timeout`. A request its handle settles
-    /// first is not sent, and a cancellable one dropped before its reply is
-    /// cancelled.
+    /// answers its reply's JSON once the handle noted it; it fails past
+    /// `timeout`, queued or, when the Client keeps it, sent. A request its
+    /// handle settles first is not sent, and a cancellable one dropped
+    /// before its reply is cancelled.
     async fn send(
         self,
         trace_context: Option<TraceContext>,
-        timeout: Option<Duration>,
+        timeout: Option<Deadline>,
         edit: impl FnOnce(&mut Value),
     ) -> Result<Value, Error> {
         self.sender

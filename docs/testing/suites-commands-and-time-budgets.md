@@ -2,7 +2,7 @@
 
 Decided in [ADR 0061](../adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md), with the private-period matrix in [ADR 0108](../adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md) and the private-period pull-request tier and hosted budgets in [ADR 0135](../adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md).
 
-The repository has been public since 2026-11-22 ([ADR 0135](../adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s note of that day). Until the hosted-CI spec (spec to be linked) moves CI to GitHub-hosted runners, the rules below written for a private repository stay in force, except that no self-hosted runner serves the repository while it is public, so the owner's-machine cells do not run and `just release-ci` dispatches the hosted cells alone.
+The repository has been public since 2026-11-22 ([ADR 0135](../adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s note of that day). Until the hosted-CI spec ([#3373](https://github.com/goodfetch/goodfetch/issues/3373)) moves CI to GitHub-hosted runners, the rules below written for a private repository stay in force, except that no self-hosted runner serves the repository while it is public, so the owner's-machine cells do not run and `just release-ci` dispatches the hosted cells alone.
 
 ### The three suites
 

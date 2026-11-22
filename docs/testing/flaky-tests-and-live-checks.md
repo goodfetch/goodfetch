@@ -51,7 +51,7 @@ Decided in [ADR 0064](../adr/0064-tests-are-never-retried-and-unpinned-checks-ru
   - **the ingest and the flaky-test scan** are off (`results.yml`, `test-health.yml` and `diagnostic.yml` are disabled), so no run reaches the results store, no `flaky-test` issue opens, and no diagnostic run follows a failure;
   - **the daily reports** are off: `just reports <store>` runs from no cron (neither the gate host's crontab nor `ci/test-health.crontab` holds it), and the `test-results` store it writes into does not exist, so no Feature or Journey report is written; it runs by hand once the store exists;
   - **quarantine** is enforced but fed by nothing: `xtask quarantine check` still refuses a bad entry and every suite skips the listed tests, but no scan finds a flaky test to list, and the daily 50 runs of the oldest entries do not run;
-  - **CodeQL** is off until the hosted-CI spec (spec to be linked) turns `codeql.yml` on ([Other rules](security.md#other-rules)): it is free since the repository became public on 2026-11-22, where on a private repository the CodeQL CLI needs a paid GitHub Code Security licence, declined while Goodfetch has no revenue ([ADR 0076](../adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)).
+  - **CodeQL** is off until the hosted-CI spec ([#3373](https://github.com/goodfetch/goodfetch/issues/3373)) turns `codeql.yml` on ([Other rules](security.md#other-rules)): it is free since the repository became public on 2026-11-22, where on a private repository the CodeQL CLI needs a paid GitHub Code Security licence, declined while Goodfetch has no revenue ([ADR 0076](../adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)).
 
 ### A flaky test found after merge
 

@@ -1513,6 +1513,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/browser"
 receiver = "Channel"
+member = "relinkWith"
+entry = "none"
+reason = "The client runtime (ADR 0068; spec 606): how a remote Daemon's dropped link is reached again, greeted and its calls in flight sent again or failed, which the Connection sets for a WebSocket transport."
+words = ["relink", "with"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
 member = "close"
 entry = "none"
 reason = "The client runtime for a browser (ADR 0068): ends the Client's side of the transport."
@@ -1929,6 +1938,15 @@ member = "ensureRunOpen"
 entry = "none"
 reason = "Fails a call a Product's Run type adds once the Run is closed, as each of a Run's own calls does."
 words = ["ensure", "run", "open"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "resumable"
+entry = "none"
+reason = "Makes a Product's stream one a remote Daemon's dropped link sends again after the last item read, with the credits left (spec 606), as `run.records` is."
+words = ["resumable"]
 form = "runtime"
 
 [[member]]

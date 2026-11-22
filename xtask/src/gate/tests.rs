@@ -12,7 +12,7 @@ use super::plan::{
     Action, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Planned, Step,
     Touched, UNOWNED, gate_input, narrowed, plan, unit,
 };
-use super::steps::{Form, Kind, entries};
+use super::steps::{self, Form, Kind, Owner, entries};
 use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
@@ -1097,6 +1097,48 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 const BESIDE_STEPS: [&str; 8] = [
     "perf", "counts", "linux", "visual", "tlc", "miri", "loom", "windows",
 ];
+
+/// Each entry's owning layer, as the spec's table of owning layers sets it
+/// (spec #3373): `just merge` judges the change in seconds, the gate host
+/// keeps what a noisy runner would move, and the hosted tier owns the rest,
+/// which still runs here until it exists. A command of a form's list is
+/// part of a hosted step: the documents' lint is lint's, and the codegen
+/// tests are the Pre-merge suite's.
+#[rstest]
+#[case::all(Form::All)]
+#[case::quick(Form::Quick)]
+#[case::docs(Form::Docs)]
+#[case::preflight(Form::Preflight)]
+fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
+    const LOCAL: [&str; 6] = WHOLE_CHANGE_STEPS;
+    const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
+    let owners: Vec<(&str, Owner)> = entries(form)
+        .iter()
+        .map(|entry| (entry.name, entry.owner))
+        .collect();
+    let expected: Vec<(&str, Owner)> = owners
+        .iter()
+        .map(|(name, _)| {
+            let owner = if LOCAL.contains(name) {
+                Owner::Local
+            } else if GATE_HOST.contains(name) {
+                Owner::GateHost
+            } else {
+                Owner::Hosted
+            };
+            (*name, owner)
+        })
+        .collect();
+
+    assert_eq!(owners, expected);
+    assert!(
+        steps::render(form)
+            .lines()
+            .any(|line| line == format!("{}.owner={}", owners[0].0, owners[0].1.name())),
+        "{}",
+        steps::render(form)
+    );
+}
 
 /// `just preflight` runs the gate host's units of the full gate alone, the
 /// counted rows and the stress run, through the same plan and record

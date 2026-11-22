@@ -49,11 +49,49 @@ impl Kind {
     }
 }
 
+/// The layer that owns an entry: the one that runs it on a tree, while every
+/// other layer reuses its result there (ADR 0135's amendment of 2026-11-22,
+/// spec #3373's table of owning layers).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Owner {
+    /// `just merge` on its own host, in seconds: the checks that judge the
+    /// whole change.
+    Local,
+    /// The pull-request tier on hosted runners. Until it exists, the gate
+    /// still runs these here.
+    Hosted,
+    /// The quiet gate host, `just preflight` or `just merge`, whichever runs
+    /// first: what a noisy runner would move, perf and the stress run.
+    GateHost,
+}
+
+impl Owner {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Hosted => "hosted",
+            Self::GateHost => "gate-host",
+        }
+    }
+
+    /// The owner of `step`.
+    const fn of(step: Step) -> Self {
+        if step.judges_the_whole_change() {
+            Self::Local
+        } else if matches!(step, Step::Perf | Step::Counts | Step::Stress) {
+            Self::GateHost
+        } else {
+            Self::Hosted
+        }
+    }
+}
+
 /// One entry of a form's list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub(crate) name: &'static str,
     pub(crate) kind: Kind,
+    pub(crate) owner: Owner,
     /// The `just` arguments it runs.
     pub(crate) just: Vec<&'static str>,
 }
@@ -72,9 +110,12 @@ const CODEGEN_TESTS: &str = "codegen-tests";
 
 /// The entries `form` runs, in their order.
 pub(crate) fn entries(form: Form) -> Vec<Entry> {
+    // A command is part of a hosted step: the documents' lint is lint's,
+    // and the codegen tests are the Pre-merge suite's.
     let command = |name| Entry {
         name,
         kind: Kind::Command,
+        owner: Owner::Hosted,
         just: vec![name],
     };
     let mut entries = Vec::new();
@@ -86,6 +127,7 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
             } else {
                 Kind::Step
             },
+            owner: Owner::of(step),
             just: just(step, form),
         });
     }
@@ -135,13 +177,15 @@ fn just(step: Step, form: Form) -> Vec<&'static str> {
 
 /// The list as `ci/pre-merge.sh` reads it, through `ci/output-value.sh`:
 /// a `steps=` line of the entries' names in order, then each entry's
-/// `<name>.kind=` (`step`, `beside` or `command`) and `<name>.just=` lines.
+/// `<name>.kind=` (`step`, `beside` or `command`), `<name>.owner=`
+/// (`local`, `hosted` or `gate-host`) and `<name>.just=` lines.
 pub(crate) fn render(form: Form) -> String {
     let entries = entries(form);
     let names: Vec<&str> = entries.iter().map(|entry| entry.name).collect();
     let mut text = format!("steps={}\n", names.join(" "));
     for entry in &entries {
         let _ = writeln!(text, "{}.kind={}", entry.name, entry.kind.name());
+        let _ = writeln!(text, "{}.owner={}", entry.name, entry.owner.name());
         let _ = writeln!(text, "{}.just={}", entry.name, entry.just.join(" "));
     }
     text

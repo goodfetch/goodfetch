@@ -18,7 +18,9 @@
 # pushed head's commits since its merge base with `origin/main`, as the gate
 # does at merge, and a red one refuses the push before `just quick` runs:
 # such a commit is only mended by rewriting it, after which a gate that ran
-# on it reuses nothing (ADR 0135).
+# on it reuses nothing (ADR 0135). Each records the commits it judged green
+# in the gate's records, so neither this hook nor `just merge` judges one of
+# them again; a reworded commit is another commit, and is judged.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # `just perf [base]` (ADR 0071): `xtask perf` over the bench targets
 # `xtask affected` selects, against `base` (the merge base with
-# `origin/main` by default), with CI's thresholds.
+# `origin/main` by default), with CI's thresholds. `just counted-rows`
+# (`--counted-rows`): the Quality register's counted rows instead (ADR 0140),
+# which read neither the bench build nor its figures, a step of their own in
+# the gate, so `just preflight` runs them alone and the full gate on its tree
+# reuses them.
 #
 #   - On Linux it runs natively, and needs Valgrind and gungraun-runner.
 #   - Elsewhere it runs this script in the pinned Linux x86-64 CI image
@@ -22,9 +26,15 @@ source "$root/ci/container.sh"
 source "$root/ci/output-value.sh"
 
 requested=${1:-}
+counting=no recipe="just perf"
+if [[ $requested == --counted-rows ]]; then
+  counting=yes recipe="just counted-rows"
+fi
 base=$requested
 change=(--local)
-if [[ -n "$base" ]]; then
+if [[ $counting == yes ]]; then
+  base=""
+elif [[ -n "$base" ]]; then
   change=(--base "$base" --head HEAD)
 else
   base=$(git merge-base origin/main HEAD)
@@ -32,7 +42,7 @@ fi
 
 if [[ "$(uname -s)" != Linux ]]; then
   engine=$(container_engine)
-  [[ -n "$engine" ]] || skip "just perf" "it runs on Linux, and no container engine (Docker or Podman) is running on this host"
+  [[ -n "$engine" ]] || skip "$recipe" "it runs on Linux, and no container engine (Docker or Podman) is running on this host"
   # shellcheck source=ci/vm/common.sh
   source "$root/ci/vm/common.sh"
   if ! "$engine" image inspect "$CI_IMAGE" >/dev/null 2>&1; then
@@ -55,7 +65,7 @@ if [[ "$(uname -s)" != Linux ]]; then
     "$CI_IMAGE" ci/perf.sh ${requested:+"$requested"}
 fi
 
-command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
+command -v valgrind >/dev/null 2>&1 || skip "$recipe" "Valgrind is not installed on this host"
 
 # The rows of counted work (ADR 0140), whose statement preparations are
 # Callgrind's call count: each run against its limit, then each counter against
@@ -78,32 +88,22 @@ valgrind_rows() {
   nice -n 10 cargo run --quiet --bin xtask -- counts --valgrind --prove
 }
 
-if ! command -v gungraun-runner >/dev/null 2>&1; then
+# `--counted-rows`: the rows alone, at `nice -n 10` (TESTING.md's priority
+# for load beside other work), so they yield the CPU to the gate's other
+# steps and take all of it on an idle host.
+if [[ $counting == yes ]]; then
   counted_rows
-  skip "just perf" "gungraun-runner is not installed on this host"
+  command -v gungraun-runner >/dev/null 2>&1 ||
+    skip "just counted-rows" "the rows read under Valgrind need gungraun-runner, which is not installed on this host"
+  valgrind_rows
+  exit 0
 fi
 
-# The counted rows read neither the bench targets' build nor its figures, so
-# they run beside it, their lines marked `[counts]`, at `nice -n 10` (TESTING.md's
-# priority for load beside other work): they yield the CPU to the build and to
-# the host's other checks, and take all of it on an idle host. The measurement
-# starts once both have passed, and a red row or build fails perf before it.
-(
-  counted_rows
-  valgrind_rows
-) > >(sed -u 's/^/[counts] /') 2>&1 &
-counting=$!
+command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
 
-status=0
-{
-  selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}") &&
-    targets=$(output_value bench-targets "$selection") &&
-    cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
-} || status=$?
-counted=0
-wait "$counting" || counted=$?
-((status == 0)) || exit "$status"
-((counted == 0)) || exit "$counted"
+selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
+targets=$(output_value bench-targets "$selection")
+cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
 
 # `just merge` saves the pull request's acceptance (ci/merge-pr.sh); without
 # it, every figure past its threshold is reported. Until M1's optimization

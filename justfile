@@ -533,6 +533,7 @@ fetch:
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
+    ci/chrome-for-testing-fetch.sh
     ci/alpine/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
@@ -1552,11 +1553,19 @@ counts *args:
     cargo run --quiet --bin xtask -- counts {{ args }}
 
 # The counted performance figures of what changed, against `base` (the merge
-# base with `origin/main` by default), with CI's thresholds (ADR 0071):
-# natively on Linux, in the pinned CI image through Docker or Podman
-# elsewhere, and listed as skipped without either (ci/perf.sh).
+# base with `origin/main` by default), with CI's thresholds (ADR 0071); the
+# Quality register's counted rows are `just counted-rows`'. Natively on
+# Linux, in the pinned CI image through Docker or Podman elsewhere, and
+# listed as skipped without either (ci/perf.sh).
 perf base="":
     ci/perf.sh {{ base }}
+
+# The Quality register's counted rows alone, as the gate runs them, a step
+# of their own beside perf's: each row against its limit and against a
+# planted unit of its work, the plain rows, then under strace and Callgrind
+# (ADR 0140; ci/perf.sh), where perf runs and is skipped where it is.
+counted-rows:
+    ci/perf.sh --counted-rows
 
 # The Pre-merge suite's tests that only Linux decides (`tc netem`, the
 # Secret Service, the IPv6 Happy Eyeballs check, the extra loopback
@@ -1933,39 +1942,21 @@ commit-messages base="" head="HEAD":
 compiler-cache:
     ci/compiler-cache.sh
 
-# What the full gate most often went red on, run on this worktree's HEAD
+# The full gate's units that only the gate host runs, on this worktree's HEAD
 # before `just merge` of a pull request that will take it (the 2026-11-13
 # retro: six of nine full gates failed on defects the branch could show
-# without the gate's lock): the floor guard and the Pre-merge suite against
-# the merge base with `origin/main`, the stress run against the head of the
-# last full gate that passed, as the full gate's own (`base` gives another),
-# and `just counts`. Every step runs even after one failed, and the end
-# names each red step (ci/keep-going.sh). Run it in the pull request's own
-# worktree.
-# Runs the full gate's likeliest failures ahead of it: `just preflight [base]`.
-preflight base="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source ci/keep-going.sh
-    base="{{ base }}"
-    if [[ -z $base ]]; then
-      git fetch --quiet origin
-      full=$(git rev-list -1 --first-parent --merges --fixed-strings \
-        --grep="Merged on the local gate: \`just pre-merge all\`" origin/main)
-      if [[ -z $full ]]; then
-        echo "error: no merge on origin/main passed the full gate; give the stress run's base: just preflight <base>" >&2
-        exit 2
-      fi
-      base=$(git rev-parse "$full^2")
-    fi
-    echo "The stress run's base: $base."
-    quoted_base=$(printf '%q' "$base")
-    steps_begin preflight
-    step floor-guard '{{ just_executable() }} floor-guard origin/main'
-    step pre-merge '{{ just_executable() }} test-affected pre-merge'
-    step stress "{{ just_executable() }} stress $quoted_base"
-    step counts '{{ just_executable() }} counts'
-    steps_end
+# without the gate's lock): the counted rows and the stress run, planned and
+# recorded as the full gate's are, its stress run against the head of the
+# last full gate whose stress run passed (`xtask gate plan`'s `stress.base`).
+# Each result goes into the record every worktree shares
+# (ci/gate-records.sh), by the layer `preflight`, so `just merge`'s full gate
+# on the same tree reuses it; a red step ends no step after it, and the end
+# names each red step (ci/pre-merge.sh; ADR 0135's amendment of 2026-11-22).
+# Run it in the pull request's own worktree, on a head that holds `main`'s
+# tip: the stress run's result holds for that base alone.
+# Runs the full gate's gate-host units ahead of it: `just preflight`.
+preflight:
+    PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh preflight
 
 # The floor guard (ADR 0140; TESTING.md, Quality register): what the change
 # since the merge base with `base` does to the bar. A flagged change passes only
@@ -2120,8 +2111,8 @@ _gate-steps form:
     cargo run --quiet --bin xtask -- gate steps --form {{ form }}
 
 # The incremental gate's plan for HEAD (ADR 0135), from the results earlier
-# gate runs recorded in target/gate-runs/, which `just merge` keeps between
-# gates; GOODFETCH_GATE_FULL=1 reuses nothing.
+# gate runs of every layer recorded in the folder every worktree shares
+# (ci/gate-records.sh); GOODFETCH_GATE_FULL=1 reuses nothing.
 # Vitest's and Playwright's listings since a recorded head, the evidence of
 # what the TypeScript tests read, load each test file, which reads only the
 # keys of the test tool manifest: an empty one serves. Before it reuses a
@@ -2130,8 +2121,9 @@ _gate-steps form:
 _gate-plan:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p target/gate-runs
-    echo '{}' >target/gate-runs/listing-tools.json
+    records=$(ci/gate-records.sh)
+    mkdir -p target "$records"
+    echo '{}' >target/gate-listing-tools.json
     # The variables that change what the steps run or how join the host
     # fingerprint, so a result counts only for a run in the same environment;
     # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
@@ -2141,16 +2133,17 @@ _gate-plan:
     # its online audits, which read GitHub: such a lint is never reused.
     zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
-      cargo run --quiet --bin xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
+      GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-listing-tools.json" \
+      cargo run --quiet --bin xtask -- gate plan --records "$records" --now "$(date +%s)" \
       --environment "$variables" ${GOODFETCH_GATE_FULL:+--full} ${zizmor_token:+--zizmor-online}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
-# made for, which must still be checked out on a clean tree (ADR 0135); a
-# failed step run per member's `evidence` (`--junit`, `--selection`) records
-# each crate that passed in full green.
-_gate-record head step status *evidence:
-    cargo run --quiet --bin xtask -- gate record --records target/gate-runs --head {{ head }} \
+# made for, which must still be checked out on a clean tree (ADR 0135), by
+# the layer `by` that ran it (`merge`, `preflight`, `backstop`); a failed
+# step run per member's `evidence` (`--junit`, `--selection`) records each
+# crate that passed in full green.
+_gate-record by head step status *evidence:
+    cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
@@ -2223,9 +2216,10 @@ test-health run ref="origin/main":
 # The backstop's comparison (ADR 0135): each result an incremental run in
 # `runs` on the full run's tree reused and the full run on `full` found red, and
 # each result of a run merged since the green backstop run on `since` that
-# counted earned passes, on whichever tree.
-_gate-compare full runs="target/gate-runs" since="":
-    cargo run --quiet --locked --bin xtask -- gate compare --records target/gate-runs \
+# counted earned passes, on whichever tree. The full run's record is in the
+# gate's records (ci/gate-records.sh), which the backstop names its own.
+_gate-compare full runs since="":
+    cargo run --quiet --locked --bin xtask -- gate compare --records "$(ci/gate-records.sh)" \
       --runs "{{ runs }}" --full {{ full }} {{ if since == "" { "" } else { "--since " + since } }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),

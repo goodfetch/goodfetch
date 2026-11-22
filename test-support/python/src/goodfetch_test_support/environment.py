@@ -30,6 +30,20 @@ TEARDOWN_DEADLINE_SECONDS = 10.0
 """How long `goodfetch-test-env` has to tear down once its stdin closes."""
 
 
+class BrowserDownload(StrEnum):
+    """How an engine's first use of an empty Browser cache goes (#3100).
+
+    `goodfetch-test-env`'s `--browser-download`: the home's engines point at
+    an empty cache and download a missing build from the Proving ground's
+    `browser-builds.test`, which serves the pinned build or answers `404`,
+    or cannot write the cache.
+    """
+
+    SERVED = "served"
+    NOT_FOUND = "not-found"
+    READ_ONLY_CACHE = "read-only-cache"
+
+
 class Product(StrEnum):
     """A Goodfetch Product, whose executable an engine test runs (ADR 0094)."""
 
@@ -112,6 +126,7 @@ class TestEnv:
         proving_ground_seed: int | None = None,
         daemon: Product | None = None,
         browser: bool = False,
+        browser_download: BrowserDownload | None = None,
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
         child_variables: Mapping[str, str] | None = None,
     ) -> Self:
@@ -125,6 +140,8 @@ class TestEnv:
             daemon: The Product whose Daemon to start in the test's home, if any.
             browser: Whether to lay out the home's Browser cache and reach the
                 Proving ground's hosts, for an engine that opens a page.
+            browser_download: How the engine's first use of an empty Browser
+                cache goes, with a Proving ground, in place of `browser`.
             teardown_deadline: How many seconds teardown waits for
                 `goodfetch-test-env` to end once its stdin closes; 10 unless a
                 test sets a shorter one.
@@ -145,6 +162,11 @@ class TestEnv:
         )
         daemon_flag = [] if daemon is None else [f"--daemon={daemon.value}"]
         browser_flag = ["--browser"] if browser else []
+        download_flag = (
+            []
+            if browser_download is None
+            else [f"--browser-download={browser_download.value}"]
+        )
         process = subprocess.Popen(
             [
                 executable,
@@ -153,6 +175,7 @@ class TestEnv:
                 *proving_ground,
                 *daemon_flag,
                 *browser_flag,
+                *download_flag,
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

@@ -20,6 +20,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tls::Trust;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome, PinnedBy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -104,10 +105,21 @@ fn fetching(proving_ground: &ProvingGround, offline: Option<SettingsLayer>) -> F
             resolve.with(host, vec![address.parse::<IpAddr>().unwrap()])
         })
         .with(UNSERVED_HOST, vec![target.ip()]);
+    let authority = CertificateDer::from_pem_file(&description.ca).unwrap();
+    let trust = description
+        .resolve
+        .keys()
+        .map(String::as_str)
+        .chain([UNSERVED_HOST])
+        .fold(Trust::default_roots(), |trust, host| {
+            trust
+                .with_trusted_cas(host, vec![authority.clone()])
+                .unwrap()
+        });
     Fetching {
         offline,
         resolve,
-        trusted_certificates: vec![CertificateDer::from_pem_file(&description.ca).unwrap()],
+        trust,
         ..Fetching::new(Clock::system())
     }
 }

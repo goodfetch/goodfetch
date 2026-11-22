@@ -1,8 +1,9 @@
-//! `just perf` on a Linux host (`ci/perf.sh`, ADRs 0071 and 0140): the
-//! counted rows (`xtask counts`) run beside the bench targets' build
-//! (`xtask perf build`), which needs neither their figures nor their build,
-//! and the measurement (`xtask perf run`) starts once both have passed (the
-//! test-gate audit's F2). A stand-in Cargo plays xtask and records each call.
+//! `just perf` and `just counted-rows` on a Linux host (`ci/perf.sh`, ADRs
+//! 0071 and 0140): perf builds the bench targets (`xtask perf build`) and
+//! measures them (`xtask perf run`), and the counted rows (`xtask counts`),
+//! which read neither, are a run of their own, so the gate records them as a
+//! step apart and `just preflight` runs them alone (ADR 0135's amendment of
+//! 2026-11-22). A stand-in Cargo plays xtask and records each call.
 #![cfg(target_os = "linux")]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -22,11 +23,8 @@ const COUNTS: [&str; 6] = [
 
 /// A folder of stand-ins: Valgrind and gungraun-runner, which the script
 /// only looks for, and a Cargo whose `run … -- <xtask arguments>` appends
-/// those arguments to `calls`, and its niceness and them to `niceness`. The
-/// first counted row waits, up to 10 s, until
-/// the build has started, and the build until a counted row has, so each
-/// fails when they run one after the other; a call that `failing` names
-/// fails with status 3.
+/// those arguments to `calls`, and its niceness and them to `niceness`; a
+/// call that `failing` names fails with status 3.
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -36,17 +34,7 @@ while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 shift
 echo "$*" >>"{folder}/calls"
 echo "$(nice) $*" >>"{folder}/niceness"
-await() {{
-  waited=0
-  until [ -e "{folder}/$1" ]; do
-    if [ $waited -ge 200 ]; then echo "$2" >&2; exit 1; fi
-    sleep 0.05
-    waited=$((waited + 1))
-  done
-}}
 case "$*" in
-  counts) touch "{folder}/counting"; await building "the counted rows ran before the build started" ;;
-  "perf build"*) touch "{folder}/building"; await counting "the build ran before the counted rows started" ;;
   affected*) echo "bench-targets=goodfetch-frontier/instructions" ;;
 esac
 if [ -f "{folder}/failing" ] && [ "$*" = "$(cat "{folder}/failing")" ]; then exit 3; fi
@@ -72,11 +60,14 @@ struct Run {
     /// Each call's niceness, beside its xtask arguments.
     niceness: Vec<(i32, String)>,
     stderr: String,
+    /// `target/skipped.txt`, the parts a local run listed as skipped.
+    skipped: String,
 }
 
-/// Runs a copy of the repository's `ci/perf.sh` in the workspace against its
-/// own head, with the stand-ins first on `PATH`.
-fn perf(workspace: &Workspace, stand_ins: &Path) -> Run {
+/// Runs a copy of the repository's `ci/perf.sh` in the workspace with
+/// `argument`, its own head for `just perf`, with the stand-ins first on
+/// `PATH`.
+fn perf(workspace: &Workspace, stand_ins: &Path, argument: &str) -> Run {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     for script in ["ci/perf.sh", "ci/container.sh", "ci/output-value.sh"] {
         workspace.write(script, &std::fs::read(repository.join(script)).unwrap());
@@ -89,7 +80,7 @@ fn perf(workspace: &Workspace, stand_ins: &Path) -> Run {
     workspace.commit_all();
     let output = workspace
         .command(workspace.path().join("ci/perf.sh"))
-        .arg("HEAD")
+        .arg(argument)
         .env("PATH", format!("{}:/usr/bin:/bin", stand_ins.display()))
         .env("CARGO", stand_ins.join("cargo"))
         .env_remove("CI")
@@ -111,77 +102,81 @@ fn perf(workspace: &Workspace, stand_ins: &Path) -> Run {
             })
             .collect(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        skipped: std::fs::read_to_string(workspace.path().join("target/skipped.txt"))
+            .unwrap_or_default(),
     }
 }
 
 #[test]
-fn the_counted_rows_run_beside_the_bench_build_then_perf_measures() {
+fn perf_builds_the_bench_targets_then_measures_them_and_counts_no_row() {
     let workspace = Workspace::from_fixture("empty");
     let stand_ins = stand_ins(&workspace);
 
-    let run = perf(&workspace, &stand_ins);
+    let run = perf(&workspace, &stand_ins, "HEAD");
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let counted: Vec<&str> = run
-        .calls
-        .iter()
-        .map(String::as_str)
-        .filter(|call| call.starts_with("counts"))
-        .collect();
-    assert_eq!(counted, COUNTS);
     assert_eq!(
-        run.calls.last().map(String::as_str),
-        Some("perf run"),
-        "{:?}",
-        run.calls
+        run.calls,
+        [
+            "affected --base HEAD --head HEAD",
+            "perf build --base HEAD --bench-targets goodfetch-frontier/instructions",
+            "perf run",
+        ],
+        "{}",
+        run.stderr
     );
 }
 
-/// The counted rows yield the CPU to the build and to other work on the host
-/// (TESTING.md's `nice -n 10` for load beside other work), and the build and
-/// measurement keep the script's own priority.
+/// The rows alone, in their order, each at `nice -n 10` (TESTING.md's
+/// priority for load beside other work), so they yield the CPU to the gate's
+/// other steps.
 #[test]
-fn the_counted_rows_run_at_low_priority_beside_the_build() {
+fn the_counted_rows_run_alone_at_low_priority() {
     let workspace = Workspace::from_fixture("empty");
     let stand_ins = stand_ins(&workspace);
+    let own: i32 = String::from_utf8(std::process::Command::new("nice").output().unwrap().stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
 
-    let run = perf(&workspace, &stand_ins);
+    let run = perf(&workspace, &stand_ins, "--counted-rows");
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let own = run
-        .niceness
-        .iter()
-        .find(|(_, call)| call.starts_with("perf build"))
-        .map(|(niceness, _)| *niceness)
-        .unwrap();
+    assert_eq!(run.calls, COUNTS, "{}", run.stderr);
     for (niceness, call) in &run.niceness {
-        let expected = if call.starts_with("counts") {
-            (own + 10).min(19)
-        } else {
-            own
-        };
-        assert_eq!(*niceness, expected, "{call}: {:?}", run.niceness);
+        assert_eq!(*niceness, (own + 10).min(19), "{call}: {:?}", run.niceness);
     }
 }
 
 #[test]
-fn a_red_counted_row_fails_perf_before_it_measures() {
+fn a_red_counted_row_fails_the_counted_rows_with_its_status() {
     let workspace = Workspace::from_fixture("empty");
     let stand_ins = stand_ins(&workspace);
     std::fs::write(stand_ins.join("failing"), "counts --strace").unwrap();
 
-    let run = perf(&workspace, &stand_ins);
+    let run = perf(&workspace, &stand_ins, "--counted-rows");
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert_eq!(run.calls, COUNTS[..3], "{}", run.stderr);
+}
+
+/// The rows read under Valgrind run through gungraun-runner: a local host
+/// without it runs the others and lists the rest as skipped.
+#[test]
+fn without_gungraun_the_counted_rows_list_the_valgrind_rows_as_skipped() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_ins = stand_ins(&workspace);
+    std::fs::remove_file(stand_ins.join("gungraun-runner")).unwrap();
+
+    let run = perf(&workspace, &stand_ins, "--counted-rows");
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls, COUNTS[..4], "{}", run.stderr);
     assert!(
-        run.calls.iter().any(|call| call.starts_with("perf build")),
-        "{:?}",
-        run.calls
-    );
-    assert!(
-        !run.calls.iter().any(|call| call == "perf run"),
-        "{:?}",
-        run.calls
+        run.skipped.starts_with("just counted-rows: skipped"),
+        "{}",
+        run.skipped
     );
 }
 
@@ -195,7 +190,7 @@ fn a_red_bench_build_fails_perf_before_it_measures() {
     )
     .unwrap();
 
-    let run = perf(&workspace, &stand_ins);
+    let run = perf(&workspace, &stand_ins, "HEAD");
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(

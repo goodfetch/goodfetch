@@ -142,8 +142,9 @@ pub(crate) struct RatioRow {
 
 /// The Callgrind cell's ratios: scenario 1's two, its first cell's and its
 /// cell's at the catalog's defaults, on the row that sends from the
-/// engine's own HTTP client, since Valgrind follows the engine's process
-/// alone (#2175; G-08); and the extraction scenario's two (#2136; the
+/// engine's own HTTP client, `fetch.http_from: learned`, the default since
+/// #3106, since Valgrind follows the engine's process alone (#2175; G-08);
+/// and the extraction scenario's two (#2136; the
 /// owner's decision of 2026-11-10, #2252 Q7). At Foxhound's defaults
 /// Spider does not do the Clean-up rules' work, so that ratio carries no
 /// parity Contract; with Foxhound's Filter lists off both read the same
@@ -159,7 +160,7 @@ pub(crate) const RATIOS: [RatioRow; 4] = [
     RatioRow {
         row: "foxhound.spider_instruction_ratio_at_defaults",
         scenario: Scenario::Raw,
-        foxhound: matrix::AT_DEFAULTS_LEARNED,
+        foxhound: matrix::AT_DEFAULTS,
         described: "scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the \
                     scenario's pace",
     },
@@ -181,16 +182,18 @@ pub(crate) const RATIOS: [RatioRow; 4] = [
 pub(crate) const SPIDER: &str = "spider";
 
 /// Whether the Callgrind cell counts `cell`: a cell one of [`RATIOS`]
-/// reads, its Foxhound cell (a main row, or scenario 1's sensitivity row at
-/// `fetch.http_from: learned`) or Spider's main row in its scenario. The
+/// reads, its Foxhound cell (a main row: in scenario 1, its first cell or
+/// its cell at the catalog's defaults) or Spider's main row in its scenario. The
 /// cells are scenario 1's and the extraction scenario's (#2136; the owner's
-/// decision of 2026-11-10, #2252 Q7; #2175).
+/// decision of 2026-11-10, #2252 Q7; #2175); and each default-cost cell,
+/// whose count less scenario 1's first cell's is one default's (#2438).
 pub(crate) fn instruction_counted(cell: &Cell) -> bool {
-    RATIOS.iter().any(|row| {
-        row.scenario == cell.scenario
-            && ((cell.tool == Tool::Foxhound && cell.name == row.foxhound)
-                || (cell.tool == Tool::Spider && cell.name == SPIDER))
-    })
+    cell.default_on().is_some()
+        || RATIOS.iter().any(|row| {
+            row.scenario == cell.scenario
+                && ((cell.tool == Tool::Foxhound && cell.name == row.foxhound)
+                    || (cell.tool == Tool::Spider && cell.name == SPIDER))
+        })
 }
 /// Runs of each hostile pages' cell (#2439), at most: its counts are read
 /// with their spread, not timed.

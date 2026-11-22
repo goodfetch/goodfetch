@@ -38,6 +38,7 @@ use crate::call::{self, Call, Query, Reply};
 use crate::call_bounds::CallBounds;
 use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
+use crate::event_stream::EventStream;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::listener_queue::ListenerQueue;
@@ -355,6 +356,28 @@ impl ClientConnection {
         Query::new(self.sender(), method, typed_params(method, params))
     }
 
+    /// Sends the call of `method` with `params`, a sequence that streams
+    /// one item in each `item` notification, and returns the stream of
+    /// those items, each notification's params read as `T`: the way down
+    /// for a Product's sequence whose items are not event batches, such as
+    /// Foxhound's `run.records` and its `$/record` (ADR 0103). The stream
+    /// grants its credits and cancels its call on drop as an
+    /// [`EventStream`] of events does, and ends when the call answers.
+    pub fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        item: &'static str,
+    ) -> EventStream<T> {
+        EventStream::open(
+            self.sender(),
+            method,
+            typed_params(method, params),
+            item,
+            Box::new(|data| serde_json::from_value(data).map_err(Error::shape)),
+        )
+    }
+
     /// Fails unless the calling process opened the Connection, as each
     /// use of it does: a Product crate's connection checks it before it
     /// waits on tasks of its own.
@@ -478,7 +501,7 @@ impl ClientConnection {
                     saving.file.take(),
                 );
                 let file = self
-                    .blocking(move || {
+                    .run_blocking(move || {
                         let mut file = match file {
                             Some(file) => file,
                             None => FileSaving::create_at(&given, path, &call)?,
@@ -506,7 +529,7 @@ impl ClientConnection {
             saving.call.clone(),
             saving.file.take(),
         );
-        self.blocking(move || {
+        self.run_blocking(move || {
             let file = match file {
                 Some(file) => file,
                 None => FileSaving::create_at(&given, path, &call)?,
@@ -520,7 +543,7 @@ impl ClientConnection {
     /// engine keeps it in, which a Client on the same machine reads (ADR
     /// 0118).
     pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
-        self.blocking(move || {
+        self.run_blocking(move || {
             let path = PathBuf::from(handle.path);
             let unreadable = |source| Error::body_unreadable(&path, source);
             #[expect(
@@ -543,9 +566,26 @@ impl ClientConnection {
         .await
     }
 
-    /// Runs the blocking `work` on the Connection's tracker. Dropping the
-    /// future lets it end, and drops what it returns.
-    async fn blocking<T: Send + 'static>(
+    /// Runs the blocking `work` on one of the Connection's tracked blocking
+    /// threads (ADR 0060), never on its runtime's workers, such as the
+    /// handlers a Product's blocking API calls (ADR 0081), and returns what
+    /// it returns.
+    ///
+    /// # Errors
+    ///
+    /// What `work` returns, `closed` once the Connection's runtime has
+    /// shut down, and `connection_forked` in a process other than the one
+    /// that opened it.
+    ///
+    /// # Panics
+    ///
+    /// A panic in `work` resumes in the awaiting future.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not stop `work`: it runs to its end on its
+    /// thread, and what it returns is dropped.
+    pub async fn run_blocking<T: Send + 'static>(
         &self,
         work: impl FnOnce() -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {

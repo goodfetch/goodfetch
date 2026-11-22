@@ -651,15 +651,29 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
     );
 }
 
+/// The options of a run of every scenario that names the cells `only`.
+fn asking(only: Vec<super::CellName>) -> Options {
+    Options {
+        machine: None,
+        command: "just compare release".to_owned(),
+        trials: 10,
+        growth: false,
+        spider_pages: None,
+        scenarios: Scenario::ALL.to_vec(),
+        callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
+        only,
+    }
+}
+
 /// The Callgrind cell counts the cells its ratios read: in scenario 1
 /// Foxhound's first cell, its cell at the catalog's defaults on the row
 /// that does not send from the browser and Spider's main row; in the
-/// extraction scenario both of Foxhound's rows and Spider's (#2175).
+/// extraction scenario both of Foxhound's rows and Spider's (#2175); and
+/// beside them one run set per Foxhound default that is work, scenario 1's
+/// first cell with that default on alone (#2438).
 #[test]
-fn the_callgrind_cell_counts_the_cells_its_ratios_read() {
-    let measured: Vec<_> = matrix::measured().collect();
-
-    let cells: Vec<(Scenario, &str)> = instruction_cells(&measured)
+fn the_callgrind_cell_counts_the_cells_its_ratios_read_and_one_run_set_per_default() {
+    let cells: Vec<(Scenario, &str)> = instruction_cells(&asking(Vec::new()))
         .into_iter()
         .map(|(cell, _)| (cell.scenario, cell.name))
         .collect();
@@ -669,10 +683,39 @@ fn the_callgrind_cell_counts_the_cells_its_ratios_read() {
         vec![
             (Scenario::Raw, "foxhound"),
             (Scenario::Raw, "spider"),
-            (Scenario::Raw, "foxhound defaults learned"),
+            (Scenario::Raw, "foxhound defaults"),
             (Scenario::Extraction, "foxhound"),
             (Scenario::Extraction, matrix::FILTER_LISTS_OFF),
             (Scenario::Extraction, "spider"),
+            (Scenario::Raw, "foxhound robots.txt on"),
+            (Scenario::Raw, "foxhound learning on"),
+            (Scenario::Raw, "foxhound provenance log on"),
+            (Scenario::Raw, "foxhound block classification on"),
+            (Scenario::Raw, "foxhound records on"),
+        ]
+    );
+}
+
+/// A run that names cells counts a default's run set only when it names
+/// it, as it runs any other cell, so a redo of scenario 1's first cell
+/// leaves the defaults' runs as they were.
+#[test]
+fn a_run_that_names_cells_counts_only_the_defaults_it_names() {
+    let only = vec![
+        (Scenario::Raw, "foxhound"),
+        (Scenario::Raw, "foxhound records on"),
+    ];
+
+    let cells: Vec<(Scenario, &str)> = instruction_cells(&asking(only))
+        .into_iter()
+        .map(|(cell, _)| (cell.scenario, cell.name))
+        .collect();
+
+    assert_eq!(
+        cells,
+        vec![
+            (Scenario::Raw, "foxhound"),
+            (Scenario::Raw, "foxhound records on")
         ]
     );
 }

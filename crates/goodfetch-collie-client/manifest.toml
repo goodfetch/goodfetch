@@ -224,6 +224,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "stream"
+entry = "none"
+reason = "Sends a call the engine answers once it has streamed its notifications, one item in each, granting them credits, such as Foxhound's `run.records` (ADR 0103)."
+words = ["stream"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "ensure_opener"
 entry = "none"
 reason = "Fails unless the calling process opened the Connection, as each use of it does: a Product crate's connection checks it before it waits on tasks of its own."
@@ -255,6 +264,16 @@ member = "start_with"
 entry = "none"
 reason = "The start of a Run with `opener`, a Product's own call that opens one and answers `RunStarted`, such as Foxhound's `crawl.start` (ADR 0102), sending `params`; the Run is held as a start's is."
 words = ["start", "with"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "run_blocking"
+entry = "none"
+reason = "Runs blocking work on one of the Connection's tracked blocking threads (ADR 0060), such as the handlers a Product's blocking API calls (ADR 0081), and answers what it returns."
+only = "TypeScript has no blocking API (ADR 0081); its program's code runs on the event loop."
+words = ["run", "blocking"]
 form = "runtime"
 
 [[member]]
@@ -643,6 +662,16 @@ entry = "none"
 reason = "The next event, or `None` once the stream has ended."
 words = ["next"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "EventStream"
+member = "from_items"
+entry = "none"
+reason = "The stream a Product's crate hands out over items it reads itself, such as the requests Foxhound's `run.crawl_requests()` yields (ADR 0093)."
+only = "TypeScript's Products build their streams on the runtime's `Sequence`."
+words = ["from", "items"]
+form = "runtime"
 
 [[member]]
 crate = "goodfetch-collie-client"
@@ -1066,6 +1095,16 @@ form = "round_trip"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "page_of"
+entry = "none"
+reason = "The `Page` of a page the engine opened in the Run, such as the one a Crawl request's attempt is served, with no round trip; dropping it leaves the page open."
+only = "TypeScript's Foxhound builds the attempt's `Page` from its connection itself."
+words = ["page", "of"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "SaveFile"
 entry = "none"
@@ -1369,6 +1408,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "stream"
+entry = "none"
+reason = "Sends a call the engine answers once it has streamed its notifications, as `crate::ClientConnection::stream` does, its items read as an iterator that blocks."
+words = ["stream"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "raw_call"
 entry = "none"
 reason = "The raw call of `operation`, as `crate::ClientConnection::raw_call`'s, which `send()` sends."
@@ -1407,6 +1455,16 @@ member = "close"
 entry = "none"
 reason = "Closes the Connection as `crate::ClientConnection::close` does, and returns once it is closed."
 words = ["close"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "wait"
+entry = "none"
+reason = "Runs a future on the Connection's runtime and blocks the calling thread until it ends, as every `send()` does: the way down a Product's blocking API takes for a future of its own, such as Foxhound's blocking `serve` (ADR 0081)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["wait"]
 form = "runtime"
 
 [[member]]

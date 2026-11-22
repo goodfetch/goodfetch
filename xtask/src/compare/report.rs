@@ -3,7 +3,9 @@
 //! (the lowest and the highest trial), or why the cell or the metric gives
 //! no figure; scenario 1's two ratios, `foxhound.spider_instruction_ratio`
 //! and `foxhound.spider_instruction_ratio_at_defaults`, and the extraction
-//! scenario's two from the Callgrind cell ([`RATIOS`]); the sizes
+//! scenario's two from the Callgrind cell ([`RATIOS`]), with the
+//! instructions each Foxhound default adds to scenario 1's first cell
+//! ([`defaults`], #2438); the sizes
 //! cell's peak memory of Foxhound and Spider at each size and concurrency,
 //! with the bar at 16 in flight (spec #2165); and the standings of Foxhound
 //! against each competitor ([`standing`]). On the article site, a cell also
@@ -32,6 +34,7 @@ use super::trials::{
 };
 
 mod auto;
+mod defaults;
 mod published;
 mod rules;
 mod sizes;
@@ -40,6 +43,7 @@ mod standing;
 #[cfg(test)]
 mod tests;
 
+use defaults::{DefaultCosts, default_costs, default_costs_markdown};
 use sizes::{Sizes, sizes, sizes_markdown};
 
 /// The span of one window of the core sampling.
@@ -177,9 +181,11 @@ pub(crate) enum Instructions<'a> {
     NotRun {
         reason: &'a str,
     },
-    /// A ratio for each of [`RATIOS`] whose scenario the cell counted.
+    /// A ratio for each of [`RATIOS`] whose scenario the cell counted, and
+    /// the instructions each Foxhound default adds (#2438).
     Measured {
         ratios: Vec<InstructionRatio>,
+        defaults: DefaultCosts,
     },
 }
 
@@ -759,6 +765,7 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
                     })
                 })
                 .collect(),
+            defaults: default_costs(runs),
         },
     }
 }
@@ -1272,7 +1279,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
     for row in &RATIOS {
         let ratio = match &report.instructions {
             Instructions::NotRun { reason } => Err(*reason),
-            Instructions::Measured { ratios } => ratios
+            Instructions::Measured { ratios, .. } => ratios
                 .iter()
                 .find(|ratio| ratio.row == row.row)
                 .ok_or("the run asked for no Callgrind cell of its scenario"),
@@ -1304,6 +1311,13 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             }
         }
     }
+    default_costs_markdown(
+        &mut text,
+        match &report.instructions {
+            Instructions::NotRun { reason } => Err(*reason),
+            Instructions::Measured { defaults, .. } => Ok(defaults),
+        },
+    );
     sizes_markdown(&mut text, &report.sizes);
     text.push_str("\n## Trials, in the order run\n\n");
     let unquiet = trials

@@ -630,8 +630,8 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
             run("foxhound", Tool::Foxhound, 1, 2000),
             run("foxhound", Tool::Foxhound, 2, 2200),
             run("foxhound", Tool::Foxhound, 3, 2100),
-            run("foxhound defaults learned", Tool::Foxhound, 1, 3000),
-            run("foxhound defaults learned", Tool::Foxhound, 2, 3000),
+            run("foxhound defaults", Tool::Foxhound, 1, 3000),
+            run("foxhound defaults", Tool::Foxhound, 2, 3000),
             run("spider", Tool::Spider, 1, 1000),
             run("spider", Tool::Spider, 2, 1000),
             run("spider", Tool::Spider, 3, 1000),
@@ -643,7 +643,7 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
     let markdown = markdown(&report, &trials);
 
     let ratios: Vec<(&str, &str, f64)> = match &report.instructions {
-        Instructions::Measured { ratios } => ratios
+        Instructions::Measured { ratios, .. } => ratios
             .iter()
             .map(|ratio| (ratio.row, ratio.foxhound, ratio.ratio))
             .collect(),
@@ -660,16 +660,79 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
                 ("foxhound.spider_instruction_ratio", "foxhound", 2.1),
                 (
                     "foxhound.spider_instruction_ratio_at_defaults",
-                    "foxhound defaults learned",
+                    "foxhound defaults",
                     3.0
                 ),
             ],
             vec![
                 "`foxhound.spider_instruction_ratio`: 2.100, Foxhound's `foxhound` cell's 2100 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, the median of each cell's runs, all of the same pages and bytes.",
-                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults learned` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
+                "`foxhound.spider_instruction_ratio_at_defaults`: 3.000, Foxhound's `foxhound defaults` cell's 3000 instructions per page over Spider's `spider` cell's 1000, under Callgrind on scenario 1 of ADR 0138's matrix, Foxhound at the catalog's defaults at the scenario's pace, the median of each cell's runs, all of the same pages and bytes.",
             ]
         )
     );
+}
+
+/// A default-cost cell (#2438) the run did not count says it was not run,
+/// beside the line of one it counted.
+#[test]
+fn a_default_the_run_did_not_count_is_not_run() {
+    let lines = default_cost_lines(&[("foxhound", 2000), ("foxhound records on", 2500)]);
+
+    assert_eq!(
+        lines,
+        [
+            "| the Provenance log | `provenance.log: true` | not run: the run asked for no run of this cell |  |",
+            "| Records | `dataset.records: true` | 2500 | +500 (+25.00 %) |",
+        ]
+    );
+}
+
+/// A run that counted no run of scenario 1's first cell gives no default's
+/// difference, even of a default-cost cell it counted (#2438).
+#[test]
+fn without_the_first_cell_no_default_is_read() {
+    let lines = default_cost_lines(&[("foxhound records on", 2500)]);
+
+    assert_eq!(
+        lines,
+        [
+            "| the Provenance log | `provenance.log: true` | not run: the run asked for no run of this cell |  |",
+            "| Records | `dataset.records: true` | not run: the run counted no run of scenario 1's first cell |  |",
+        ]
+    );
+}
+
+/// The Provenance log's and Records' lines of the report of a Callgrind
+/// cell that counted each of `cells`, a scenario 1 cell of Foxhound and its
+/// instructions per page.
+fn default_cost_lines(cells: &[(&str, u64)]) -> Vec<String> {
+    use crate::compare::trials::{CountedCell, CountedRun, Tool};
+    let mut trials = comparison(&[]);
+    trials.instructions = CountedCell::Measured {
+        trials: 1,
+        runs: cells
+            .iter()
+            .map(|&(cell, per_page)| CountedRun {
+                scenario: Scenario::Raw,
+                cell: cell.to_owned(),
+                tool: Tool::Foxhound,
+                number: 1,
+                load: None,
+                count: per_page * PAGES,
+                syncs: 0,
+                work: work(),
+                extracted: None,
+            })
+            .collect(),
+        stopped: Vec::new(),
+    };
+    markdown(&of(&trials), &trials)
+        .lines()
+        .filter(|line| {
+            line.starts_with("| Records |") || line.starts_with("| the Provenance log |")
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Every cell measured with `curve`, Foxhound's cell at the catalog's

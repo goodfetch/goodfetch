@@ -10,6 +10,11 @@
 //! cancels its call with `$/cancel`, without blocking and without a
 //! warning (ADRs 0078, 0081).
 //!
+//! A Product's stream whose items are no event batches, such as
+//! Foxhound's `run.records`, takes each from one notification of the
+//! stream's own name, `$/record`, under the same credits, each item one
+//! credit (ADR 0103): [`crate::ClientConnection::stream`] opens one.
+//!
 //! A stream of events the engine publishes on its event stream, such as a
 //! Session's pages, gets them from the Connection's own Subscription
 //! instead, which [`crate::published`] shares between such streams: its
@@ -31,7 +36,8 @@ use std::future::poll_fn;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope};
+use futures_util::StreamExt as _;
+use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope, Position};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
@@ -75,7 +81,13 @@ enum Reads<T> {
     Opening(Opening, BuildOpened<T>),
     /// One opened value's own events, which another stream's call carries.
     Opened(Opened, Build<T>),
+    /// The items a Product's crate reads itself, from the engine's requests
+    /// rather than from a call's events.
+    Items(Items<T>),
 }
+
+/// The items of a stream a Product's crate reads itself.
+type Items<T> = Pin<Box<dyn futures_core::Stream<Item = Result<T, Error>> + Send + Sync>>;
 
 /// What a stream reads, whatever it builds of it.
 struct Flow {
@@ -129,6 +141,7 @@ impl<T> fmt::Debug for EventStream<T> {
                 .field("ended", &flow.ended),
             Reads::Opening(opening, _) => debug.field("opening", opening),
             Reads::Opened(opened, _) => debug.field("opened", opened),
+            Reads::Items(_) => debug.field("items", &"its crate's own"),
         }
         .finish_non_exhaustive()
     }
@@ -222,10 +235,23 @@ impl<T> EventStream<T> {
         }
     }
 
+    /// The stream of what `items` hands, in order, for a Product's crate
+    /// whose stream reads the engine's requests rather than a call's
+    /// events, such as Foxhound's `run.crawl_requests()` (ADR 0093). It
+    /// ends when `items` does, and dropping it drops `items`.
+    pub fn from_items(
+        items: impl futures_core::Stream<Item = Result<T, Error>> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            reads: Reads::Items(Box::pin(items)),
+        }
+    }
+
     /// The stream that hands `map` of each of this one's items.
     pub(crate) fn map<U>(self, map: impl Fn(T) -> U + Send + Sync + 'static) -> EventStream<U>
     where
         T: 'static,
+        U: 'static,
     {
         self.and_then(move |item| Ok(map(item)))
     }
@@ -238,6 +264,7 @@ impl<T> EventStream<T> {
     ) -> EventStream<U>
     where
         T: 'static,
+        U: 'static,
     {
         let reads = match self.reads {
             Reads::Flow(flow, build) => {
@@ -249,6 +276,9 @@ impl<T> EventStream<T> {
             ),
             Reads::Opened(opened, build) => {
                 Reads::Opened(opened, Box::new(move |data| build(data).and_then(&then)))
+            }
+            Reads::Items(items) => {
+                Reads::Items(Box::pin(items.map(move |item| item.and_then(&then))))
             }
         };
         EventStream { reads }
@@ -291,6 +321,7 @@ impl<T> EventStream<T> {
             Reads::Opened(opened, build) => {
                 opened.poll_event(context).map(|item| item.map(&*build))
             }
+            Reads::Items(items) => items.as_mut().poll_next(context),
         }
     }
 }
@@ -439,6 +470,16 @@ impl Flow {
                             "a batch of events that is no batch"
                         ),
                     }
+                }
+                // A sequence's item, one in each notification of its own
+                // name, as `run.records`'s `$/record`.
+                Poll::Ready(Some(Heard::Notified { method, params })) if method == self.event => {
+                    batches.waiting.push_back(EventEnvelope {
+                        position: Position::default(),
+                        event: method,
+                        data: params,
+                        dropped: 0,
+                    });
                 }
                 Poll::Ready(Some(Heard::Notified { .. })) => {}
                 // Its reply came, or the Connection ended: nothing more is

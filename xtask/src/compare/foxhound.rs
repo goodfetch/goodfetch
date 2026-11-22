@@ -299,12 +299,14 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// robots.txt not obeyed, every other setting the catalog's default; in
 /// the cell at the catalog's defaults (#2175), nothing else but the
 /// scenario's pace, no delay and the crawl's concurrency per domain, and on
-/// its second row `fetch.http_from: learned`; otherwise the default shared
+/// its second row `fetch.http_from: browser`; otherwise the default shared
 /// Politeness at the crawl's concurrency, no delay, robots.txt not obeyed
 /// and the maximum-throughput combination's switches off, at `durability`,
 /// on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise; on the extraction scenario's row
-/// that says so (#2136), the ads, trackers and annoyances Filter lists off.
+/// that says so (#2136), the ads, trackers and annoyances Filter lists off;
+/// on a default-cost cell (#2438), scenario 1's first cell's with that one
+/// default on.
 pub(crate) fn settings(
     site: &Site<'_>,
     cell: &Cell,
@@ -328,8 +330,8 @@ pub(crate) fn settings(
     // `fetch.http_from`.
     if let Some(row) = cell.at_defaults() {
         settings["politeness"] = pace;
-        if row == AtDefaults::Learned {
-            settings["fetch"] = json!({ "http_from": "learned" });
+        if row == AtDefaults::Browser {
+            settings["fetch"] = json!({ "http_from": "browser" });
         }
         return settings;
     }
@@ -387,6 +389,9 @@ pub(crate) fn settings(
     }
     if cell.filter_lists_off() {
         settings["filter_lists"] = json!({ "ads": false, "trackers": false, "annoyances": false });
+    }
+    if let Some(default) = cell.default_on() {
+        settings[default.section][default.key] = json!(true);
     }
     settings["run_state"] = json!({ "durability": durability });
     if let Some(interval) = commit_interval {

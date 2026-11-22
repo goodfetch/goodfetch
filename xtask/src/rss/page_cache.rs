@@ -7,8 +7,9 @@
 //! pages its build left dirty, which the advice keeps. Elsewhere nothing is
 //! dropped, and each command says so ([`NOT_DROPPED`]). `xtask rss measure
 //! --page-cache cached` reads each executable through instead, so a run
-//! finds every page of it in the page cache, as a start soon after another
-//! does ([`PageCache`]).
+//! finds its pages in the page cache, as a start soon after another does,
+//! save those that memory pressure evicts in between, as it may between two
+//! starts ([`PageCache`]).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: it opens the executable with a blocking call (STYLE.md)"
@@ -25,8 +26,9 @@ pub(crate) enum PageCache {
     /// its own faults, as a first start does.
     #[default]
     Dropped,
-    /// Read through once, so every page of the executable is in the page
-    /// cache when the run maps it, as at a start soon after another.
+    /// Read through once, so the run finds the executable's pages in the page
+    /// cache, as at a start soon after another; memory pressure may evict
+    /// some first, which the kernel does not prevent.
     Cached,
 }
 
@@ -40,7 +42,8 @@ impl PageCache {
     }
 }
 
-/// Reads `path` whole, which leaves each of its pages in the page cache.
+/// Reads `path` whole, which brings each of its pages into the page cache,
+/// where each stays until memory pressure evicts it.
 fn read_through(path: &Path) -> Result<()> {
     let mut file =
         std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;

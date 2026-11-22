@@ -11,6 +11,9 @@ use crate::workspace::{Workspace, finding};
 const CLOCK: &str = "crates/goodfetch-engine/src/clock.rs";
 const DISPATCH: &str = "crates/goodfetch-engine/src/dispatch.rs";
 const ROOT: &str = "crates/goodfetch-engine/src/lib.rs";
+const RETRY: &str = "crates/goodfetch-engine/src/retry.rs";
+const BACKOFF: &str = "crates/goodfetch-engine/src/retry/backoff.rs";
+const POLICY: &str = "crates/goodfetch-engine/src/retry/policy.rs";
 const MODULES_FILE: &str = "crates/goodfetch-engine/modules.toml";
 
 #[test]
@@ -288,6 +291,165 @@ fn submodule_import_the_table_does_not_allow_fails(#[case] case: &str) {
             "forbidden-import",
             "goodfetch-engine/retry::policy->backoff"
         )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// `retry`, with `more` after its own imports.
+fn retry_with(more: &str) -> String {
+    format!(
+        "//! Retries.\n\nmod backoff;\nmod policy;\n\nuse crate::Tick;\nuse crate::clock;\n{more}\n\npub(crate) fn retry() -> u64 {{\n    let _beat = Tick;\n    clock::now() + backoff::delay()\n}}\n"
+    )
+}
+
+/// `retry`'s submodule `backoff`, which defines `Delay`, with `item` after it.
+fn backoff_with(item: &str) -> String {
+    format!(
+        "//! How long to wait before the next attempt.\n\npub(super) struct Delay;\n\n{item}\n\npub(super) fn delay() -> u64 {{\n    super::policy::attempts()\n}}\n"
+    )
+}
+
+/// `retry`'s submodule `policy`, with `item` before its function.
+fn policy_with(item: &str) -> String {
+    format!(
+        "//! How many attempts a call gets.\n\n{item}\n\npub(super) fn attempts() -> u64 {{\n    3\n}}\n"
+    )
+}
+
+/// An item a submodule defines and its parent re-exports is that
+/// submodule's: a sibling importing it through the parent imports it.
+#[rstest]
+#[case::through_super("const WAIT: super::Delay = super::Delay;")]
+#[case::through_a_crate_path("const WAIT: crate::retry::Delay = crate::retry::Delay;")]
+#[case::inside_a_use_group("use super::{Delay, retry};")]
+fn submodule_import_through_the_parents_re_export_the_table_does_not_allow_fails(
+    #[case] item: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        RETRY,
+        retry_with("pub(super) use backoff::Delay;").as_bytes(),
+    );
+    workspace.write(BACKOFF, backoff_with("").as_bytes());
+    workspace.write(POLICY, policy_with(item).as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/retry::policy->backoff"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The name the parent gives is the one a submodule imports, however the
+/// parent spells the path it re-exports.
+#[rstest]
+#[case::under_another_name("pub(super) use backoff::Delay as Wait;")]
+#[case::a_name_the_parent_imported_first(
+    "use backoff::Delay as Inner;\npub(super) use Inner as Wait;"
+)]
+#[case::through_self("pub(super) use self::backoff::Delay as Wait;")]
+#[case::through_the_crate("pub(super) use crate::retry::backoff::{Delay as Wait};")]
+#[case::through_the_parents_parent("pub(super) use super::retry::backoff::Delay as Wait;")]
+fn submodule_import_through_a_re_export_the_parent_spells_another_way_fails(
+    #[case] re_export: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(RETRY, retry_with(re_export).as_bytes());
+    workspace.write(BACKOFF, backoff_with("").as_bytes());
+    workspace.write(POLICY, policy_with("use super::Wait;").as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/retry::policy->backoff"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A submodule naming its parent's re-export of its own item, or of another
+/// crate's (`::backoff`, whatever the submodules are called), imports no
+/// sibling.
+#[rstest]
+#[case::of_its_own_item(
+    "pub(super) use backoff::Delay;",
+    "const WAIT: super::Delay = super::Delay;",
+    ""
+)]
+#[case::of_another_crates_item(
+    "pub(super) use ::backoff::Delay;",
+    "",
+    "const WAIT: super::Delay = super::Delay;"
+)]
+fn submodule_import_through_a_re_export_of_no_sibling_passes(
+    #[case] re_export: &str,
+    #[case] in_backoff: &str,
+    #[case] in_policy: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(RETRY, retry_with(re_export).as_bytes());
+    workspace.write(BACKOFF, backoff_with(in_backoff).as_bytes());
+    workspace.write(POLICY, policy_with(in_policy).as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+/// A parent's path through the crate's root reaches a top-level module, not
+/// the submodule of the same name: naming what it brings imports no sibling.
+#[rstest]
+#[case::through_crate("pub(super) use crate::backoff::Delay;")]
+#[case::through_super("pub(super) use super::backoff::Delay;")]
+fn submodule_import_through_a_re_export_of_a_top_level_module_named_like_a_sibling_passes(
+    #[case] re_export: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        ROOT,
+        b"//! A fixture engine crate.\n\nmod backoff;\nmod clock;\nmod dispatch;\nmod retry;\n\npub use clock::Tick;\npub use dispatch::dispatch;\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/src/backoff.rs",
+        b"//! A crate-wide back-off.\n\npub(crate) struct Delay;\n",
+    );
+    workspace.write(
+        MODULES_FILE,
+        b"[modules]\nbackoff = []\nclock = []\nretry = [\"backoff\", \"clock\"]\ndispatch = [\"retry\"]\n\n[submodules.retry]\nbackoff = [\"policy\"]\npolicy = []\n",
+    );
+    workspace.write(RETRY, retry_with(re_export).as_bytes());
+    workspace.write(
+        POLICY,
+        policy_with("const WAIT: super::Delay = super::Delay;").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+/// A glob names nothing the check can read, so a parent may not re-export
+/// a submodule's items with one, as the root may not a module's.
+#[test]
+fn parent_that_re_exports_a_submodule_with_a_glob_fails() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(RETRY, retry_with("pub(super) use backoff::*;").as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("glob-re-export", "goodfetch-engine/retry::backoff")]
     );
     assert_eq!(outcome.code, 1);
 }

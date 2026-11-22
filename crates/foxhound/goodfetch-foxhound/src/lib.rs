@@ -49,7 +49,9 @@ pub mod settings;
 mod sync;
 
 pub use composition::{composition, composition_with};
-pub use crawl::{Crawl, CrawlContext, CrawlRun, Dataset, Label, Seed, StartCrawl};
+pub use crawl::{
+    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, Label, LabelDeclaration, Seed, StartCrawl,
+};
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{
     ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
@@ -59,11 +61,14 @@ pub use goodfetch_collie_client::{
     FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
     SchemaError, Session, Start, UsageKind, events, schemars,
 };
+pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the
 /// engine.
 pub use goodfetch_protocol::foxhound::error_code;
-pub use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+pub use goodfetch_protocol::foxhound::frontier::{
+    Enqueued, EnqueuedLink, EnqueuedLinks, NotAddedReason,
+};
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{

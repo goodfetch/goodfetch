@@ -68,13 +68,18 @@ anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # stores for the login keychain on macOS and the Credential Manager on
 # Windows; on Linux the Secret Service over zbus, pure Rust, which static
 # musl builds link (keyring-core's Secret Service stores still use zbus 5,
-# whose split crates are unmaintained).
+# whose split crates are unmaintained). On macOS, security-framework, the
+# macOS store's own binding, tells whether the user has a default keychain.
 apple-native-keyring-store = { version = "1.0.2", default-features = false }
 keyring-core = { version = "1.0.1", default-features = false }
+security-framework = { version = "3.7.0", default-features = false }
 windows-native-keyring-store = { version = "1.1.0", default-features = false }
 zbus = { version = "6.0.0", default-features = false }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
+# A web handler that serves a crawl, in goodfetch-foxhound's tests: axum's
+# Router driven as a tower Service, with no socket (ADR 0081).
+axum = { version = "0.8.9", default-features = false }
 # Brotli bodies the response limits' tests decode (goodfetch-engine).
 brotli = { version = "9.0.0", default-features = false, features = ["std"] }
 # The build scripts of goodfetch-test-support and goodfetch-engine generate
@@ -712,6 +717,16 @@ panic = "unwind"
 debug = "line-tables-only"
 split-debuginfo = "packed"
 strip = "debuginfo"
+
+# The bundled DuckDB without debug information, as in `dev`: its build
+# script defines `DEBUG`, which turns on DuckDB's assertions and debug-only
+# checks, whenever Cargo gives it debug information, line tables included,
+# and `NDEBUG` only without (issue 3233). `ci` and `bench` inherit it, so
+# every profile compiles DuckDB with the optimization and defines of
+# DuckDB's own release builds. Every other package keeps the profile's line
+# tables.
+[profile.release.package.libduckdb-sys]
+debug = false
 
 # Pull-request and merge-queue builds: the release profile with thin LTO.
 [profile.ci]

@@ -50,6 +50,19 @@ impl ClientConnection {
         }
     }
 
+    /// Sends the call of `method` with `params`, a sequence that streams
+    /// one item in each `item` notification, as
+    /// [`crate::ClientConnection::stream`] does, and returns its items as
+    /// an iterator that blocks the calling thread until the next one.
+    pub fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        item: &'static str,
+    ) -> EventIter<T> {
+        EventIter::new(self.0.stream(method, params, item), &self.0)
+    }
+
     /// The raw call of `operation`, as
     /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
     pub fn raw_call(&self, operation: &str) -> RawCall {
@@ -94,6 +107,42 @@ impl ClientConnection {
     pub fn close(&self) -> Result<(), Error> {
         let connection = self.0.clone();
         self.0.wait(async move { connection.close().await })
+    }
+
+    /// Runs `future` on the Connection's runtime and blocks the calling
+    /// thread, and only it, until it ends, as every `send()` does: the way
+    /// down a Product's blocking API takes for a future of its own, such as
+    /// Foxhound's blocking `serve` (ADR 0081). It never enters a runtime,
+    /// so it works inside one, where it blocks that worker.
+    ///
+    /// # Errors
+    ///
+    /// What `future` returns, `closed` once the Connection's runtime has
+    /// shut down, and `connection_forked` in a process other than the one
+    /// that opened it.
+    pub fn wait<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, Error>> + Send + 'static,
+    ) -> Result<T, Error> {
+        self.0.wait(future)
+    }
+}
+
+/// The blocking face of `run`, whose calls block: the twin a Product's
+/// blocking API hands out of a Run it holds, such as Foxhound's blocking
+/// crawl Run's.
+impl From<crate::Run> for Run {
+    fn from(inner: crate::Run) -> Self {
+        Self { inner }
+    }
+}
+
+/// The blocking face of `page`, whose calls block: the twin a Product's
+/// blocking API hands out of a page it holds, such as a blocking crawl
+/// handler's page.
+impl From<crate::Page> for Page {
+    fn from(inner: crate::Page) -> Self {
+        Self { inner }
     }
 }
 

@@ -30,7 +30,9 @@
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's and the extraction scenario's instructions per page under
 //! Callgrind, which gives `foxhound.spider_instruction_ratio` and the
-//! extraction scenario's two ratios (ADR 0140) on each tool's main rows.
+//! extraction scenario's two ratios (ADR 0140) on each tool's main rows,
+//! and the instructions each Foxhound default adds to scenario 1's first
+//! cell, one run set per default (#2438).
 //! The hostile pages' passes (#2439) instead crawl the Proving ground's
 //! `traps` and `limits` tasks a few times and count the rules each tool
 //! broke there, from the Proving ground's findings, with no bar and no

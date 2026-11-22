@@ -12,6 +12,8 @@ This guide is for a person who wants a Goodfetch Foxhound crawl to fetch as many
 
 The steps run in this order for each page of a code-free crawl on the `http` tier. Each cost is what the counts benchmark B1 (`just counts --family B1`) counted on its 16-page site with the feature on, against its cell with the feature off; a figure is per page unless it says otherwise.
 
+The instruction price of five of these features on a release build is read in the table "Instructions each Foxhound default adds" of the `just compare` report (#2438): robots.txt read and obeyed, Frontier learning, the Provenance log, Block classification and Records. Each line is the median of three Callgrind runs of scenario 1's Foxhound cell, below, with that one feature on, minus the cell's own median. A line under 0.5 % of the cell's count is within the counter's tolerance.
+
 | Step | Class | Switched off by | Cost on, and off |
 |---|---|---|---|
 | Fetch the request, follow its redirects and refresh stubs, decode the document | needed | — | one request per page, and one per hop (`fetch.redirect.max`, `fetch.refresh.max_delay` bound them) |
@@ -58,7 +60,7 @@ with the code-free extraction `{ "formats": {}, "follow": "scope" }`. Set `polit
 
 The Politeness is the default: `politeness.sharing: shared` and `politeness.delegation: true`. While no other engine of the user uses a domain, the Run's engine holds that domain's Delegation: it keeps the domain's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the domain recalls the Delegation, so the domain's limits hold across every Run of the user. `politeness.sharing: run` gives the Run a Politeness of its own instead, which no other Run sees.
 
-The same scenario has a second Foxhound cell beside it, at the catalog's defaults: it sets nothing but the crawl's site and the scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency: 16`, so robots.txt is respected and the per-page features run as the catalog sets them. Its two rows, `fetch.http_from: browser`, the default, and `learned`, show what the defaults cost against the combination.
+The same scenario has a second Foxhound cell beside it, at the catalog's defaults: it sets nothing but the crawl's site and the scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency: 16`, so robots.txt is respected and the per-page features run as the catalog sets them. Its two rows, `fetch.http_from: learned`, the default, and `browser`, show what the defaults cost against the combination.
 
 What it gives up:
 

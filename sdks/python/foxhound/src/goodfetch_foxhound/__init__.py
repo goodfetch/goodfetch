@@ -13,7 +13,9 @@ This package, `goodfetch_foxhound`, holds `AsyncFoxhound` and the sync
 names and extend the Collie client package's `AsyncConnection` and
 `Connection`. Its Runs, results and error classes are the client package's
 own, `goodfetch_collie_client`'s, so a helper written for Collie takes them
-and an `except` on a Collie error class catches them. `generated` holds the
+and an `except` on a Collie error class catches them. It re-exports
+`ExperimentalWarning`, the category of an Experimental member's warning
+(ADR 0030), which a program's filter names. `generated` holds the
 layer `xtask codegen` writes from Foxhound's own entries of the catalog, and
 `goodfetch_foxhound.testing` opens a Connection over a transport a test
 holds.
@@ -24,6 +26,8 @@ The Connection reaches a Daemon or finds Foxhound's executable, reading
 reads, starts, patches and logs nothing (ADR 0078).
 """
 
+from goodfetch_collie_client.markers import ExperimentalWarning
+
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
 
-__all__ = ["AsyncFoxhound", "Connecting", "Foxhound"]
+__all__ = ["AsyncFoxhound", "Connecting", "ExperimentalWarning", "Foxhound"]

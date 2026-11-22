@@ -57,8 +57,9 @@
 //! would weigh several times what the product's does. It builds it with
 //! `GOODFETCH_CALLGRIND_NAMES` set, on which the build scripts of
 //! `goodfetch-engine` and `goodfetch-fetch-tier` set
-//! `goodfetch_callgrind_names` on those two crates alone, under which the
-//! wire's functions are never inlined, so that Callgrind names them; the
+//! `goodfetch_callgrind_names` on those two crates alone, in a build folder
+//! of its own, under which the wire's functions are never inlined, so that
+//! Callgrind names them; the
 //! product keeps them inlined. The line's read is an `async`
 //! function, whose body Callgrind names as its closure.
 //!

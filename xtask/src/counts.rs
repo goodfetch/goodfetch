@@ -140,6 +140,10 @@ const EXECUTABLES_OUT: &str = "target/counts/executables";
 /// `E1.handled_page_wire_share` (ADR 0140).
 const CALLGRIND_NAMES_VARIABLE: &str = "GOODFETCH_CALLGRIND_NAMES";
 
+/// The folder, in the workspace's target folder, that the build setting
+/// [`CALLGRIND_NAMES_VARIABLE`] builds in, named after the `cfg`.
+const CALLGRIND_NAMES_FOLDER: &str = "goodfetch_callgrind_names";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -1752,7 +1756,15 @@ fn executables(
 /// profile when it runs `optimized`, as what it reads under Valgrind is
 /// read in the build `just perf` measures, else in the dev profile.
 fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<PathBuf> {
-    let output = build_command(family, optimized, &environment.cargo)
+    let folder = if optimized {
+        Some(
+            crate::metadata::target_directory(&environment.cargo, &environment.root)?
+                .join(CALLGRIND_NAMES_FOLDER),
+        )
+    } else {
+        None
+    };
+    let output = build_command(family, folder.as_deref(), &environment.cargo)
         .current_dir(&environment.root)
         .stderr(Stdio::inherit())
         .output()
@@ -1781,28 +1793,31 @@ fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<
     Ok(own)
 }
 
-/// The Cargo command that builds `family`'s example, in the benchmarks'
-/// profile when `optimized`.
+/// The Cargo command that builds `family`'s example: in the benchmarks'
+/// profile, in `optimized_in`, when that folder is given, else in the dev
+/// profile.
 ///
 /// The optimized build also sets [`CALLGRIND_NAMES_VARIABLE`], on which the
 /// build scripts of `goodfetch-engine` and `goodfetch-fetch-tier` set
 /// `goodfetch_callgrind_names` on those two crates alone: the wire's
-/// functions are never inlined there, so that Callgrind names them. Every
-/// other crate keeps the hashes of `cargo bench`'s own build, in the
-/// workspace's target folder, so its dependencies are built once for both.
-/// Cargo keeps one copy of a crate per profile, so this build and `cargo
-/// bench`'s, which runs without it, rebuild in turn the two readers and the
-/// workspace's crates above them; the product, and every other benchmark,
-/// keep the wire's functions inlined. The dev build runs without it too,
-/// whatever the shell exports.
-fn build_command(family: &Family, optimized: bool, cargo: &OsStr) -> Command {
+/// functions are never inlined there, so that Callgrind names them. It
+/// builds in a folder of its own, [`CALLGRIND_NAMES_FOLDER`], because Cargo
+/// keeps one copy of a crate per profile and folder: in `cargo bench`'s
+/// folder, which builds the readers without it, the two builds would
+/// rebuild in turn the readers and the workspace's crates above them on
+/// every run. Every other crate gets no flag of its own, so its compiler
+/// call is `cargo bench`'s and sccache serves it from that build. The
+/// product, and every other benchmark, keep the wire's functions inlined.
+/// The dev build runs without the variable too, whatever the shell exports.
+fn build_command(family: &Family, optimized_in: Option<&Path>, cargo: &OsStr) -> Command {
     let mut command = crate::child_cargo::command(cargo);
     command
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target]);
-    if optimized {
+    if let Some(folder) = optimized_in {
         command
-            .args(["--profile", "bench"])
+            .args(["--profile", "bench", "--target-dir"])
+            .arg(folder)
             .env(CALLGRIND_NAMES_VARIABLE, "1");
     } else {
         command.env_remove(CALLGRIND_NAMES_VARIABLE);

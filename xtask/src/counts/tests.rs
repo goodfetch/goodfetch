@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
+use std::path::Path;
 
 use super::{B1, CALLGRIND_NAMES_VARIABLE, NOT_RUN_YET, ROWS, UnderValgrind, build_command};
 
@@ -97,18 +98,19 @@ fn a_family_reads_its_rows_under_valgrind_from_one_place() {
 }
 
 /// The benchmarks' build of an example sets the variable on which the
-/// cfg's two readers set `goodfetch_callgrind_names` on themselves, and
-/// gives no flag to every crate nor a build folder of its own, so its
-/// dependencies are those of the benchmarks' own build; the dev build sets
+/// cfg's two readers set `goodfetch_callgrind_names` on themselves, in the
+/// folder it is given, and gives no flag to every crate, so its dependencies'
+/// compiler calls are those of the benchmarks' own build; the dev build sets
 /// nothing.
 #[test]
 fn the_optimized_build_gives_the_callgrind_names_to_its_readers_alone() {
-    let sets_variable = |optimized: bool| {
-        build_command(&B1, optimized, OsStr::new("cargo"))
+    let folder = Path::new("target/goodfetch_callgrind_names");
+    let sets_variable = |optimized_in: Option<&Path>| {
+        build_command(&B1, optimized_in, OsStr::new("cargo"))
             .get_envs()
             .any(|(name, value)| name == CALLGRIND_NAMES_VARIABLE && value.is_some())
     };
-    let optimized = build_command(&B1, true, OsStr::new("cargo"));
+    let optimized = build_command(&B1, Some(folder), OsStr::new("cargo"));
     let arguments: Vec<&OsStr> = optimized.get_args().collect();
 
     assert!(
@@ -118,13 +120,20 @@ fn the_optimized_build_gives_the_callgrind_names_to_its_readers_alone() {
         "the optimized build is the benchmarks' profile: {arguments:?}"
     );
     assert!(
-        !arguments.iter().any(|argument| {
-            *argument == "--target-dir"
-                || *argument == "--config"
-                || argument.to_string_lossy().contains("rustflags")
-        }),
-        "no build folder or flags of its own: {arguments:?}"
+        arguments
+            .windows(2)
+            .any(|pair| pair == [OsStr::new("--target-dir"), folder.as_os_str()]),
+        "the optimized build is in the folder it is given: {arguments:?}"
     );
-    assert!(sets_variable(true), "the optimized build sets the variable");
-    assert!(!sets_variable(false), "the dev build does not");
+    assert!(
+        !arguments.iter().any(|argument| {
+            *argument == "--config" || argument.to_string_lossy().contains("rustflags")
+        }),
+        "no flags of its own for every crate: {arguments:?}"
+    );
+    assert!(
+        sets_variable(Some(folder)),
+        "the optimized build sets the variable"
+    );
+    assert!(!sets_variable(None), "the dev build does not");
 }

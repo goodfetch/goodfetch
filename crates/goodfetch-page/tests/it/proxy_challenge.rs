@@ -18,6 +18,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{
     DebuggedBrowser, ProvingGround, TestEnv, browser_cache, chrome_for_testing_debugged,
+    skipped_without_gui_session,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -356,11 +357,17 @@ fn hosts(relays: &[(String, String)], outcome: &str) -> Vec<String> {
 /// credentials no one gave.
 const NO_CREDENTIALS: &str = "net::ERR_INVALID_AUTH_CREDENTIALS";
 
+/// Why a test that meets an unanswered challenge skips with no GUI session.
+const UNANSWERED_UNDER_THE_SHELL: &str = "the headless shell leaves a navigation whose proxy challenge no one answers pending, where the full build fails it with `net::ERR_INVALID_AUTH_CREDENTIALS`";
+
 /// Case 1, and so 2: `Fetch.enable` with `handleAuthRequests` and no request
 /// pattern, which #1895 would answer the relay's 407 with, is refused, and
 /// the page meets the 407 with no challenge raised.
 #[test]
 fn fetch_refuses_authentication_requests_with_no_request_pattern() {
+    if skipped_without_gui_session(UNANSWERED_UNDER_THE_SHELL) {
+        return;
+    }
     let found = on_the_pinned_build(async |cdp, port, proxy, _| {
         let context = cdp.context(&proxy).await;
         let page = cdp.page(&context).await;
@@ -418,6 +425,9 @@ fn a_request_paused_at_its_request_stage_raises_the_proxy_challenge(
     #[case] challenges: usize,
     #[case] paused: &[&str],
 ) {
+    if navigated.0.is_some() && skipped_without_gui_session(UNANSWERED_UNDER_THE_SHELL) {
+        return;
+    }
     let found = on_the_pinned_build(async |cdp, port, proxy, _| {
         let context = cdp.context(&proxy).await;
         let page = cdp.page(&context).await;
@@ -460,6 +470,9 @@ fn a_request_paused_at_its_request_stage_raises_the_proxy_challenge(
 /// the 407.
 #[test]
 fn credentials_given_once_let_the_contexts_other_pages_through() {
+    if skipped_without_gui_session(UNANSWERED_UNDER_THE_SHELL) {
+        return;
+    }
     let found = on_the_pinned_build(async |cdp, port, proxy, proving_ground| {
         let session = cdp.context(&proxy).await;
         let engine_page = cdp.page(&session).await;

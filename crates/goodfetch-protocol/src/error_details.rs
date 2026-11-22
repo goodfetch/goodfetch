@@ -136,6 +136,7 @@ details! {
     crate::page::BlockedDetails => ErrorCode::BLOCKED,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,
     crate::page::BrowserLaunchFailedDetails => ErrorCode::BROWSER_LAUNCH_FAILED,
+    crate::page::BrowserNeedsGuiSessionDetails => ErrorCode::BROWSER_NEEDS_GUI_SESSION,
     crate::page::LoggedOutDetails => ErrorCode::LOGGED_OUT,
     crate::page::NavigationFailedDetails => ErrorCode::NAVIGATION_FAILED,
     crate::page::NavigationInterruptedDetails => ErrorCode::NAVIGATION_INTERRUPTED,

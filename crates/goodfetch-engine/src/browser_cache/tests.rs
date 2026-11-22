@@ -36,8 +36,9 @@ use crate::pinned_download::{Digest, Fetching};
 
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge, Os, PinnedArtifact,
-    Platform, PlatformNotice, browser_source, content_digest, installed_browser, kept_artifacts,
+    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge,
+    Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
+    installed_browser, kept_artifacts,
 };
 
 /// The digest of [`build_files`]'s tree, worked out by hand from the rule
@@ -286,6 +287,35 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     assert_eq!(
         details.fix,
         "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+    );
+}
+
+/// A missing headless shell's fix names it, since a bare `browser install`
+/// fetches only the builds a Run launches by default (#3224).
+/// Covers: error:artifact_unavailable_offline, setting:browser.headless_shell
+#[test]
+fn a_missing_headless_shell_under_offline_names_its_own_install() {
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let id = artifact(ArtifactKind::Browser, CHROME_HEADLESS_SHELL, "156.0.8078.4");
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    let CacheError::Offline { details, .. } = refused else {
+        panic!("expected artifact_unavailable_offline, got {refused:?}");
+    };
+    assert_eq!(
+        details.fix,
+        "Run `goodfetch-collie browser install chrome-headless-shell` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
     );
 }
 
@@ -838,26 +868,45 @@ fn a_musl_executable_reads_the_c_library_of_the_linux_host_it_runs_on(
 /// it, and its executable's place in the folder its archive unpacks to;
 /// Linux on arm64, which it builds nothing for, has neither.
 #[rstest]
-#[case::linux(BuildPlatform::LinuxX64, Some(("linux64", "chrome-linux64/chrome")))]
+#[case::linux(
+    BuildPlatform::LinuxX64,
+    Some(("linux64", "chrome-linux64/chrome", "chrome-headless-shell-linux64/chrome-headless-shell"))
+)]
 #[case::mac_arm(
     BuildPlatform::MacArm64,
-    Some(("mac-arm64", "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+    Some((
+        "mac-arm64",
+        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    ))
 )]
 #[case::mac_intel(
     BuildPlatform::MacX64,
-    Some(("mac-x64", "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+    Some((
+        "mac-x64",
+        "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "chrome-headless-shell-mac-x64/chrome-headless-shell",
+    ))
 )]
-#[case::windows(BuildPlatform::WindowsX64, Some(("win64", "chrome-win64/chrome.exe")))]
+#[case::windows(
+    BuildPlatform::WindowsX64,
+    Some(("win64", "chrome-win64/chrome.exe", "chrome-headless-shell-win64/chrome-headless-shell.exe"))
+)]
 #[case::linux_arm(BuildPlatform::LinuxArm64, None)]
-fn each_chrome_for_testing_platform_has_its_name_and_its_executable(
+fn each_chrome_for_testing_platform_has_its_name_and_its_executables(
     #[case] platform: BuildPlatform,
-    #[case] expected: Option<(&str, &str)>,
+    #[case] expected: Option<(&str, &str, &str)>,
 ) {
     let named = platform.chrome_for_testing_name();
+    let executables = platform
+        .chrome_for_testing_executable()
+        .zip(platform.chrome_headless_shell_executable());
 
     assert_eq!(
         (
-            named.zip(platform.chrome_for_testing_executable()),
+            named
+                .zip(executables)
+                .map(|(name, (full, shell))| (name, full, shell)),
             named.and_then(BuildPlatform::of_chrome_for_testing_name),
         ),
         (expected, expected.map(|_| platform))

@@ -37,6 +37,7 @@ use goodfetch_test_client::robots_txt_readings;
 #[cfg(unix)]
 use goodfetch_test_support::{
     Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, SecretKind, cli, pty,
+    skipped_without_gui_session,
 };
 use goodfetch_test_support::{
     ProvingGround, ReceivedRequests, TestEnv, browser_cache, proxy_in_front,
@@ -1075,6 +1076,11 @@ fn a_page_load_is_relayed_once_its_icon_and_the_engines_robots_txt_read_ended(
 #[cfg(unix)]
 #[test]
 fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
+    if skipped_without_gui_session(
+        "it waits for the `/favicon.ico` the full build asks for, which the headless shell never asks for",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -2158,6 +2164,11 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
 #[cfg(unix)]
 #[test]
 fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
+    if skipped_without_gui_session(
+        "it waits for the `/favicon.ico` the full build asks for, which the headless shell never asks for",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

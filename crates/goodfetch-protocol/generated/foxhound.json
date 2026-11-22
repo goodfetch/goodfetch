@@ -14933,6 +14933,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_needs_gui_session",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.",
       "exit_code": null,
       "group": "unavailable",
@@ -16832,13 +16842,14 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
+      "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, its headless shell under `browser.headless_shell`, or the distribution's Chromium where no build is made.",
       "instrument": "up_down_counter",
       "labels": [
         {
           "name": "browser",
           "values": [
             "chrome_for_testing",
+            "chrome_headless_shell",
             "chromium"
           ]
         }
@@ -19779,9 +19790,32 @@
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
       "fixed_for_run": false,
       "name": "browser.headless",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
+      "fixed_for_run": false,
+      "name": "browser.headless_shell",
       "product": "collie",
       "products": [
         "collie",

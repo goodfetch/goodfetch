@@ -23,7 +23,7 @@ use std::io::{Read as _, Write as _};
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_support::ToolStatus;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, skipped_without_gui_session};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, provenance, settings};
@@ -358,6 +358,11 @@ fn a_handlers_own_goto_to_a_pdf_answers_its_response_and_body_and_no_document(#[
 /// Covers: story:5-130
 #[test]
 fn a_programs_own_page_downloads_a_pdf_and_reads_an_unlabelled_page_as_chrome_does() {
+    if skipped_without_gui_session(
+        "its download case needs a navigation to a PDF to be a download, which the headless shell does not make it",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);

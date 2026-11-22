@@ -43,7 +43,7 @@ use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Canaries, Canary, Outcome, Output, Process, Redirect, Refusal,
-    Runner, SecretKind, SsrfCase, SsrfTable, TestEnv, browser_cache, chrome_for_testing,
+    Runner, SecretKind, SsrfCase, SsrfTable, TestEnv, browser_cache, chrome_headless,
     reported_debugging_port,
 };
 use serde_json::{Map, Value, json};
@@ -111,7 +111,7 @@ impl Lent {
     /// every name resolved to loopback.
     fn start(env: &TestEnv, cache: &Path) -> Self {
         let profile = env.folder().join("lent-browser-profile");
-        let mut command = env.process_command(chrome_for_testing(cache));
+        let mut command = env.process_command(chrome_headless(cache));
         command
             .args(chromium_background_traffic_off())
             .args([

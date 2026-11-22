@@ -110,6 +110,7 @@ oxylabs = ["failure"]
 # Which of `launch`'s own modules may import which.
 [submodules.launch]
 arguments = []
+gui_session = []
 named_pipes = []
 pipe = []
 preferences = []

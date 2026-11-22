@@ -12,6 +12,12 @@
 //! `identified.*` items, which an `identified` Session needs both of: the
 //! Secret reference of the key it signs its requests with, and where a site
 //! reads the key directory (ADR 0045; #1551).
+//!
+//! `browser.headless_shell` (#3224) is refused where the shell cannot take
+//! effect: beside `browser.headless: false`, since the shell runs only
+//! headless, and under `stealth`, which launches its own build. A Borrowed
+//! browser launches nothing, so the shell yields to it as every other
+//! `browser.*` key the Run sets does.
 
 #[cfg(test)]
 mod tests;
@@ -20,13 +26,13 @@ use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError, Values, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::catalog::Setting;
-use goodfetch_protocol::page::BROWSER_HEADLESS;
 use goodfetch_protocol::page::access_mode::{
     BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
     STEALTH_CHROMIUM_BUILD, STEALTH_FINGERPRINT_METHOD, STEALTH_GENERATED_IDENTITY,
     STEALTH_HUMAN_INPUT, STEALTH_IDENTITY_BRAND, STEALTH_IDENTITY_DEVICE, STEALTH_IDENTITY_OS,
     STEALTH_ITEMS, masks,
 };
+use goodfetch_protocol::page::{BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::session_source::{BrowserName, SessionSource};
 use goodfetch_protocol::settings::{
@@ -318,6 +324,12 @@ pub(crate) enum Refusal {
     /// `stealth`, chosen in `layer`, on Goodfetch's `WebKit` build, which
     /// has no stealth mode.
     StealthOnWebKit { layer: SettingsLayer },
+    /// `browser.headless_shell`, set in `layer`, beside `browser.headless:
+    /// false`: the shell runs only headless.
+    ShellNotHeadless { layer: SettingsLayer },
+    /// `browser.headless_shell`, set in `layer`, on a `stealth` Session,
+    /// which launches its own build.
+    ShellUnderStealth { layer: SettingsLayer },
     /// `mode`, chosen in `layer`, whose effects this engine does not build
     /// yet.
     Unbuilt {
@@ -384,40 +396,62 @@ impl Refusal {
                     IDENTIFIED_SIGNING_KEY.name, IDENTIFIED_SIGNATURE_AGENT.name
                 ),
             },
+            Self::ShellNotHeadless { layer } => SettingsError::NotApplicable {
+                key: BROWSER_HEADLESS_SHELL.name.to_owned(),
+                layer,
+                fix: format!(
+                    "the headless shell runs only headless, and `{}` is `false`: set it to `true`, or leave `{}` out",
+                    BROWSER_HEADLESS.name, BROWSER_HEADLESS_SHELL.name
+                ),
+            },
+            Self::ShellUnderStealth { layer } => SettingsError::NotApplicable {
+                key: BROWSER_HEADLESS_SHELL.name.to_owned(),
+                layer,
+                fix: format!(
+                    "a `stealth` Session launches its own Chromium build, never the headless shell: leave `{}` out, or open the Session `standard`",
+                    BROWSER_HEADLESS_SHELL.name
+                ),
+            },
             Self::StealthOnWebKit { layer } => {
-                return CallError::new(
-                    &CAPABILITY_UNAVAILABLE,
+                return standard_only(
+                    layer,
+                    "webkit",
                     format!(
                         "`{access_mode}` is `stealth`, chosen in {}, and a Safari source runs on Goodfetch's WebKit, which has no stealth mode",
                         layer.as_str()
                     ),
-                    &CapabilityUnavailableDetails {
-                        key: access_mode.to_owned(),
-                        layer,
-                        kind: "webkit".to_owned(),
-                        fix: format!("`{access_mode}: standard`"),
-                    },
                 );
             }
             Self::Unbuilt { mode, layer } => {
-                return CallError::new(
-                    &CAPABILITY_UNAVAILABLE,
+                return standard_only(
+                    layer,
+                    mode.as_str(),
                     format!(
                         "the Session would open `{}`, chosen in {}, and this engine does not build that Access mode's effects yet: leave `{access_mode}` at `standard` and `{fingerprint_method}` at `none`",
                         mode.as_str(),
                         layer.as_str()
                     ),
-                    &CapabilityUnavailableDetails {
-                        key: access_mode.to_owned(),
-                        layer,
-                        kind: mode.as_str().to_owned(),
-                        fix: format!("`{access_mode}: standard`"),
-                    },
                 );
             }
         };
         settings_error(&error, context)
     }
+}
+
+/// `capability_unavailable` for an Access mode, chosen in `layer`, that
+/// this engine cannot run where it runs as `kind`, whose fix is `standard`.
+fn standard_only(layer: SettingsLayer, kind: &str, message: String) -> CallError {
+    let access_mode = BROWSER_ACCESS_MODE.name;
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        message,
+        &CapabilityUnavailableDetails {
+            key: access_mode.to_owned(),
+            layer,
+            kind: kind.to_owned(),
+            fix: format!("`{access_mode}: standard`"),
+        },
+    )
 }
 
 /// The Access mode and Identity profile a Session opens with, from its
@@ -484,6 +518,16 @@ pub(crate) fn resolve(
         return Err(Refusal::SigningNotIdentified { key, mode });
     }
     let layer = scope.layer();
+    let (shell, shell_scope) = settings.scoped(&BROWSER_HEADLESS_SHELL);
+    if shell == &Value::Bool(true) {
+        let shell = shell_scope.layer();
+        if mode == AccessMode::Stealth {
+            return Err(Refusal::ShellUnderStealth { layer: shell });
+        }
+        if settings.scoped(&BROWSER_HEADLESS).0 == &Value::Bool(false) {
+            return Err(Refusal::ShellNotHeadless { layer: shell });
+        }
+    }
     match mode {
         AccessMode::Standard => Ok(SessionIdentityPlan {
             mode,

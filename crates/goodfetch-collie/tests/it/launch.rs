@@ -2,18 +2,27 @@
 //! over stdio through `goodfetch-protocol`'s types, against the Proving
 //! ground's own observations: what identity a Run's headless or headful
 //! browser shows the site, which the comparison with a window reads where
-//! a virtual display runs (`virtual_display`). The headless identity and a
-//! background page's timers are the page suite's `launch` cases.
+//! a virtual display runs (`virtual_display`), and the headless shell's
+//! launch, with macOS's refusal of the full build with no GUI session
+//! (#3224). The headless identity and a background page's timers are the
+//! page suite's `launch` cases.
 #![expect(
     clippy::disallowed_methods,
     reason = "the test polls the Proving ground on its own thread, never an async worker"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{
+    ProvingGround, TestEnv, Variables, browser_cache, browser_cache_with_headless_shell,
+    chrome_headless_shell,
+};
 use serde_json::{Map, Value, json};
 
 use crate::page::{browser_command_lines, opened, started_with};
@@ -80,6 +89,102 @@ fn reports_once(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// A Run under `browser.headless_shell: true` launches the pinned
+/// release's headless shell, not the full build, and its page loads,
+/// showing the site the shell's own identity: the build that starts where
+/// the full build's headless mode cannot, as on macOS with no GUI session
+/// (#3224).
+///
+/// Covers: setting:browser.headless_shell
+#[test]
+fn a_run_under_the_headless_shell_setting_launches_the_headless_shell() {
+    let env = TestEnv::new();
+    let cache = browser_cache_with_headless_shell(&env).unwrap();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut settings = Map::new();
+    settings.insert("browser".to_owned(), json!({ "headless_shell": true }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "shell", &settings, |_| {});
+
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "shell" })));
+    let went = engine.ask(3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("access.localhost", "/identity") }),
+    );
+    let browsers = launched(&env);
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "shell" }));
+    let _ = engine.finish();
+
+    let shell = chrome_headless_shell(&cache).display().to_string();
+    let user_agents: BTreeSet<String> = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| request.host.starts_with("access.localhost"))
+        .flat_map(|request| request.headers.clone())
+        .filter(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, value)| value)
+        .collect();
+    assert_eq!(
+        (
+            went["result"]["response"]["status"].clone(),
+            browsers.len(),
+            browsers.iter().all(|line| line.starts_with(&shell)),
+            !user_agents.is_empty()
+                && user_agents
+                    .iter()
+                    .all(|agent| agent.contains("HeadlessChrome/")),
+        ),
+        (json!(200), 1, true, true),
+        "{went}\n{browsers:#?}\n{user_agents:?}"
+    );
+}
+
+/// On macOS with no GUI session, as in the Release suite's macOS cells,
+/// whose runner starts in the Background session, a Run that turns the
+/// headless shell off fails its first page at once with
+/// `browser_needs_gui_session`, whose fix names the shell, and launches no
+/// browser (#3224). Elsewhere the full build starts, so the test skips.
+///
+/// Covers: error:browser_needs_gui_session
+#[test]
+fn with_no_gui_session_on_macos_the_full_build_headless_needs_a_gui_session() {
+    if !(cfg!(target_os = "macos") && Variables::from_process().no_gui_session()) {
+        #[expect(
+            clippy::print_stderr,
+            reason = "a skipped test says why in its own output, which the test harness keeps"
+        )]
+        {
+            eprintln!("skipped: only macOS with no GUI session refuses the full build headless");
+        }
+        return;
+    }
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut settings = Map::new();
+    settings.insert("browser".to_owned(), json!({ "headless_shell": false }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "full", &settings, |_| {});
+
+    let refused = engine.ask(2, "run.new_page", &json!({ "run_id": "full" }));
+    let browsers = launched(&env);
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "full" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            refused["error"]["data"]["code"].clone(),
+            refused["error"]["data"]["fix"].clone(),
+            browsers.len(),
+        ),
+        (
+            json!("browser_needs_gui_session"),
+            json!("set `browser.headless_shell: true`"),
+            0
+        ),
+        "{refused}"
+    );
 }
 
 /// What a site sees of a browser: the user agents and client hints its

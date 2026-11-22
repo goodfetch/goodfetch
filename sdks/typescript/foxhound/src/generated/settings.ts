@@ -44,11 +44,17 @@ export interface FoxhoundSettings {
      */
     readonly cdpCommandLog?: boolean;
     /**
-     * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.
+     * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
      */
     readonly headless?: boolean;
+    /**
+     * Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.
+     *
+     * `browser.headless_shell`.
+     */
+    readonly headlessShell?: boolean;
     /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
@@ -1272,11 +1278,17 @@ export interface CrawlSettings {
      */
     readonly cdpCommandLog?: boolean;
     /**
-     * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.
+     * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
      */
     readonly headless?: boolean;
+    /**
+     * Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.
+     *
+     * `browser.headless_shell`.
+     */
+    readonly headlessShell?: boolean;
     /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
@@ -2546,6 +2558,7 @@ const SPELLING: Spelling = {
     blockResources: "block_resources",
     cdpCommandLog: "cdp_command_log",
     headless: "headless",
+    headlessShell: "headless_shell",
     serviceWorkers: "service_workers",
   }],
   browserCache: ["browser_cache", {

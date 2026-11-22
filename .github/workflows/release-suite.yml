@@ -529,6 +529,10 @@ jobs:
       CELL: macos-arm64
       TARGET: aarch64-apple-darwin
       SHARD: 1/1
+      # The runner's LaunchAgent has no GUI session, where the full build
+      # cannot start headless: the tests launch the headless shell, and
+      # those that need the full build skip, naming why (issue 3224).
+      GOODFETCH_TEST_NO_GUI_SESSION: "1"
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -618,6 +622,8 @@ jobs:
       CELL: macos-x64
       TARGET: x86_64-apple-darwin
       SHARD: 1/1
+      # As in the macos-arm64 cell (issue 3224).
+      GOODFETCH_TEST_NO_GUI_SESSION: "1"
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

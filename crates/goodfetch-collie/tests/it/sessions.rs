@@ -14,7 +14,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_support::{Mode, TestEnv};
 #[cfg(unix)]
-use goodfetch_test_support::{ProvingGround, browser_cache};
+use goodfetch_test_support::{ProvingGround, browser_cache, skipped_without_gui_session};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -438,6 +438,11 @@ fn a_session_whose_settings_its_access_mode_cannot_take_is_refused_with_the_sett
 #[cfg(unix)]
 #[test]
 fn a_session_opens_in_its_access_mode_only_where_its_browser_can_run_it() {
+    if skipped_without_gui_session(
+        "its `stealth` Sessions are refused under the headless shell before their own refusals",
+    ) {
+        return;
+    }
     let answers = sessions_opened(&[
         json!({
             "settings": { "browser": { "access_mode": "identified" } },

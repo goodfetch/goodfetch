@@ -7,19 +7,35 @@
     "platforms": {
       "linux64": {
         "archive_digest": "sha256:43fd31766c7533a02dda2ded5ad50c2f861cd5400be7509c0abad71129f79d79",
-        "digest": "sha256:4d0a38246f9688ba362748e2b3500f97e33d66b23a82dcb92b8a93aae99bc5e2"
+        "digest": "sha256:4d0a38246f9688ba362748e2b3500f97e33d66b23a82dcb92b8a93aae99bc5e2",
+        "headless_shell": {
+          "archive_digest": "sha256:c3e50596aef52c58f8fda3c6b3411c33d34c88b177b3ed1c2243359fd3b8ba20",
+          "digest": "sha256:b80a57a4532b4974973f1f8ce9dbd92021f29a5db9f0de962ad1a2031313e02a"
+        }
       },
       "mac-arm64": {
         "archive_digest": "sha256:987d2f8499c87d21676f78178550cfcbfb1bb53786821e2cff46c5a7e99b58be",
-        "digest": "sha256:0cdc94490fec5802c08b6bd938d0cd3749f3fa391a3e7f1c648bcfe133f15684"
+        "digest": "sha256:0cdc94490fec5802c08b6bd938d0cd3749f3fa391a3e7f1c648bcfe133f15684",
+        "headless_shell": {
+          "archive_digest": "sha256:94e4337b70cbc5638f0935fbc46b9f242bc7416f657e3fbe924baf348404b53d",
+          "digest": "sha256:948687d4c92ad750668f70a43b742889715b2b1f4ca08c4665660ee091ca19b4"
+        }
       },
       "mac-x64": {
         "archive_digest": "sha256:4e75da96830224185ddddc80012ad3732d6a29a4f92bac728c84c8e8ebd66c34",
-        "digest": "sha256:fa152c1e03159a6f7373f8beaaca3d691fed640bf547eff0894abc3a9acda2fb"
+        "digest": "sha256:fa152c1e03159a6f7373f8beaaca3d691fed640bf547eff0894abc3a9acda2fb",
+        "headless_shell": {
+          "archive_digest": "sha256:8a9e4a32ba5b1a796f8b16d01896e355cf6662544d9743296394fd999d782331",
+          "digest": "sha256:8d00e56f413447d655d3f4d5d425699d6b14bd14f35e016a204ee43b86750d11"
+        }
       },
       "win64": {
         "archive_digest": "sha256:220021ecfdad08c116fc71a153e65e3861ba841c531afc4f7acc7bd5d44b41db",
-        "digest": "sha256:3ae688cea37c3366879a1db3eec2282e70b28c89859adfe4ed1569f636e64707"
+        "digest": "sha256:3ae688cea37c3366879a1db3eec2282e70b28c89859adfe4ed1569f636e64707",
+        "headless_shell": {
+          "archive_digest": "sha256:5af4c82cf4b351ec4bad4c71dcf938af14fccea8a0eb0d5c2a7b49ccc922698c",
+          "digest": "sha256:76060524fad33edabd8166916e7b3e199e5fa6fb2a05dba7be7d9dcdfb0ed406"
+        }
       }
     }
   }

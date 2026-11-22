@@ -19,6 +19,7 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+    skipped_without_gui_session,
 };
 use rstest::rstest;
 use rusqlite::Connection;
@@ -1224,6 +1225,11 @@ fn proxy_tiers(env: &TestEnv, run_id: &str) -> BTreeMap<String, String> {
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_the_proxy_tier() {
+    if skipped_without_gui_session(
+        "tier learning keeps pages on the browser where the `http` tier's full-build identity differs from the headless shell's",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = rungs_engine(&env, &proving_ground);
@@ -1455,6 +1461,11 @@ fn rung_runs_by_http_from(
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_it() {
+    if skipped_without_gui_session(
+        "tier learning keeps pages on the browser where the `http` tier's full-build identity differs from the headless shell's",
+    ) {
+        return;
+    }
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = rungs_engine(&env, &proving_ground);

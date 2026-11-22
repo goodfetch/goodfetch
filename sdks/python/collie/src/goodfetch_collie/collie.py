@@ -171,13 +171,26 @@ class AsyncCollie(AsyncConnection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> AsyncRun:
-        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+        """Starts a Run and returns once it is started (ADR 0102).
 
-        `finish()` ends it. Starts a Run and returns once it is started
-        (ADR 0102). A start that resumed its Run is logged at info, and one
-        that found it ended at warning, on the `goodfetch.client.run` logger.
-        It tells the engine the effective level of `goodfetch.engine` first
-        when that changed since the engine was last told.
+        Starts a Run its program drives, and answers once it is started. A Run ID
+        names the Run for good, and a start under one acts on what the Run index
+        holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped,
+        failed, or running with no live writer, resumes from its committed state at
+        the next run epoch, `resumed`, as `run.resume` does; a finished Run is
+        answered as it ended with no handler called, `ended`. A Run live with a
+        writer, in this engine or another, fails with `run_in_use`; a Run started
+        with other inputs or by another caller with `run_conflict` listing each
+        difference; a Run the Run index lists whose state is missing or unreadable
+        with `run_state_unavailable`, never starting afresh.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving the scope or `close()` stops the Run with a Checkpoint, and
+        `finish()` ends it. A start that resumed its Run is logged at info, and
+        one that found it ended at warning, on the `goodfetch.client.run`
+        logger. It tells the engine the effective level of `goodfetch.engine`
+        first when that changed since the engine was last told.
 
         Args:
             run_id: Names the Run for good: a start with an existing Run ID
@@ -226,12 +239,17 @@ class AsyncCollie(AsyncConnection):
     ) -> SettingsExplanation:
         """What the Connection runs with (ADR 0083), as `config explain` shows it.
 
-        Each setting under `keys`, each a key or a prefix of keys such as
-        `timeout`, every one when left out, with its effective value, the
-        layer and origin that set it and the layer that locked it: the
-        Connection's own `settings` over configuration and the Operator
-        policy, which each Run it starts inherits. Raises `closed` once the
-        Connection is closed.
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+
+        It explains each setting under `keys`, each a key or a prefix of keys
+        such as `timeout`, every one when left out, with the origin that set
+        it too. The Connection's own `settings` are what each Run it starts
+        inherits. Raises `closed` once the Connection is closed.
         """
         return await self._connection.explain_settings(keys)
 
@@ -378,13 +396,26 @@ class Collie(Connection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> Run:
-        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+        """Starts a Run and returns once it is started (ADR 0102).
 
-        `finish()` ends it. Starts a Run and returns once it is started
-        (ADR 0102). A start that resumed its Run is logged at info, and one
-        that found it ended at warning, on the `goodfetch.client.run` logger.
-        It tells the engine the effective level of `goodfetch.engine` first
-        when that changed since the engine was last told.
+        Starts a Run its program drives, and answers once it is started. A Run ID
+        names the Run for good, and a start under one acts on what the Run index
+        holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped,
+        failed, or running with no live writer, resumes from its committed state at
+        the next run epoch, `resumed`, as `run.resume` does; a finished Run is
+        answered as it ended with no handler called, `ended`. A Run live with a
+        writer, in this engine or another, fails with `run_in_use`; a Run started
+        with other inputs or by another caller with `run_conflict` listing each
+        difference; a Run the Run index lists whose state is missing or unreadable
+        with `run_state_unavailable`, never starting afresh.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving the scope or `close()` stops the Run with a Checkpoint, and
+        `finish()` ends it. A start that resumed its Run is logged at info, and
+        one that found it ended at warning, on the `goodfetch.client.run`
+        logger. It tells the engine the effective level of `goodfetch.engine`
+        first when that changed since the engine was last told.
 
         Args:
             run_id: Names the Run for good: a start with an existing Run ID
@@ -437,7 +468,15 @@ class Collie(Connection):
     def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:
-        """What the Connection runs with, as `AsyncCollie.explain_settings` says."""
+        """What the Connection runs with, as `AsyncCollie.explain_settings` says.
+
+        Shows each setting's effective value, the layer that set it and the layer
+        that locked it, from the built-in defaults, the Operator policy, user
+        configuration, the project configuration given and the run layer: the
+        Connection's own settings with the run values given over them, or a live
+        Run's as it opened when `run_id` names one; and lists the keys only the
+        other Product honours as that Product's.
+        """
         explaining = functools.partial(
             self._connection.explain_settings, None if keys is None else list(keys)
         )

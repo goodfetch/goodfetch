@@ -68,3 +68,7 @@ entry = "none"
 reason = "Removes the listener."
 words = ["close"]
 form = "closer"
+
+[[unreached]]
+entries = ["crawl.start"]
+reason = "The test's SDK has no Foxhound member."

@@ -1,6 +1,6 @@
 ## Checks by role
 
-Which checks each role runs, and when ([ADR 0135](../adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s note of 2026-11-21). Orchestrator briefs, `implement-spec` runs and relays of `/implement` point here and list no checks of their own; where a brief or a skill asks for more, this section wins.
+Which checks each role runs, and when ([ADR 0135](../adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s note of 2026-11-21). Orchestrator briefs, `implement-spec` runs and relays of `/implement` point here and list no checks of their own; where a brief or a skill asks for more, this section wins. ADR 0135's amendment of 2026-11-22 ([#3373](https://github.com/goodfetch/goodfetch/issues/3373)) gives each check one owning layer, hosted or local, so that each runs once per tree; the rows below hold until the batch flow moves to the hosted tier ([#3381](https://github.com/goodfetch/goodfetch/issues/3381)), which changes them.
 
 | Role | Runs | Does not run |
 |---|---|---|

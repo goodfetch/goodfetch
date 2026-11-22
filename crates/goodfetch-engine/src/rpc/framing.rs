@@ -391,12 +391,16 @@ impl<'a> Envelope<'a> {
     }
 }
 
-/// A request's id, when it reads as one: a whole number or a string.
+/// A request's id, when it reads as one: a whole number or a string. A
+/// string is read first, as reading one as a number fails only once serde
+/// has worded why (issue 3324).
 fn request_id(id: &RawValue) -> Option<RequestId> {
-    if let Ok(number) = serde_json::from_str::<i64>(id.get()) {
-        return Some(RequestId::Number(number));
+    if let Some(text) = text(id) {
+        return Some(RequestId::Text(text.into_owned()));
     }
-    text(id).map(|text| RequestId::Text(text.into_owned()))
+    serde_json::from_str::<i64>(id.get())
+        .ok()
+        .map(RequestId::Number)
 }
 
 /// Where `part`, a slice of `line`, is in it.

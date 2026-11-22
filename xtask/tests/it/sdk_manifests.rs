@@ -143,7 +143,7 @@ fn check_refuses_two_members_of_one_receiver_for_one_entry(
 #[case::rust_method_in_camel_case(FOXHOUND, "goodfetch-foxhound", "Foxhound", "connectOver", &["connect", "over"], "opener")]
 #[case::rust_constant_in_lowercase(FOXHOUND, "goodfetch-foxhound", "(crate)", "free_fetches", &["free", "fetches"], "constant")]
 #[case::rust_member_of_other_words(FOXHOUND, "goodfetch-foxhound", "Foxhound", "open", &["connect"], "opener")]
-#[case::python_method_in_camel_case(PYTHON, "goodfetch_collie", "Collie", "connectOver", &["connect", "over"], "opener")]
+#[case::python_method_in_camel_case(PYTHON, "goodfetch_collie", "Identities", "connectOver", &["connect", "over"], "opener")]
 #[case::python_type_in_snake_case(PYTHON, "goodfetch_collie", "(module)", "call_options", &["call", "options"], "type")]
 #[case::python_keyword_without_its_underscore(PYTHON, "goodfetch_collie", "Identities", "import", &["import"], "round_trip")]
 fn check_refuses_a_member_with_no_entry_not_spelled_from_its_words(
@@ -206,6 +206,7 @@ fn check_refuses_a_form_no_manifest_declares() {
 #[case::typescript(TYPESCRIPT, "@goodfetch/collie-client", "Run", "abort")]
 #[case::rust_blocking_twin(FOXHOUND, "goodfetch-foxhound", "blocking::Run", "abort")]
 #[case::python(PYTHON, "goodfetch_collie", "Run", "abort")]
+#[case::python_async_twin(PYTHON, "goodfetch_collie", "AsyncRun", "abort")]
 fn check_refuses_a_line_naming_a_member_the_generator_writes(
     #[case] manifest: &str,
     #[case] package: &str,
@@ -290,6 +291,127 @@ fn check_passes_a_member_one_sdk_alone_has_when_its_line_says_why() {
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// The lines of a Python `AsyncFoxhound`, the async twin of the other SDKs'
+/// `Foxhound`, whose `start` they share and whose `engine` they lack.
+fn python_async_foxhound(workspace: &Workspace, only: &str) {
+    let package = "goodfetch_foxhound";
+    workspace.append(
+        PYTHON,
+        &line(
+            package,
+            "AsyncFoxhound",
+            "start",
+            "run.start",
+            &["start"],
+            "opener",
+            "",
+        ),
+    );
+    workspace.append(
+        PYTHON,
+        &line(
+            package,
+            "AsyncFoxhound",
+            "engine",
+            "none",
+            &["engine"],
+            "read",
+            only,
+        ),
+    );
+}
+
+/// A Python receiver is matched to the other SDKs' through its import
+/// name, `goodfetch_foxhound` as `goodfetch-foxhound`, and an async twin,
+/// `AsyncFoxhound`, as its `Foxhound` (ADR 0081).
+/// Covers: story:11-186
+#[test]
+fn check_refuses_a_python_member_missing_from_the_same_receiver_in_another_sdk() {
+    let workspace = Workspace::from_fixture("sdk-manifests");
+    python_async_foxhound(&workspace, "");
+
+    let outcome = workspace.xtask(&["sdk-manifests"]);
+
+    let missing = || {
+        finding(
+            "missing-in-other-sdk",
+            "sdks/python/manifest.toml AsyncFoxhound.engine",
+        )
+    };
+    assert_eq!(
+        outcome.findings(),
+        vec![missing(), missing()],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// Covers: story:11-186
+#[test]
+fn check_passes_a_python_member_one_sdk_alone_has_when_its_line_says_why() {
+    let workspace = Workspace::from_fixture("sdk-manifests");
+    python_async_foxhound(
+        &workspace,
+        "only = \"TypeScript and Rust do not read the engine yet.\"\n",
+    );
+
+    let outcome = workspace.xtask(&["sdk-manifests"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// A Python submodule, `goodfetch_collie.testing`, is matched to the other
+/// SDKs' subpath, `@goodfetch/collie/testing`.
+/// Covers: story:11-186
+#[test]
+fn check_refuses_a_python_submodule_member_missing_from_another_sdk() {
+    let workspace = Workspace::from_fixture("sdk-manifests");
+    workspace.append(
+        TYPESCRIPT,
+        &line(
+            "@goodfetch/collie/testing",
+            "(module)",
+            "fakeEngine",
+            "none",
+            &["fake", "engine"],
+            "runtime",
+            "",
+        ),
+    );
+    for (member, words) in [
+        ("fake_engine", ["fake", "engine"].as_slice()),
+        ("recorder", ["recorder"].as_slice()),
+    ] {
+        workspace.append(
+            PYTHON,
+            &line(
+                "goodfetch_collie.testing",
+                "(module)",
+                member,
+                "none",
+                words,
+                "runtime",
+                "",
+            ),
+        );
+    }
+
+    let outcome = workspace.xtask(&["sdk-manifests"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "missing-in-other-sdk",
+            "sdks/python/manifest.toml (module).recorder"
+        )],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
 }
 
 /// One manifest line; `extra` holds further `key = value` lines.

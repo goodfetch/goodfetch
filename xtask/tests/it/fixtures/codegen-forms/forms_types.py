@@ -24,10 +24,8 @@ from goodfetch_collie_client.generated.handles import (
 from goodfetch_collie_client.handle import NotGiven
 from goodfetch_collie_client.generated.models import (
     Acted,
-    Navigated,
     PageField,
     Read,
-    Readiness,
 )
 
 URL = "https://example.test/"
@@ -43,18 +41,17 @@ async def async_forms(
     """The async handles: each round trip, query and waiter is awaited."""
     # A round trip: its required texts are positional in the catalog's
     # order, which is not the alphabet's; its required boolean and its
-    # optional parameter are keyword-only.
-    assert_type(await page.goto(URL, REFERRER, fresh=True), Navigated)
+    # optional parameter are keyword-only. Its result's one property,
+    # `Navigated.status`, is what it answers.
+    assert_type(await page.goto(URL, REFERRER, fresh=True), int)
     assert_type(
         await page.goto(URL, REFERRER, fresh=False, timeout=timedelta(seconds=1)),
-        Navigated,
+        int,
     )
-    assert_type(await page.goto(url=URL, referrer=REFERRER, fresh=True), Navigated)
+    assert_type(await page.goto(url=URL, referrer=REFERRER, fresh=True), int)
     # `None` is a value, no timeout; leaving it out takes the setting's
     # default (ADR 0080).
-    assert_type(
-        await page.goto(URL, REFERRER, fresh=True, timeout=None), Navigated
-    )
+    assert_type(await page.goto(URL, REFERRER, fresh=True, timeout=None), int)
     # A timeout is a `timedelta`, never a number of milliseconds (ADR 0080).
     await page.goto(URL, REFERRER, fresh=False, timeout=1)  # type: ignore[arg-type]
     # A boolean is never positional.
@@ -62,8 +59,9 @@ async def async_forms(
     # A required boolean has no default.
     await page.goto(URL, REFERRER)  # type: ignore[call-arg]
 
-    # A query takes nothing to wait with: no timeout.
-    assert_type(await page.is_ready(), Readiness)
+    # A query takes nothing to wait with: no timeout. It answers
+    # `Readiness.ready`, its result's one property.
+    assert_type(await page.is_ready(), bool)
     await page.is_ready(timeout=1)  # type: ignore[call-arg]
 
     # A result typed by the fields its call declares is the result's model
@@ -123,14 +121,14 @@ def sync_forms(
     any_poll: int | None | NotGiven,
 ) -> None:
     """The sync twins: the same members under the same names, each plain."""
-    assert_type(page.goto(URL, REFERRER, fresh=True), Navigated)
+    assert_type(page.goto(URL, REFERRER, fresh=True), int)
     assert_type(
-        page.goto(URL, REFERRER, fresh=False, timeout=timedelta(seconds=1)), Navigated
+        page.goto(URL, REFERRER, fresh=False, timeout=timedelta(seconds=1)), int
     )
     page.goto(URL, REFERRER, fresh=False, timeout=1)  # type: ignore[arg-type]
     page.goto(URL, REFERRER, True)  # type: ignore[call-arg]
 
-    assert_type(page.is_ready(), Readiness)
+    assert_type(page.is_ready(), bool)
     page.is_ready(timeout=1)  # type: ignore[call-arg]
 
     assert_type(page.read(fields), Read)

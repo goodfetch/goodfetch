@@ -21,6 +21,10 @@
 //!   sends nothing.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result's model: Python's type system has no mapped types.
+//! - A round trip, a query or a waiter whose result has one property
+//!   answers that property's value in place of the result, `None` for an
+//!   optional one that is absent, as TypeScript's and Rust's do (issue
+//!   2883): `goto` answers the `PageResponse` or `None`.
 //!
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
@@ -553,6 +557,38 @@ fn host_call(member: &Member<'_>, awaits: &str, sent: &str) -> String {
     )
 }
 
+/// What `member` answers in place of its result when the result has one
+/// property (`Member::unwrapped`, issue 2883): that property's annotation,
+/// with `None` for an optional one, which is absent, and the property.
+fn answered(
+    layer: &Layer,
+    member: &Member<'_>,
+    imports: &mut Imports,
+) -> Result<Option<(String, String)>> {
+    let Some(unwrapped) = &member.unwrapped else {
+        return Ok(None);
+    };
+    let operation = member.operation;
+    let property = layer
+        .definitions
+        .get(&operation.result.0)
+        .map(|result| &result["properties"][&unwrapped.property])
+        .with_context(|| format!("operation `{}` has no result type", operation.name))?;
+    let Some(spelled) = annotation(property, imports) else {
+        bail!(
+            "operation `{}`: no Python annotation for its result's `{}`, which it answers in place of the result",
+            operation.name,
+            unwrapped.property
+        );
+    };
+    let returns = if unwrapped.required || spelled.ends_with("None") {
+        spelled
+    } else {
+        format!("{spelled} | None")
+    };
+    Ok(Some((returns, unwrapped.property.clone())))
+}
+
 /// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
@@ -586,9 +622,12 @@ fn member(
         awaits,
         ..
     } = mode;
+    let answered = answered(layer, member, imports)?;
     let result = imports.model(result);
     let returns = match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => result.clone(),
+        Form::RoundTrip | Form::Query | Form::Waiter => answered
+            .as_ref()
+            .map_or_else(|| result.clone(), |(returns, _)| returns.clone()),
         Form::Opens(opened) => format!("{prefix}{}", pascal(opened)),
         Form::Closes => "None".to_owned(),
     };
@@ -640,26 +679,54 @@ fn member(
         &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
-    let call = host_call(member, awaits, &sent);
+    let property = answered.map(|(_, property)| property);
+    text.push_str(&returned(
+        member,
+        Returned {
+            result: &result,
+            returns: &returns,
+            property: property.as_deref(),
+        },
+        awaits,
+        &sent,
+    ));
+    Ok(text)
+}
+
+/// What a member's body returns, beside how it calls: the result's model,
+/// the annotation it returns, and the one property it answers in place of
+/// the result, if any.
+#[derive(Clone, Copy)]
+struct Returned<'text> {
+    result: &'text str,
+    returns: &'text str,
+    property: Option<&'text str>,
+}
+
+/// The last lines of `member`'s body, which send `sent` and return what
+/// its form answers.
+fn returned(member: &Member<'_>, returned: Returned<'_>, awaits: &str, sent: &str) -> String {
+    let Returned {
+        result,
+        returns,
+        property,
+    } = returned;
+    let call = host_call(member, awaits, sent);
     match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => {
-            let _ = writeln!(text, "        return result_of({result}, {call})");
+            let property = property
+                .map(|property| format!(".{property}"))
+                .unwrap_or_default();
+            format!("        return result_of({result}, {call}){property}\n")
         }
-        Form::Opens(opened) => {
-            let _ = writeln!(
-                text,
-                "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))"
-            );
-        }
-        Form::Closes => {
-            let _ = writeln!(
-                text,
-                "        {awaits}self._host.close({:?}, {sent})",
-                operation.name
-            );
-        }
+        Form::Opens(opened) => format!(
+            "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))\n"
+        ),
+        Form::Closes => format!(
+            "        {awaits}self._host.close({:?}, {sent})\n",
+            member.operation.name
+        ),
     }
-    Ok(text)
 }
 
 /// The sentence that gives the default of `setting`, the Duration setting

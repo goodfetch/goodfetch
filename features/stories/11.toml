@@ -2434,6 +2434,24 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1017
+title = "As a developer, I want a misspelled Label handle, a Payload of the wrong shape and a Payload argument on a Label that has none to be type errors in TypeScript, Python and Rust, so that the compiler finds wiring mistakes before a Run does (ADRs 0082, 0093; G3)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "reach"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1018
+title = "As a developer, I want a Payload checked against its Label's schema at enqueue, JSON only and at most `crawl.payload.max_size` (64 KiB), failing with `payload_invalid`, and a resume after a schema change checked per ADR 0082, so that a handler's input is never a surprise (ADR 0082; P21)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1025
 title = "As a developer, I want handlers to run on the TypeScript event loop, in the connection's thread pool for sync Python, as tasks in the Run's task group for async Python, and inside `serve` in Rust, so that the SDK spawns nothing of its own on my executor (ADRs 0081, 0093; K04)."
 milestone = "M2 Client surfaces"

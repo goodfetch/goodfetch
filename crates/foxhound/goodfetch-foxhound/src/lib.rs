@@ -49,7 +49,9 @@ pub mod settings;
 mod sync;
 
 pub use composition::{composition, composition_with};
-pub use crawl::{Crawl, CrawlContext, CrawlRun, Dataset, Label, Seed, StartCrawl};
+pub use crawl::{
+    Crawl, CrawlContext, CrawlRun, Dataset, Label, LabelDeclaration, Seed, StartCrawl,
+};
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{
     ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,

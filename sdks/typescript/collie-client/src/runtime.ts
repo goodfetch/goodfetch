@@ -24,6 +24,8 @@ export {
 } from "./file-saving.ts";
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
+export { nonJSON, type NonJSON } from "./json.ts";
+export { parse, type SchemaIssue, wireSchema } from "./schema.ts";
 export { alsoInNamespace } from "./raw-call.ts";
 export { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";

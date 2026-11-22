@@ -18,12 +18,15 @@ use std::sync::{Arc, PoisonError};
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
-use goodfetch_collie_client::{BoxError, ClientConnection, Error, HandlerCall, Run};
+use goodfetch_collie_client::schemars::JsonSchema;
+use goodfetch_collie_client::{
+    BoxError, ClientConnection, Error, HandlerCall, Run, Schema, SchemaError,
+};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams,
     CrawlRequestHandled, CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip,
-    LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration, LabelUnknownDetails,
-    RETRY_REQUESTED, RequestSeed, Seed as SeedRequest, Seeds,
+    LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel,
+    LabelUnknownDetails, RETRY_REQUESTED, RequestSeed, Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
     CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed, DATASET_DUPLICATE,
@@ -31,7 +34,8 @@ use goodfetch_protocol::foxhound::dataset::{
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::frontier::{
-    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpMethod,
+    CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpMethod, PAYLOAD_INVALID,
+    PayloadInvalidDetails, PayloadIssue,
 };
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams, Tags};
@@ -77,10 +81,11 @@ type Handler<'a> = Box<dyn Fn(Arc<Attempt>) -> Result<HandlerFuture<'a>, Error> 
 /// handler may borrow from the scope that serves the crawl (ADR 0112).
 ///
 /// ```no_run
+/// use goodfetch_foxhound::schemars::{self, JsonSchema};
 /// use goodfetch_foxhound::{ConnectOptions, Crawl, CrawlContext, Foxhound, Seed};
 ///
 /// # async fn crawl() -> Result<(), goodfetch_foxhound::Error> {
-/// #[derive(serde::Serialize, serde::Deserialize)]
+/// #[derive(JsonSchema, serde::Serialize, serde::Deserialize)]
 /// struct Book {
 ///     shelf: u32,
 /// }
@@ -103,9 +108,17 @@ type Handler<'a> = Box<dyn Fn(Arc<Attempt>) -> Result<HandlerFuture<'a>, Error> 
 /// ```
 pub struct Crawl<'a> {
     id: CrawlId,
-    /// Each Label in the order declared, with its handler once attached.
-    labels: Vec<(Arc<str>, Option<Handler<'a>>)>,
+    /// Each Label in the order declared.
+    labels: Vec<Declared<'a>>,
     datasets: Vec<DatasetDeclaration>,
+}
+
+/// A Label as its crawl declares it: its name, its Payload's JSON Schema,
+/// and its handler once attached.
+struct Declared<'a> {
+    name: Arc<str>,
+    payload: Value,
+    handler: Option<Handler<'a>>,
 }
 
 impl Default for Crawl<'_> {
@@ -119,7 +132,7 @@ impl fmt::Debug for Crawl<'_> {
         let labels: Vec<(&str, bool)> = self
             .labels
             .iter()
-            .map(|(name, handler)| (&**name, handler.is_some()))
+            .map(|declared| (&*declared.name, declared.handler.is_some()))
             .collect();
         formatter
             .debug_struct("Crawl")
@@ -139,15 +152,25 @@ impl<'a> Crawl<'a> {
         }
     }
 
-    /// Declares the Label `name`, whose requests carry a Payload of type
-    /// `P`, and returns it, the handle seeds, enqueues and its handler
-    /// name it by.
+    /// Declares a Label, whose requests carry a Payload of type `P`, and
+    /// returns it, the handle seeds, enqueues and its handler name it by:
+    /// `crawl.label::<P>(name)` with the schema `schemars` derives for `P`,
+    /// or a [`LabelDeclaration`] with a schema of its own (ADRs 0082 and
+    /// 0099). The engine receives the schema and checks each of the
+    /// Label's Payloads against it at its enqueue, so a seed, an enqueue
+    /// and a handler take a `P`, and the compiler refuses another type,
+    /// `()` for a Label without a Payload.
     ///
     /// # Errors
     ///
-    /// `label_duplicate` when the crawl already declares a Label `name`.
-    pub fn label<P>(&mut self, name: &str) -> Result<Label<P>, Error> {
-        if self.labels.iter().any(|(declared, _)| **declared == *name) {
+    /// `label_duplicate` when the crawl already declares a Label of its
+    /// name.
+    pub fn label<P: Serialize + DeserializeOwned>(
+        &mut self,
+        declaration: impl Into<LabelDeclaration<P>>,
+    ) -> Result<Label<P>, Error> {
+        let LabelDeclaration { name, payload } = declaration.into();
+        if self.labels.iter().any(|declared| *declared.name == *name) {
             return Err(Error::of_sdk(
                 &LABEL_DUPLICATE,
                 &format!("the crawl already declares the Label `{name}`"),
@@ -156,11 +179,15 @@ impl<'a> Crawl<'a> {
             ));
         }
         let name: Arc<str> = Arc::from(name);
-        self.labels.push((Arc::clone(&name), None));
+        self.labels.push(Declared {
+            name: Arc::clone(&name),
+            payload: payload.wire_schema().clone(),
+            handler: None,
+        });
         Ok(Label {
             name,
             crawl: self.id,
-            payload: PhantomData,
+            payload: Arc::new(payload),
         })
     }
 
@@ -188,7 +215,7 @@ impl<'a> Crawl<'a> {
         let slot = self
             .labels
             .iter_mut()
-            .find_map(|(name, slot)| (*name == label.name).then_some(slot))
+            .find_map(|declared| (declared.name == label.name).then_some(&mut declared.handler))
             .expect("invariant: a Label of this crawl is declared on it");
         if slot.is_some() {
             return Err(Error::of_sdk(
@@ -354,7 +381,11 @@ impl<'a> Crawl<'a> {
             )
         })?;
         let label = params.crawl_request.label.as_str();
-        let Some((name, Some(handler))) = self.labels.iter().find(|(name, _)| **name == *label)
+        let Some(Declared {
+            name,
+            handler: Some(handler),
+            ..
+        }) = self.labels.iter().find(|declared| *declared.name == *label)
         else {
             return Err(label_unknown(label, declared.to_vec()));
         };
@@ -372,7 +403,7 @@ impl<'a> Crawl<'a> {
     fn declared(&self) -> Vec<String> {
         self.labels
             .iter()
-            .map(|(name, _)| name.to_string())
+            .map(|declared| declared.name.to_string())
             .collect()
     }
 
@@ -383,7 +414,11 @@ impl<'a> Crawl<'a> {
 
     /// What `crawl.start` takes to start the crawl from `seeds`.
     fn start_params(&self, seeds: Vec<Seed>) -> Result<CrawlStartParams, Error> {
-        if let Some((name, _)) = self.labels.iter().find(|(_, handler)| handler.is_none()) {
+        if let Some(Declared { name, .. }) = self
+            .labels
+            .iter()
+            .find(|declared| declared.handler.is_none())
+        {
             return Err(Error::of_sdk(
                 &LABEL_UNHANDLED,
                 &format!("the crawl attaches no handler to the Label `{name}`"),
@@ -421,7 +456,13 @@ impl<'a> Crawl<'a> {
             labels: self
                 .labels
                 .iter()
-                .map(|(name, _)| (name.to_string(), LabelDeclaration::default()))
+                .map(|declared| {
+                    let wire = WireLabel {
+                        payload: Some(declared.payload.clone()),
+                        ..WireLabel::default()
+                    };
+                    (declared.name.to_string(), wire)
+                })
                 .collect(),
             datasets: self.datasets.clone(),
             extraction: None,
@@ -446,10 +487,37 @@ fn label_unknown(label: &str, declared: Vec<String>) -> Error {
     )
 }
 
-/// The `payload_invalid` of a Payload that does not serialize, or does not
-/// read as its Label's type.
+/// The `payload_invalid` of a delivered Payload that does not read as its
+/// Label's type.
 fn payload_invalid(error: serde_json::Error) -> Error {
     Error::of_program(Box::new(error), error_code::PAYLOAD_INVALID)
+}
+
+/// The `payload_invalid` of a Payload for `label` its schema refused
+/// before anything was sent: it is not JSON, or does not read back as
+/// sent; the details name the issue's JSON Pointer, as the engine's own.
+fn payload_refused(label: &str, error: &SchemaError) -> Error {
+    let path = match error {
+        SchemaError::NotJson { path, .. } | SchemaError::ChangesOnReadBack { path, .. } => {
+            path.clone()
+        }
+        _ => String::new(),
+    };
+    Error::of_sdk(
+        &PAYLOAD_INVALID,
+        &format!("the Payload for the Label `{label}` was not sent: {error}"),
+        "Give a Payload that is JSON and that its type's `Deserialize` reads back as it was given.",
+        &PayloadInvalidDetails {
+            label: label.to_owned(),
+            issues: vec![PayloadIssue {
+                path,
+                message: error.to_string(),
+            }],
+            limit: None,
+            size: None,
+            max_size: None,
+        },
+    )
 }
 
 /// Gives back, once the serve of a Run ends or is dropped, the Crawl
@@ -520,13 +588,80 @@ enum Ending {
     RetryRequested(String),
 }
 
+/// What [`Crawl::label`] declares (ADRs 0082, 0093 and 0099): a Label's
+/// name and the schema of its Payloads, of type `P`. A bare name declares
+/// the Label with the schema `schemars` derives for `P`, on the side `P`
+/// deserializes from; [`LabelDeclaration::payload`] gives a schema of its
+/// own, such as a JSON Schema written by hand for [`Value`] Payloads.
+///
+/// ```
+/// use goodfetch_foxhound::{Crawl, LabelDeclaration, Schema};
+/// use serde_json::{Value, json};
+///
+/// # fn declare() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut crawl = Crawl::new();
+/// let isbn = Schema::json(json!({
+///     "type": "object",
+///     "properties": { "isbn": { "type": "string" } },
+///     "required": ["isbn"],
+/// }))?;
+/// let book = crawl.label(LabelDeclaration::<Value>::new("book").payload(isbn))?;
+/// # let _ = book;
+/// # Ok(())
+/// # }
+/// ```
+pub struct LabelDeclaration<P> {
+    name: String,
+    payload: Schema<P>,
+}
+
+impl<P: JsonSchema + Serialize + DeserializeOwned> LabelDeclaration<P> {
+    /// The Label `name`, whose Payloads the schema `schemars` derives for
+    /// `P` types.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            payload: Schema::derived(),
+        }
+    }
+}
+
+impl<P> LabelDeclaration<P> {
+    /// Types the Label's Payloads by `schema` in place of the one
+    /// `schemars` derives.
+    #[must_use]
+    pub fn payload(self, schema: Schema<P>) -> Self {
+        Self {
+            payload: schema,
+            ..self
+        }
+    }
+}
+
+impl<P: JsonSchema + Serialize + DeserializeOwned> From<&str> for LabelDeclaration<P> {
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}
+
+impl<P> fmt::Debug for LabelDeclaration<P> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LabelDeclaration")
+            .field("name", &self.name)
+            .field("payload", &self.payload)
+            .finish()
+    }
+}
+
 /// A Label a crawl declares (ADR 0093), whose requests carry a Payload of
 /// type `P`: what a seed, an enqueue and a handler name. Cloning it is
 /// cheap.
 pub struct Label<P> {
     name: Arc<str>,
     crawl: CrawlId,
-    payload: PhantomData<fn() -> P>,
+    /// The schema its Payloads are sent by.
+    payload: Arc<Schema<P>>,
 }
 
 impl<P> Label<P> {
@@ -536,12 +671,22 @@ impl<P> Label<P> {
     }
 }
 
+impl<P: Serialize + DeserializeOwned> Label<P> {
+    /// `payload` as the JSON its schema sends, or the `payload_invalid`
+    /// that refuses it before anything is sent.
+    fn encode(&self, payload: &P) -> Result<Value, Error> {
+        self.payload
+            .encode(payload)
+            .map_err(|error| payload_refused(&self.name, &error))
+    }
+}
+
 impl<P> Clone for Label<P> {
     fn clone(&self) -> Self {
         Self {
             name: Arc::clone(&self.name),
             crawl: self.crawl,
-            payload: PhantomData,
+            payload: Arc::clone(&self.payload),
         }
     }
 }
@@ -595,13 +740,22 @@ pub struct Seed {
 }
 
 impl Seed {
-    /// The request of `url`, handled by `label`'s handler with `payload`.
-    pub fn new<P: Serialize>(url: impl Into<String>, label: &Label<P>, payload: P) -> Self {
+    /// The request of `url`, handled by `label`'s handler with `payload`,
+    /// of the type `label` declares.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
+    )]
+    pub fn new<P: Serialize + DeserializeOwned>(
+        url: impl Into<String>,
+        label: &Label<P>,
+        payload: P,
+    ) -> Self {
         Self {
             url: url.into(),
             label: Arc::clone(&label.name),
             crawl: label.crawl,
-            payload: serde_json::to_value(payload).map_err(payload_invalid),
+            payload: label.encode(&payload),
         }
     }
 }
@@ -631,8 +785,9 @@ impl Foxhound {
     ///
     /// Awaiting it fails with `label_unhandled` for a Label with no
     /// handler, `label_unknown` for a seed of another crawl's Label,
-    /// `payload_invalid` for a Payload that does not serialize,
-    /// `invalid_params` with no seed, and what `crawl.start` fails with.
+    /// `payload_invalid` for a Payload that is not JSON, or that its
+    /// Label's schema refuses, naming each issue, `invalid_params` with no
+    /// seed, and what `crawl.start` fails with.
     pub fn start_crawl(
         &self,
         crawl: &Crawl<'_>,
@@ -867,21 +1022,26 @@ impl<P> CrawlContext<P> {
     /// # Errors
     ///
     /// `label_unknown` for a Label of another crawl, `payload_invalid` for
-    /// a Payload that does not serialize or that its Label refuses, and
+    /// a Payload that is not JSON, that its Label's schema refuses, naming
+    /// each issue, or that is longer than `crawl.payload.max_size`, and
     /// `attempt_ended` once the attempt has ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the request enqueued or not.
-    pub fn enqueue<Q: Serialize>(
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
+    )]
+    pub fn enqueue<Q: Serialize + DeserializeOwned>(
         &self,
         url: impl Into<String>,
         label: &Label<Q>,
         payload: Q,
     ) -> impl Future<Output = Result<Enqueued, Error>> + Send + 'static {
         let params = if label.crawl == self.attempt.crawl {
-            serde_json::to_value(payload)
-                .map_err(payload_invalid)
+            label
+                .encode(&payload)
                 .map(|payload| CrawlRequestEnqueueParams {
                     run_id: self.attempt.params.run_id.clone(),
                     crawl_request_id: self.attempt.params.crawl_request.id.clone(),

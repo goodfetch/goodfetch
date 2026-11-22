@@ -5,7 +5,15 @@
 // its seeds; the engine then leases each work item to the handler of its
 // Label, which reads its page and enqueues requests and pushes Records
 // through its `CrawlContext`.
-import type { Locator, Page } from "@goodfetch/collie-client";
+import type {
+  JSONObject,
+  JSONSchema,
+  Locator,
+  Page,
+  SchemaInput,
+  TypedSchema,
+} from "@goodfetch/collie-client";
+import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
 import type {
   CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
@@ -16,14 +24,36 @@ import type {
   LabelDeclaration,
   RequestSeed,
 } from "./generated/index.ts";
-import { LabelDuplicateError, LabelUnhandledError, LabelUnknownError } from "./generated/errors.ts";
+import {
+  LabelDuplicateError,
+  LabelUnhandledError,
+  LabelUnknownError,
+  PayloadInvalidError,
+} from "./generated/errors.ts";
 import { settingsOnWire, type LabelSettings } from "./generated/settings.ts";
 
 /** A JSON object the wire carries, such as a Payload or a Record. */
 type WireObject = Readonly<Record<string, unknown>>;
 
+/**
+ * A Label's Payload schema (ADR 0082): a typed one whose input is an
+ * object, Standard Schema with Standard JSON Schema such as Zod's, or a
+ * JSON Schema written by hand.
+ */
+export type PayloadSchema = TypedSchema<object, unknown> | JSONSchema;
+
+/** What a program sends as a Payload under `S`: its input type, or a JSON object for a hand-written one. */
+export type PayloadInput<S extends PayloadSchema> = S extends TypedSchema
+  ? SchemaInput<S>
+  : JSONObject;
+
 /** What `crawl.label` takes. */
-export interface LabelOptions {
+export interface LabelOptions<S extends PayloadSchema | undefined = PayloadSchema | undefined> {
+  /**
+   * The schema of the Payload its requests carry (ADR 0082), which the
+   * engine receives as JSON Schema; a Label without one carries none.
+   */
+  readonly payload?: S;
   /**
    * The Label's own settings over its Run's, nested by camelCase segment,
    * such as `{ fetch: { tier: "http" } }` (ADR 0093): a key a Label does not
@@ -32,10 +62,13 @@ export interface LabelOptions {
   readonly settings?: LabelSettings | undefined;
 }
 
+/** Each Label's Payload schema, set once when it is declared; a Label without one has none. */
+const payloadSchemas = new WeakMap<Label<object | undefined>, PayloadSchema>();
+
 /**
  * A kind of page a crawl handles (ADR 0093): each request names one, and
  * the handler attached to it handles its pages. `P` is the type of the
- * Payload its requests carry.
+ * Payload its requests carry, `undefined` for a Label without one.
  */
 export class Label<P extends object | undefined = undefined> {
   /** Tells a `Label<A>` from a `Label<B>` to the type checker; never set. */
@@ -44,10 +77,20 @@ export class Label<P extends object | undefined = undefined> {
   readonly name: string;
 
   /** @internal `crawl.label` declares a Label; a program never constructs one. */
-  constructor(name: string) {
+  constructor(name: string, schema: PayloadSchema | undefined) {
     this.name = name;
+    if (schema !== undefined) payloadSchemas.set(this, schema);
   }
 }
+
+/**
+ * What follows the Label in `enqueue`, `enqueueLinks` and `seed`: the
+ * Payload, then the options, for a Label with a Payload, and the options
+ * alone for one without (ADR 0082, G3).
+ */
+export type PayloadThen<P extends object | undefined, O> = [P] extends [undefined]
+  ? [options?: O]
+  : [payload: P, options?: O];
 
 /** What `crawl.dataset` takes. */
 export interface DatasetOptions<I extends object> {
@@ -108,29 +151,32 @@ export interface CrawlContext {
   /**
    * Adds a request to the crawl, under `label`, and answers what the
    * Frontier did with it: added, with its ID, or not added, with its
-   * reason. A relative URL resolves against the page's base URL. A
-   * Label the crawl does not declare, such as another crawl's, fails with
-   * `label_unknown`, and nothing is sent.
+   * reason. A relative URL resolves against the page's base URL. The
+   * Payload comes after the Label only when the Label has one (ADR 0082).
+   * A Label the crawl does not declare, such as another crawl's, fails with
+   * `label_unknown`; a Payload that is not JSON or that its Label's schema
+   * refuses fails with `payload_invalid`, naming each issue's path, and
+   * nothing is sent. The engine checks it again, and refuses one whose
+   * JSON is longer than `crawl.payload.max_size` with `payload_invalid`.
    */
   enqueue<Q extends object | undefined>(
     url: string,
     label: Label<Q>,
-    payload?: Q,
-    options?: RequestOptions,
+    ...rest: PayloadThen<NoInfer<Q>, RequestOptions>
   ): Promise<Enqueued>;
   /**
    * Adds every link `locator` matches on the attempt's page, under
-   * `label`, each with `payload`, and answers what became of each matched
-   * element in document order: added, with its ID, not added, with its
-   * reason, or with no link. Each `href` resolves against the document's
-   * base URL (ADR 0093). A Label the crawl does not declare fails with
-   * `label_unknown`, and nothing is sent.
+   * `label`, each with the Payload that follows it when the Label has one,
+   * and answers what became of each matched element in document order:
+   * added, with its ID, not added, with its reason, or with no link. Each
+   * `href` resolves against the document's base URL (ADR 0093). A Label
+   * the crawl does not declare fails with `label_unknown`, and a Payload
+   * as `enqueue`'s refuses it with `payload_invalid`, and nothing is sent.
    */
   enqueueLinks<Q extends object | undefined>(
     locator: Locator,
     label: Label<Q>,
-    payload?: Q,
-    options?: EnqueueLinksOptions,
+    ...rest: PayloadThen<NoInfer<Q>, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
   /**
    * Pushes one Record, or a list of Records in one message, into
@@ -167,6 +213,7 @@ let declarationOf: (crawl: Crawl) => Pick<CrawlStartParams, "labels" | "datasets
 let handlerIn: (crawl: Crawl, label: string) => Handler | undefined;
 let declaredIn: (crawl: Crawl, label: Label<object | undefined>) => string;
 let checkStartable: (crawl: Crawl, seeds: readonly RequestSeed[]) => void;
+let labelNamed: (crawl: Crawl, name: string) => Label<object | undefined> | undefined;
 
 /**
  * A crawl's declaration (ADR 0093): its Labels, the handler of each and
@@ -178,26 +225,30 @@ export class Crawl {
     handlerIn = (crawl, label) => crawl.#labels.get(label)?.handler;
     declaredIn = (crawl, label) => crawl.#declared(label).label.name;
     checkStartable = (crawl, seeds) => crawl.#checkStartable(seeds);
+    labelNamed = (crawl, name) => crawl.#labels.get(name)?.label;
   }
 
   readonly #labels = new Map<string, Declared>();
   readonly #datasets = new Map<string, DatasetDeclaration>();
 
   /**
-   * Declares the Label `name`, whose requests carry Payloads of type `P`.
-   * A second Label of one name fails with `label_duplicate`.
+   * Declares the Label `name`, whose requests carry Payloads of the
+   * `payload` schema's input type, or none when it has no schema (ADR
+   * 0082). A second Label of one name fails with `label_duplicate`.
    */
-  label<P extends object | undefined = undefined>(
+  label<S extends PayloadSchema>(
     name: string,
-    options: LabelOptions = {},
-  ): Label<P> {
+    options: LabelOptions<S> & { readonly payload: S },
+  ): Label<PayloadInput<S>>;
+  label(name: string, options?: LabelOptions<undefined>): Label;
+  label(name: string, options: LabelOptions = {}): Label<object | undefined> {
     if (this.#labels.has(name)) {
       throw new LabelDuplicateError(`the Crawl already declares the Label ${name}`, {
         fix: "Declare each Label once, and use the Label the first `crawl.label` returned.",
         details: { label: name },
       });
     }
-    const label = new Label<P>(name);
+    const label = new Label<object | undefined>(name, options.payload);
     this.#labels.set(name, { label, settings: options.settings, handler: undefined });
     return label;
   }
@@ -261,9 +312,13 @@ export class Crawl {
 
   #declaration(): Pick<CrawlStartParams, "labels" | "datasets"> {
     const labels: Record<string, LabelDeclaration> = {};
-    for (const [name, { settings }] of this.#labels) {
+    for (const [name, { label, settings }] of this.#labels) {
       const wire = settingsOnWire(settings);
-      labels[name] = wire === undefined ? {} : { settings: wire };
+      const schema = payloadSchemas.get(label);
+      labels[name] = {
+        ...(schema === undefined ? {} : { payload: wireSchema(schema) }),
+        ...(wire === undefined ? {} : { settings: wire }),
+      };
     }
     const datasets = [...this.#datasets.values()];
     return { labels, ...(datasets.length === 0 ? {} : { datasets }) };
@@ -284,6 +339,21 @@ export function checkCrawlStartable(crawl: Crawl, seeds: readonly RequestSeed[])
   checkStartable(crawl, seeds);
 }
 
+/**
+ * Fails with `payload_invalid`, before anything is sent, when a seed's
+ * Payload is refused by its Label's schema's own parse; `seeds` name only
+ * Labels `crawl` declares, as `checkCrawlStartable` checked.
+ */
+export async function checkSeedPayloads(
+  crawl: Crawl,
+  seeds: readonly RequestSeed[],
+): Promise<void> {
+  for (const { label, payload } of seeds) {
+    const declared = labelNamed(crawl, label);
+    if (declared !== undefined) await checkPayload(declared, payload);
+  }
+}
+
 /** The name of `label`, which `crawl` must declare; another crawl's Label fails with `label_unknown`. */
 export function declaredLabel(crawl: Crawl, label: Label<object | undefined>): string {
   return declaredIn(crawl, label);
@@ -294,19 +364,84 @@ export function handlerOf(crawl: Crawl, label: string): Handler | undefined {
   return handlerIn(crawl, label);
 }
 
-/** A seed request of a crawl: `url`, handled under `label`, carrying `payload`. */
+/**
+ * A seed request of a crawl: `url`, handled under `label`, carrying the
+ * Payload that follows it when the Label has one (ADR 0082). A Payload
+ * that is not JSON fails with `payload_invalid` here, and one its Label's
+ * schema refuses fails `startCrawl` with it, before anything is sent.
+ */
 export function seed<P extends object | undefined>(
   url: string,
   label: Label<P>,
-  payload?: P,
-  options: RequestOptions = {},
+  ...rest: PayloadThen<NoInfer<P>, RequestOptions>
 ): RequestSeed {
-  return { url, label: label.name, ...payloadOf(payload), ...requestOptions(options) };
+  const { payload, options = {} } = payloadAndOptions(label, rest);
+  return { url, label: label.name, ...payloadOf(label, payload), ...requestOptions(options) };
 }
 
-/** The wire's `payload` field for `payload`: none when it is left out. */
-export function payloadOf(payload: object | undefined): { readonly payload?: WireObject } {
-  return payload === undefined ? {} : { payload: wireObject(payload) };
+/**
+ * What follows `label` in a call that takes `PayloadThen`: its Payload
+ * and options for a Label with a Payload, its options alone for one
+ * without.
+ */
+export function payloadAndOptions<P extends object | undefined, O>(
+  label: Label<P>,
+  rest: PayloadThen<P, O>,
+): { readonly payload: unknown; readonly options: O | undefined } {
+  const given: readonly unknown[] = rest;
+  const [first, second] = given;
+  const hasPayload = payloadSchemas.has(label);
+  const options = hasPayload ? second : first;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `PayloadThen` types what follows the Label as its options, after the Payload when the Label has one.
+  return { payload: hasPayload ? first : undefined, options: options as O | undefined };
+}
+
+/**
+ * The wire's `payload` field for `payload`, sent under `label`: none when
+ * the Label has none. A value that is not JSON fails with
+ * `payload_invalid`, naming its path.
+ */
+export function payloadOf(
+  label: Label<object | undefined>,
+  payload: unknown,
+): { readonly payload?: WireObject } {
+  if (!payloadSchemas.has(label)) return {};
+  const refusal = nonJSON(payload);
+  if (refusal !== undefined) {
+    throw payloadRefused(label.name, [
+      { path: refusal.path, message: `${refusal.found} is not JSON` },
+    ]);
+  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `nonJSON` found nothing that is not JSON, and `PayloadThen` types a Payload as an object.
+  return { payload: payload as WireObject };
+}
+
+/**
+ * Fails with `payload_invalid` when `payload`, sent under `label`, is
+ * refused by the Label's schema's own parse (ADR 0082), naming each issue.
+ */
+export async function checkPayload(
+  label: Label<object | undefined>,
+  payload: WireObject | undefined,
+): Promise<void> {
+  const schema = payloadSchemas.get(label);
+  if (schema === undefined) return;
+  // A declared schema reads a missing Payload as `null`, as the engine does.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `payloadOf` checked that a Payload is JSON.
+  const parsed = await parse(schema, (payload ?? null) as JSONObject | null);
+  if ("issues" in parsed) throw payloadRefused(label.name, parsed.issues);
+}
+
+/** The `payload_invalid` of a Payload for the Label `label` refused for `issues`. */
+function payloadRefused(label: string, issues: readonly SchemaIssue[]): PayloadInvalidError {
+  const named = issues.map(({ path, message }) => `${path || "its root"}: ${message}`);
+  return new PayloadInvalidError(
+    `the Payload for the Label ${label} was not sent: ${named.join("; ")}`,
+    {
+      fix: "Send a Payload its Label's schema accepts, made of JSON values only: a string, a finite number, a boolean, null, an array or a plain object.",
+      details: { label, issues: issues.map(({ path, message }) => ({ path, message })) },
+    },
+  );
 }
 
 /** `value`'s own enumerable fields as the JSON object the wire carries. */

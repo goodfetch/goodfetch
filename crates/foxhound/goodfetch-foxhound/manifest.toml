@@ -221,6 +221,35 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "(crate)"
+member = "LabelDeclaration"
+entry = "none"
+reason = "What `crawl.label` declares: a Label's name and the schema of its Payloads (ADRs 0082, 0093 and 0099)."
+only = "TypeScript's `crawl.label` takes the name and a `LabelOptions` object."
+words = ["label", "declaration"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LabelDeclaration"
+member = "new"
+entry = "none"
+reason = "The Label `name`, whose Payloads are typed by the schema `schemars` derives for their type, built with no round trip."
+only = "TypeScript's `crawl.label` takes the name and a `LabelOptions` object."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LabelDeclaration"
+member = "payload"
+entry = "none"
+reason = "Types the Label's Payloads by a schema of its own, such as a JSON Schema written by hand (ADR 0082), with no round trip."
+words = ["payload"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."

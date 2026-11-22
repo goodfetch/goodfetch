@@ -19,7 +19,7 @@ use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{CapturedLog, Process, TestEnv, capturing, case_logs};
+use goodfetch_test_support::{CapturedLog, Process, TestEnv, capturing, case_logs, run_host_test};
 use tracing::Level;
 use tracing::subscriber::with_default;
 
@@ -248,6 +248,67 @@ fn each_engine_log_event_reaches_the_subscriber_under_goodfetch_engine() {
     );
     case.check("the crate sent exactly the script's messages", || {
         assert_played_whole(&process);
+    });
+}
+
+/// The variable that hands [`unlogged_host`] its Daemon's endpoint.
+const HOST_ENDPOINT: &str = "UNLOGGED_HOST_ENDPOINT";
+
+/// A program with no subscriber writes nothing to stdout or stderr, even
+/// for the engine's log events: [`unlogged_host`], a program of its own,
+/// says `off` in `hello`, and the Scripted engine's Daemon still sends it
+/// an error and a warning before its Run starts. TypeScript's and Python's
+/// twins run a fixture program the same way.
+/// Covers: story:11-25
+#[test]
+fn a_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr() {
+    let env = TestEnv::new();
+    let hello = HelloParams {
+        log_level: Some(LogLevel::Off),
+        ..daemon_hello()
+    };
+    let (process, endpoint) = scripted_daemon_hearing(
+        &env,
+        "sdk-rust/connect/engine-logs-without-a-subscriber.json",
+        &hello,
+    );
+    let endpoint = serde_json::to_string(&endpoint).unwrap();
+
+    let host = run_host_test(
+        &env,
+        "logging::unlogged_host",
+        &[(HOST_ENDPOINT, endpoint.as_ref())],
+    )
+    .unwrap();
+
+    assert_eq!(
+        (
+            host.status.success(),
+            host.stdout.as_str(),
+            host.stderr.as_str()
+        ),
+        (true, "", ""),
+    );
+    assert_played_whole(&process);
+}
+
+/// The program with no subscriber: it connects to the Daemon its parent
+/// names, with the level it records for the engine, which is `off`, then
+/// starts a Run, whose start the engine answers after its two log events,
+/// finishes it and closes.
+#[test]
+#[ignore = "run as a child by logging::a_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the host is a program of its own, whose parent names its Daemon in its environment"
+)]
+fn unlogged_host() {
+    let endpoint = std::env::var(HOST_ENDPOINT).unwrap();
+    let endpoint: DaemonEndpoint = serde_json::from_str(&endpoint).unwrap();
+    goodfetch_test_support::real_time_runtime().block_on(async {
+        let connection = connect(endpoint, hello_at_the_recorded_level()).await;
+        start_and_finish(&connection, "first").await;
+        connection.close().await.unwrap();
     });
 }
 

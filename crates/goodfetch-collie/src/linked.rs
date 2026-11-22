@@ -53,6 +53,7 @@ use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
 
+use self::project::{Project, ProjectChoice};
 use crate::engine_choice::{
     self, DaemonReach, EngineChoice, EngineFallback, EngineInfo, EngineKind, Reach,
 };
@@ -70,6 +71,7 @@ pub struct ConnectOptions {
     max_listener_queue: Option<usize>,
     engine: EngineChoice,
     settings: Settings,
+    project: ProjectChoice,
 }
 
 impl fmt::Debug for ConnectOptions {
@@ -85,6 +87,7 @@ impl fmt::Debug for ConnectOptions {
             .field("max_listener_queue", &self.max_listener_queue)
             .field("engine", &self.engine)
             .field("settings", &self.settings)
+            .field("project", &self.project)
             .finish()
     }
 }
@@ -149,6 +152,25 @@ impl ConnectOptions {
         self
     }
 
+    /// Reads the project file `path` (ADR 0083) in place of the
+    /// `goodfetch.toml` found in the working directory or the nearest
+    /// folder above it, as `config explain --project` does. A file that is not
+    /// there, or that does not read as a project file, fails the connect
+    /// with `setting_invalid` before any engine is reached.
+    #[must_use]
+    pub fn project(mut self, path: impl Into<PathBuf>) -> Self {
+        self.project = ProjectChoice::Named(path.into());
+        self
+    }
+
+    /// Reads no project file: the connection's Runs and its
+    /// `explain_settings()` have no layer 3.
+    #[must_use]
+    pub fn no_project(mut self) -> Self {
+        self.project = ProjectChoice::Skipped;
+        self
+    }
+
     /// How many unread events each stream of a Session's events holds
     /// (ADR 0081), in place of 1,024: a stream left unread past it loses
     /// only its own events, hands those it held, then ends with
@@ -164,8 +186,9 @@ impl ConnectOptions {
 
     /// The environment the connection reads, the one set or the
     /// process's, the connection's Limits, its `timeout` and its listener
-    /// queue, once checked, its engine, and its settings as `hello` carries
-    /// them, once checked.
+    /// queue, once checked, the project file it read, with the `timeout`
+    /// that file sets taken, its engine, and its settings as `hello`
+    /// carries them, once checked.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
@@ -180,12 +203,17 @@ impl ConnectOptions {
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
         check_environment(&environment).map_err(environment_refused)?;
+        let project = self.project.read()?;
+        let timeout = self
+            .timeout
+            .with_project(project.as_ref().and_then(Project::connect_timeout))?;
         Ok(Parts {
             environment,
             asked: Asked {
                 limits: self.limits,
-                timeout: self.timeout,
+                timeout,
                 listener_queue,
+                project,
             },
             engine: self.engine,
             settings,
@@ -242,13 +270,14 @@ struct Parts {
 }
 
 /// What the program asked of a connection, whatever engine it reaches: its
-/// Limits, how long it waits for `hello`'s answer, and how many unread
-/// events each stream of a Session's events holds.
+/// Limits, how long it waits for `hello`'s answer, how many unread events
+/// each stream of a Session's events holds, and the project file it read.
 #[derive(Debug, Default)]
 pub(crate) struct Asked {
     pub(crate) limits: Limits,
     pub(crate) timeout: ConnectTimeout,
     pub(crate) listener_queue: ListenerQueue,
+    pub(crate) project: Option<Project>,
 }
 
 /// The engine a connection links: its Product and that Product's
@@ -481,7 +510,7 @@ impl ProductConnection {
                 ..info(EngineKind::Linked, None, said, Some(home))
             }),
         };
-        opened.limited(asked.limits).await
+        opened.reached(asked).await
     }
 
     /// A connection on `runtime`, whose handle is `handle`, saying `hello`
@@ -527,16 +556,25 @@ impl ProductConnection {
         })
     }
 
-    /// The connection, opened, once it logged the engine it reached and
-    /// set each of `limits`; when a Limit is refused, it is closed.
-    async fn limited(self, limits: Limits) -> Result<Self, Error> {
+    /// The connection, opened, once it carries the project file `asked`
+    /// names, which `engine()` reports, logged the engine it reached and
+    /// set each of `asked`'s Limits; when a Limit is refused, it is closed.
+    async fn reached(mut self, asked: Asked) -> Result<Self, Error> {
+        if let Some(Project { file, sent }) = asked.project {
+            self.connection.carry_project(sent);
+            self.info = Arc::new(EngineInfo {
+                project_file: Some(file),
+                ..(*self.info).clone()
+            });
+        }
         tracing::info!(
             target: CLIENT,
             kind = %self.info.kind,
             url = self.info.url,
+            project_file = self.info.project_file.as_ref().map(|file| file.display().to_string()),
             "connect() reached its engine"
         );
-        if let Err(refused) = self.set(limits).await {
+        if let Err(refused) = self.set(asked.limits).await {
             if let Err(error) = self.close().await {
                 tracing::warn!(
                     target: "goodfetch::collie",
@@ -884,6 +922,7 @@ fn close_timeout() -> Duration {
     Duration::from_millis(millis)
 }
 
+mod project;
 mod refusable;
 #[cfg(test)]
 mod tests;

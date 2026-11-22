@@ -678,7 +678,8 @@ impl IntoFuture for StartCrawl {
     type IntoFuture = Pin<Box<dyn Future<Output = Result<CrawlRun, Error>> + Send + 'static>>;
 
     /// Opens the connection's stream of Crawl requests before the start
-    /// is sent, so the engine's first request finds it.
+    /// is sent, so the engine's first request finds it. The start carries
+    /// the project file the connection carries (ADR 0083).
     fn into_future(self) -> Self::IntoFuture {
         let Self {
             connection,
@@ -687,7 +688,8 @@ impl IntoFuture for StartCrawl {
             declared,
             params,
         } = self;
-        let started = params.and_then(|params| {
+        let started = params.and_then(|mut params| {
+            params.project = connection.project().cloned();
             requests.open(&connection)?;
             Ok(connection.start_with(CRAWL_START.name, params))
         });

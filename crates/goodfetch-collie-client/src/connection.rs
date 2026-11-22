@@ -17,7 +17,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::pin::{Pin, pin};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, PoisonError, Weak};
+use std::sync::{Arc, OnceLock, PoisonError, Weak};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
@@ -27,7 +27,7 @@ use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::jsonrpc::META;
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevel, LogLevelSet, SetLogLevelParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
-use goodfetch_protocol::settings::TIMEOUT_CLOSE;
+use goodfetch_protocol::settings::{ProjectSettings, TIMEOUT_CLOSE};
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -155,6 +155,9 @@ struct Inner {
     /// `hello`'s, then each one a start told it, which a remote Daemon
     /// reached again is greeted with.
     log_level: Arc<Mutex<LogLevel>>,
+    /// The project file its program read (ADR 0083), which each Run's
+    /// start and its own `config.explain` carry once it is set.
+    project: OnceLock<ProjectSettings>,
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
@@ -272,6 +275,7 @@ impl ClientConnection {
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
             log_level: Arc::clone(&log_level),
+            project: OnceLock::new(),
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
@@ -753,6 +757,25 @@ impl ClientConnection {
         );
         // The task ends without sending only when the runtime shut down.
         ended.recv().unwrap_or_else(|_| Err(Error::closed()))
+    }
+
+    /// Carries `project`, the project file its program read (ADR 0083),
+    /// as layer 3 of each Run it starts from now on and of its own
+    /// `config.explain`. A Connection carries one project file for good: a
+    /// second is ignored.
+    pub fn carry_project(&self, project: ProjectSettings) {
+        if self.0.project.set(project).is_err() {
+            tracing::debug!(
+                target: logging::CLIENT,
+                "the Connection already carries a project file; the second is ignored"
+            );
+        }
+    }
+
+    /// The project file it carries, if any.
+    #[must_use]
+    pub fn project(&self) -> Option<&ProjectSettings> {
+        self.0.project.get()
     }
 
     /// The level its engine was last told, held.

@@ -271,6 +271,12 @@ fn violations(script: &Script, contract: &Contract) -> Vec<Violation> {
                 }
                 schema_errors.extend(answer_errors(contract, answer, None));
             }
+            // The next Client starts with nothing to answer, as the player
+            // does.
+            Step::Drop {} => {
+                answering = Answering::Nothing;
+                sent_request = false;
+            }
             Step::Raw(_) | Step::Stall {} | Step::Close {} | Step::Exit(_) => {}
         }
         if !schema_errors.is_empty() {

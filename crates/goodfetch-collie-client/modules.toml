@@ -49,21 +49,26 @@
 # `ai_work` is the result of AI work that can claim success, how it ended,
 # its Verdict and its model's claim apart, and `require_verified()`, which
 # fails with `error`'s `not_verified` (ADRs 0079 and 0117).
+# `call_bounds` reads a Connection's own bounds on the calls it holds and
+# the bytes it has not written, and refuses a call past them (issue 3189),
+# which `connection` reads and `rpc` applies; `write_queue` holds the lines
+# the Connection's writer has not written and counts their bytes.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
 ai_work = ["error"]
 answer = []
 blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
 call = ["error", "rpc", "trace_context"]
+call_bounds = ["error"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
+connection = ["call", "call_bounds", "connect_timeout", "error", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
-handler = ["error", "line", "opening_process", "sync"]
+handler = ["error", "line", "opening_process", "sync", "write_queue"]
 host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
 line = []
@@ -74,10 +79,11 @@ opening_process = ["error"]
 published = ["error", "listener_queue", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
-rpc = ["error", "handler", "line", "logging", "opening_process", "trace_context", "transport"]
+rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "trace_context", "transport", "write_queue"]
 run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []
 trace_context = []
 transport = []
+write_queue = ["sync"]

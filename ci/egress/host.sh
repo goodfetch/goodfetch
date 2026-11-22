@@ -7,8 +7,6 @@ host_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # Written once the deny is in place on a runner's own system, holding the
 # job's name; under-deny.sh refuses to run a step before it exists.
 DENY_STATE="$host_root/target/egress/denied"
-# The macOS sandbox profile of the deny.
-SANDBOX_PROFILE="$host_root/target/egress/deny.sb"
 
 # The hosted Linux runner's network namespace and its link to the runner.
 NAMESPACE=goodfetch-egress
@@ -24,7 +22,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   source "$host_root/ci/vm/common.sh"
 fi
 
-# vm, namespace, sandbox or windows.
+# vm, namespace or windows.
 deny_backend() {
   case "${RUNNER_OS:-$(uname -s)}" in
     Linux) echo namespace ;;
@@ -33,7 +31,8 @@ deny_backend() {
       if command -v limactl >/dev/null && limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
         echo vm
       else
-        echo sandbox
+        echo "error: no deny on macOS without the job's VM; such a job is declared outside it (ADR 0043's amendment of 2026-11-22)" >&2
+        return 2
       fi
       ;;
     *)
@@ -43,4 +42,4 @@ deny_backend() {
   esac
 }
 
-export DENY_STATE SANDBOX_PROFILE NAMESPACE HOST_LINK JOB_LINK HOST_ADDRESS JOB_ADDRESS
+export DENY_STATE NAMESPACE HOST_LINK JOB_LINK HOST_ADDRESS JOB_ADDRESS

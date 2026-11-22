@@ -100,13 +100,13 @@ class ConnectionConnectionSettings(TypedDict):
     """
 
     max_pending_calls: NotRequired[int]
-    """The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+    """The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.
 
     `connection.max_pending_calls`.
     """
 
     max_queued_write_bytes: NotRequired[int]
-    """The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.
+    """The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.
 
     `connection.max_queued_write_bytes`.
     """
@@ -1229,6 +1229,18 @@ class SessionPageCheck(TypedDict):
 class ConnectionSessionPoolSettings(TypedDict):
     """The `session.pool` settings of `FoxhoundSettings`."""
 
+    affinity: NotRequired[Literal["host", "none"]]
+    """Which open Session with room a crawl's Session pool prefers for a request under `session.pool.growth: on_demand`. `host` prefers one whose last request went to the request's host; `none` draws among them at random. It never opens a Session.
+
+    `session.pool.affinity`.
+    """
+
+    growth: NotRequired[Literal["on_demand", "eager"]]
+    """When a crawl's Session pool opens a new Session. `on_demand` opens one only when no open Session of the client a request needs, at its domain's proxy tier, has room under `session.pool.session_concurrency`, or when a block that retired a Session leaves the domain owing one; a browser Session opens only while a browser page can be admitted for it, else the request waits for a browser Session with room. `eager` opens a new Session for every request while the pool is under `session.pool.max_size`, as Crawlee does.
+
+    `session.pool.growth`.
+    """
+
     max_age: NotRequired[timedelta]
     """How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.
 
@@ -1242,7 +1254,7 @@ class ConnectionSessionPoolSettings(TypedDict):
     """
 
     max_size: NotRequired[int]
-    """How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.
+    """How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to an open Session of the client it needs at its domain's proxy tier that has room under `session.pool.session_concurrency`, a new Session opening only when none has room and the pool is under this size; a full pool draws among the busy ones.
 
     `session.pool.max_size`.
     """
@@ -1251,6 +1263,12 @@ class ConnectionSessionPoolSettings(TypedDict):
     """How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.
 
     `session.pool.max_uses`.
+    """
+
+    session_concurrency: NotRequired[int | None]
+    """How many requests one Session of a crawl's Session pool serves at once under `session.pool.growth: on_demand`: 1. Unset, a Session serves any number, so the pool opens one Session for each client and proxy tier.
+
+    `session.pool.session_concurrency`.
     """
 
 
@@ -2801,6 +2819,18 @@ class RunSecuritySettings(TypedDict):
 class RunSessionPoolSettings(TypedDict):
     """The `session.pool` settings of `CrawlSettings`."""
 
+    affinity: NotRequired[Literal["host", "none"]]
+    """Which open Session with room a crawl's Session pool prefers for a request under `session.pool.growth: on_demand`. `host` prefers one whose last request went to the request's host; `none` draws among them at random. It never opens a Session.
+
+    `session.pool.affinity`.
+    """
+
+    growth: NotRequired[Literal["on_demand", "eager"]]
+    """When a crawl's Session pool opens a new Session. `on_demand` opens one only when no open Session of the client a request needs, at its domain's proxy tier, has room under `session.pool.session_concurrency`, or when a block that retired a Session leaves the domain owing one; a browser Session opens only while a browser page can be admitted for it, else the request waits for a browser Session with room. `eager` opens a new Session for every request while the pool is under `session.pool.max_size`, as Crawlee does.
+
+    `session.pool.growth`.
+    """
+
     max_age: NotRequired[timedelta]
     """How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.
 
@@ -2814,7 +2844,7 @@ class RunSessionPoolSettings(TypedDict):
     """
 
     max_size: NotRequired[int]
-    """How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.
+    """How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to an open Session of the client it needs at its domain's proxy tier that has room under `session.pool.session_concurrency`, a new Session opening only when none has room and the pool is under this size; a full pool draws among the busy ones.
 
     `session.pool.max_size`.
     """
@@ -2823,6 +2853,12 @@ class RunSessionPoolSettings(TypedDict):
     """How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.
 
     `session.pool.max_uses`.
+    """
+
+    session_concurrency: NotRequired[int | None]
+    """How many requests one Session of a crawl's Session pool serves at once under `session.pool.growth: on_demand`: 1. Unset, a Session serves any number, so the pool opens one Session for each client and proxy tier.
+
+    `session.pool.session_concurrency`.
     """
 
 

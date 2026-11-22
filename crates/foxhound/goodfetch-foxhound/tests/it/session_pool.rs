@@ -255,8 +255,10 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
     );
     // At `full`, each page's claim, which writes the pool's Sessions, is in
     // the file before its page is served: at `batch` the kill takes the
-    // open batch, and with it the Sessions it opened (ADR 0142).
-    let mut settings = settings(&json!({ "max_size": 2 }));
+    // open batch, and with it the Sessions it opened (ADR 0142). Growth is
+    // `eager`, so the one request in flight at a time opens a Session of
+    // its own while the pool has room and the kill finds two to keep.
+    let mut settings = settings(&json!({ "max_size": 2, "growth": "eager" }));
     settings["run_state"] = json!({ "durability": "full" });
     let mut killed = crate::site::engine_on(&env, &proving_ground);
     let mut before = Vec::new();
@@ -334,5 +336,89 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
             None,
             &json!("finished"),
         )
+    );
+}
+
+/// The grilling's case of G-06 (#2178), at two places where it had 32: a
+/// browser crawl with three requests in flight and two browser-page places
+/// opens two Sessions of the browser client, one per place, and the third
+/// request opens none: it waits for one of the two to have room and runs
+/// in it. Each Session makes its one browser context. The first draw also
+/// opens `session-2`, a Session's own transport that reads the site's
+/// files (#2422), so the browser's two are `session-1` and `session-3`.
+///
+/// Covers: setting:session.pool.growth, setting:governor.browser_page.ceiling
+#[test]
+fn browser_requests_past_the_places_wait_for_a_session_with_room_and_open_none() {
+    let env = TestEnv::new();
+    env.user_configuration("[settings.governor.browser_page]\nfloor = 2\nceiling = 2\n");
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = crate::fetch_tiers::engine(&env);
+    let settings = crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "browser" },
+            "crawl": { "handler": { "concurrency": 3 } },
+            "politeness": { "domain": { "concurrency": 3 } },
+            "browser": { "cdp_command_log": true },
+        }),
+    );
+    let seeds = seeds(
+        &proving_ground,
+        &[
+            "/corpus/article?n=1",
+            "/corpus/article?n=2",
+            "/corpus/article?n=3",
+        ],
+    );
+
+    // The first requests are held unanswered until two are in flight
+    // together, so the third is drawn while both Sessions are busy.
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": {
+            "run_id": "placed", "seeds": seeds, "settings": settings, "labels": { "page": {} },
+        },
+    }));
+    let mut held = Vec::new();
+    while held.len() < 2 {
+        let message = engine.next().unwrap();
+        assert!(message.get("error").is_none(), "{message}");
+        if message["method"] == "crawl_request.handle" {
+            held.push(message);
+        }
+    }
+    let mut sessions: Vec<Value> = held
+        .iter()
+        .map(|message| message["params"]["session"]["id"].clone())
+        .collect();
+    for message in held {
+        let mut reply = handle(&proving_ground, &message["params"]);
+        reply["jsonrpc"] = json!("2.0");
+        reply["id"] = message["id"].clone();
+        engine.send(&reply);
+    }
+    let finished = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "placed" }),
+        &mut |params: &Value| {
+            sessions.push(params["session"]["id"].clone());
+            Some(handle(&proving_ground, params))
+        },
+    );
+    assert!(engine.finished());
+
+    let opened: std::collections::BTreeSet<&str> =
+        sessions.iter().filter_map(Value::as_str).collect();
+    assert_eq!(
+        (
+            sessions.len(),
+            opened,
+            crate::browser_fetch::contexts_created(&env, "placed"),
+            &finished["result"]["lifecycle"],
+        ),
+        (3, ["session-1", "session-3"].into(), 2, &json!("finished"),),
+        "{sessions:?}"
     );
 }

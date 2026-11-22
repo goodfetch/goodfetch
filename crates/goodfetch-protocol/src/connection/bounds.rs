@@ -32,10 +32,10 @@ fn one_thousand_and_twenty_four() -> Value {
     Value::from(DEFAULT_MAX_LISTENER_QUEUE)
 }
 
-/// `connection.max_pending_calls` (issue 2518).
+/// `connection.max_pending_calls` (issues 2518, 3188 and 3189).
 pub const CONNECTION_MAX_PENDING_CALLS: Setting = Setting {
     name: "connection.max_pending_calls",
-    description: "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+    description: "The most calls the Client holds waiting for their answer, a whole number from 1: 10000 by default. A call past it is refused at once, unsent, with `connection_overloaded` and the bound `pending_calls`; the calls made before it go on. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
     kind: ValueKind::CountFromOne,
     default: ten_thousand,
     clearable: false,
@@ -47,10 +47,10 @@ pub const CONNECTION_MAX_PENDING_CALLS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `connection.max_queued_write_bytes` (issue 2518).
+/// `connection.max_queued_write_bytes` (issues 2518, 3188 and 3189).
 pub const CONNECTION_MAX_QUEUED_WRITE_BYTES: Setting = Setting {
     name: "connection.max_queued_write_bytes",
-    description: "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript Client applies it to its own transport from its first call, `hello` included. Set in `connect()`'s own `settings` only.",
+    description: "The most bytes the Client holds waiting to be written to the engine, a whole number from 1: 64 MiB (67108864) by default. While bytes wait, a call whose message would pass it is refused at once, unsent, with `connection_overloaded` and the bound `queued_write_bytes`; the calls made before it go on, and one message larger than the bound is still taken while nothing waits. The TypeScript, Python and Rust Clients apply it to their own transport from their first call, `hello` included. Set in `connect()`'s own `settings` only.",
     kind: ValueKind::CountFromOne,
     default: sixty_four_mebibytes,
     clearable: false,
@@ -77,15 +77,16 @@ pub const CONNECTION_MAX_LISTENER_QUEUE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// Whether the Client of `surface` applies the settings of
-/// [`Authority::ConnectionAlone`] to its transport: the TypeScript SDK's
-/// alone, until the Python and Rust Clients bound theirs.
-pub fn applies_client_bounds(surface: Surface) -> bool {
+/// Whether the Client of `surface` applies `bound`, a setting of
+/// [`Authority::ConnectionAlone`], to its transport: the TypeScript SDK's
+/// every one, the Python SDK's and the Rust Client's those on their calls
+/// (issues 3188 and 3189), whose listeners' bound is an option of their
+/// `connect`, and no other's.
+pub fn applies_client_bound(surface: Surface, bound: &Setting) -> bool {
     match surface {
         Surface::SdkTypescript => true,
-        Surface::SdkPython
-        | Surface::Rust
-        | Surface::Cli
+        Surface::SdkPython | Surface::Rust => bound.name != CONNECTION_MAX_LISTENER_QUEUE.name,
+        Surface::Cli
         | Surface::Mcp
         | Surface::Kennel
         | Surface::Cloud

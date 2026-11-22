@@ -6,7 +6,8 @@
 //!
 //! Beside the manifest, `xtask test-tools build` writes its input record,
 //! `<manifest>.inputs.json`: the tree the tools were built from and the
-//! size and modification time of each source Cargo compiled into them.
+//! size, modification time and content digest of each source Cargo
+//! compiled into them.
 //! Reading the manifest compares the record with the tree, so tools built
 //! before a merge, a `git switch` or an edit, or from another tree, are
 //! refused at their first use rather than run. A manifest with no record,
@@ -22,6 +23,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
+
+use data_encoding::HEXLOWER;
+use sha2::{Digest as _, Sha256};
 
 use crate::variables::{TOOLS_VARIABLE, Variables};
 
@@ -140,10 +144,11 @@ struct InputRecord {
 }
 
 /// One source: its path from the tree's folder, its size in bytes (none for
-/// a folder, whose size Linux and Windows count each their own way) and its
-/// modification time in nanoseconds since the Unix epoch.
+/// a folder, whose size Linux and Windows count each their own way), its
+/// modification time in nanoseconds since the Unix epoch and the SHA-256 of
+/// its content in lowercase hex (none for a folder).
 #[derive(serde::Deserialize)]
-struct Input(PathBuf, u64, u64);
+struct Input(PathBuf, u64, u64, Option<String>);
 
 /// The nanoseconds of the coarsest clock a source's time is read through:
 /// Windows keeps file times in 100 ns ticks, so Wine running a test built for
@@ -161,10 +166,22 @@ fn stamp(path: &Path) -> Option<(u64, u64)> {
 }
 
 /// Whether the file at `path` is as `input` recorded it: its size, and its
-/// modification time to the [`TICK`].
-fn unchanged(path: &Path, Input(_, size, modified): &Input) -> bool {
-    stamp(path).is_some_and(|(now_size, now_modified)| {
-        now_size == *size && now_modified / TICK == modified / TICK
+/// modification time to the [`TICK`] or, when only the time moved, its
+/// content, as a check that writes a file back with its own bytes moves its
+/// time alone (issue 3236). A folder has no content to compare.
+fn unchanged(path: &Path, Input(_, size, modified, digest): &Input) -> bool {
+    let Some((now_size, now_modified)) = stamp(path) else {
+        return false;
+    };
+    if now_size != *size {
+        return false;
+    }
+    if now_modified / TICK == modified / TICK {
+        return true;
+    }
+    digest.as_ref().is_some_and(|digest| {
+        std::fs::read(path)
+            .is_ok_and(|content| HEXLOWER.encode(&Sha256::digest(content)) == *digest)
     })
 }
 

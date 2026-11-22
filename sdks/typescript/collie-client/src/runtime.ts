@@ -27,6 +27,7 @@ export { holdInRealm } from "./realm.ts";
 export { alsoInNamespace } from "./raw-call.ts";
 export { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { resumable } from "./resumed-stream.ts";
 export { Sequence, type SequenceOptions } from "./sequence.ts";
 export {
   type DeprecatedSettings,
@@ -37,7 +38,7 @@ export {
 } from "./settings.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export { settingsOnWire } from "./generated/settings.ts";
-export { collieOperationNames } from "./generated/operations.ts";
+export { collieOperationClasses, collieOperationNames } from "./generated/operations.ts";
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export {
   fromWire,

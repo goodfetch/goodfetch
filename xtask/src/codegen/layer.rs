@@ -42,6 +42,28 @@ pub(super) enum Kind {
     Event,
 }
 
+/// What calling an operation does (ADR 0011), the catalog's
+/// `OperationClass`: after a reconnect, an SDK sends a call in flight
+/// again only when it is a read or an idempotent write (ADR 0079).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Class {
+    Read,
+    IdempotentWrite,
+    Effect,
+}
+
+impl Class {
+    /// Its `snake_case` name, as the catalog writes it.
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::IdempotentWrite => "idempotent_write",
+            Self::Effect => "effect",
+        }
+    }
+}
+
 /// An entry's deprecation as the catalog file holds it: the protocol
 /// crate's own type, so its one text (ADR 0099) is rendered by the
 /// function the CLI renders it with.
@@ -75,6 +97,7 @@ pub(super) struct Operation {
     pub(super) name: String,
     pub(super) product: Product,
     pub(super) description: String,
+    pub(super) class: Class,
     pub(super) kind: Kind,
     pub(super) params: TypeName,
     pub(super) result: TypeName,
@@ -654,6 +677,7 @@ mod tests {
             "name": name,
             "product": product,
             "description": "An operation.",
+            "class": "read",
             "kind": "round_trip",
             "reach": reach,
             "params": { "$ref": "#/$defs/Empty" },

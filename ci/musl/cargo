@@ -102,7 +102,11 @@ profile_guided() {
     done
   fi
   stable_metadata
-  add_rustflags "-Cprofile-use=$copy/merged.profdata" -Cllvm-args=-no-pgo-warn-mismatch
+  # Spelled `profile_use`, which rustc reads as `profile-use` and sccache
+  # 0.18 does not: sccache takes a `profile-use` file for an output of the
+  # compile and writes it again on each cache hit, a file of new mtime that
+  # makes Cargo rebuild every crate of the next build (mozilla/sccache#2960).
+  add_rustflags "-Cprofile_use=$copy/merged.profdata" -Cllvm-args=-no-pgo-warn-mismatch
   if [[ -f "$copy/order.txt" ]]; then
     export GOODFETCH_MUSL_ORDER_FILE="$copy/order.txt"
     # rustup's llvm-tools component, which ci/musl/install.sh adds.

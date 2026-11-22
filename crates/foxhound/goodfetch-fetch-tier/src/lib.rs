@@ -77,7 +77,7 @@ pub use gate::{
     RunHandOver, room_taken,
 };
 pub use goodfetch_extractor::BuiltIn;
-pub use goodfetch_page::page_value::PooledSession;
+pub use goodfetch_page::page_value::{HeldPlace, PooledSession};
 pub use http_profile::HttpProfile;
 pub use light_browser::{
     LIGHTPANDA, Prepared as LightBrowserBuild, pins as light_browser_pins,

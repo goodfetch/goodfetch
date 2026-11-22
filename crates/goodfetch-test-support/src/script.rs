@@ -84,6 +84,11 @@ pub enum Step {
     Stall {},
     /// The engine closes the connection.
     Close {},
+    /// The engine drops the connection at once, with no close, as a lost
+    /// network link does, and plays the steps after it to the next Client
+    /// that connects. Only the `websocket` mode takes another Client: any
+    /// other player refuses the step with `drop_unsupported`.
+    Drop {},
     /// Bytes the engine writes that are not JSON-RPC, which the check skips.
     Raw(Raw),
     /// The engine's process exits at once with this code, as a crash does,

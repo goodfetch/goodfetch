@@ -53,7 +53,7 @@ pub use admit::{
 };
 pub use behind::Lesson;
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
-pub use domain_key::DomainKeys;
+pub use domain_key::{DomainKeys, host_of};
 pub use identity::{
     Declared, Hop, PendingVisit, Reached, TABLES as VISITED_TABLES, admit_hop, admit_reached,
     fuzz_url_key, hold_reached, read_lookup, redirect_hop, redirect_reached, rewrite, url_key,

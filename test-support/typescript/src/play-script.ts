@@ -43,7 +43,9 @@ export interface PlayedScript {
    *
    * @throws {TestSupportError} `unexpected_message` when the Client sent a
    * message no step expects; `unused_step` when a step was left unused;
-   * `nothing_to_answer` when a `reply` or `await_reply` follows no request.
+   * `nothing_to_answer` when a `reply` or `await_reply` follows no request;
+   * `drop_unsupported` at a `drop`, which only the executable's
+   * `websocket` mode plays.
    */
   done(): Ending;
 }
@@ -59,6 +61,7 @@ type Step =
   | { readonly await_reply: Reply }
   | { readonly stall: object }
   | { readonly close: object }
+  | { readonly drop: object }
   | { readonly raw: { readonly text: string } }
   | { readonly exit: { readonly code: number } };
 
@@ -179,6 +182,9 @@ class Player implements PlayedScript {
       } else if ("raw" in step) {
         this.#engine.enqueue(encoder.encode(step.raw.text));
         this.messages.push({ from: "engine", raw: step.raw.text });
+      } else if ("drop" in step) {
+        // An in-process play has one Client: no other connects.
+        return this.#fail(dropUnsupported(index));
       } else {
         this.#end("close" in step ? { kind: "closed" } : { kind: "exit", code: step.exit.code });
       }
@@ -372,6 +378,13 @@ function unexpected(
 
 function unusedStep(step: number): TestSupportError {
   return new TestSupportError("unused_step", `unused_step: step ${step} was left unused`);
+}
+
+function dropUnsupported(step: number): TestSupportError {
+  return new TestSupportError(
+    "drop_unsupported",
+    `drop_unsupported: step ${step} drops the Client, and this mode takes no other`,
+  );
 }
 
 function nothingToAnswer(step: number): TestSupportError {

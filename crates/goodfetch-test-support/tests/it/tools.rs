@@ -8,6 +8,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_test_support::{TestEnv, Tool, Tools, ToolsError, tools};
 use rstest::rstest;
+use sha2::{Digest as _, Sha256};
 
 use crate::TEST_ENV;
 
@@ -108,10 +109,11 @@ impl BuiltTools {
     /// Writes the input record of tools built from `root` when the source's
     /// modification time read `nanoseconds` since the Unix epoch.
     fn record_modified(&self, root: &Path, nanoseconds: u64) {
-        let size = std::fs::metadata(&self.source).unwrap().len();
+        let content = std::fs::read(&self.source).unwrap();
+        let digest = data_encoding::HEXLOWER.encode(&Sha256::digest(&content));
         let record = serde_json::json!({
             "root": root,
-            "inputs": [["src/lib.rs", size, nanoseconds]],
+            "inputs": [["src/lib.rs", content.len(), nanoseconds, digest]],
         });
         std::fs::write(
             self.manifest.with_extension("inputs.json"),
@@ -171,7 +173,7 @@ fn tools_whose_watched_folder_is_as_it_was_built_from_are_read() {
     let nanoseconds = modified.duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let record = serde_json::json!({
         "root": built.tree,
-        "inputs": [["src", 0, u64::try_from(nanoseconds).unwrap()]],
+        "inputs": [["src", 0, u64::try_from(nanoseconds).unwrap(), null]],
     });
     std::fs::write(
         built.manifest.with_extension("inputs.json"),
@@ -184,15 +186,67 @@ fn tools_whose_watched_folder_is_as_it_was_built_from_are_read() {
     assert!(tools.is_ok(), "{:?}", tools.err());
 }
 
+/// A folder has no content to compare, so its time alone says it changed.
+#[test]
+fn tools_whose_watched_folder_changed_time_are_refused() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let folder = built.source.parent().unwrap();
+    let modified = std::fs::metadata(folder).unwrap().modified().unwrap();
+    let before = modified - Duration::from_secs(3600);
+    let nanoseconds = before.duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let record = serde_json::json!({
+        "root": built.tree,
+        "inputs": [["src", 0, u64::try_from(nanoseconds).unwrap(), null]],
+    });
+    std::fs::write(
+        built.manifest.with_extension("inputs.json"),
+        record.to_string(),
+    )
+    .unwrap();
+
+    let read = built.read();
+
+    let error = read.unwrap_err();
+    assert!(
+        matches!(&error, ToolsError::Stale { input, .. } if input == Path::new("src")),
+        "{error}"
+    );
+}
+
+/// Rewrites the file at `path` with `content` and sets its modification time
+/// to `modified`.
+fn rewrite(path: &Path, content: &[u8], modified: std::time::SystemTime) {
+    std::fs::write(path, content).unwrap();
+    let file = std::fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(modified).unwrap();
+}
+
+/// An hour after the file at `path` was last modified.
+fn an_hour_later(path: &Path) -> std::time::SystemTime {
+    std::fs::metadata(path).unwrap().modified().unwrap() + Duration::from_secs(3600)
+}
+
+/// A check that writes a source back with the bytes it had, as
+/// `ci/workspace-hack.sh check` once did to `Cargo.lock`, moves its time
+/// alone: the tools are still built from it (issue 3236).
+#[test]
+fn tools_whose_source_was_rewritten_with_its_own_bytes_are_read() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let content = std::fs::read(&built.source).unwrap();
+    rewrite(&built.source, &content, an_hour_later(&built.source));
+
+    let tools = built.read();
+
+    assert!(tools.is_ok(), "{:?}", tools.err());
+}
+
 /// What a merge, a `git switch` or an edit does to a source after the tools
-/// were built: its bytes change, or only its time does, or it is gone.
+/// were built: its bytes change, at its size or not, or it is gone.
 #[rstest]
 #[case::its_size(|source: &Path| std::fs::write(source, "pub fn merged() {}\npub fn built() {}\n").unwrap())]
-#[case::its_time_alone(|source: &Path| {
-    let file = std::fs::File::options().write(true).open(source).unwrap();
-    let modified = file.metadata().unwrap().modified().unwrap();
-    file.set_modified(modified - Duration::from_secs(3600)).unwrap();
-})]
+#[case::its_content(|source: &Path| rewrite(source, b"pub fn moved() {}\n", an_hour_later(source)))]
 #[case::removed(|source: &Path| std::fs::remove_file(source).unwrap())]
 fn tools_older_than_a_source_are_refused_naming_it_and_the_rebuild_command(
     #[case] change: fn(&Path),

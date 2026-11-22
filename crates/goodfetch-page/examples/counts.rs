@@ -229,6 +229,7 @@ fn units(session: &session::Counted) -> Map<String, Value> {
         ("serializations".to_owned(), json!(session.serializations)),
         ("field_reads".to_owned(), json!(session.field_reads)),
         ("pages_opened".to_owned(), json!(session.pages_opened)),
+        ("sessions_opened".to_owned(), json!(session.sessions_opened)),
         ("requests".to_owned(), json!(session.requests)),
         ("pauses".to_owned(), json!(session.paused)),
         ("refusals".to_owned(), json!(session.refused)),

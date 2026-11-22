@@ -131,7 +131,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCrawl"
 entry = "crawl.start"
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -141,6 +140,7 @@ receiver = "Crawl"
 member = "constructor"
 entry = "none"
 reason = "A crawl's declaration, which the program holds with no connection and `crawl.start` sends (ADR 0093)."
+only = "Rust's is `Crawl::new`."
 words = ["crawl"]
 form = "read"
 
@@ -195,7 +195,7 @@ receiver = "(module)"
 member = "seed"
 entry = "none"
 reason = "Builds one of the seeds `crawl.start` carries (ADR 0093), with no round trip."
-only = "Rust builds a seed with `Seed::new` (ADR 0099), with its crawl, issue 2804's."
+only = "Rust builds a seed with `Seed::new` (ADR 0099)."
 words = ["seed"]
 form = "read"
 
@@ -205,6 +205,7 @@ receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
+only = "Rust's context has no page yet; issue 3229 adds it with issue 2803's `Page`."
 words = ["page"]
 form = "read"
 
@@ -221,6 +222,7 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "enqueueLinks"
 entry = "crawl_request.enqueue_links"
+only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
 words = ["enqueue", "links"]
 form = "round_trip"
 
@@ -237,6 +239,7 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
+only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
 words = ["records"]
 form = "opener"
 
@@ -245,6 +248,7 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
 member = "close"
 entry = "run.abort"
+only = "Rust's `CrawlRun` closes through `run()`, the `Run` it holds."
 words = ["close"]
 form = "closer"
 
@@ -1522,6 +1526,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/browser"
 receiver = "Channel"
+member = "relinkWith"
+entry = "none"
+reason = "The client runtime (ADR 0068; spec 606): how a remote Daemon's dropped link is reached again, greeted and its calls in flight sent again or failed, which the Connection sets for a WebSocket transport."
+words = ["relink", "with"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/browser"
+receiver = "Channel"
 member = "close"
 entry = "none"
 reason = "The client runtime for a browser (ADR 0068): ends the Client's side of the transport."
@@ -1943,6 +1956,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "resumable"
+entry = "none"
+reason = "Makes a Product's stream one a remote Daemon's dropped link sends again after the last item read, with the credits left (spec 606), as `run.records` is."
+words = ["resumable"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "RunHost"
 entry = "none"
 reason = "What a Run reaches its engine through: its Connection, which a Product's Run type is built on."
@@ -2193,7 +2215,7 @@ receiver = "(module)"
 member = "StartCrawlOptions"
 entry = "none"
 reason = "What `Foxhound.startCrawl` takes (ADR 0093)."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's `start_crawl` returns the builder `StartCrawl`, which takes each option by a call of its own (ADR 0112)."
 words = ["start", "crawl", "options"]
 form = "type"
 
@@ -2203,7 +2225,6 @@ receiver = "(module)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["crawl"]
 form = "type"
 
@@ -2213,7 +2234,6 @@ receiver = "(module)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to (ADR 0103)."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["dataset"]
 form = "type"
 
@@ -2223,7 +2243,6 @@ receiver = "(module)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles (ADR 0093)."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["label"]
 form = "type"
 
@@ -2233,7 +2252,6 @@ receiver = "(module)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler's attempt holds (ADR 0093): its page and the calls that add to the crawl."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["crawl", "context"]
 form = "type"
 
@@ -2243,7 +2261,7 @@ receiver = "(module)"
 member = "DatasetOptions"
 entry = "none"
 reason = "What `crawl.dataset` takes."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's `Crawl::dataset` takes its name alone."
 words = ["dataset", "options"]
 form = "type"
 
@@ -2253,7 +2271,7 @@ receiver = "(module)"
 member = "EnqueueLinksOptions"
 entry = "none"
 reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's context has no `enqueue_links` yet; issue 3229 adds it."
 words = ["enqueue", "links", "options"]
 form = "type"
 
@@ -2263,7 +2281,7 @@ receiver = "(module)"
 member = "Handler"
 entry = "none"
 reason = "What handles one Label's pages, for each `crawl_request.handle` (ADR 0093)."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's handler is a closure, a type parameter of `Crawl::handle` (ADR 0112), with no type of its own."
 words = ["handler"]
 form = "type"
 
@@ -2273,7 +2291,7 @@ receiver = "(module)"
 member = "LabelOptions"
 entry = "none"
 reason = "What `crawl.label` takes."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's Label options are `LabelDeclaration`'s, which issue 3229 adds."
 words = ["label", "options"]
 form = "type"
 
@@ -2283,7 +2301,7 @@ receiver = "(module)"
 member = "RequestOptions"
 entry = "none"
 reason = "What `context.enqueue` and `seed` take besides the URL, the Label and the Payload."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's `enqueue` and `Seed::new` take the URL, the Label and the Payload alone."
 words = ["request", "options"]
 form = "type"
 
@@ -2293,7 +2311,6 @@ receiver = "(module)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound.startCrawl` opens (ADR 0102)."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["crawl", "run"]
 form = "type"
 
@@ -2303,7 +2320,7 @@ receiver = "(module)"
 member = "RecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.records()` takes."
-only = "Rust's crawl, its declaration and its start, is issue 2804's."
+only = "Rust's `CrawlRun` has no `records` yet; issue 3229 adds it."
 words = ["records", "options"]
 form = "type"
 
@@ -2313,6 +2330,7 @@ receiver = "Dataset"
 member = "constructor"
 entry = "none"
 reason = "`crawl.dataset` declares a Dataset; a program never constructs one."
+only = "Rust's `Dataset` has no constructor at all."
 words = ["dataset"]
 form = "read"
 
@@ -2322,6 +2340,7 @@ receiver = "Label"
 member = "constructor"
 entry = "none"
 reason = "`crawl.label` declares a Label; a program never constructs one."
+only = "Rust's `Label` has no constructor at all."
 words = ["label"]
 form = "read"
 
@@ -2331,5 +2350,6 @@ receiver = "CrawlRun"
 member = "constructor"
 entry = "none"
 reason = "`Foxhound.startCrawl` opens a crawl's Run; a program never constructs one."
+only = "Rust's `CrawlRun` has no constructor at all."
 words = ["crawl", "run"]
 form = "read"

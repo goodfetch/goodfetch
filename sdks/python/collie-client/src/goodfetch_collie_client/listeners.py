@@ -35,11 +35,9 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 import anyio
 
 from goodfetch_collie_client._framing import object_members
+from goodfetch_collie_client._rpc import whole_bound
 from goodfetch_collie_client.caller import result_of
-from goodfetch_collie_client.generated.errors import (
-    ListenerEventsLostError,
-    SettingInvalidError,
-)
+from goodfetch_collie_client.generated.errors import ListenerEventsLostError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, GoodfetchError
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
@@ -79,22 +77,16 @@ When `max_listener_queue` is left out: as many as the engine holds for a
 def listener_queue_of(given: object) -> int:
     """`connect()`'s `max_listener_queue`, checked before anything is reached.
 
-    It takes any value, since a program may pass one its type checker would
-    refuse. TypeScript's `wholeBound` is its twin.
-
     Raises:
         SettingInvalidError: It is no whole number of 1 or more.
     """
-    if isinstance(given, int) and not isinstance(given, bool) and given >= 1:
-        return given
-    reason = f"{given!r} is no whole number of 1 or more"
-    raise SettingInvalidError(
-        f"max_listener_queue is {given!r}, which is no whole number of 1 or more",
+    return whole_bound(
+        given,
+        key="max_listener_queue",
         fix=(
             "Pass max_listener_queue a whole number of 1 or more, or leave it out"
             f" for its default of {MAX_LISTENER_QUEUE}."
         ),
-        details={"key": "max_listener_queue", "reason": reason},
     )
 
 

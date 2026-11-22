@@ -118,3 +118,4 @@ mod test_tools;
 mod tlc;
 mod watchlist;
 mod wording;
+mod workspace_hack;

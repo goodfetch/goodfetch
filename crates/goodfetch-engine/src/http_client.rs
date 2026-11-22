@@ -57,7 +57,7 @@ use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::local_addresses::SessionAddresses;
 use crate::response_limits::Limits;
 use crate::settings::Resolved;
-use crate::tasks::BlockingThreads;
+use crate::tasks::{self, BlockingThreads};
 use crate::tls::{self, CertificateInvalid, Trust, TrustedCas};
 
 #[cfg(test)]
@@ -806,17 +806,17 @@ pub async fn lookup(
 }
 
 /// `server`'s addresses on its port: its literal address, the `resolve`
-/// mapping's, or the system resolver's, each as the resolver gives it, its
+/// mapping's, or the system resolver's on a thread of the lookup pool
+/// ([`tasks::system_lookup`], #2870), each as the resolver gives it, its
 /// zone ID included.
 async fn addresses(server: &Server<'_>, resolve: &HostMapping) -> Result<Vec<SocketAddr>, Failure> {
     let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
     if let Some(fixed) = resolve.fixed(server.host) {
         return Ok(fixed.iter().map(on_port).collect());
     }
-    let found: Vec<SocketAddr> = tokio::net::lookup_host((server.host, server.port))
+    let found = tasks::system_lookup(server.host, server.port)
         .await
-        .map_err(|_| Failure::Network)?
-        .collect();
+        .map_err(|_| Failure::Network)?;
     if found.is_empty() {
         return Err(Failure::Network);
     }

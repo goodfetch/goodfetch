@@ -20,12 +20,13 @@ import anyio.to_thread
 import pytest
 from collie_calls import failure, response_on
 from goodfetch_collie import (
+    ArtifactUnavailableOfflineError,
     AsyncCollie,
     EgressRefusedError,
     Settings,
     testing,
 )
-from goodfetch_test_support import ProvingGround, Way, three_ways
+from goodfetch_test_support import BrowserDownload, ProvingGround, Way, three_ways
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -157,3 +158,27 @@ async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
 
     assert (status, type(refused)) == (200, EgressRefusedError)
     assert tree(cache) == before
+
+
+@pytest.mark.parametrize("browser_download", [BrowserDownload.NOT_FOUND])
+@three_ways
+async def test_with_no_browser_installed_the_first_page_fails_offline(
+    way: Way, env: Mapping[str, str]
+) -> None:
+    """`artifact_unavailable_offline`, its `fix` naming `browser install`.
+
+    The caller's empty Browser cache stays empty.
+    """
+    cache = Path(env["GOODFETCH_BROWSERS_PATH"])
+    engine = await start(way, env)
+    run = await connection_of(way, engine).start()
+    refused = await failure(run.new_page())
+    await run.finish()
+    await engine.close()
+
+    assert isinstance(refused, ArtifactUnavailableOfflineError)
+    assert refused.fix == (
+        "Run `goodfetch-collie browser install` beforehand where the Browser"
+        " cache is writable, or lift `egress.offline` where it was set"
+    )
+    assert tree(cache) == {}

@@ -31,6 +31,16 @@ pub(crate) struct CommandTree {
 }
 
 impl CommandTree {
+    /// The command named `name` directly under this one.
+    pub(crate) fn command(&self, name: &str) -> Option<&Self> {
+        self.commands.iter().find(|command| command.name == name)
+    }
+
+    /// Whether commands sit under it, so the word after it names one.
+    pub(crate) fn is_group(&self) -> bool {
+        !self.commands.is_empty()
+    }
+
     /// The paths of the commands below this executable's root.
     fn paths(&self) -> BTreeSet<String> {
         fn walk(tree: &CommandTree, prefix: &str, paths: &mut BTreeSet<String>) {

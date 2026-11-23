@@ -1,0 +1,17 @@
+# A clean machine that builds the Rust SDK crate from source (story 11-280;
+# ADRs 0094 and 0124): the Rust toolchain of rust-toolchain.toml on Debian,
+# whose image already holds the C compiler and C library that rustc links
+# with, plus exactly the tools `crates/goodfetch-collie/README.md`'s
+# Prerequisites list and nothing else. Its base is ci/image/Containerfile's,
+# pinned by digest; raise them together.
+#
+# Built by ci/source-build/fetch.sh before ADR 0043's deny; the test
+# `source_build` of goodfetch-collie builds the crate in it with no network,
+# with every tool and without each one in turn.
+FROM docker.io/library/rust:1.99.0-slim-trixie@sha256:458b145eb2406e832adc9c9536d487c5d264401a4ce63adbeced3fe91292616c
+
+# CMake and make, the C++ compiler beside the image's C compiler, libclang
+# and git.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cmake make g++ libclang-dev git \
+ && rm -rf /var/lib/apt/lists/*

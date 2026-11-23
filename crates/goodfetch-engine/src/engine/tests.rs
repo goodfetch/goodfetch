@@ -412,6 +412,16 @@ fn takes_engine_instance(reply: &mut Value) -> bool {
         })
 }
 
+/// Takes the resolved timeouts out of an accepted `hello`'s `reply`,
+/// answering whether it names some: what they hold is
+/// `connection_settings`' to check.
+fn takes_timeouts(reply: &mut Value) -> bool {
+    reply["result"]
+        .as_object_mut()
+        .and_then(|result| result.remove("timeouts"))
+        .is_some_and(|timeouts| timeouts.as_array().is_some_and(|it| !it.is_empty()))
+}
+
 fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap()
 }
@@ -421,9 +431,10 @@ fn pretty(value: &Value) -> String {
 fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
     let mut received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
     let named = takes_engine_instance(&mut received[0]);
+    let timed = takes_timeouts(&mut received[0]);
 
     assert_eq!(
-        (received, named),
+        (received, named, timed),
         (
             vec![json!({
                 "jsonrpc": "2.0",
@@ -433,6 +444,7 @@ fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
                     "max_calls_in_flight": IN_FLIGHT_CAP,
                 },
             })],
+            true,
             true
         )
     );

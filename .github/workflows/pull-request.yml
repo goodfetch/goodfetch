@@ -6,14 +6,17 @@
 # in the job's container, from the tree's pinned Linux x86-64 CI image
 # (ci/hosted/, ci/image/Containerfile).
 #
-# The `plan` job runs the gate's planner for the quick form on the head
-# (ci/hosted/plan.sh): from the records the runs on the head's ancestors
-# uploaded, it schedules the quick form's hosted-owned steps the change
-# reaches, lint, the Quick suite, the Journey task lists and xtask's codegen
-# tests. The `lint` job runs lint, and the `quick` job each other scheduled
-# step, alone, through the gate itself (`just pre-merge quick`,
-# GOODFETCH_GATE_ONLY); each uploads the gate's records of its step for a
-# day. `just merge` reads those records under
+# The `plan` job runs the gate's planner on the head (ci/hosted/plan.sh), for
+# the batch form on a batch's branch and the quick form otherwise: from the
+# records the runs on the head's ancestors uploaded, it schedules the form's
+# hosted-owned steps the change reaches, lint, the Quick suite, the Journey
+# task lists and xtask's codegen tests, and on a batch's branch the
+# Pre-merge suite of every member it reaches (issues 3378 and 3380).
+# The `lint` job runs lint, and the `quick` job each other scheduled step,
+# alone, through the gate itself (`just pre-merge <form>`,
+# GOODFETCH_GATE_ONLY); the `pre-merge-*` jobs build, shard and record the
+# Pre-merge suite (ci/hosted/pre-merge.sh). Each uploads the gate's records
+# of its step for a day. `just merge` reads those records under
 # ci/hosted-records.sh's rules, reuses the green units and ends red on a red
 # one; it never reads a fork's runs.
 #
@@ -50,10 +53,17 @@ jobs:
       contents: read
       # The records of the runs on the head's ancestors.
       actions: read
-    # Each a JSON list of the steps the job of its name runs.
+    # The gate's form the jobs plan with, the members whose Pre-merge suite
+    # the run holds, and for each job after it a JSON list named after the
+    # job, of the steps or shards it runs (ci/hosted/plan.sh).
     outputs:
+      form: ${{ steps.plan.outputs.form }}
+      pre_merge: ${{ steps.plan.outputs.pre_merge }}
       lint: ${{ steps.plan.outputs.lint }}
       quick: ${{ steps.plan.outputs.quick }}
+      pre-merge-build: ${{ steps.plan.outputs.pre-merge-build }}
+      pre-merge-shard: ${{ steps.plan.outputs.pre-merge-shard }}
+      pre-merge-record: ${{ steps.plan.outputs.pre-merge-record }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,7 +127,8 @@ jobs:
       - name: "Test: the gate's lint step"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ci/hosted/exec.sh just pre-merge quick
+          FORM: ${{ needs.plan.outputs.form }}
+        run: ci/hosted/exec.sh just pre-merge "$FORM"
       - name: List the parts the job skipped
         if: always()
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
@@ -179,7 +190,9 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: the gate's step"
-        run: ci/hosted/exec.sh just pre-merge quick
+        env:
+          FORM: ${{ needs.plan.outputs.form }}
+        run: ci/hosted/exec.sh just pre-merge "$FORM"
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -214,6 +227,232 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  # The Pre-merge suite of a batch's run (issues 3378 and 3380), over the
+  # members the plan holds it for (ci/hosted/pre-merge.sh): this job builds
+  # the crates' tests once into a nextest archive and runs their doctests,
+  # then Vitest, Playwright and pytest when the plan holds a member that is
+  # no crate; each `pre-merge-shard` job runs one hash partition of the
+  # archive, and `pre-merge-record` records the step's result for each
+  # member once every shard has ended. The jobs that run tests boot systemd
+  # in their container and start the OS services the gate host's suite uses,
+  # and restore the pinned Chrome for Testing build from the cache the
+  # Release suite saves on `main`. Nothing they upload outlives the day.
+  pre-merge-build:
+    name: pre-merge build
+    needs: plan
+    if: needs.plan.outputs.pre-merge-build != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # Whether the archive and the listing were built: the shards run then,
+    # even after a red doctest or runner, so the record judges each crate.
+    outputs:
+      built: ${{ steps.build.outcome }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Build the members' tests and list the suite's selection
+        id: build
+        env:
+          MEMBERS: ${{ needs.plan.outputs.pre_merge }}
+        run: |
+          read -ra members <<<"$MEMBERS"
+          ci/hosted/exec.sh ci/hosted/pre-merge.sh build "${members[@]}"
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        id: canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the members' doctests"
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh doctests
+      # Every Vitest, Playwright and pytest test, when the plan holds a
+      # member that is no crate, after red doctests too: the record judges
+      # the crates apart.
+      - name: "Test: Vitest, Playwright and pytest"
+        if: "!cancelled() && steps.canary.outcome == 'success'"
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh runners
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/pre-merge/
+      - name: Upload the archive, the listing and the doctests' status
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pre-merge-build
+          path: target/pre-merge/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  pre-merge-shard:
+    name: pre-merge shard (${{ matrix.shard }})
+    needs: [plan, pre-merge-build]
+    # The shards run the crates' tests; a run that holds none starts none.
+    if: "!cancelled() && needs.plan.outputs.pre-merge-shard != '[]' && needs.pre-merge-build.outputs.built == 'success'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.pre-merge-shard) }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Download the archive and the listing
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pre-merge-build
+          path: target/pre-merge
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the shard's part of the Pre-merge suite"
+        env:
+          SHARD: ${{ matrix.shard }}
+          COUNT: ${{ strategy.job-total }}
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh shard "$SHARD" "$COUNT"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: List the parts the job skipped
+        if: always()
+        run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh container
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/pre-merge/shards/ target/test-records/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-pre-merge-pull-request-linux-x64-${{ matrix.shard }}
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Upload the shard's results for the record
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pre-merge-shard-${{ matrix.shard }}
+          path: |
+            target/pre-merge/shards/
+            target/test-records/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # Records the Pre-merge suite's result for each member, green only when
+  # every shard ran its partition green and together they ran the listing's
+  # tests, each once (`xtask gate shards`). It runs none of the product's
+  # tests, so it runs no deny.
+  pre-merge-record:
+    name: pre-merge record
+    needs: [plan, pre-merge-build, pre-merge-shard]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.pre-merge-record != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+    env:
+      GOODFETCH_GATE_LAYER: hosted
+      GOODFETCH_GATE_RECORDS: /work/target/gate-records
+      GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
+      GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download the records of the runs on the head's ancestors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
+          ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
+            target/hosted-records "$GITHUB_RUN_ID"
+      - name: Download the listing and the doctests' status
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pre-merge-build
+          path: target/pre-merge
+      - name: Download the shards' results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pre-merge-shard-*
+          path: target
+          merge-multiple: true
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Judge the shards and record the step's result
+        env:
+          SHARDS: ${{ needs.plan.outputs.pre-merge-shard }}
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh record "$(jq length <<<"$SHARDS")"
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh).
+      - name: Upload the gate's records of the step
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-record-pre-merge
+          path: target/gate-records/*.tsv
+          if-no-files-found: ignore
+          retention-days: 1
+
   chromium-build-gate:
     name: Chromium build gate
     if: >-
@@ -230,7 +469,7 @@ jobs:
   all-green:
     name: all green
     if: always() && needs.plan.result != 'skipped'
-    needs: [plan, lint, quick]
+    needs: [plan, lint, quick, pre-merge-build, pre-merge-shard, pre-merge-record]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

@@ -234,8 +234,8 @@ fn release_cell_on_the_owners_machine_is_kept_out_of_the_budgets() {
     assert_eq!(github.writes(), vec![]);
 }
 
-/// The pull-request tier runs on the owner's machine while the repository is
-/// private, so its budgets are measured there (ADR 0135).
+/// The pull-request tier's hosted jobs run on GitHub's standard runners
+/// (ADR 0135's amendment of 2026-11-22), where its budgets are measured.
 fn pull_request_runs(jobs: impl Fn(&'static str) -> Vec<Value>) -> Vec<Attempt> {
     (1..=20)
         .map(|run| run_of(PULL_REQUEST, "pull_request", run, jobs(started_at(run))))
@@ -243,18 +243,18 @@ fn pull_request_runs(jobs: impl Fn(&'static str) -> Vec<Value>) -> Vec<Attempt> 
 }
 
 #[rstest]
-#[case::quick_job_past_10_minutes(
-    |start| vec![named_job("quick", OWNER_MACHINE, 11, start)],
-    "time-budget job pull-request.yml quick",
+#[case::quick_suite_job_past_10_minutes(
+    |start| vec![named_job("quick (quick)", HOSTED, 11, start)],
+    "time-budget job pull-request.yml quick (quick)",
 )]
-#[case::pre_merge_job_past_15_minutes(
-    |start| vec![named_job("pre-merge", OWNER_MACHINE, 16, start)],
-    "time-budget job pull-request.yml pre-merge",
+#[case::pre_merge_shard_past_15_minutes(
+    |start| vec![named_job("pre-merge shard (1)", HOSTED, 16, start)],
+    "time-budget job pull-request.yml pre-merge shard (1)",
 )]
 #[case::all_green_past_20_minutes_from_the_first_jobs_start(
     |start| vec![
-        named_job("pre-merge", OWNER_MACHINE, 14, start),
-        named_job("all green", OWNER_MACHINE, 7, &later(start, 14)),
+        named_job("pre-merge build", HOSTED, 14, start),
+        named_job("all green", HOSTED, 7, &later(start, 14)),
     ],
     "time-budget suite Pre-merge",
 )]

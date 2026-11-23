@@ -11,12 +11,12 @@ N x sent request run.progress
 
 run outcomes --follow
 1 x sent request hello, 213 bytes
-2 x received response, 487 bytes
+2 x received response, 1487 bytes
 1 x sent request run.outcomes, 78 bytes
 
 run records
 1 x sent request hello, 213 bytes
-3 x received response, 662 bytes
+3 x received response, 1662 bytes
 1 x sent request dataset.page, 119 bytes
 1 x sent request run.records, 107 bytes
 2 x sent notification $/credit, 135 bytes

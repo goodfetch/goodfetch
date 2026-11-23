@@ -75,8 +75,8 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
 ### Agent skills and tool descriptions
 
 - **Skills are checked with no model:**
-  - in Quick, `xtask codegen --check` and the Agent Skills frontmatter limits;
-  - in Pre-merge, a check that every operation, command and option they name exists in the catalog, and a run of every example command against the local Proving ground, checked by the oracle.
+  - in Quick, `xtask codegen --check`, which renders them for each Product and fails a skill that breaks the Agent Skills frontmatter limits, names an operation its Product's agents cannot call or a command its executable lacks, presents a person-only answer as the agent's action, or uses a word of the wording list;
+  - in Pre-merge, a check that every option they name exists, and a run of every example command against the local Proving ground, checked by the oracle.
 - **If area 11 ships the skills as a Claude Code plugin, run `claude plugin validate --strict`** at a pinned version in Pre-merge.
 - **Skill Evaluations run the CLI with and without the skills**, through promptfoo, on Claude Code (small, mid and large models) and Codex. The oracle grades; `skill-used` is a signal. Open an issue on any skill that doesn't beat its baseline on some model.
 - **Snapshot the catalog's MCP projection per Product and profile** (Quick). Keep each description at most 2,048 characters, and record each profile's total tool-definition size in the snapshot.

@@ -15,18 +15,17 @@ use std::time::Duration;
 
 use goodfetch_protocol::governor::GovernorLevel;
 
+use super::readings;
+
 /// Physical memory, in bytes.
 pub(super) fn physical() -> Option<u64> {
     sysctl::<u64>(c"hw.memsize")
 }
 
-/// The kernel's memory-pressure level: 2 warns, 4 is critical.
+/// The kernel's memory-pressure level, as [`readings::macos_host`] judges
+/// it.
 pub(super) fn host() -> GovernorLevel {
-    match sysctl::<c_int>(c"kern.memorystatus_vm_pressure_level") {
-        Some(4) => GovernorLevel::Critical,
-        Some(2) => GovernorLevel::Pressure,
-        _ => GovernorLevel::Normal,
-    }
+    readings::macos_host(sysctl::<c_int>(c"kern.memorystatus_vm_pressure_level"))
 }
 
 /// The physical footprint of the engine and every descendant, in bytes; a
@@ -37,16 +36,19 @@ pub(super) fn footprint() -> u64 {
 
 /// The physical footprint of `root` and every descendant, in bytes.
 pub(super) fn footprint_from(root: u32) -> u64 {
-    let mut found = vec![root];
-    let mut total = 0;
-    while let Some(process) = found.pop() {
-        let Ok(pid) = c_int::try_from(process) else {
-            continue;
-        };
-        total += phys_footprint(pid);
-        found.extend(children(pid));
-    }
-    total
+    tree(root)
+        .into_iter()
+        .filter_map(|process| c_int::try_from(process).ok())
+        .map(phys_footprint)
+        .sum()
+}
+
+/// `root` and every descendant, from the kernel's list of each process's
+/// children.
+pub(super) fn tree(root: u32) -> Vec<u32> {
+    readings::tree(root, |process| {
+        c_int::try_from(process).map_or_else(|_| Vec::new(), children)
+    })
 }
 
 /// The engine's user and system CPU time.

@@ -408,7 +408,7 @@ fn a_run_that_sets_a_proxy_reads_its_sites_only_through_it(
 ///
 /// Covers: setting:proxy.server
 #[rstest]
-/// Covers: error:proxy_auth_failed
+/// Covers: story:3-82, error:proxy_auth_failed
 #[case::its_407("http", "datacenter", "proxy_auth_failed")]
 /// Covers: error:proxy_unavailable
 #[case::an_http_proxy_that_is_down("http", "down", "proxy_unavailable")]

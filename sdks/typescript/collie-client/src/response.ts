@@ -128,9 +128,9 @@ export class Response {
    * UTF-8, it honours the response's encoding, so a page that declares
    * another one reads as `page.content()` does, not as mojibake.
    *
-   * It throws what `body()` throws: `ResponseTruncatedError` for a body
-   * that broke off, never decoded as whole, and `BodyUnavailableError` for
-   * one the browser no longer holds.
+   * It throws what `body()` throws: `ResponseTruncatedError`, the code
+   * `response_truncated`, for a body that broke off, never decoded as
+   * whole, and `BodyUnavailableError` for one the browser no longer holds.
    */
   async text(): Promise<string> {
     const body = await this.body();
@@ -141,9 +141,9 @@ export class Response {
    * Its body parsed as JSON, decoded as UTF-8 whatever its charset, as
    * JSON is, a leading BOM ignored.
    *
-   * It throws what `body()` throws, `ResponseTruncatedError` for a body
-   * that broke off included, and `ResponseNotJSONError` for a body that is
-   * not JSON.
+   * It throws what `body()` throws, `ResponseTruncatedError`, the code
+   * `response_truncated`, for a body that broke off included, and
+   * `ResponseNotJSONError` for a body that is not JSON.
    */
   async json(): Promise<JSONValue> {
     const body = await this.body();

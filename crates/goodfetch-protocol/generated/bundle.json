@@ -5816,7 +5816,7 @@
       "oneOf": [
         {
           "const": "json",
-          "description": "One JSON array of the Records' values.",
+          "description": "One JSON array of the Records' values, indented as\n`export.json.indent` says.",
           "type": "string"
         },
         {
@@ -5846,32 +5846,32 @@
         },
         {
           "const": "xml",
-          "description": "One XML document: a root element holding one element per Record,\neach field an element of its name.",
+          "description": "One XML document: a root element named by `export.xml.root` holding\none element per Record named by `export.xml.record`, each field an\nelement of its name (`field` with a `name` attribute where its name\nis no XML name), an object's fields as elements, an array's values\nas `item` elements, and `null` an empty element with\n`xsi:nil=\"true\"`.",
           "type": "string"
         },
         {
           "const": "parquet",
-          "description": "One Apache Parquet file of one column per field seen, typed.",
+          "description": "One Apache Parquet file of one column per field seen, typed: a\ncolumn whose values are all `true` or `false` is boolean, all whole\nnumbers a 64-bit integer, all numbers a 64-bit float, and any other\na string holding each cell's text, every column nullable.",
           "type": "string"
         },
         {
           "const": "avro",
-          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed.",
+          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed as Parquet's columns are, each\nfield's name made a valid Avro name with the field's own in its\n`doc`.",
           "type": "string"
         },
         {
           "const": "arrow_ipc",
-          "description": "One Apache Arrow IPC file of one column per field seen, typed.",
+          "description": "One Apache Arrow IPC file of one column per field seen, typed as\nParquet's columns are.",
           "type": "string"
         },
         {
           "const": "rss",
-          "description": "One RSS 2.0 feed of one item per Record.",
+          "description": "One RSS 2.0 feed named after the Dataset, of one item per Record,\nits title, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
           "type": "string"
         },
         {
           "const": "atom",
-          "description": "One Atom feed of one entry per Record.",
+          "description": "One Atom feed named after the Dataset, of one entry per Record, its\ntitle, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
           "type": "string"
         }
       ]
@@ -6913,6 +6913,14 @@
           "$ref": "#/$defs/ProtocolVersion",
           "arrived_in": "0.1",
           "description": "The protocol version the engine speaks."
+        },
+        "timeouts": {
+          "arrived_in": "0.1",
+          "description": "Each `timeout.*` setting the engine's Product honours, as it\nresolved at the Connection's layers (the engine's, beneath the\n`hello`'s own `settings`), in milliseconds: a call the Client queues\npast `max_calls_in_flight` with no timeout of its own fails at its\nsetting's value with `deadline_exceeded`, `waited_for`\n`calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A\nsetting that resolves no timeout is left out; empty from an engine\nthat resolves none, such as the Scripted engine.",
+          "items": {
+            "$ref": "#/$defs/SettingLimit"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -8364,7 +8372,7 @@
     },
     "Locator": {
       "additionalProperties": false,
-      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors. Whether it reaches inside a closed shadow root\ndepends on the browser (ADR 0121): a CSS selector reaches open roots\nonly today.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -17345,6 +17353,14 @@
             "kind": {
               "const": "abort",
               "type": "string"
+            },
+            "person": {
+              "arrived_in": "0.1",
+              "description": "Whom the aborting Client acts for (ADR 0031), set when `by` is\n`person`.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -17492,6 +17508,11 @@
     "StoppedBy": {
       "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
       "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through `run.abort` from a Client that acts for them\n(ADR 0031).",
+          "type": "string"
+        },
         {
           "const": "client",
           "description": "A Client, through `run.abort`.",

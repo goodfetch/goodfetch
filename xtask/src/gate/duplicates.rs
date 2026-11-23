@@ -19,7 +19,8 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 
-use super::plan::{GateRun, Outcome, Step, past_max_age, short};
+use super::plan::{GateRun, Outcome, past_max_age, short};
+use super::steps::Step;
 use super::{quick_runs, runs};
 use crate::check::{self, Finding};
 

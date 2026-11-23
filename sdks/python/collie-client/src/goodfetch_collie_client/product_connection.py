@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import anyio
 import anyio.to_thread
 
+from goodfetch_collie_client._attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client._deployment_variables import check_deployment_variables
 from goodfetch_collie_client._installed_executables import (
     PickedClient,
@@ -28,7 +29,6 @@ from goodfetch_collie_client._installed_executables import (
 from goodfetch_collie_client._project_file import read_project
 from goodfetch_collie_client._relink import Reconnect
 from goodfetch_collie_client._rpc import ChannelBounds, bounds_of, phase_exceeded
-from goodfetch_collie_client.attached_engine import AttachedEngine, is_executable_file
 from goodfetch_collie_client.connection import (
     CLOSE_TIMEOUT,
     ClientConnection,

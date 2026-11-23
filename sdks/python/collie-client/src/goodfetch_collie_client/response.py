@@ -200,7 +200,8 @@ class AsyncResponse(_ResponseHead):
         `page.content()` does, not as mojibake.
 
         Raises:
-            ResponseTruncatedError: The body broke off, never decoded as whole.
+            ResponseTruncatedError: `response_truncated`: the body broke off,
+                never decoded as whole.
             BodyUnavailableError: The browser no longer holds the body, as
                 `body()` raises it.
         """
@@ -213,7 +214,8 @@ class AsyncResponse(_ResponseHead):
         ignored.
 
         Raises:
-            ResponseTruncatedError: The body broke off, as `body()` raises it.
+            ResponseTruncatedError: `response_truncated`: the body broke off,
+                as `body()` raises it.
             BodyUnavailableError: The browser no longer holds the body, as
                 `body()` raises it.
             ResponseNotJSONError: The body is not JSON.
@@ -271,7 +273,8 @@ class Response(_ResponseHead):
         honours the response's encoding.
 
         Raises:
-            ResponseTruncatedError: The body broke off, never decoded as whole.
+            ResponseTruncatedError: `response_truncated`: the body broke off,
+                never decoded as whole.
             BodyUnavailableError: The browser no longer holds the body, as
                 `body()` raises it.
         """
@@ -284,7 +287,8 @@ class Response(_ResponseHead):
         ignored.
 
         Raises:
-            ResponseTruncatedError: The body broke off, as `body()` raises it.
+            ResponseTruncatedError: `response_truncated`: the body broke off,
+                as `body()` raises it.
             BodyUnavailableError: The browser no longer holds the body, as
                 `body()` raises it.
             ResponseNotJSONError: The body is not JSON.

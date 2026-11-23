@@ -208,7 +208,7 @@ fn a_killed_engines_children_end_with_it() {
 /// the file [`ID_FILE`] names, and waits past the test's deadline.
 #[cfg(any(target_os = "linux", windows))]
 #[test]
-#[ignore = "run as a stand-in engine by children::a_killed_engines_children_end_with_it"]
+#[ignore = "run as a child by children::a_killed_engines_children_end_with_it"]
 #[expect(
     clippy::disallowed_methods,
     reason = "the stand-in's main is its test: it reads the file its parent names"

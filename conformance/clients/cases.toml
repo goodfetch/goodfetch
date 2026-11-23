@@ -394,6 +394,22 @@ covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
+# Unknown values from a newer engine (ADR 0079; issue 3011): each value a
+# Client reads that no catalog of its package has is kept as received and
+# raises nothing of its own. A code no catalog has raises its group's class
+# alone, its details kept; `call_cancelled` keeps a canceller and a closed
+# value it does not know; `file_write_failed` keeps a reason no list has; a
+# Run's report keeps its Verdict, never read as `verified`, its Stop reason
+# as the union's `unknown` member with the tag it was sent in, a warning
+# code no table has, and Foxhound's values of the types both Products
+# share, a Usage kind and a Limit scope, as strings.
+# Played by the Scripted engine, each value written raw, attached and as a
+# Daemon in TypeScript and Python (asyncio, Trio and the sync API).
+[[capability.case]]
+id = "unknown-values-are-kept"
+covers = ["story:11-33", "story:11-188"]
+surfaces = ["sdk-typescript", "sdk-python"]
+
 # A remote Daemon's dropped link (spec 606; issue 3174): the Client reaches
 # the Daemon again by itself, greets it with the same hello and sends again
 # a call in flight only when the catalog classes it a read or an idempotent

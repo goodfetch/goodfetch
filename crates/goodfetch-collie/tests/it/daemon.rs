@@ -2,10 +2,10 @@
 //! start|stop|restart|status`, the runtime file and socket of the major
 //! under the test's Goodfetch home, whose path holds a space and a
 //! non-ASCII letter, two starts at once, the idle stop under a short
-//! `daemon.idle_timeout`, a killed Daemon's runs and runtime file, the
-//! endpoint table's Daemon socket column, and the CLI against the Scripted
-//! engine run as a Daemon: a refused version, a dead PID and a Connection
-//! dropped mid-command (ADRs 0024, 0067, 0069, 0073 and 0098).
+//! `daemon.idle_timeout`, the endpoint table's Daemon socket column, and
+//! the CLI against the Scripted engine run as a Daemon: a refused version,
+//! a dead PID and a Connection dropped mid-command (ADRs 0024, 0067, 0069,
+//! 0073 and 0098). A killed Daemon's Runs are `daemon_kills`'.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests start processes, read the Daemon's files and logs and write its configuration themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
@@ -19,11 +19,9 @@ use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::DaemonFile;
-use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
@@ -32,8 +30,6 @@ use goodfetch_test_support::{
     record_command, reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
-
-use crate::daemon_client;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -365,50 +361,6 @@ fn daemon_launched_prints_its_runtime_file_once_it_serves_and_exits_0_when_stopp
     record_command(&env, &["daemon", "launched"], exit).unwrap();
 
     assert_eq!((status["pid"].clone(), exit), (json!(printed.pid), Some(0)));
-}
-
-/// A Daemon killed while a Client's Run is live leaves that Run's state
-/// whole and running, for a resume to take up (#218), and a runtime file
-/// the next start replaces.
-///
-/// Covers: story:3-23, story:3-11
-#[test]
-fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_replaces() {
-    let env = TestEnv::new();
-    short_idle(&env, 60_000);
-    let _stops = StopsTheDaemon::of(&env, COLLIE);
-    let mut command = env.process_command(COLLIE);
-    command
-        .args(["daemon", "launched"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let daemon = env.spawn(&mut command).unwrap();
-    let mut ready = String::new();
-    BufReader::new(daemon.child().stdout.take().unwrap())
-        .read_line(&mut ready)
-        .unwrap();
-    let found: RuntimeFile = serde_json::from_str(&ready).unwrap();
-    let mut client = daemon_client(&found);
-    client.call(1, "run.start", &json!({ "run_id": "cut" }));
-
-    daemon.child().kill().unwrap();
-    daemon.child().wait().unwrap();
-    let restarted = json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
-
-    let run = rusqlite::Connection::open(HomeLayout::of(env.home()).run_file("cut")).unwrap();
-    let lifecycle = run_row::lifecycle(&run).unwrap();
-    let integrity: String = run
-        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(
-        (
-            lifecycle,
-            integrity.as_str(),
-            restarted["pid"].is_u64(),
-            restarted["pid"] == json!(found.pid)
-        ),
-        (Lifecycle::Running, "ok", true, false)
-    );
 }
 
 /// The Daemon socket of the Daemon the runtime file of `env`'s home names,

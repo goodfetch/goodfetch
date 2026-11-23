@@ -94,3 +94,17 @@ fn package_of_neither_product_fails() {
     );
     assert_eq!(outcome.code, 1);
 }
+
+#[test]
+fn the_smoke_scripts_package_is_of_no_product_and_passes() {
+    let workspace = Workspace::from_fixture("package-dependencies");
+    workspace.add_fixture_file(
+        "package-dependencies-cases/smoke.json",
+        "sdks/typescript/smoke/package.json",
+    );
+
+    let outcome = workspace.xtask(&["package-dependencies"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}

@@ -1229,7 +1229,6 @@ impl FetchTiers {
         let hop = first_hop(request)?;
         let gate = ChainGate {
             hand_over: Arc::clone(hand_over),
-            crawl_request: request.id.clone(),
         };
         let accepts = Accepts {
             types: hand_over.content_types.clone(),

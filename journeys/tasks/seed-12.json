@@ -432,6 +432,14 @@
       "start_url": "http://29.actionability.test/"
     },
     {
+      "description": "Read the heading, follow the Next link once, then type `browser automation` into the search field and press Enter in it.",
+      "digest": "2bef544dc4c44866447fc7e0c908e470d33a9cd64ff5b1c886991dab8420c3f6",
+      "family": "actionability",
+      "id": "actionability/30",
+      "kind": "act",
+      "start_url": "http://30.actionability.test/"
+    },
+    {
       "description": "Click the link Detail, which changes the page's route without loading a new page.",
       "digest": "5ed39e416fa3db774aa67169844d8289e217871c496122522f5b0df3174928c3",
       "family": "navigation",

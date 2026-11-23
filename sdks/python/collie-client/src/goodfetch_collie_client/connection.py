@@ -17,8 +17,10 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 
+from goodfetch_collie_client._attached_engine import EngineExit
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
+from goodfetch_collie_client._opening_loop import OpeningLoop
 from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client._project_file import ProjectTimeout
 from goodfetch_collie_client._relink import RESENT, ChannelRelinking
@@ -33,7 +35,6 @@ from goodfetch_collie_client._rpc import (
 )
 from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client._trace_context import carry, current, untraced
-from goodfetch_collie_client.attached_engine import EngineExit
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     PROTOCOL_VERSION,
@@ -91,10 +92,10 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._attached_engine import AttachedEngine
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
-    from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
         Recording,
@@ -240,9 +241,13 @@ class ClientConnection:
         listener_queue: int = MAX_LISTENER_QUEUE,
         bounds: ChannelBounds | None = None,
         project: ProjectFile | None = None,
+        *,
+        needs: Product,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
+        The running event loop is the only one that may use it, and `needs`
+        names the Product whose sync client its `event_loop_mismatch` names.
         `reached` says how the engine was reached, which `engine` reports;
         `listener_queue`, already checked, bounds the queue of each listener
         of its own Subscription, and `bounds`, already checked, its calls.
@@ -255,6 +260,7 @@ class ClientConnection:
             None if project is None else project.carried
         )
         self._opener = OpeningProcess()
+        self._opening_loop = OpeningLoop(needs)
         self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
@@ -337,6 +343,7 @@ class ClientConnection:
             listener_queue,
             bounds,
             project,
+            needs=needs,
         )
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).
@@ -441,7 +448,7 @@ class ClientConnection:
         version (STYLE.md), nor are the params, which the engine checks. It
         carries its caller's Trace context (ADR 0132).
         """
-        self._opener.ensure_current(operation)
+        self._ensure_owner(operation)
         wire = carry(_wire(params), current())
         deadline = (
             None if timeout_setting is None else _deadline_of(timeout_setting, wire)
@@ -454,7 +461,7 @@ class ClientConnection:
         Its params and its result are the wire's JSON, unconverted; their
         `timeout`, when they carry one, bounds its wait in the queue too.
         """
-        self._opener.ensure_current(operation)
+        self._ensure_owner(operation)
         self.ensure_open(operation)
         result = await self._channel.call(
             operation,
@@ -485,7 +492,7 @@ class ClientConnection:
         so its readers lose no event (spec 606). It carries its caller's
         Trace context (ADR 0132).
         """
-        self._opener.ensure_current(method)
+        self._ensure_owner(method)
         self.ensure_open(method)
         params = carry(params, current())
         if method != _EVENTS_SUBSCRIBE or not self._channel.relinks:
@@ -497,7 +504,7 @@ class ClientConnection:
 
     async def notify(self, method: str, params: Mapping[str, object]) -> None:
         """Sends the engine the notification `method`, such as `$/credit`."""
-        self._opener.ensure_current(method)
+        self._ensure_owner(method)
         await self._channel.notify(method, params)
 
     async def start(
@@ -508,7 +515,14 @@ class ClientConnection:
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -523,17 +537,16 @@ class ClientConnection:
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. A start that resumed its Run is logged at info, and
-        one that found it ended at warning, on the `goodfetch.client.run`
-        logger. A `limits` amount the SDK cannot turn exactly fails with
-        `setting_invalid` before anything is sent. When the effective level
+        A start that resumed its Run is logged at info, and one that found it
+        ended at warning, on the `goodfetch.client.run` logger. A `limits`
+        amount the SDK cannot turn exactly fails with `setting_invalid` before
+        anything is sent. When the effective level
         of `goodfetch.engine` changed since the engine was last told, the
         start tells it first with `connection.set_log_level`.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
-        self._opener.ensure_current("run.start")
+        self._ensure_owner("run.start")
         self.ensure_open("run.start")
         fields = _start_fields(run_id, tags, limits, settings, self._project)
         await self._follow_log_level()
@@ -652,7 +665,7 @@ class ClientConnection:
                 exactly, or a `timeout` of zero or less, before anything is
                 sent.
         """
-        self._opener.ensure_current(operation)
+        self._ensure_owner(operation)
         self.ensure_open(operation)
         fields = _start_fields(run_id, tags, limits, settings, self._project)
         if recording is not None:
@@ -739,7 +752,7 @@ class ClientConnection:
                 it, such as a forked child, closed it, which leaves the
                 opener's engine untouched.
         """
-        self._opener.ensure_current()
+        self._ensure_owner()
         await self._closing.run(self._close, shield=True)
 
     async def ended(self, end: TransportEnd) -> GoodfetchError:
@@ -782,6 +795,18 @@ class ClientConnection:
         """
         if self._closing.started:
             raise closed_error(operation)
+
+    def _ensure_owner(self, operation: str | None = None) -> None:
+        """Raises unless the opener's process and event loop make the call.
+
+        Raises:
+            ConnectionForkedError: Another process, such as a forked child,
+                made the call.
+            EventLoopMismatchError: Another event loop, or a thread running
+                none, made the call.
+        """
+        self._opener.ensure_current(operation)
+        self._opening_loop.ensure_current(operation)
 
     async def _hello(
         self,

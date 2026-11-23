@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod detached;
 mod finishing;
 mod fixed;
 mod given_back;
@@ -396,9 +397,28 @@ pub(crate) const SITEMAP: &str = "/sitemap.xml";
 /// bug in the engine would (issue 2285).
 pub(crate) const PANICS: &str = "/panics";
 
+/// The paths whose answer carries a `Retry-After`: `/retry-after/<status>/<form>`
+/// answers `status`, a 3xx's `location` being `/target`, with the value
+/// `form` names (ADR 0118): `soon`, which does not parse, `zero`, `0`, or
+/// `past`, an HTTP-date a minute before the test's start.
+pub(crate) const RETRY_AFTER: &str = "/retry-after/";
+
+/// The status and `Retry-After` value [`RETRY_AFTER`]'s `path` names.
+fn retry_after(path: &str) -> Option<(u16, &'static str)> {
+    let (status, form) = path.strip_prefix(RETRY_AFTER)?.split_once('/')?;
+    let value = match form {
+        "soon" => "soon",
+        "zero" => "0",
+        "past" => "Mon, 05 Jan 2026 08:59:00 GMT",
+        _ => return None,
+    };
+    Some((status.parse().ok()?, value))
+}
+
 /// The site every crawl of the harness fetches from memory, through the
-/// fetch tiers' test seam: every URL but [`SITEMAP`] and [`PANICS`]
-/// answers one small document, and no site has a robots.txt.
+/// fetch tiers' test seam: every URL but [`SITEMAP`], [`PANICS`] and
+/// [`RETRY_AFTER`]'s answers one small document, and no site has a
+/// robots.txt.
 struct Site;
 
 /// A body sent whole in one chunk.
@@ -416,22 +436,29 @@ impl goodfetch_fetch_tier::Transport for Site {
         hop: &'a goodfetch_fetch_tier::Hop,
         _reuse: goodfetch_fetch_tier::Reuse,
     ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
-        let (status, content_type, body) = match hop.url.path() {
-            PANICS => panic!("the test's site panics in the attempt that fetches {PANICS}"),
-            "/robots.txt" => (404, "text/html; charset=utf-8", ""),
-            SITEMAP => (200, "application/xml", SITEMAP_XML),
-            _ => (
-                200,
-                "text/html; charset=utf-8",
-                "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>",
-            ),
+        const PAGE: &str = "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>";
+        let path = hop.url.path();
+        let asked = retry_after(path);
+        let (status, content_type, body) = match (path, asked) {
+            (PANICS, _) => panic!("the test's site panics in the attempt that fetches {PANICS}"),
+            ("/robots.txt", _) => (404, "text/html; charset=utf-8", ""),
+            (SITEMAP, _) => (200, "application/xml", SITEMAP_XML),
+            (_, Some((status, _))) => (status, "text/html; charset=utf-8", PAGE),
+            _ => (200, "text/html; charset=utf-8", PAGE),
         };
+        let mut headers = vec![
+            ("content-type".to_owned(), content_type.to_owned()),
+            ("content-length".to_owned(), body.len().to_string()),
+        ];
+        if let Some((status, value)) = asked {
+            headers.push(("retry-after".to_owned(), value.to_owned()));
+            if (300..400).contains(&status) {
+                headers.push(("location".to_owned(), "/target".to_owned()));
+            }
+        }
         Box::pin(std::future::ready(Ok(goodfetch_fetch_tier::Sent {
             status,
-            headers: vec![
-                ("content-type".to_owned(), content_type.to_owned()),
-                ("content-length".to_owned(), body.len().to_string()),
-            ],
+            headers,
             body: Box::new(Whole(Some(bytes::Bytes::from_static(body.as_bytes())))),
             reused: false,
             decoded: false,

@@ -3,8 +3,7 @@
 # names, the CI image's tag, the deny's marker and a shell inside the VM.
 # Sourced, never run.
 
-# One job runs on the machine at a time (the pre-job scripts' shared lock),
-# so the VM has one name per runner user.
+# One job runs on the machine at a time, so the VM has one name per user.
 VM_NAME=goodfetch-job
 
 # The job's container inside the VM, which start.sh starts and every step's

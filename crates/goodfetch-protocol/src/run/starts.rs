@@ -1,9 +1,11 @@
 //! The starts of Runs with no handler in the program (ADRs 0036 and 0102):
 //! `recipe.start`, a Recipe's run, and `catalog_run.start`, a code-free
-//! catalog run whose verbs come from the catalog. Only these take
-//! `detached`, since nothing in the program serves them; `run.start` never
-//! does. Until the engine runs Recipes and code-free targets, it refuses
-//! both starts with `run_target_unbuilt`.
+//! catalog run whose verbs come from the catalog. These and a code-free
+//! crawl's start take `detached`, since nothing in the program serves them;
+//! `run.start` never does, and a detached start that would die with its
+//! Connection fails with `detach_unsupported`. Until the engine runs
+//! Recipes and code-free targets, it refuses both starts with
+//! `run_target_unbuilt`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -259,6 +261,30 @@ pub struct RunTargetUnbuiltDetails {
     /// The target's kind: `recipe`, or the code-free target's `kind`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub target: String,
+}
+
+/// A `detached` start of a Run that cannot outlive its Connection (ADRs
+/// 0078 and 0102).
+pub const DETACH_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "detach_unsupported",
+    description: "A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `detach_unsupported`'s details hold.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DetachUnsupportedDetails {
+    /// What keeps the Run from detaching: `engine`, the Connection's
+    /// engine, which is no Daemon, or the key of the start that gives the
+    /// Run a handler in the program.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// How to start it detached, or how to start it without `detached`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
 }
 
 #[cfg(test)]

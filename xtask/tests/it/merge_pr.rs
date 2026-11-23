@@ -2128,10 +2128,12 @@ fn on_a_base_other_than_the_default_branch_no_closing_line_is_refused() {
 /// A batch's head branch, which the hosted tier serves.
 const BATCH: &str = "batch/2026-11-23a";
 
-/// When a run began, 60 s before [`STARTED`], and 1801 s before it, past
-/// the 1800 s cap.
+/// When a run or a job began: 60 s before [`STARTED`]; 1801 s before it,
+/// past the 1800 s cap on a job; and 9001 s before it, past the 9000 s bound
+/// on a whole run.
 const JUST_STARTED: &str = "2027-01-15T07:59:00Z";
 const PAST_THE_CAP: &str = "2027-01-15T07:29:59Z";
+const PAST_THE_BOUND: &str = "2027-01-15T05:29:59Z";
 
 /// The stand-ins for pull request #7 from [`BATCH`] in this repository, with
 /// the pull-request workflow active; returns them and their `hosted/`
@@ -2178,6 +2180,34 @@ fn page(id: u64) -> String {
 fn list_hosted_runs(hosted: &Path, name: &str, runs: &[serde_json::Value]) {
     let listing = serde_json::json!({ "total_count": runs.len(), "workflow_runs": runs });
     std::fs::write(hosted.join(name), listing.to_string()).unwrap();
+}
+
+/// A job of a run as the Actions API lists it: `status` since `since`, its
+/// creation for a queued job, its start for one in progress, its end for a
+/// completed one, which GitHub created and started a minute before that.
+fn hosted_job(name: &str, status: &str, since: &str) -> serde_json::Value {
+    let since: jiff::Timestamp = since.parse().unwrap();
+    let before = since - jiff::SignedDuration::from_secs(60);
+    let (created, started, completed) = if status == "completed" {
+        (before, before, Some(since.to_string()))
+    } else {
+        (since, since, None)
+    };
+    serde_json::json!({
+        "name": name,
+        "status": status,
+        "conclusion": completed.as_ref().map(|_| "success"),
+        "created_at": created.to_string(),
+        "started_at": started.to_string(),
+        "completed_at": completed,
+        "html_url": format!("{}/job/1", page(101)),
+    })
+}
+
+/// Writes `jobs` as the jobs of every run [`hosted_stand_in`] lists.
+fn list_hosted_jobs(hosted: &Path, jobs: &[serde_json::Value]) {
+    let listing = serde_json::json!({ "total_count": jobs.len(), "jobs": jobs });
+    std::fs::write(hosted.join("jobs.json"), listing.to_string()).unwrap();
 }
 
 /// The artifact `gate-record-<step>` of run `id`: its record of `head`.
@@ -2262,6 +2292,10 @@ fn a_batchs_gate_waits_for_the_hosted_run_going_on_its_head() {
         REPOSITORY,
     );
     list_hosted_runs(&hosted, "runs.json", &[passed]);
+    list_hosted_jobs(
+        &hosted,
+        &[hosted_job("quick (quick)", "in_progress", JUST_STARTED)],
+    );
     upload_hosted_record(&hosted, 101, "quick", &head);
 
     let run = merge_without_waits(&workspace, &stand_in);
@@ -2281,10 +2315,62 @@ fn a_batchs_gate_waits_for_the_hosted_run_going_on_its_head() {
     call(&run, "just pre-merge quick");
 }
 
-/// A hosted run still going past its 1800 s cap is cancelled before the gate
-/// runs a step: the gate reads what it recorded and runs the rest itself.
+/// A hosted run that began past the 1800 s cap, whose jobs each are within
+/// it, is waited for and its records read: the cap is on each job, as ADR
+/// 0061's is. A job its matrix held back counts its wait from the last end
+/// of another job of its run, when a slot freed for it.
 #[test]
-fn a_hosted_run_past_its_cap_is_cancelled_before_the_gate_runs_its_units() {
+fn a_hosted_run_whose_jobs_are_each_within_the_cap_is_waited_for_however_long_it_lasts() {
+    let (workspace, head) = pull_request();
+    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let going = hosted_run(101, ("in_progress", None), &head, PAST_THE_CAP, REPOSITORY);
+    list_hosted_runs(&hosted, "runs.1.json", std::slice::from_ref(&going));
+    list_hosted_runs(&hosted, "runs.2.json", &[going]);
+    let passed = ("completed", Some("success"));
+    list_hosted_runs(
+        &hosted,
+        "runs.json",
+        &[hosted_run(101, passed, &head, PAST_THE_CAP, REPOSITORY)],
+    );
+    list_hosted_jobs(
+        &hosted,
+        &[
+            hosted_job("plan", "completed", "2027-01-15T07:40:00Z"),
+            hosted_job("quick (quick)", "completed", JUST_STARTED),
+            hosted_job("quick (journeys-tasks)", "in_progress", JUST_STARTED),
+            hosted_job("quick (codegen-tests)", "queued", PAST_THE_CAP),
+        ],
+    );
+    upload_hosted_record(&hosted, 101, "quick", &head);
+
+    let run = merge_without_waits(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(never_cancelled(&run), "{}", run.stdout);
+    let waited = format!(
+        "Waiting for the hosted run 101 on {head} ({}), in_progress",
+        page(101)
+    );
+    assert!(run.stdout.contains(&waited), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("success: its gate records are read"),
+        "{}",
+        run.stdout
+    );
+}
+
+/// A hosted run with a job in progress past its 1800 s cap, or queued past
+/// it, is cancelled before the gate runs a step, naming the job, and so is
+/// one with no job going for that long: the gate reads what the run
+/// recorded and runs the rest itself.
+#[rstest::rstest]
+#[case::in_progress("in_progress", "its job pre-merge shard (2) in progress for 1801 s")]
+#[case::queued("queued", "its job pre-merge shard (2) queued for 1801 s")]
+#[case::none_going("completed", "no job going for 1801 s")]
+fn a_hosted_run_with_a_job_past_its_cap_is_cancelled_before_the_gate_runs_its_units(
+    #[case] status: &str,
+    #[case] named: &str,
+) {
     let (workspace, head) = pull_request();
     let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
     let going = hosted_run(101, ("in_progress", None), &head, PAST_THE_CAP, REPOSITORY);
@@ -2292,13 +2378,21 @@ fn a_hosted_run_past_its_cap_is_cancelled_before_the_gate_runs_its_units() {
     let cancelled = ("completed", Some("cancelled"));
     let cancelled = hosted_run(101, cancelled, &head, PAST_THE_CAP, REPOSITORY);
     list_hosted_runs(&hosted, "runs.cancelled.json", &[cancelled]);
+    list_hosted_jobs(
+        &hosted,
+        &[
+            hosted_job("pre-merge build", "completed", "2027-01-15T07:29:00Z"),
+            hosted_job("pre-merge shard (1)", "completed", PAST_THE_CAP),
+            hosted_job("pre-merge shard (2)", status, PAST_THE_CAP),
+        ],
+    );
     upload_hosted_record(&hosted, 101, "lint", &head);
 
     let run = merge_without_waits(&workspace, &stand_in);
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     let said = format!(
-        "The hosted run 101 on {head} ({}) is past its 1800 s cap: the gate cancelled it",
+        "The hosted run 101 on {head} ({}) has {named}, past the 1800 s cap: the gate cancelled it",
         page(101)
     );
     assert!(run.stdout.contains(&said), "{}", run.stdout);
@@ -2307,6 +2401,41 @@ fn a_hosted_run_past_its_cap_is_cancelled_before_the_gate_runs_its_units() {
         "{}",
         run.stdout
     );
+    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge quick"));
+}
+
+/// A hosted run whose jobs keep starting late holds the gate no longer than
+/// its 9000 s bound, the workflow's longest chain of jobs one after another
+/// (five) at the 1800 s cap each, though every job is within the cap.
+#[test]
+fn a_hosted_run_past_its_whole_bound_is_cancelled_though_its_jobs_are_within_the_cap() {
+    let (workspace, head) = pull_request();
+    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let going = hosted_run(
+        101,
+        ("in_progress", None),
+        &head,
+        PAST_THE_BOUND,
+        REPOSITORY,
+    );
+    list_hosted_runs(&hosted, "runs.json", &[going]);
+    let cancelled = ("completed", Some("cancelled"));
+    let cancelled = hosted_run(101, cancelled, &head, PAST_THE_BOUND, REPOSITORY);
+    list_hosted_runs(&hosted, "runs.cancelled.json", &[cancelled]);
+    list_hosted_jobs(
+        &hosted,
+        &[hosted_job("pre-merge record", "in_progress", JUST_STARTED)],
+    );
+
+    let run = merge_without_waits(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let said = format!(
+        "The hosted run 101 on {head} ({}) has gone on for 9001 s, past its 9000 s bound \
+         (5 jobs one after another at the 1800 s cap each): the gate cancelled it",
+        page(101)
+    );
+    assert!(run.stdout.contains(&said), "{}", run.stdout);
     assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge quick"));
 }
 
@@ -2321,6 +2450,7 @@ fn a_hosted_run_the_gate_may_not_cancel_is_waited_for_to_its_end() {
     for listing in ["runs.1.json", "runs.2.json", "runs.3.json"] {
         list_hosted_runs(&hosted, listing, std::slice::from_ref(&going));
     }
+    list_hosted_jobs(&hosted, &[hosted_job("lint", "in_progress", PAST_THE_CAP)]);
     let passed = hosted_run(
         101,
         ("completed", Some("success")),
@@ -2333,8 +2463,8 @@ fn a_hosted_run_the_gate_may_not_cancel_is_waited_for_to_its_end() {
     let run = merge_without_waits(&workspace, &stand_in);
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    let refused =
-        "is past its 1800 s cap, and the gate may not cancel it: the gate waits for its end";
+    let refused = "has its job lint in progress for 1801 s, past the 1800 s cap, \
+                   and the gate may not cancel it: the gate waits for its end";
     assert_eq!(run.stdout.matches(refused).count(), 1, "{}", run.stdout);
     let listings = std::fs::read_to_string(hosted.join("listings")).unwrap();
     assert!(listings.lines().count() >= 4, "{listings}");

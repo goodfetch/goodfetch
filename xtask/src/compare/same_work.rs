@@ -515,14 +515,21 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                 (work.requests, work.bytes)
             }
         };
-        // The work most of the main rows' trials that fetched the site
-        // share, by either key; none when two values are shared by as many
+        // The work most of the trials that fetched the site and vote for a
+        // key share, by that key; none when two values are shared by as many
         // trials. A sensitivity row is held to it without a vote: Spider's
-        // would outnumber the other tools' rows together.
-        let held = |first_served: bool| {
+        // would outnumber the other tools' rows together. Every main row
+        // votes for the pages first served, but only a row held to the
+        // requests served votes for them: a sampling row's requests count
+        // pages fetched twice, and would tie a run that names two cells
+        // (#2175).
+        let held = |by_pages: bool| {
             let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-            for done in whole.iter().filter(|done| is_main(done)) {
-                *shared.entry(key(done.work, first_served)).or_default() += 1;
+            let voters = whole
+                .iter()
+                .filter(|done| is_main(done) && (by_pages || !first_served(done)));
+            for done in voters {
+                *shared.entry(key(done.work, by_pages)).or_default() += 1;
             }
             let most = shared.values().copied().max().unwrap_or(0);
             let mut held = shared.iter().filter(|(_, count)| **count == most);
@@ -546,7 +553,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
             let message = match reference {
                 Some((work, _)) if work == (count, bytes) => continue,
                 Some(((held_count, held_bytes), trials)) => format!(
-                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {voters} trials that fetched the site had {held_count} {what} {held_bytes}"
+                    "{count} {what} {bytes} bytes, where {trials} of the {voters} trials that fetched the site and vote for the {what} had {held_count} {what} {held_bytes}"
                 ),
                 None => format!(
                     "{count} {what} {bytes} bytes, and no count and bytes is shared by more trials than another"

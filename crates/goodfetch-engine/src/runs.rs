@@ -99,6 +99,7 @@ pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
+pub use crate::run_state::UnsupportedFolder;
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
@@ -128,6 +129,7 @@ use crate::governor::{
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
+use crate::lease::LeaseCheck;
 use crate::ledger::{
     Change, Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId, Unmade,
 };
@@ -220,6 +222,8 @@ pub(crate) struct RunsSetup {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
+    /// The send window the composition passes in, if any (ADR 0106).
+    pub(crate) send_window: Option<Arc<dyn SendWindow>>,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -227,13 +231,15 @@ pub(crate) struct RunsSetup {
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
 pub(crate) trait Forwarder: Send + Sync {
-    /// Asks the engine at `owner` to abort `run_id` as its owner, its
-    /// blocking work under `tasks`, and answers the Run report it answered;
-    /// `None` when it did not answer, answered `run_not_owned`, or failed.
+    /// Asks the engine at `owner` to abort `run_id` as its owner, for `by`,
+    /// its blocking work under `tasks`, and answers the Run report it
+    /// answered; `None` when it did not answer, answered `run_not_owned`,
+    /// or failed.
     fn abort<'a>(
         &'a self,
         owner: &'a RunOwner,
         run_id: &'a RunId,
+        by: &'a Aborter,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
 
@@ -255,6 +261,25 @@ pub(crate) trait Forwarder: Send + Sync {
 /// failure it answered; `None` when it did not answer.
 pub(crate) type ReadAnswer<'a> =
     Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
+
+/// ADR 0106's send window: the engine's declared Effects, which mark the
+/// bodies a Run's command counts for sent before it goes out.
+pub(crate) trait SendWindow: Send + Sync {
+    /// Marks sent, synced, each body of `run` declared through the attempt
+    /// `lease` names, or outside any attempt when it names none or is
+    /// `None`, that nothing was sent for yet, before `command` goes out.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    fn sending<'a>(
+        &'a self,
+        run: &'a Run,
+        lease: Option<&'a dyn LeaseCheck>,
+        command: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>>;
+}
 
 /// Writes a new Run's first rows, beside the engine's own, in the
 /// transaction that records the Run.
@@ -339,6 +364,9 @@ pub struct Start {
     pub timeout: Option<Duration>,
     /// Its resolved settings, which its pages and Sessions open under.
     pub settings: Option<RunSettings>,
+    /// Whether it outlives the Connection that starts it (ADR 0102): its
+    /// start checked that nothing in the program serves it.
+    pub detached: bool,
 }
 
 /// What a resume asks for.
@@ -461,6 +489,10 @@ pub enum StartError {
         /// The Run's folder.
         folder: PathBuf,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read, created or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -875,6 +907,10 @@ pub enum RunError {
         /// The Product it needs.
         needs: Product,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -1025,6 +1061,9 @@ impl RunError {
                 compatibility,
                 install,
             },
+            RunStateError::FilesystemUnsupported(refused) => {
+                Self::FilesystemUnsupported(run_id.clone(), refused)
+            }
             other => Self::Unavailable {
                 run_id: run_id.clone(),
                 folder: folder.to_owned(),
@@ -1182,7 +1221,7 @@ enum Command {
     ),
     Abort(
         RunId,
-        StoppedBy,
+        Aborter,
         Forwarded,
         Option<RawMark>,
         oneshot::Sender<Result<Waiting, RunError>>,
@@ -1279,6 +1318,42 @@ pub enum Forwarded {
     Yes,
 }
 
+/// Who aborts a Run, and whom a person's Client acts for (ADRs 0031 and
+/// 0113): the abort's stop reason, which the calls it cancels name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Aborter {
+    by: StoppedBy,
+    person: Option<String>,
+}
+
+impl Aborter {
+    /// `by`, naming no person.
+    pub fn by(by: StoppedBy) -> Self {
+        Self { by, person: None }
+    }
+
+    /// A person, through a Client that acts for `person`.
+    pub fn person(person: String) -> Self {
+        Self {
+            by: StoppedBy::Person,
+            person: Some(person),
+        }
+    }
+
+    /// Who aborts.
+    pub fn stopped_by(&self) -> StoppedBy {
+        self.by
+    }
+
+    /// The abort's stop reason.
+    pub fn reason(&self) -> StopReason {
+        StopReason::Abort {
+            by: self.by,
+            person: self.person.clone(),
+        }
+    }
+}
+
 /// The Connection of a Daemon a Run belongs to (ADR 0078): its end stops
 /// the Runs it started.
 pub(crate) type ConnectionId = u64;
@@ -1305,6 +1380,8 @@ pub struct Runs {
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
+    /// How many Runs are live, as the registry last said.
+    live: watch::Receiver<usize>,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1401,6 +1478,9 @@ struct Shared {
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
     /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
     trace: run_trace::RunTrace,
+    /// The send window its commands mark, which the composition passes
+    /// in, if any (ADR 0106).
+    send_window: Option<Arc<dyn SendWindow>>,
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -1456,6 +1536,36 @@ impl Run {
     /// 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.shared.metrics
+    }
+
+    /// Marks sent, synced, each of its declared Effects' bodies that runs
+    /// in the attempt `lease` names, or outside any attempt when it names
+    /// none or is `None`, before `command`, which may change a page or a
+    /// site, goes out (ADR 0106's window). The attempt is read only when
+    /// the Run has a body running, and nothing is marked when the
+    /// composition passes in no window.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future before the write began marks nothing, and
+    /// `command` must then not go out. A drop once the write was queued
+    /// may leave the bodies `sent` in the journal while the engine still
+    /// holds them open: the next mark writes only those still `open`
+    /// there, so the first command stays the one recorded.
+    pub async fn sending(
+        &self,
+        lease: Option<&dyn LeaseCheck>,
+        command: &str,
+    ) -> Result<(), CallError> {
+        match &self.shared.send_window {
+            Some(window) => window.sending(self, lease, command).await,
+            None => Ok(()),
+        }
     }
 
     /// Its share of the engine's Resource governor (ADR 0040), through
@@ -2926,6 +3036,7 @@ impl Runs {
         owner: &TaskOwner,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (live_count, live) = watch::channel(0);
         let readers = Arc::clone(setup.engine.owner());
         let limits = Limits {
             owner: Arc::clone(&readers),
@@ -2948,6 +3059,7 @@ impl Runs {
             metrics: setup.metrics.clone(),
             gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
+            live,
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -2970,6 +3082,7 @@ impl Runs {
             itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
+            live_count,
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
@@ -3289,7 +3402,7 @@ impl Runs {
     pub async fn abort(
         &self,
         run_id: RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
@@ -4039,6 +4152,18 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// How many Runs are live, told each time the registry answered a
+    /// command that changed it.
+    pub(crate) fn live_changes(&self) -> watch::Receiver<usize> {
+        self.live.clone()
+    }
+
+    /// Whether the engine found the Run index's lowest minor raised past
+    /// itself (ADR 0098), told once it does.
+    pub(crate) fn locked_out_of_the_index(&self) -> watch::Receiver<bool> {
+        self.engine.run_index().locked_out()
+    }
+
     /// Whether the engine drains and where its run folders go, answered by
     /// the registry itself: `None` once it stopped or stopped answering.
     ///
@@ -4458,6 +4583,8 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
+    /// How many Runs `live` holds, told once each command is answered.
+    live_count: watch::Sender<usize>,
     /// What it keeps of the Runs this engine ended: nothing of most
     /// (`runs::ended`).
     ended: EndedRuns,
@@ -4539,11 +4666,15 @@ impl Registry {
         // writes are done.
         startup.await;
         self.reclaim().await;
+        self.rebuild_orphaned_rows().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             if let Some(command) = self.unless_discarding(command) {
                 self.ending_line(&command);
                 self.answer(command).await;
+                let live = self.live.len();
+                self.live_count
+                    .send_if_modified(|count| std::mem::replace(count, live) != live);
             }
         }
         self.readers.wait().await;
@@ -4912,9 +5043,7 @@ impl Registry {
     async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
         let mut reports = Vec::new();
         for run_id in ids {
-            let end = End::Stopped(StopReason::Abort {
-                by: StoppedBy::Client,
-            });
+            let end = End::Stopped(Aborter::by(StoppedBy::Client).reason());
             if let Ok(report) = self.end_or_report(&run_id, end).await {
                 reports.push(report);
             }
@@ -4969,6 +5098,31 @@ impl Registry {
             .await;
         if let Err(error) = reclaimed {
             tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
+    }
+
+    /// Rebuilds, as a Daemon starts, the Run index rows that an engine
+    /// left owned with no writer holding their Runs, such as those a
+    /// Daemon locked out of the index ended (ADRs 0031 and 0098).
+    async fn rebuild_orphaned_rows(&self) {
+        if !matches!(self.setup.reached_at, Some(RunOwner::Daemon(_))) {
+            return;
+        }
+        let home = self.setup.engine.home().clone();
+        let version = self.setup.version.clone();
+        let rebuilt = self
+            .owner
+            .blocking(move || reindex::orphaned(&home, &version))
+            .await;
+        match rebuilt {
+            Ok(0) => {}
+            Ok(rebuilt) => tracing::info!(
+                rebuilt,
+                "the Run index rows no live engine owns were rebuilt"
+            ),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index rows no live engine owns were not rebuilt; `runs reindex` rebuilds them");
+            }
         }
     }
 
@@ -5620,7 +5774,12 @@ impl Registry {
             &writer,
         )
         .await
-        .map_err(|error| unavailable(error.to_string()))?;
+        .map_err(|error| match error {
+            RunStateError::FilesystemUnsupported(refused) => {
+                StartError::FilesystemUnsupported(run_id.clone(), refused)
+            }
+            other => unavailable(other.to_string()),
+        })?;
         let started_at = self.now();
         let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
         let fixed_settings = row.fixed_settings.clone();
@@ -5659,7 +5818,9 @@ impl Registry {
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
-            connection,
+            // A detached Run is no Connection's, so no Connection's end
+            // stops it (ADR 0102).
+            connection: connection.filter(|_| !start.detached),
             checkpoint: None,
             progress_message: None,
             lifecycle: Lifecycle::Running,
@@ -5961,6 +6122,7 @@ impl Registry {
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
                 trace,
+                send_window: self.setup.send_window.clone(),
             }),
             owner,
             runs: self.handle(connection),
@@ -5997,6 +6159,7 @@ impl Registry {
             metrics: self.setup.metrics.clone(),
             gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
+            live: self.live_count.subscribe(),
         }
     }
 
@@ -6173,14 +6336,15 @@ impl Registry {
     ) -> Result<Waiting, RunError> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
-                run.stop_at_safe_point(StopReason::Abort { by });
+                run.stop_at_safe_point(Aborter::by(by).reason());
             }
             return Ok(Waiting::Report(live.report.subscribe()));
         }
         if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
             return self.ended_report(run_id).await.map(Waiting::Report);
         }
-        self.abort(run_id, by, Forwarded::No, raw).await
+        self.abort(run_id, Aborter::by(by), Forwarded::No, raw)
+            .await
     }
 
     /// Stops a live Run of this engine's, answers the report of one it
@@ -6192,13 +6356,13 @@ impl Registry {
     async fn abort(
         &mut self,
         run_id: &RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
         raw: Option<RawMark>,
     ) -> Result<Waiting, RunError> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
-                .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
+                .end_or_report(run_id, End::Stopped(by.reason()))
                 .await
                 .map(Waiting::Report);
         }
@@ -6610,6 +6774,7 @@ impl Registry {
                 | StartError::Draining { .. }
                 | StartError::Secret(_)
                 | StartError::Refused(_)
+                | StartError::FilesystemUnsupported(..)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;
@@ -6699,7 +6864,7 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
             .publish(&RUN_MIGRATING, Some(run_id.as_str()), &migrating)
             .await;
     }
-    if let StopReason::Abort { by } = cause {
+    if let StopReason::Abort { by, .. } = cause {
         let aborting = RunAborting {
             run_id: run_id.clone(),
             by: *by,

@@ -53,10 +53,12 @@ fn each_fabricated_hello_gets_its_generated_reply(
             (
                 received.len(),
                 super::takes_engine_instance(&mut received[0]),
+                super::takes_timeouts(&mut received[0]),
                 &received[0]["result"]
             ),
             (
                 2,
+                true,
                 true,
                 &json!({
                     "protocol_version": protocol_version,

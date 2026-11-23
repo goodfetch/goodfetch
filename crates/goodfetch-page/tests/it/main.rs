@@ -9,6 +9,7 @@
 //! executable prints (issue 2532), and the decodes of a call the Product
 //! answers on a page it serves (issue 2617).
 
+mod effect_window;
 mod gesture_navigation;
 mod guard_listener;
 mod handler_page;

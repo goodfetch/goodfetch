@@ -386,7 +386,7 @@ fn a_navigations_response_gives_its_head_and_its_documents_text() {
 /// `Content-Type`, and `json()` ignores a leading BOM, on the Responses
 /// `page.request` answers; `json()` of a body that is no JSON fails with
 /// `response_not_json`, naming the response's URL.
-/// Covers: story:11-85, operation:page.request, operation:response.body, error:response_not_json
+/// Covers: story:11-85, operation:page.request, operation:response.body
 #[test]
 fn text_honours_a_legacy_charset_and_json_ignores_a_bom() {
     let env = TestEnv::new();

@@ -70,6 +70,31 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -290,6 +315,31 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "blocking::Collie"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -377,6 +427,51 @@ entry = "none"
 reason = "Collie's executable's: none."
 words = ["collie"]
 form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "SkillFile"
+entry = "none"
+reason = "One file of the agent skills an executable embeds: its path under the skills folder and its bytes."
+words = ["skill", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Skills"
+entry = "none"
+reason = "The agent skills an executable embeds, which `skill install` writes into a coding agent's skills folder."
+words = ["skills"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's: its renderings of `skills/`."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "new"
+entry = "none"
+reason = "The skills of `files`, such as a Product's generated list."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "files"
+entry = "none"
+reason = "Their files, which each executable's unit test reads for the options its skills name."
+words = ["files"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-collie"
@@ -1296,3 +1391,39 @@ reason = "Every artifact this version pins."
 only = "The artifacts this crate's linked engine pins; TypeScript's SDK links no engine: it reaches an Attached engine or a Daemon (ADRs 0087 and 0098)."
 words = ["pinned", "artifacts"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "testing"
+member = "TestEngine"
+entry = "none"
+reason = "A real Collie engine for a test (ADR 0105), linked in its process, in a temporary Goodfetch home with a cleared environment, `egress.offline` on and short durations, its browsers from the caller's Browser cache."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "testing::TestEngine"
+member = "start"
+entry = "none"
+reason = "Starts a test engine with the options given, a test's settings over the kit's."
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "testing::TestEngine"
+member = "connection"
+entry = "none"
+reason = "The `Collie` connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "testing::TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"

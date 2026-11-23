@@ -233,6 +233,12 @@ pub(crate) fn browser_crashed(exit: Option<BrowserExit>) -> CallError {
 /// `call_cancelled` for a call in flight that `by` stopped by closing
 /// `closed` under it (ADR 0113).
 pub(crate) fn cancelled(by: CancelledBy, closed: ClosedValue) -> CallError {
+    cancelled_for(by, closed, None)
+}
+
+/// As [`cancelled`], naming `person`, whom the stopping Client acts for
+/// (ADR 0031), when known.
+fn cancelled_for(by: CancelledBy, closed: ClosedValue, person: Option<String>) -> CallError {
     let message = match (&by, &closed) {
         (CancelledBy::Browser, ClosedValue::Page) => {
             "the page's window was closed in the browser, outside every Client: open a page and act again"
@@ -248,7 +254,7 @@ pub(crate) fn cancelled(by: CancelledBy, closed: ClosedValue) -> CallError {
         &CallCancelledDetails {
             by,
             closed: Some(closed),
-            person: None,
+            person,
         },
     )
 }
@@ -260,7 +266,9 @@ pub(crate) fn cancelled(by: CancelledBy, closed: ClosedValue) -> CallError {
 pub(crate) fn run_stopped(run: &Run) -> CallError {
     match run.stopping().now_or_never() {
         Some(StopReason::Limit(reached)) => limit_reached(&reached),
-        Some(StopReason::Abort { by }) => cancelled(by.into(), ClosedValue::Run),
+        Some(StopReason::Abort { by, person }) => {
+            cancelled_for(by.into(), ClosedValue::Run, person)
+        }
         _ => cancelled(CancelledBy::Program, ClosedValue::Run),
     }
 }

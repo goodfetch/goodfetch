@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 from goodfetch_collie_client.connection import ClientConnection
 from goodfetch_collie_client.generated.errors import ERROR_CLASSES as COLLIE_ERRORS
-from goodfetch_collie_client.generated.models import RunStarted
+from goodfetch_collie_client.generated.models import Product, RunStarted
 from goodfetch_collie_client.portal import PrivateLoop
 from goodfetch_collie_client.run import AsyncRun
 from goodfetch_foxhound.generated.errors import ERROR_CLASSES as FOXHOUND_ERRORS
@@ -39,7 +39,11 @@ def _connection(transport: ByteStream) -> ClientConnection:
     `connect()`'s 30 s, is never read.
     """
     return ClientConnection(
-        transport, None, {**COLLIE_ERRORS, **FOXHOUND_ERRORS}, close_timeout=30.0
+        transport,
+        None,
+        {**COLLIE_ERRORS, **FOXHOUND_ERRORS},
+        close_timeout=30.0,
+        needs=Product.foxhound,
     )
 
 

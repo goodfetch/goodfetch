@@ -412,36 +412,16 @@ esac
 # How a merge's message opens: `xtask gate compare` and the test-health run
 # find a full gate's merge by these words followed by `just pre-merge all`.
 merged_on="Merged on the local gate: "
-# How many of spec #$1's sub-issues stay open once pull request #$number's
-# closing issues are closed: one query of both, read whole, or no number when
-# either holds more than a page.
-sub_issues_left_open() {
-  local query filter
-  read -r -d '' query <<'GRAPHQL' || true
-query($owner: String!, $name: String!, $spec: Int!, $pr: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $spec) { subIssues(first: 100) { pageInfo { hasNextPage } nodes { number state } } }
-    pullRequest(number: $pr) { closingIssuesReferences(first: 100) { pageInfo { hasNextPage } nodes { number } } }
-  }
-}
-GRAPHQL
-  read -r -d '' filter <<'JQ' || true
-.data.repository
-| [.pullRequest.closingIssuesReferences.nodes[].number] as $closed
-| if .issue.subIssues.pageInfo.hasNextPage or .pullRequest.closingIssuesReferences.pageInfo.hasNextPage then "more than a page"
-  else [.issue.subIssues.nodes[] | select(.state == "OPEN") | .number | select(. as $n | $closed | any(. == $n) | not)] | length
-  end
-JQ
-  gh api graphql -F owner='{owner}' -F name='{repo}' -F spec="$1" -F pr="$number" -f query="$query" --jq "$filter"
-}
 why_full=""
 not_finished=""
 if [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
-  # An answer that cannot be read is refused: taken for none left, it would
+  # How many of the spec's sub-issues stay open once this pull request's
+  # closing issues are closed, as the hosted tier's plan asks it too. An
+  # answer that cannot be read is refused: taken for none left, it would
   # run a full gate on an unfinished spec; taken for some, it would skip a
   # finished spec's.
   spec=${branch#spec/}
-  if ! left_open=$(sub_issues_left_open "$spec") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
+  if ! left_open=$("$here/spec-sub-issues.sh" "$spec" "$number") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
     echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again" >&2
     exit 1
   fi
@@ -477,7 +457,10 @@ fi
 echo "The gate is ${ran%,}"
 # The hosted tier (ADR 0135's amendment of 2026-11-22) runs a batch's or a
 # spec's pull request's hosted-owned units, lint, the Quick suite, the
-# Journey task lists and xtask's codegen tests, on GitHub's standard runners.
+# Journey task lists and xtask's codegen tests, on GitHub's standard runners,
+# a batch's Pre-merge suite too, and on the pull request that finishes a spec
+# the full form's (#3382): the proofs, the visual tests, the Pre-merge suite,
+# the feature tests, the Kennel's check and the MSRV build.
 # The gate waits for the run on its head and reads the records of the runs
 # on it and its ancestors (ci/hosted-records.sh): the plan reuses their green
 # units, and a red one ends the gate red. A fork's runs are never read, and

@@ -44,3 +44,50 @@ async def test_reaches_the_running_daemon_at_auto_and_an_attached_engine_when_as
             None,
         ),
     ]
+
+
+@pytest.mark.covers("story:11-299")
+@three_ways
+async def test_takes_an_environment_whose_only_engine_path_is_foxhounds(
+    way: Way, env: Mapping[str, str], daemon: Daemon
+) -> None:
+    """Foxhound's variable fails no `connect()`, which reaches the Daemon."""
+    foxhounds_only = {
+        **{
+            name: value
+            for name, value in env.items()
+            if name != "GOODFETCH_COLLIE_ENGINE_PATH"
+        },
+        "GOODFETCH_FOXHOUND_ENGINE_PATH": "/nonexistent/goodfetch-foxhound",
+    }
+
+    collie = await open_collie(way, foxhounds_only)
+    engine = collie.engine
+    await collie.close()
+
+    assert (engine.kind, engine.engine_path, engine.url) == (
+        "daemon",
+        None,
+        daemon.socket,
+    )
+
+
+@pytest.mark.covers("story:3-2")
+@three_ways
+async def test_two_scripts_open_at_once_share_the_running_daemon(
+    way: Way, env: Mapping[str, str], daemon: Daemon, test_env: TestEnv
+) -> None:
+    """One script finds the Daemon running, the other has it configured.
+
+    Both stay open at once on the one Daemon, and neither starts an engine.
+    """
+    found = await open_collie(way, env)
+    configured = await open_collie(way, env, engine="daemon")
+    engines = [found.engine, configured.engine]
+    await found.close()
+    await configured.close()
+
+    assert [
+        (engine.kind, engine.product, engine.home, engine.engine_path, engine.url)
+        for engine in engines
+    ] == [("daemon", Product.collie, str(test_env.home), None, daemon.socket)] * 2

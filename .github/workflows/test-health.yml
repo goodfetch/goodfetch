@@ -176,7 +176,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
-      # The Release run's JUnit artifacts, which name the commit it tested.
+      # The Release run's JUnit artifacts, which name the commit it tested,
+      # and this run, whose repository's visibility the ceiling reads.
       actions: read
       contents: read
     outputs:
@@ -199,9 +200,13 @@ jobs:
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
       - name: Check the month's minutes against the ceiling
         id: ceiling
+        # This run's repository visibility decides which minutes bill.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run constrained --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
+          --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
           | tee -a "$GITHUB_OUTPUT"
       # A Release run tests the commit its `commit` input names, which may
       # not be its head; each of its JUnit artifacts names it.

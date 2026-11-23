@@ -169,7 +169,14 @@ class AsyncFoxhound(AsyncConnection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started, as `AsyncCollie.start`.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. It starts the Run as `AsyncCollie.start` does.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -184,9 +191,7 @@ class AsyncFoxhound(AsyncConnection):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. The Run is the Collie client package's own
-        `AsyncRun` (ADR 0095).
+        The Run is the Collie client package's own `AsyncRun` (ADR 0095).
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
@@ -391,7 +396,14 @@ class Foxhound(Connection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> Run:
-        """Starts a Run and returns once it is started, as `Collie.start`.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. It starts the Run as `Collie.start` does.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -406,9 +418,7 @@ class Foxhound(Connection):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. The Run is the Collie client package's own `Run`
-        (ADR 0095).
+        The Run is the Collie client package's own `Run` (ADR 0095).
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)

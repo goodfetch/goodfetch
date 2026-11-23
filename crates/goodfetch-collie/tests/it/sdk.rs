@@ -40,11 +40,13 @@ mod refused_by_the_daemon;
 mod scripted;
 mod settings;
 mod start;
+mod test_engine;
 // The crate's tests take its `opentelemetry` feature, except in the build
 // `just feature-combinations` makes without it, which runs
 // `without_opentelemetry` alone. `trace_context` stays in every build, as
 // `xtask clients` requires of a client case's tests.
 mod trace_context;
+mod unknown_values;
 #[cfg(not(feature = "opentelemetry"))]
 mod without_opentelemetry;
 

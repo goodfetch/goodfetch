@@ -9,21 +9,35 @@
 //! request (`plugin_record.handle`), reads a large Record from its reply,
 //! publishes an event and logs a line. The Plugin's entries are stand-ins
 //! of this file, shaped as a crawl's are: the engine names none of
-//! Foxhound's (ADR 0099). Its Valgrind targets' scenarios
-//! dispatch [`MESSAGES`] messages each beyond [`NO_MESSAGES`], which `xtask
-//! counts` divides by.
+//! Foxhound's (ADR 0099). A body stored in a Run and read back by
+//! `page.body` under the Client's credits sends its `$/chunk`s too, and
+//! `run.finish` ends its Run while the Client still reads its events. The
+//! scenario runs on either carriage (ADR 0049): an Attached engine's
+//! stdio, or a WebSocket to an Exposed Daemon, through the same `rpc`
+//! dispatch. Its Valgrind targets' scenarios dispatch [`MESSAGES`]
+//! messages each beyond [`NO_MESSAGES`], which `xtask counts` divides by.
 
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
-use goodfetch_engine::transport::{self, InMemoryDialer, Network};
+use goodfetch_engine::transport::{
+    self, ConnectionReader, ConnectionWriter, InMemoryDialer, InMemoryNetwork, Network,
+};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Guard,
     Handler, Identity, Params,
@@ -34,16 +48,37 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::checkpoint::RUN_CHECKPOINTING;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::route::{ROUTE_FULFILL, RouteAnswered, RouteFulfillParams};
+use goodfetch_protocol::page::{BodyHandle, CHUNK_BYTES};
+use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Join, Lines};
 use tokio::sync::mpsc;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::handshake::client::generate_key;
+use tokio_tungstenite::tungstenite::http::Request;
+use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 use tracing_subscriber::layer::SubscriberExt as _;
 
 /// The bytes of a large params' body and of a large Record's text.
 const LARGE_BYTES: usize = 64 * 1024;
+
+/// The bytes of a body a Run stores, which `page.body` sends in
+/// [`BODY_CHUNKS`] `$/chunk`s, the last of one byte.
+const BODY_BYTES: usize = 2 * CHUNK_BYTES + 1;
+
+/// The `$/chunk`s that carry one stored body.
+pub(crate) const BODY_CHUNKS: usize = BODY_BYTES.div_ceil(CHUNK_BYTES);
+
+/// The address an Exposed Daemon's listener names, on the in-memory
+/// network.
+const ADDRESS: &str = "127.0.0.1:7900";
+
+/// The Daemon's per-launch token, which a `hello` over WebSocket carries.
+const TOKEN: &str = "b3-launch-token";
 
 /// The bytes a Valgrind target's plant encodes beside the call's params.
 const PLANT_BYTES: usize = 8 * 1024;
@@ -60,6 +95,7 @@ pub(crate) const NO_MESSAGES: Traffic = Traffic {
     small: 0,
     large: 0,
     plugin: 0,
+    bodies: 0,
 };
 
 /// [`MESSAGES`] messages of small params.
@@ -67,6 +103,7 @@ pub(crate) const SMALL_PARAMS: Traffic = Traffic {
     small: MESSAGES,
     large: 0,
     plugin: 0,
+    bodies: 0,
 };
 
 /// [`MESSAGES`] messages of large params: half of them calls with a large
@@ -75,6 +112,7 @@ pub(crate) const LARGE_PARAMS: Traffic = Traffic {
     small: 0,
     large: MESSAGES / 2,
     plugin: MESSAGES / 4,
+    bodies: 0,
 };
 
 /// The messages a Client sends behind what opens every run of the scenario.
@@ -87,23 +125,54 @@ pub(crate) struct Traffic {
     /// Calls that each send a handler request, read its reply with a large
     /// Record, publish an event and log a line: two messages in each.
     pub(crate) plugin: usize,
+    /// Bodies, each stored in a Run of its own by a call, then read by
+    /// `page.body` under one `$/credit` for its [`BODY_CHUNKS`] chunks, and
+    /// its Run ended by `run.finish`: four messages in each.
+    pub(crate) bodies: usize,
 }
 
 impl Traffic {
     /// What opens a run: `hello`, `events.subscribe` and `$/credit`.
     const OPENING: usize = 3;
 
-    /// The messages the Client sends, what opens the run included.
+    /// What ends it: the `$/cancel` of the subscription.
+    const CLOSING: usize = 1;
+
+    /// The messages the Client sends, what opens and ends the run included.
     pub(crate) const fn incoming(self) -> usize {
-        Self::OPENING + self.small + self.large + 2 * self.plugin
+        Self::OPENING + self.small + self.large + 2 * self.plugin + 4 * self.bodies + Self::CLOSING
     }
 
     /// The requests among them: `hello`, `events.subscribe` and each call,
     /// every one with params; a `$/credit` and a reply to a handler request
     /// are none.
     pub(crate) const fn requests(self) -> usize {
+        2 + self.small + self.large + self.plugin + 3 * self.bodies
+    }
+
+    /// The answers the Client waits for before it ends the subscription:
+    /// `hello`'s and each call's; `events.subscribe` answers only once its
+    /// subscription ends.
+    const fn calls_answered(self) -> usize {
+        self.requests() - 1
+    }
+
+    /// The ID of the call that stores the first body: the calls before it
+    /// count up from `hello`'s 0. Each body's `page.body` call takes the ID
+    /// [`Self::bodies`] past its store's.
+    const fn first_body(self) -> usize {
         2 + self.small + self.large + self.plugin
     }
+}
+
+/// The carriage a Connection's messages travel on (ADR 0049).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Carriage {
+    /// An Attached engine's stdio: one JSON-RPC message a line.
+    Stdio,
+    /// A WebSocket to an Exposed Daemon: one JSON-RPC message a WebSocket
+    /// message, its `hello` carrying the Daemon's token.
+    WebSocket,
 }
 
 /// Whether the Connection asks for log events, the feature on this path that
@@ -122,6 +191,7 @@ pub(crate) type Plant = Arc<dyn Fn(Params<'_>) + Send + Sync>;
 pub(crate) struct Input {
     traffic: Traffic,
     logs: Logs,
+    carriage: Carriage,
     plant: Option<Plant>,
     home: TempDir,
 }
@@ -142,7 +212,7 @@ pub(crate) struct Input {
 ///   the Client's): on pages fresh from the OS the allocator skips their
 ///   zeroing, and one run of a pair skipping it while the other paid it
 ///   moved the figure per message by about 330 instructions.
-pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
+pub(crate) fn input(traffic: Traffic, logs: Logs, carriage: Carriage) -> Input {
     let plant = std::env::var_os(PLANT_VARIABLE).map(|_| {
         let document = json!({ "text": "x".repeat(PLANT_BYTES) });
         Arc::new(move |params: Params<'_>| {
@@ -156,6 +226,7 @@ pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
     run(
         NO_MESSAGES,
         logs,
+        carriage,
         Metrics::none(),
         plant.clone(),
         warming.path(),
@@ -165,6 +236,7 @@ pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
     Input {
         traffic,
         logs,
+        carriage,
         plant,
         home,
     }
@@ -175,6 +247,7 @@ pub(crate) fn dispatched(input: &Input) -> usize {
     run(
         input.traffic,
         input.logs,
+        input.carriage,
         Metrics::none(),
         input.plant.clone(),
         input.home.path(),
@@ -219,6 +292,8 @@ pub(crate) struct Sent {
     pub(crate) log_lines: usize,
     /// The handler requests among them.
     pub(crate) handler_requests: usize,
+    /// The `$/chunk`s among them.
+    pub(crate) chunks: usize,
 }
 
 /// The Plugin's call, which starts its work as a crawl's start does.
@@ -300,6 +375,54 @@ async fn plugin_call(params: Value, context: CallContext) -> Result<Value, CallE
     Ok(json!({ "records": records }))
 }
 
+/// The Plugin's call that keeps a page body, as a crawl's fetch does: it
+/// starts a Run and stores the body in it.
+const PLUGIN_STORE_BODY: Operation = Operation {
+    name: "plugin.store_body",
+    description: "Asks the stand-in Plugin to keep one page body in a Run of its own.",
+    ..PLUGIN_CALL
+};
+
+/// What the call that stores a body takes: the Run it starts.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoreBody {
+    run_id: RunId,
+}
+
+/// Starts the Run `run_id` and stores [`BODY_BYTES`] in it, answering the
+/// body's handle, which `page.body` reads.
+async fn store_body(params: StoreBody, context: CallContext) -> Result<BodyHandle, CallError> {
+    let failed = |error: String| CallError::protocol(ProtocolFailure::InternalError, error);
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(params.run_id),
+            tags: Tags::default(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: std::collections::BTreeMap::new(),
+            ended_by: EndedBy::Finish,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+            detached: false,
+        })
+        .await
+        .map_err(|error| failed(error.to_string()))?;
+    let Started::New(run) = started else {
+        return Err(failed("the body's Run began before".to_owned()));
+    };
+    run.store_body(vec![b'x'; BODY_BYTES].into())
+        .await
+        .map_err(|error| failed(error.to_string()))
+}
+
 /// `route.fulfill`, its params read and nothing reaching a browser.
 async fn fulfill(
     _params: RouteFulfillParams,
@@ -313,7 +436,8 @@ async fn fulfill(
 fn composition(plant: Option<Plant>) -> Composition {
     let stand_ins = Contribution::new("b3-stand-ins")
         .with_handler(Handler::new(&ROUTE_FULFILL, fulfill))
-        .with_handler(Handler::new(&PLUGIN_CALL, plugin_call));
+        .with_handler(Handler::new(&PLUGIN_CALL, plugin_call))
+        .with_handler(Handler::new(&PLUGIN_STORE_BODY, store_body));
     let engine = goodfetch_engine::contribution();
     match plant {
         None => Composition::default().with(engine).with(stand_ins),
@@ -329,18 +453,23 @@ fn composition(plant: Option<Plant>) -> Composition {
     }
 }
 
-/// The lines a run opens with and those its traffic sends unprompted.
-fn request_lines(traffic: Traffic, logs: Logs) -> Vec<u8> {
+/// The lines a run opens with and those its traffic sends unprompted, the
+/// `hello` over WebSocket with the Daemon's token.
+fn request_lines(traffic: Traffic, logs: Logs, carriage: Carriage) -> Vec<u8> {
     let log_level = match logs {
         Logs::On => "info",
         Logs::Off => "off",
     };
+    let mut hello = json!({ "jsonrpc": "2.0", "id": 0, "method": "hello", "params": {
+        "protocol_version": "0.1", "surface": "rust", "needs": "collie",
+        "product_version": "0.0.0", "log_level": log_level,
+    } });
+    if carriage == Carriage::WebSocket {
+        hello["params"]["token"] = json!(TOKEN);
+    }
     let mut lines = format!(
         "{}\n{}\n{}\n",
-        json!({ "jsonrpc": "2.0", "id": 0, "method": "hello", "params": {
-            "protocol_version": "0.1", "surface": "rust", "needs": "collie",
-            "product_version": "0.0.0", "log_level": log_level,
-        } }),
+        hello,
         r#"{"jsonrpc":"2.0","id":1,"method":"events.subscribe","params":{}}"#,
         r#"{"jsonrpc":"2.0","method":"$/credit","params":{"id":1,"credits":100000}}"#,
     )
@@ -378,7 +507,57 @@ fn request_lines(traffic: Traffic, logs: Logs) -> Vec<u8> {
             .as_bytes(),
         );
     }
+    for body in 0..traffic.bodies {
+        let id = next();
+        assert_eq!(
+            id,
+            traffic.first_body() + body,
+            "invariant: the bodies' calls come last, where `body_lines` looks for their answers"
+        );
+        lines.extend_from_slice(
+            format!(
+                "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"plugin.store_body\",\"params\":{{\"run_id\":\"body-{body}\"}}}}\n"
+            )
+            .as_bytes(),
+        );
+    }
     lines
+}
+
+/// What ends a run: the `$/cancel` of the subscription, which answers then.
+const CANCEL_SUBSCRIPTION: &str =
+    "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancel\",\"params\":{\"id\":1}}\n";
+
+/// What the Client sends once the call `id` answered `result`: when it
+/// stored a body, the `page.body` call that reads it and the `$/credit`
+/// for its chunks; when it read one, the `run.finish` of the body's Run.
+fn body_lines(traffic: Traffic, id: usize, result: &Value) -> Option<Vec<u8>> {
+    let first = traffic.first_body();
+    let next = id + traffic.bodies;
+    if (first..first + traffic.bodies).contains(&id) {
+        return Some(
+            format!(
+                "{}\n{}\n",
+                json!({ "jsonrpc": "2.0", "id": next, "method": "page.body", "params": {
+                    "run_id": result["run_id"], "body": result["body"],
+                } }),
+                json!({ "jsonrpc": "2.0", "method": "$/credit", "params": {
+                    "id": next, "credits": BODY_CHUNKS,
+                } }),
+            )
+            .into_bytes(),
+        );
+    }
+    let read = first + traffic.bodies;
+    (read..read + traffic.bodies).contains(&id).then(|| {
+        format!(
+            "{}\n",
+            json!({ "jsonrpc": "2.0", "id": next, "method": "run.finish", "params": {
+                "run_id": format!("body-{}", id - read),
+            } }),
+        )
+        .into_bytes()
+    })
 }
 
 /// The reply to the handler request `id`: a large Record.
@@ -389,53 +568,193 @@ fn handled_line(id: usize, text: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// The Client: sends `lines`, answers each handler request, closes once each
-/// of `answers` calls was answered and reads to the end.
-async fn client(dialer: InMemoryDialer, lines: &[u8], answers: usize) -> Sent {
-    let (reader, mut writer) = dialer
+/// A WebSocket's Client end over the in-memory network.
+type ClientSocket = WebSocketStream<Join<ConnectionReader, ConnectionWriter>>;
+
+/// The Client's sending side on its carriage.
+enum Sending {
+    Lines(ConnectionWriter),
+    Messages(SplitSink<ClientSocket, Message>),
+}
+
+impl Sending {
+    /// Sends `lines`, each ended by a newline: as they are, or each as one
+    /// WebSocket message, flushed once all are in.
+    async fn send(&mut self, lines: &[u8]) {
+        match self {
+            Self::Lines(writer) => writer.write_all(lines).await.expect("invariant: in memory"),
+            Self::Messages(sink) => {
+                for line in lines.split(|byte| *byte == b'\n') {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let text = std::str::from_utf8(line)
+                        .expect("invariant: the Client's lines are JSON text");
+                    sink.feed(Message::text(text.to_owned()))
+                        .await
+                        .expect("invariant: in memory");
+                }
+                sink.flush().await.expect("invariant: in memory");
+            }
+        }
+    }
+
+    /// Shuts the sending side down, or closes the WebSocket.
+    async fn close(self) {
+        match self {
+            Self::Lines(mut writer) => writer.shutdown().await.expect("invariant: in memory"),
+            Self::Messages(mut sink) => sink.close().await.expect("invariant: in memory"),
+        }
+    }
+}
+
+/// The Client's receiving side on its carriage.
+enum Receiving {
+    Lines(Lines<BufReader<ConnectionReader>>),
+    Messages(SplitStream<ClientSocket>),
+}
+
+/// One message the engine sent, as it arrived.
+enum Received {
+    Line(String),
+    Message(Utf8Bytes),
+}
+
+impl Received {
+    fn text(&self) -> &str {
+        match self {
+            Self::Line(line) => line,
+            Self::Message(text) => text.as_str(),
+        }
+    }
+}
+
+impl Receiving {
+    /// The next message, or none once the engine closed its side.
+    async fn next(&mut self) -> Option<Received> {
+        match self {
+            Self::Lines(lines) => lines.next_line().await.ok().flatten().map(Received::Line),
+            Self::Messages(stream) => loop {
+                match stream.next().await? {
+                    Ok(Message::Text(text)) => return Some(Received::Message(text)),
+                    Ok(Message::Close(_)) | Err(_) => return None,
+                    Ok(_) => {}
+                }
+            },
+        }
+    }
+}
+
+/// Opens the Client's Connection on `carriage`: over WebSocket, by a
+/// handshake from the Daemon's own origin.
+async fn connect(dialer: &InMemoryDialer, carriage: Carriage) -> (Sending, Receiving) {
+    let (reader, writer) = dialer
         .connect()
         .await
         .expect("invariant: the engine listens")
         .split();
+    match carriage {
+        Carriage::Stdio => (
+            Sending::Lines(writer),
+            Receiving::Lines(BufReader::new(reader).lines()),
+        ),
+        Carriage::WebSocket => {
+            let request = Request::builder()
+                .uri(format!("ws://{ADDRESS}/"))
+                .header("Host", ADDRESS)
+                .header("Origin", format!("http://{ADDRESS}"))
+                .header("Connection", "Upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", generate_key())
+                .body(())
+                .expect("invariant: a literal handshake");
+            let (socket, _) =
+                tokio_tungstenite::client_async(request, tokio::io::join(reader, writer))
+                    .await
+                    .expect("invariant: the Daemon accepts its own origin");
+            let (sink, stream) = socket.split();
+            (Sending::Messages(sink), Receiving::Messages(stream))
+        }
+    }
+}
+
+/// The Client: sends `lines` on `carriage`, answers each handler request,
+/// reads each stored body and finishes its Run, ends the subscription once
+/// each of `traffic`'s calls was answered, closes once that was answered too
+/// and reads to the end.
+async fn client(
+    dialer: InMemoryDialer,
+    carriage: Carriage,
+    traffic: Traffic,
+    lines: &[u8],
+) -> Sent {
+    let (mut sending, mut receiving) = connect(&dialer, carriage).await;
     let (replies, mut to_send) = mpsc::unbounded_channel::<Vec<u8>>();
     let writing = async {
-        writer.write_all(lines).await.expect("invariant: in memory");
+        sending.send(lines).await;
         while let Some(line) = to_send.recv().await {
-            writer.write_all(&line).await.expect("invariant: in memory");
+            sending.send(&line).await;
         }
-        writer.shutdown().await.expect("invariant: in memory");
+        sending.close().await;
     };
     let receive = async {
         let text = "x".repeat(LARGE_BYTES);
         let mut replies = Some(replies);
-        let mut answered = 0;
+        let reply = |replies: &Option<mpsc::UnboundedSender<Vec<u8>>>, line: Vec<u8>| {
+            replies
+                .as_ref()
+                .expect("invariant: a call in flight keeps the Client open")
+                .send(line)
+                .expect("invariant: the sending side reads until this one ends");
+        };
+        let (mut answered, mut followed) = (0, 0);
         let mut sent = Sent {
             outgoing: 0,
             event_batches: 0,
             events: 0,
             log_lines: 0,
             handler_requests: 0,
+            chunks: 0,
         };
-        let mut read = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = read.next_line().await {
+        while let Some(received) = receiving.next().await {
+            let line = received.text();
             sent.outgoing += 1;
-            let start = line.get(..line.len().min(64)).unwrap_or(&line);
+            let start = line.get(..line.len().min(64)).unwrap_or(line);
             if start.contains(r#""method":"$/events""#) {
                 sent.event_batches += 1;
-                sent.events += carried(&line);
+                sent.events += carried(line);
             } else if start.contains(r#""method":"$/log""#) {
                 sent.log_lines += 1;
             } else if start.contains(r#""method":"plugin_record.handle""#) {
-                let reply = handled_line(sent.handler_requests, &text);
+                reply(&replies, handled_line(sent.handler_requests, &text));
                 sent.handler_requests += 1;
-                replies
-                    .as_ref()
-                    .expect("invariant: a call in flight keeps the Client open")
-                    .send(reply)
-                    .expect("invariant: the sending side reads until this one ends");
+            // Only a run that stores bodies looks for their chunks, so the
+            // Valgrind targets' Client does what it did before them.
+            } else if traffic.bodies > 0 && start.contains(r#""method":"$/chunk""#) {
+                sent.chunks += 1;
             } else {
+                // Only a run that stores bodies reads its answers, until
+                // each body was stored and read.
+                if followed < 2 * traffic.bodies {
+                    let answer: Value =
+                        serde_json::from_str(line).expect("invariant: the engine sends JSON");
+                    let id = answer["id"]
+                        .as_u64()
+                        .and_then(|id| usize::try_from(id).ok());
+                    if let Some(next) = id.and_then(|id| body_lines(traffic, id, &answer["result"]))
+                    {
+                        followed += 1;
+                        reply(&replies, next);
+                    }
+                }
                 answered += 1;
-                if answered == answers {
+                // Each call answered, the Client ends the subscription and
+                // closes once it answered: closed first, a WebSocket would
+                // drop that answer, encoded all the same.
+                if answered == traffic.calls_answered() {
+                    reply(&replies, CANCEL_SUBSCRIPTION.as_bytes().to_vec());
+                } else if answered > traffic.calls_answered() {
                     replies = None;
                 }
             }
@@ -450,6 +769,7 @@ async fn client(dialer: InMemoryDialer, lines: &[u8], answers: usize) -> Sent {
 pub(crate) fn run(
     traffic: Traffic,
     logs: Logs,
+    carriage: Carriage,
     metrics: Metrics,
     plant: Option<Plant>,
     home: &Path,
@@ -465,9 +785,7 @@ pub(crate) fn run(
         .expect("invariant: one handler each")
         .with_metrics(metrics)
         .with_log_events(log_events);
-    let lines = request_lines(traffic, logs);
-    // `hello` and `events.subscribe` are answered like any other call.
-    let answers = 1 + traffic.small + traffic.large + traffic.plugin;
+    let lines = request_lines(traffic, logs, carriage);
     tracing::subscriber::with_default(subscriber, || {
         goodfetch_test_support::runtime().block_on(async {
             let (network, dialer) = transport::in_memory();
@@ -482,12 +800,69 @@ pub(crate) fn run(
                 run_state: RunStateOptions::default(),
                 politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
             };
-            let (served, what_left) = tokio::join!(
-                engine.run_attached(Network::InMemory(network), dependencies),
-                client(dialer, &lines, answers)
-            );
-            served.expect("invariant: the engine got its Connection");
-            what_left
+            tokio::join!(
+                serve(&engine, carriage, network, dependencies),
+                client(dialer, carriage, traffic, &lines)
+            )
+            .1
         })
     })
+}
+
+/// The Daemon's Succession: it is its major's pick, so it never hands over.
+struct Pick;
+
+impl Succession for Pick {
+    fn is_pick(&self) -> bool {
+        true
+    }
+
+    fn begin_handover(&self) -> Box<dyn Send> {
+        Box::new(())
+    }
+}
+
+/// Serves the Client's one Connection on `carriage`: as an Attached engine
+/// over stdio, or as an Exposed Daemon at [`ADDRESS`], which stops idle a
+/// second after the Client left.
+async fn serve(
+    engine: &Engine,
+    carriage: Carriage,
+    network: InMemoryNetwork,
+    dependencies: Dependencies,
+) {
+    let network = Network::InMemory(network);
+    match carriage {
+        Carriage::Stdio => engine
+            .run_attached(network, dependencies)
+            .await
+            .expect("invariant: the engine got its Connection"),
+        Carriage::WebSocket => {
+            let address: SocketAddr = ADDRESS.parse().expect("invariant: a literal address");
+            let (listener, _) = network
+                .listen(Path::new("b3.sock"))
+                .expect("invariant: an in-memory listener");
+            let options = DaemonOptions {
+                token: TOKEN.to_owned(),
+                endpoint: DaemonEndpoint::Tcp(address),
+                pid: 1,
+                idle_timeout: Duration::from_secs(1),
+                keep_alive: false,
+                holds: Holds::new(),
+                succession: Arc::new(Pick),
+                drain: Drain {
+                    asked: None,
+                    grace: Duration::from_secs(1),
+                },
+                install: None,
+                ops: Ops::default(),
+                websocket: Some(Authorities::loopback(address)),
+            };
+            let end = engine.run_daemon(listener, dependencies, options).await;
+            assert!(
+                matches!(end, DaemonEnd::Idle),
+                "the Daemon stopped idle, not {end:?}"
+            );
+        }
+    }
 }

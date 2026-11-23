@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "54"
+version = "60"
 
 [[capability]]
 name = "lifecycle"
@@ -299,6 +299,22 @@ covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
+# A five-word edit ports a Collie program to Foxhound (ADRs 0090, 0097;
+# issue 1264): the installed package, the import, the connection type, the
+# executable and the engine-path variable change, and the program, its
+# Collie copy on Collie's executable and its port on Foxhound's, each in a
+# home of its own with both executables on `PATH` and both engine-path
+# variables set, prints the same: its engine, a setting, a Run started and
+# finished, `run report`, `run list` and a refused `run report` with their
+# `--json` output and exit codes. The members a Run its program drives takes
+# without a browser are the shared ones it plays; Python runs it, on the
+# sync API.
+[[capability.case]]
+id = "five-word-port"
+covers = ["story:11-297"]
+surfaces = ["sdk-python"]
+modes = ["attached"]
+
 # What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,
 # 0090, 0095, 0098 and 0115; issue 1263): Foxhound's operation and setting
 # raise `NotInProductError` (`UnavailableError`, not retryable), whose
@@ -393,6 +409,24 @@ id = "partial-results"
 covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Unknown values from a newer engine (ADR 0079; issue 3011): each value a
+# Client reads that no catalog of its package has is kept as received and
+# raises nothing of its own. A code no catalog has raises its group's class
+# alone, its details kept; `call_cancelled` keeps a canceller and a closed
+# value it does not know; `file_write_failed` keeps a reason no list has; a
+# Run's report keeps its Verdict, never read as `verified`, its Stop reason
+# as the union's `unknown` member with the tag it was sent in, a warning
+# code no table has, and Foxhound's values of the types both Products
+# share, a Usage kind and a Limit scope, as strings.
+# Played by the Scripted engine, each value written raw, attached and as a
+# Daemon in TypeScript and Python (asyncio, Trio and the sync API) and as a
+# Daemon in Rust; Rust's linked engine answers the same values from a test
+# contribution, as a newer contribution's would.
+[[capability.case]]
+id = "unknown-values-are-kept"
+covers = ["story:11-33", "story:11-188"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # A remote Daemon's dropped link (spec 606; issue 3174): the Client reaches
 # the Daemon again by itself, greets it with the same hello and sends again
@@ -501,6 +535,24 @@ id = "connect-takes-the-environment-map"
 covers = ["story:11-73"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The project file `connect()` reads (ADR 0083; issue 3407).
+# - Which file: by default it is found upward from the working directory, as
+#   the CLI finds it, shown in a child process the test starts there, so no
+#   test moves its own. `project` names another file, and `null` (Python's
+#   `None`, Rust's `no_project()`) reads none.
+# - Its values reach the engine as the `project_configuration` layer on
+#   `config.explain` and `run.start`, and the engine info reports the file.
+# - Its `timeout.connect` bounds `hello`, unless the connection sets its own.
+# - Daemon mode: against the Scripted engine as a remote Daemon, a project
+#   value that widens `tls.trusted_cas` makes the Run's start raise
+#   `setting_locked` at `project_configuration`.
+# Rust plays the attached lines linked, where the engine itself explains the
+# value and its layer.
+[[capability.case]]
+id = "connect-reads-the-project-file"
+covers = ["story:11-75"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 [[capability]]
 name = "time"
@@ -727,3 +779,49 @@ id = "trace-context"
 covers = ["story:11-138"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon", "linked"] }
+
+# Each SDK on its language's concurrency model (ADR 0081; issue 1275).
+[[capability]]
+name = "concurrency"
+
+# An async value belongs to the event loop that opened its Connection: a
+# call on an `AsyncCollie` or a Run under it from another loop, on another
+# thread, asyncio's or Trio's, fails at once with `event_loop_mismatch`,
+# whose fix names the sync `Collie`, and sends nothing, while the same call
+# from the opening loop works; a sync `Collie`'s values answer the same
+# calls from those loops. Python plays it three ways (asyncio, Trio and the
+# sync API), attached and as a Daemon. No other SDK has an event loop a
+# value belongs to: TypeScript's realm opens its own Connection and Rust's
+# futures run on any executor (ADR 0081), so only Python raises the code.
+[[capability.case]]
+id = "async-values-belong-to-their-loop"
+covers = ["story:11-55", "error:event_loop_mismatch"]
+surfaces = ["sdk-python"]
+
+# A sync call blocked in its wait ends at once on a Ctrl+C that lands on
+# another thread, as Windows's console delivers it: the wait is timed on
+# every OS, so the blocked thread runs the signal's handler, sends
+# `$/cancel` without waiting and raises `KeyboardInterrupt` unchanged, then
+# the next calls go as usual (ADR 0081). The host raises the signal itself,
+# so the case plays on every OS. Python alone, the only SDK with a sync API
+# whose calls block a thread on another's loop; attached only, since the
+# wait is the same whatever the transport.
+[[capability.case]]
+id = "sync-calls-interrupt-from-any-thread"
+covers = ["story:11-56"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }
+
+# Under asyncio's selector loop, which cannot start a subprocess, as on
+# Windows, the async client starts the Attached engine with
+# `subprocess.Popen` on a worker thread of its own, its pipes bridged to the
+# loop through threads, and the Run plays as on any loop; the event-loop
+# policy read after is the one read before (ADR 0081). Off Windows the
+# loop's base class stands in, so the case plays on every OS. Python alone,
+# whose async runtime may run on a loop that cannot start a process;
+# attached only, the mode whose engine is the client's own subprocess.
+[[capability.case]]
+id = "selector-loop-starts-the-engine"
+covers = ["story:11-58"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }

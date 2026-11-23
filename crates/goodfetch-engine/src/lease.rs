@@ -8,6 +8,8 @@
 
 use std::fmt::Debug;
 
+use goodfetch_protocol::effect::EffectAttempt;
+
 use crate::CallError;
 use crate::deadline::Enclosing;
 
@@ -52,6 +54,13 @@ pub trait LeaseCheck: Debug + Send + Sync {
     /// call still waiting at that end ends with `deadline_exceeded` naming
     /// that call. None by default.
     fn enclosing(&self) -> Option<Enclosing> {
+        None
+    }
+
+    /// The attempt whose commands these are, which the bodies of the
+    /// Effects declared through it count as theirs (ADR 0106's window).
+    /// None by default: the Run's commands outside any attempt.
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
         None
     }
 }

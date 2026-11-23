@@ -5,13 +5,17 @@
 //! adds operation handlers and the drivers of its kinds of Run, the tables
 //! it keeps in every run file and the Politeness file, its gates in
 //! admission, its parts of a Run's report and progress, its Clean-up
-//! versions, its "Needs you" sources, its Secret providers and the
-//! controls and weakenings it records.
+//! versions, its send window, its "Needs you" sources, its Secret
+//! providers and the controls and weakenings it records.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
+//!
+//! Size: one concern, what a contribution adds, each a field, its builder
+//! and the composition's reader, kept side by side.
 
 mod call_streams;
+mod closing;
 pub(crate) mod params;
 
 use std::any::Any;
@@ -41,7 +45,7 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::{RunId, RunKind};
@@ -49,6 +53,7 @@ use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
 pub(crate) use call_streams::{CallNotifier, InputSender};
+pub(crate) use closing::Closing;
 pub use params::Params;
 
 /// What a handler is given beside its params: its Connection's handles,
@@ -130,10 +135,13 @@ pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// What a Daemon gives each of its Connections (ADRs 0024 and 0098): the
 /// token every `hello` carries, the count of its Clients, whether it hands
-/// over on a refusal, and its answers to `daemon.*`.
+/// over on a refusal, its answers to `daemon.*`, and how it closes the
+/// Connection.
 pub(crate) trait DaemonSide: Send + Sync {
     /// The per-launch token.
     fn token(&self) -> &str;
+    /// How the Daemon closes this Connection.
+    fn closing(&self) -> &Closing;
     /// A Client of `surface` opened; it counts until the value drops,
     /// toward the idle stop and a handover too as `holding` says (ADR
     /// 0141).
@@ -145,8 +153,10 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn status(&self) -> Answering<'_, DaemonState>;
     /// What `daemon.health` answers.
     fn health(&self) -> Answering<'_, DaemonHealth>;
-    /// Stops the Daemon once `daemon.stop` has answered what it says.
-    fn stop(&self) -> Answering<'_, DaemonStopping>;
+    /// Stops the Daemon once `daemon.stop` has answered what it says,
+    /// closing its other Connections with `closing`, which their calls in
+    /// flight raise.
+    fn stop(&self, closing: CallError) -> Answering<'_, DaemonStopping>;
 }
 
 impl CallContext {
@@ -591,6 +601,7 @@ pub struct Contribution {
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
+    send_window: Option<Arc<dyn SendWindow>>,
     needs_you_sources: Vec<NeedsYouSource>,
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
@@ -612,6 +623,7 @@ impl Contribution {
             report_parts: Vec::new(),
             progress_parts: Vec::new(),
             clean_up_versions: None,
+            send_window: None,
             needs_you_sources: Vec::new(),
             controls: Vec::new(),
         }
@@ -743,6 +755,14 @@ impl Contribution {
     #[must_use]
     pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
         self.admission_gates = Some(gates);
+        self
+    }
+
+    /// The same, passing in `window` as the send window each Run's
+    /// commands mark (ADR 0106): the engine's declared Effects.
+    #[must_use]
+    pub(crate) fn with_send_window(mut self, window: Arc<dyn SendWindow>) -> Self {
+        self.send_window = Some(window);
         self
     }
 
@@ -957,6 +977,13 @@ impl Composition {
             return Err(CompositionError::DuplicateCleanUpVersions { first, second });
         }
         Ok(first.map(|(_, versions)| versions))
+    }
+
+    /// The send window the engine's contribution, held once, passes in.
+    pub(crate) fn send_window(&self) -> Option<Arc<dyn SendWindow>> {
+        self.contributions
+            .iter()
+            .find_map(|each| each.send_window.clone())
     }
 
     /// Each operation's one handler.

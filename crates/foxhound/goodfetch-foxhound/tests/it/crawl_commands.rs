@@ -506,6 +506,52 @@ fn run_records_on_a_live_run_prints_what_was_committed_and_ends(#[case] mode: Mo
     );
 }
 
+/// `crawl start --detached` of a code-free crawl on the Daemon prints its
+/// Run ID, and the Run, no Connection's, goes on after the command's
+/// Connection ends, until `run finish` (ADRs 0078 and 0102).
+///
+/// Covers: story:3-174, command:crawl.start
+#[test]
+fn a_code_free_crawl_started_detached_goes_on_after_its_command_ends() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = keep_alive_settings(&env, &proving_ground);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+
+    let started = cli(&env, FOXHOUND)
+        .args(["crawl", "start", &index])
+        .args([
+            "--run-id", "kept", "--format", "markdown", "--links", "none",
+        ])
+        .args([
+            "--settings",
+            settings.to_str().unwrap(),
+            "--detached",
+            "--json",
+        ])
+        .json("RunId")
+        .unwrap();
+    let progress = progress_once(&env, "kept", |progress| progress["idle"] == true);
+    let finished = cli(&env, FOXHOUND)
+        .args(["run", "finish", "kept", "--json"])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            started.output.exit,
+            started.documents[0].clone(),
+            progress["lifecycle"].clone(),
+            finished.exit
+        ),
+        (Some(0), json!("kept"), json!("running"), Some(0)),
+        "{}",
+        started.output
+    );
+}
+
 /// A seeds file whose seeds pass the engine's message limit (16 MiB) in
 /// one `crawl.start` starts the crawl, prints its Run ID, and adds every
 /// seed, the start's and `run.add_seeds`' alike; here each a long URL of

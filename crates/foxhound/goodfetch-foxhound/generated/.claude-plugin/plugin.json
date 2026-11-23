@@ -1,0 +1,11 @@
+{
+  "author": {
+    "name": "Goodfetch"
+  },
+  "description": "Agent skills for Foxhound, Goodfetch's Product for crawling, which contains Collie: crawl sites and drive a real browser with goodfetch-foxhound.",
+  "homepage": "https://github.com/goodfetch/goodfetch",
+  "license": "MIT OR Apache-2.0",
+  "name": "goodfetch-foxhound",
+  "repository": "https://github.com/goodfetch/goodfetch",
+  "version": "0.0.0"
+}

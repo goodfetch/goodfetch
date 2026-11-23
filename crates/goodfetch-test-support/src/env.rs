@@ -110,8 +110,10 @@ impl TestEnv {
     ///
     /// If its folder cannot be made or a variable cannot be read.
     pub fn new() -> Self {
-        Self::create(&current_test(), &Variables::from_process())
-            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+        let env = Self::create(&current_test(), &Variables::from_process())
+            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"));
+        crate::trace::install_exercise_subscriber();
+        env
     }
 
     /// The running test's setup as [`TestEnv::new`] makes it, its folder on
@@ -131,12 +133,14 @@ impl TestEnv {
     ///
     /// As [`TestEnv::new`].
     pub fn in_memory() -> Self {
-        Self::create_in(
+        let env = Self::create_in(
             &current_test(),
             &Variables::from_process(),
             memory_folder().as_deref(),
         )
-        .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+        .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"));
+        crate::trace::install_exercise_subscriber();
+        env
     }
 
     /// The setup of the test with this full name, from these variables.
@@ -155,8 +159,10 @@ impl TestEnv {
     /// If its folder cannot be made or a variable cannot be read.
     #[cfg(target_os = "linux")]
     pub fn for_lazyfs() -> Self {
-        Self::create_for_lazyfs(&current_test(), &Variables::from_process())
-            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+        let env = Self::create_for_lazyfs(&current_test(), &Variables::from_process())
+            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"));
+        crate::trace::install_exercise_subscriber();
+        env
     }
 
     /// [`TestEnv::for_lazyfs`] of the test with this full name, from these

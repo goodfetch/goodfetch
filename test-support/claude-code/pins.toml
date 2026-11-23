@@ -1,0 +1,59 @@
+# The Claude Code release whose `claude plugin validate --strict` checks each
+# Product's Claude Code plugin, its executable crate's `generated/` folder
+# (story 11-239; TESTING.md, AI features and agent skills).
+# ci/claude-code-fetch.sh downloads this machine's platform's executable
+# from Anthropic's release bucket into the tests' copy,
+# $GOODFETCH_CLAUDE_CODE_DOWNLOADS or ~/.cache/goodfetch/claude-code, as
+# `<version>/claude` (`claude.exe` on Windows), and fails on one whose
+# SHA-256 differs from its pin below. No npm package is used: the npm one's
+# licence is off ADR 0018's allowlist and it installs through a postinstall
+# script. The tests run the copy with no network: auto-update, telemetry,
+# error reporting and nonessential traffic off, and every proxy variable
+# naming a listener that fails the test if anything connects to it.
+#
+# Licence: Claude Code is Anthropic's proprietary software, "© Anthropic
+# PBC. All rights reserved. Use is subject to the Legal Agreements outlined
+# here: https://code.claude.com/docs/en/legal-and-compliance" (its package's
+# LICENSE.md), under Anthropic's Commercial Terms of Service. Goodfetch
+# downloads it for these tests alone: it is never committed, redistributed,
+# bundled, cached for others or shipped in a Product, so no Product's
+# notices name it.
+#
+# To move the pin, in one pull request: set `version` to the release, then
+# copy each platform's `checksum` and `size` from that release's
+# `manifest.json` in the bucket (`<bucket>/<version>/manifest.json`).
+
+version = "2.1.322"
+bucket = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+
+[platforms.linux-x64]
+sha256 = "bfb3703ad5380242328459bc62ada4bde8ae7ba57c6e1eeadb9c00e08874c478"
+size = 341914128
+
+[platforms.linux-arm64]
+sha256 = "f220ca50ea4f3222043ff83cc224a1262e0196e9897acc0871efa94235b0c1fd"
+size = 341501368
+
+[platforms.darwin-arm64]
+sha256 = "a9d237949db816a0b7afd88a9a8e1df36b3a597a30f5a41d1c0539eb180a3450"
+size = 323702464
+
+[platforms.darwin-x64]
+sha256 = "b513d15117cbf1bb05095dab41963fd394ff40de1fa99dcc6d7d1033bf292e9b"
+size = 338400544
+
+[platforms.linux-x64-musl]
+sha256 = "9bed6cfc5d2420b673a0b9fe41c71533a02904935cbc3b4cd110302d475fee6f"
+size = 328374856
+
+[platforms.linux-arm64-musl]
+sha256 = "b8a07ebb71cd612bd1ed80eabd2084ded98cadbae298d068a4a1307f0448c40c"
+size = 325808392
+
+[platforms.win32-x64]
+sha256 = "345996b4bdbae21d817f750fae2f34cbf8d81224a5444c78136091d121beb298"
+size = 346496160
+
+[platforms.win32-arm64]
+sha256 = "8e32c3f2fee1e5c17f0ae9a544fedf0951c4d0482268bb47c06c229fc62894c4"
+size = 329660576

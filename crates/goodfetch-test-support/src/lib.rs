@@ -46,6 +46,7 @@ mod browsers;
 pub mod callgrind;
 mod canaries;
 mod cargo_consumer;
+mod claude_code;
 mod cli;
 mod colour;
 mod command_tree;
@@ -128,13 +129,17 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
-pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer};
+pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
+pub use claude_code::{
+    CLAUDE_CODE_DOWNLOADS_VARIABLE, ClaudeCodeError, PluginValidation, claude_code_copy,
+    validate_plugin,
+};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
 pub use colour::{ColourError, ColourProperty};
 pub use command_tree::{
-    certificate_verification_switches, command_help, command_paths, long_flags,
+    certificate_verification_switches, command_help, command_paths, long_flags, unknown_options,
 };
 pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
@@ -249,7 +254,8 @@ pub use tmpfs::{
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{
-    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_writing_to,
+    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_unless_own,
+    subscriber_writing_to,
 };
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};

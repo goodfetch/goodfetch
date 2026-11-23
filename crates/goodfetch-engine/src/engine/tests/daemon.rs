@@ -185,14 +185,7 @@ where
             ..dependencies(env)
         };
         let clock = dependencies.clock;
-        let unset = tracing::dispatcher::get_default(
-            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
-        );
-        let _subscriber = unset.then(|| {
-            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
-                clock.wall()
-            }))
-        });
+        let _subscriber = goodfetch_test_support::subscriber_unless_own(move || clock.wall());
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
@@ -287,9 +280,10 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
     );
     let mut answer = answer.unwrap();
     let named = super::takes_engine_instance(&mut answer);
+    let timed = super::takes_timeouts(&mut answer);
 
     assert_eq!(
-        (answer, named),
+        (answer, named, timed),
         (
             json!({
                 "jsonrpc": "2.0", "id": 0,
@@ -298,6 +292,7 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
                     "max_calls_in_flight": super::IN_FLIGHT_CAP,
                 },
             }),
+            true,
             true
         )
     );
@@ -439,6 +434,53 @@ fn a_kept_alive_daemon_never_stops_idle_and_stops_when_asked() {
     assert_eq!(
         (answered, stopping["result"].clone(), format!("{end:?}")),
         (true, json!({ "live_runs": 0 }), "Stopped".to_owned())
+    );
+}
+
+/// `daemon.stop` from one Client closes the Daemon's other Connections:
+/// a call in flight on one answers `call_cancelled` naming the stopping
+/// Client, or the person a person's Client acts for, the OS user of an
+/// engine without accounts, and the Connection closed under it (ADR 0113).
+///
+/// Covers: story:11-48, operation:daemon.stop
+#[rstest]
+#[case::by_a_persons_client(
+    cli_hello(),
+    json!({ "by": "person", "closed": "connection", "person": "os_user" })
+)]
+#[case::by_a_programs_client(sdk_hello(), json!({ "by": "client", "closed": "connection" }))]
+fn a_stop_from_another_client_cancels_a_call_in_flight_naming_its_connection(
+    #[case] stopper: Value,
+    #[case] details: Value,
+) {
+    let (_, (stopping, answered)) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        the_pick(),
+        |dialer| async move {
+            let mut waiting = opened(&dialer, sdk_hello()).await;
+            waiting.send(&[super::request(1, "test.wait")]).await;
+            // Read in order, so `test.wait` is in flight once this answers.
+            call(&mut waiting, 2, "daemon.status", json!({})).await;
+            let mut asking = opened(&dialer, stopper).await;
+            let stopping = call(&mut asking, 1, "daemon.stop", json!({})).await;
+            let answered = waiting.next().await;
+            asking.close().await;
+            (stopping, answered)
+        },
+    );
+
+    let answered = answered.unwrap_or_default();
+    let mut data = answered["error"]["data"].clone();
+    if let Some(data) = data.as_object_mut() {
+        data.remove("retryable");
+    }
+    let mut expected = details;
+    expected["code"] = json!("call_cancelled");
+    assert_eq!(
+        (&stopping["result"], &answered["id"], &data),
+        (&json!({ "live_runs": 0 }), &json!(1), &expected),
+        "{answered}"
     );
 }
 
@@ -892,6 +934,134 @@ fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_
     );
 }
 
+/// A Daemon that finds the Run index's lowest minor raised past itself
+/// takes no new Run, and once its live Runs end hands over to its major's
+/// pick though its Client stays connected, closing it; with the index
+/// unraised its new Run starts, and it keeps its Client until the Client
+/// leaves (ADR 0098).
+///
+/// Covers: story:3-144, story:3-138, error:format_version_unsupported
+#[rstest]
+#[case::raised(true, (Some("format_version_unsupported".to_owned()), true, 1))]
+#[case::unraised(false, (None, false, 0))]
+fn a_daemon_locked_out_of_the_run_index_hands_over_once_its_runs_end(
+    #[case] raised: bool,
+    #[case] expected: (Option<String>, bool, u32),
+) {
+    let env = TestEnv::new();
+    let handovers = no_handover();
+    let counted = Arc::clone(&handovers);
+    let major = super::per_major(&env);
+
+    let (end, observed) = daemon_within(
+        &engine(Product::Collie),
+        &env,
+        BlockingPolicy::Inline,
+        options(false, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "busy" })).await;
+            if raised {
+                raise_the_run_index(&major, 5);
+            }
+            let late = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
+            call(&mut client, 3, "run.finish", json!({ "run_id": "busy" })).await;
+            let closed = closed_within_a_second(&mut client).await;
+            let while_connected = begun(&counted);
+            if !closed {
+                call(&mut client, 4, "run.finish", json!({ "run_id": "late" })).await;
+            }
+            client.close().await;
+            let refused = late["error"]["data"]["code"].as_str().map(str::to_owned);
+            (refused, closed, while_connected)
+        },
+    );
+
+    assert_eq!(
+        (observed, matches!(end, Some(DaemonEnd::HandedOver(_)))),
+        (expected, true)
+    );
+}
+
+/// The pick that a Daemon locked out of the Run index handed over to
+/// rebuilds, from its run state, the row of the Run that ended after the
+/// lockout, which the index still listed as running (ADRs 0031 and 0098).
+///
+/// Covers: story:3-144
+#[test]
+fn the_pick_rebuilds_the_row_a_locked_out_daemon_could_not_write() {
+    let env = TestEnv::new();
+    let handovers = no_handover();
+    let major = super::per_major(&env);
+
+    let (locked_out, ()) = daemon_within(
+        &engine(Product::Collie),
+        &env,
+        BlockingPolicy::Inline,
+        options(false, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "busy" })).await;
+            raise_the_run_index(&major, 5);
+            call(&mut client, 2, "run.finish", json!({ "run_id": "busy" })).await;
+            closed_within_a_second(&mut client).await;
+            client.close().await;
+        },
+    );
+    let left = index_row(&env, "busy")["lifecycle"].clone();
+    daemon_within(
+        &super::engine_at(Product::Collie, "1.5.0"),
+        &env,
+        BlockingPolicy::Inline,
+        options(true, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            // A Run call is answered once the Daemon's startup ended.
+            call(&mut client, 1, "run.start", json!({ "run_id": "next" })).await;
+            call(&mut client, 2, "run.finish", json!({ "run_id": "next" })).await;
+            client.close().await;
+        },
+    );
+
+    assert_eq!(
+        (
+            matches!(locked_out, Some(DaemonEnd::HandedOver(_))),
+            left,
+            index_row(&env, "busy")["lifecycle"].clone(),
+        ),
+        (true, json!("running"), json!("finished"))
+    );
+}
+
+/// Whether the Daemon closes `client`'s Connection within a second: on
+/// the paused clock, the wait ends at once when it does, else once it has
+/// done all it does.
+async fn closed_within_a_second(client: &mut Client) -> bool {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while client.next().await.is_some() {}
+    })
+    .await
+    .is_ok()
+}
+
+/// Raises the lowest minor of the Run index in the per-major folder
+/// `major` to `lowest_minor`, as a newer engine of the major would.
+fn raise_the_run_index(major: &std::path::Path, lowest_minor: u16) {
+    let index = rusqlite::Connection::open(major.join("run-index.sqlite")).unwrap();
+    crate::lowest_minor::write_sqlite(
+        &index,
+        goodfetch_protocol::formats::RUN_INDEX.name,
+        crate::lowest_minor::Marker {
+            version: goodfetch_protocol::formats::RUN_INDEX.version,
+            lowest_minor,
+        },
+    )
+    .unwrap();
+}
+
 /// `daemon.stop` that arrives while a handover is decided, beside a
 /// Client's end, never holds the Daemon: the handover goes on, the stop is
 /// answered and changes nothing, and the Daemon ends handed over within a
@@ -1063,6 +1233,7 @@ pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .unwrap();

@@ -5,18 +5,18 @@ expression: "format!(\"crawl start --follow\\n{}\\nrun outcomes --follow\\n{}\\n
 crawl start --follow
 1 x sent request hello, 213 bytes
 N x received response
-1 x sent request crawl.start, 77232 bytes
+1 x sent request crawl.start, 77294 bytes
 N x sent request run.progress
 1 x sent request run.report, 76 bytes
 
 run outcomes --follow
 1 x sent request hello, 213 bytes
-2 x received response, 487 bytes
+2 x received response, 1487 bytes
 1 x sent request run.outcomes, 78 bytes
 
 run records
 1 x sent request hello, 213 bytes
-3 x received response, 662 bytes
+3 x received response, 1662 bytes
 1 x sent request dataset.page, 119 bytes
 1 x sent request run.records, 107 bytes
 2 x sent notification $/credit, 135 bytes

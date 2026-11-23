@@ -30,6 +30,7 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::connection::EnclosingCall;
+use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord, TIMEOUT_HANDLER,
 };
@@ -762,6 +763,14 @@ impl LeaseCheck for WorkItemLease {
             ),
             &serde_json::json!({}),
         )
+    }
+
+    /// Its attempt: its work item, the crawl request, under its epoch.
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        Some(EffectAttempt {
+            crawl_request_id: self.0.work_item.to_string(),
+            lease_epoch: self.0.state.borrow().lease.epoch(),
+        })
     }
 }
 

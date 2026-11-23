@@ -633,7 +633,7 @@ fn an_unparsable_deployment_value_is_refused(
 /// 0062). A `GOODFETCH_` variable off the list, an empty one and one the
 /// engine cannot parse fail `connect()` before any engine, which would have
 /// made its home.
-/// Covers: story:11-73, error:setting_unknown, error:setting_invalid
+/// Covers: story:11-73
 #[test]
 fn connect_takes_the_environment_map() {
     let _case = ClientCaseRun::start(
@@ -761,7 +761,7 @@ fn process_environment_host() {
 
 /// A `GOODFETCH_` variable off the closed list fails `connect()` with
 /// `setting_unknown` naming the closest deployment variable (ADR 0083).
-/// Covers: story:11-73
+/// Covers: story:11-73, story:11-299
 #[test]
 fn a_goodfetch_variable_off_the_list_is_refused_naming_the_closest() {
     let env = TestEnv::new();
@@ -819,7 +819,7 @@ fn a_goodfetch_variable_close_to_none_is_refused_naming_none() {
 
 /// Foxhound's engine-path variable is on the list, so Collie's `connect()`
 /// takes it, and never reads it: Collie links its own engine.
-/// Covers: story:11-73
+/// Covers: story:11-73, story:11-299
 #[test]
 fn foxhounds_engine_path_is_recognised_and_not_read() {
     let env = TestEnv::new();

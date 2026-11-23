@@ -40,7 +40,29 @@ pub const ROLE_TAG: &str = "role";
 /// The role of a Watch run (ADR 0036).
 pub const WATCH_ROLE: &str = "watch";
 
+/// The keys of the reserved tags only the Daemon's scheduler sets (ADR
+/// 0036; spec #589): a start from any other caller that carries one is
+/// refused.
+pub const SCHEDULER_TAGS: [&str; 5] = [
+    SCHEDULE_TAG,
+    OCCURRENCE_TAG,
+    TRIGGER_TAG,
+    CREATOR_TAG,
+    ROLE_TAG,
+];
+
 impl Tags {
+    /// The first tag that only the Daemon's scheduler sets, one of
+    /// [`SCHEDULER_TAGS`], if the Run carries one.
+    pub fn scheduler_reserved(&self) -> Option<&Tag> {
+        self.iter().find(|tag| {
+            tag.as_str()
+                .strip_prefix(RESERVED_TAG_PREFIX)
+                .and_then(|rest| rest.split_once(':'))
+                .is_some_and(|(key, _)| SCHEDULER_TAGS.contains(&key))
+        })
+    }
+
     /// The value of the reserved tag `goodfetch.<key>:<value>` the Run
     /// carries, the first when it carries several.
     pub fn reserved(&self, key: &str) -> Option<&str> {

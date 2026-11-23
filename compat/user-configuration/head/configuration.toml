@@ -93,6 +93,7 @@ critical_free = 4
 
 [settings.browser_cache]
 max_unused_age = 30000
+read_only = true
 
 [settings.browser]
 mirror = "https://mirror.example/chrome-for-testing-public"

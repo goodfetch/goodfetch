@@ -56,6 +56,15 @@ form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "SKILLS"
+entry = "none"
+reason = "The agent skills Foxhound's executable embeds, which its `main` passes to Collie's executable entry for `skill install`, behind the `executable` feature."
+words = ["skills"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
@@ -79,6 +88,31 @@ receiver = "Foxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -525,6 +559,31 @@ receiver = "blocking::Foxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]

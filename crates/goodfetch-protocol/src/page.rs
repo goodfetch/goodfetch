@@ -743,7 +743,9 @@ pub const BROWSER_HOST_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
 
 /// A locator (ADR 0085): what an action looks for on a page, resolved
 /// again at each use, never a handle on an element. This tracer's locators
-/// are CSS selectors.
+/// are CSS selectors. Whether it reaches inside a closed shadow root
+/// depends on the browser (ADR 0121): a CSS selector reaches open roots
+/// only today.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Locator {
@@ -1003,7 +1005,7 @@ pub const PAGE_RELOAD: Operation = Operation {
 /// `page.go_back`.
 pub const PAGE_GO_BACK: Operation = Operation {
     name: "page.go_back",
-    description: "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+    description: "Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -1021,7 +1023,7 @@ pub const PAGE_GO_BACK: Operation = Operation {
 /// `page.go_forward`.
 pub const PAGE_GO_FORWARD: Operation = Operation {
     name: "page.go_forward",
-    description: "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+    description: "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

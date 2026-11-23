@@ -454,6 +454,9 @@ impl<'a> Crawl<'a> {
             settings: serde_json::Map::new(),
             project: None,
             limits: Vec::new(),
+            // The program's crawl waits on it, so it never detaches (ADR
+            // 0102).
+            detached: false,
         })
     }
 }

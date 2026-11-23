@@ -598,6 +598,17 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub max_calls_in_flight: Option<NonZeroU64>,
+    /// Each `timeout.*` setting the engine's Product honours, as it
+    /// resolved at the Connection's layers (the engine's, beneath the
+    /// `hello`'s own `settings`), in milliseconds: a call the Client queues
+    /// past `max_calls_in_flight` with no timeout of its own fails at its
+    /// setting's value with `deadline_exceeded`, `waited_for`
+    /// `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
+    /// setting that resolves no timeout is left out; empty from an engine
+    /// that resolves none, such as the Scripted engine.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeouts: Vec<SettingLimit>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR
@@ -872,6 +883,9 @@ impl fmt::Display for WaitedFor {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {
+    /// A person, through `run.abort` from a Client that acts for them
+    /// (ADR 0031).
+    Person,
     /// A Client, through `run.abort`.
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
@@ -918,6 +932,7 @@ impl CancelledBy {
 impl From<StoppedBy> for CancelledBy {
     fn from(by: StoppedBy) -> Self {
         match by {
+            StoppedBy::Person => Self::Person,
             StoppedBy::Client => Self::Client,
             StoppedBy::Program => Self::Program,
             StoppedBy::Browser => Self::Browser,
@@ -993,6 +1008,18 @@ pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const CONNECTION_FORKED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "connection_forked",
     description: "The call was made in another process than the one that opened its Connection, such as a child created by `fork`: a Connection and every Run, Session or Page under it belong to the process that opened them. Connect in the child process.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Python async Connection, or a value under it, used from another event
+/// loop or thread than the loop that opened it (ADR 0081), raised by the
+/// Python SDK's runtime alone before anything is sent.
+pub const EVENT_LOOP_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "event_loop_mismatch",
+    description: "The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -1219,6 +1246,7 @@ pub const ENTRIES: Entries = Entries {
         DEADLINE_EXCEEDED,
         CLOSED,
         CONNECTION_FORKED,
+        EVENT_LOOP_MISMATCH,
         INTERNAL,
         ENGINE_PANICKED,
         CONNECTION_OVERLOADED,

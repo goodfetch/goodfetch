@@ -154,6 +154,21 @@ pub mod browser {
     }
 }
 
+/// The `browser_cache.*` settings.
+pub mod browser_cache {
+
+    /// Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+    ///
+    /// `browser_cache.read_only`.
+    pub const READ_ONLY: crate::settings::Setting<bool> = crate::settings::Setting::new(
+        "browser_cache.read_only",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+}
+
 /// The `checkpoint.*` settings.
 pub mod checkpoint {
 

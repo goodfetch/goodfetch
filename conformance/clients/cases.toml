@@ -745,3 +745,17 @@ name = "concurrency"
 id = "async-values-belong-to-their-loop"
 covers = ["story:11-55", "error:event_loop_mismatch"]
 surfaces = ["sdk-python"]
+
+# A sync call blocked in its wait ends at once on a Ctrl+C that lands on
+# another thread, as Windows's console delivers it: the wait is timed on
+# every OS, so the blocked thread runs the signal's handler, sends
+# `$/cancel` without waiting and raises `KeyboardInterrupt` unchanged, then
+# the next calls go as usual (ADR 0081). The host raises the signal itself,
+# so the case plays on every OS. Python alone, the only SDK with a sync API
+# whose calls block a thread on another's loop; attached only, since the
+# wait is the same whatever the transport.
+[[capability.case]]
+id = "sync-calls-interrupt-from-any-thread"
+covers = ["story:11-56"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }

@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, Stdio};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -103,30 +103,7 @@ fn previous_tree(root: &Path, commit: &str, target: &Path) -> Result<PathBuf> {
         std::fs::remove_dir_all(&partial)
             .with_context(|| format!("removing {}", partial.display()))?;
     }
-    std::fs::create_dir_all(&partial).with_context(|| format!("creating {}", partial.display()))?;
-    let mut archive = crate::git::command(root)
-        .args(["archive", "--format=tar", commit])
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("running git archive")?;
-    let tar = archive
-        .stdout
-        .take()
-        .context("invariant: git archive's output is piped")?;
-    let extracted = std::process::Command::new("tar")
-        .arg("-x")
-        .arg("-C")
-        .arg(&partial)
-        .stdin(tar)
-        .status()
-        .context("running tar")?;
-    let archived = archive.wait().context("waiting for git archive")?;
-    if !archived.success() || !extracted.success() {
-        bail!(
-            "writing the tree of {commit} under {} failed",
-            partial.display()
-        );
-    }
+    api_baseline::archive(root, commit, &[], &partial)?;
     match std::fs::rename(&partial, &tree) {
         Ok(()) => Ok(tree),
         // Another check wrote the same tree first.

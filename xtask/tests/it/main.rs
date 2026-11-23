@@ -107,6 +107,7 @@ mod rss;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_api;
 mod sdk_exports;
 mod sdk_manifests;
 mod semver_checks;

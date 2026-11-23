@@ -366,6 +366,19 @@ fn an_announcement_of_a_rust_crates_break_is_left_to_semver_checks() {
     assert_eq!(outcome.code, 0);
 }
 
+#[test]
+fn an_announcement_of_an_sdk_packages_break_is_left_to_sdk_api() {
+    let workspace = released_with(
+        |_| {},
+        "\n[[announced]]\nentry = \"typescript @goodfetch/collie/testing connectOver\"\nreason = \"`connectOver` goes.\"\n\n[[announced]]\nentry = \"python goodfetch_collie.testing connect_over\"\nreason = \"`connect_over` goes.\"\n",
+    );
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
 /// Each case changes the stable `sample.crawl`'s types in Foxhound's
 /// projection and says whether that breaks its callers.
 #[rstest::rstest]

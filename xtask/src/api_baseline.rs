@@ -1,20 +1,20 @@
 //! What the API breakage checks compare with and how they judge what they
 //! find (ADR 0030, issue 148): `compat/api.toml`'s previous release's
 //! commit and the breaks it announces for the next major. `xtask api-check`
-//! compares the contracts with that commit, and `xtask semver-checks` the
-//! Rust crates under semver; each judges the announcements of its own
-//! subjects, so an announcement of the other's is never one without a
-//! break.
+//! compares the contracts with that commit, `xtask semver-checks` the Rust
+//! crates under semver, and `xtask sdk-api` the TypeScript and Python SDK
+//! packages; each judges the announcements of its own subjects, so an
+//! announcement of another's is never one without a break.
 #![expect(
     clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+    reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
 )]
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
@@ -24,8 +24,20 @@ use crate::git;
 const API: &str = "compat/api.toml";
 
 /// How the subject of a Rust crate's break starts: `xtask semver-checks`
-/// judges those announcements, and `xtask api-check` every other.
+/// judges those announcements.
 pub(crate) const RUST: &str = "rust ";
+/// How the subject of a TypeScript or Python package's break starts:
+/// `xtask sdk-api` judges those announcements.
+pub(crate) const TYPESCRIPT: &str = "typescript ";
+pub(crate) const PYTHON: &str = "python ";
+
+/// Whether `entry` is a package's break, which `xtask semver-checks` or
+/// `xtask sdk-api` judges; `xtask api-check` judges every other.
+pub(crate) fn is_package_break(entry: &str) -> bool {
+    [RUST, TYPESCRIPT, PYTHON]
+        .iter()
+        .any(|prefix| entry.starts_with(prefix))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +54,9 @@ struct Api {
 struct Announced {
     /// The finding's subject: `<collie|foxhound> <section> <name>`,
     /// `bundle outputs <command>` or `bundle command_failed` for the
-    /// contracts, `rust <crate> <lint>` for a crate's ([`RUST`]).
+    /// contracts, `rust <crate> <lint>` for a crate's ([`RUST`]),
+    /// `typescript <entry> <name>` and `python <module> <name>` for an SDK
+    /// package's ([`TYPESCRIPT`], [`PYTHON`]).
     entry: String,
     /// Why, as the release notes will say it.
     reason: String,
@@ -66,6 +80,51 @@ pub(crate) fn baseline(root: &Path) -> Result<Baseline> {
         commit,
         announced: api.announced,
     })
+}
+
+/// Writes the files of `commit` under `paths` into the new folder `into`,
+/// with `git archive`: the whole tree when `paths` is empty, and only the
+/// paths the commit has otherwise.
+pub(crate) fn archive(root: &Path, commit: &str, paths: &[&str], into: &Path) -> Result<()> {
+    std::fs::create_dir_all(into).with_context(|| format!("creating {}", into.display()))?;
+    let mut listing = vec!["ls-tree", "--name-only", commit, "--"];
+    listing.extend(paths);
+    let present = if paths.is_empty() {
+        Vec::new()
+    } else {
+        let listed = git::text(root, &listing)
+            .with_context(|| format!("listing {} in {commit}", paths.join(", ")))?;
+        let present: Vec<String> = listed.lines().map(str::to_owned).collect();
+        if present.is_empty() {
+            return Ok(());
+        }
+        present
+    };
+    let mut archive = git::command(root)
+        .args(["archive", "--format=tar", commit, "--"])
+        .args(&present)
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("running git archive")?;
+    let tar = archive
+        .stdout
+        .take()
+        .context("invariant: git archive's output is piped")?;
+    let extracted = std::process::Command::new("tar")
+        .arg("-x")
+        .arg("-C")
+        .arg(into)
+        .stdin(tar)
+        .status()
+        .context("running tar")?;
+    let archived = archive.wait().context("waiting for git archive")?;
+    if !archived.success() || !extracted.success() {
+        bail!(
+            "writing the tree of {commit} under {} failed",
+            into.display()
+        );
+    }
+    Ok(())
 }
 
 impl Baseline {

@@ -3,10 +3,14 @@
 //! the Goodfetch home `GOODFETCH_HOME` names, outside every per-major
 //! folder; `usage list` shows the Usage against each Limit by scope; and
 //! `usage raise`, a person's answer, is asked in a pseudo-terminal and
-//! refused with `person_required` when stdin is no terminal (ADRs 0041 and
-//! 0069).
+//! refused with `person_required` under `--json` or when stdin is no
+//! terminal (ADRs 0011, 0041 and 0069).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
-use goodfetch_test_support::{TestEnv, cli, pty};
+use goodfetch_test_support::{CliOutput as Output, TestEnv, cli, pty};
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, short_idle};
@@ -204,9 +208,47 @@ fn usage_raise_runs_on_the_engine_its_flags_choose(#[case] on: On) {
     );
 }
 
-/// Covers: story:3-75, command:usage.raise
-#[test]
-fn usage_raise_is_refused_when_stdin_is_no_terminal() {
+/// The refusal a failed command printed: its code, whether it is
+/// retryable and its `fix`, from the `CommandFailed` on stdout under
+/// `--json`, else from its lines on stderr.
+fn refusal(output: &Output, json: bool) -> (Value, Value, String) {
+    if json {
+        let printed: Value =
+            serde_json::from_str(&output.stdout).unwrap_or_else(|_| panic!("{output}"));
+        let error = &printed["error"];
+        return (
+            error["code"].clone(),
+            error["retryable"].clone(),
+            error["fix"].as_str().unwrap_or_default().to_owned(),
+        );
+    }
+    let line = |label: &str| {
+        output
+            .stderr
+            .lines()
+            .find_map(|line| line.strip_prefix(label))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    (
+        json!(line("code: ")),
+        json!(line("retryable: ") == "true"),
+        line("fix: "),
+    )
+}
+
+/// Where no person answers, `usage raise` is refused with
+/// `person_required` before any engine call: under `--json` as one
+/// `CommandFailed` on stdout, from a pipe or a script on stderr. Each exits
+/// `4`, its `fix` names the interactive command and the Kennel, and the
+/// Limit stays as it was.
+///
+/// Covers: story:3-75, story:11-210, command:usage.raise, error:person_required, exit:refused
+#[rstest::rstest]
+#[case::under_json(true, Some("y\n"))]
+#[case::from_a_pipe(false, Some("y\n"))]
+#[case::from_a_script(false, None)]
+fn usage_raise_is_refused_where_no_person_answers(#[case] json: bool, #[case] stdin: Option<&str>) {
     let env = TestEnv::new();
     let set = cli(&env, COLLIE)
         .args(install_requests("set", 500))
@@ -214,19 +256,65 @@ fn usage_raise_is_refused_when_stdin_is_no_terminal() {
         .unwrap();
     assert_eq!(set.exit, Some(0), "{set}");
 
-    let refused = cli(&env, COLLIE)
-        .args(install_requests("raise", 1_000))
-        .stdin("y\n")
-        .run()
-        .unwrap();
+    let mut raise = cli(&env, COLLIE).args(install_requests("raise", 1_000));
+    if json {
+        raise = raise.arg("--json");
+    }
+    if let Some(stdin) = stdin {
+        raise = raise.stdin(stdin);
+    }
+    let refused = raise.run().unwrap();
 
+    let (code, retryable, fix) = refusal(&refused, json);
     assert_eq!(
         (
             refused.exit,
-            refused.stderr.contains("code: person_required"),
+            code,
+            retryable,
+            fix.contains("`usage raise`") && fix.contains("Kennel"),
             install_limit(&env),
         ),
-        (Some(4), true, (json!(500), json!("client"))),
+        (
+            Some(4),
+            json!("person_required"),
+            json!(false),
+            true,
+            (json!(500), json!("client"))
+        ),
         "{refused}"
+    );
+}
+
+/// `usage raise --json` is refused at a terminal too: a person answers
+/// the prompt, never a program reading its JSON. It asks nothing.
+///
+/// Covers: story:11-210, command:usage.raise, error:person_required
+#[test]
+fn usage_raise_under_json_is_refused_at_a_terminal() {
+    let env = TestEnv::new();
+    let set = cli(&env, COLLIE)
+        .args(install_requests("set", 500))
+        .run()
+        .unwrap();
+    assert_eq!(set.exit, Some(0), "{set}");
+
+    let refused = pty(&env, COLLIE)
+        .args(install_requests("raise", 1_000))
+        .arg("--json")
+        .spawn()
+        .unwrap()
+        .finish()
+        .unwrap();
+
+    let printed = refused.stripped();
+    assert_eq!(
+        (
+            refused.exit,
+            printed.contains(r#""code":"person_required""#),
+            printed.contains("Raise the install Limit"),
+            install_limit(&env),
+        ),
+        (Some(4), true, false, (json!(500), json!("client"))),
+        "{printed}"
     );
 }

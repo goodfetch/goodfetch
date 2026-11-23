@@ -65,6 +65,15 @@ fn records(run: &JourneyRun<impl Sized>, through: Option<u64>) -> Vec<Value> {
         .collect()
 }
 
+/// The ID of the process the home's Daemon runs as, from `daemon status`.
+fn daemon_pid(run: &JourneyRun<impl Sized>) -> Value {
+    let status = command_line(run.env(), run.engine())
+        .args(["daemon", "status", "--json"])
+        .json("DaemonStatus")
+        .unwrap();
+    status.documents[0]["pid"].clone()
+}
+
 /// Covers: story:3-35, row:RT-11, command:run.pause, command:run.resume, command:daemon.restart
 #[test]
 #[expect(
@@ -76,8 +85,9 @@ fn cli() {
         .expect("J-014's cli variant starts");
     short_idle(run.env());
     let mut settings = PathBuf::new();
-    let mut before: Vec<Value> = Vec::new();
+    let mut at_pause: Vec<Value> = Vec::new();
     let mut paused = Value::Null;
+    let mut daemons = (Value::Null, Value::Null);
     let mut after_restart = Value::Null;
     let mut resumed = Value::Null;
     let mut finished = Value::Null;
@@ -102,21 +112,25 @@ fn cli() {
     run.step(
         "Pause the Crawl once it has committed some Records",
         |run| {
-            before = records(run, Some(1));
+            // Answers once the first Record committed.
+            records(run, Some(1));
             paused = command_line(run.env(), run.engine())
                 .args(["run", "pause", RUN, "--json"])
                 .json("RunReport")
                 .unwrap()
                 .documents[0]
                 .clone();
+            at_pause = records(run, None);
         },
     );
     run.step("Restart the Daemon", |run| {
+        let before = daemon_pid(run);
         let restarted = command_line(run.env(), run.engine())
             .args(["daemon", "restart"])
             .run()
             .unwrap();
         assert_eq!(restarted.exit, Some(0), "{restarted}");
+        daemons = (before, daemon_pid(run));
         after_restart = command_line(run.env(), run.engine())
             .args(["run", "report", RUN, "--json"])
             .json("RunReport")
@@ -160,8 +174,10 @@ fn cli() {
     run.check(
         "After the restart the Crawl was still paused, and resuming it reached the same run rather than a new one",
         |_| {
+            let (before, after) = &daemons;
             assert_eq!(
                 (
+                    before.is_u64() && after.is_u64() && before != after,
                     &after_restart["lifecycle"],
                     &after_restart["stop_reason"]["kind"],
                     &resumed["run_id"],
@@ -170,6 +186,7 @@ fn cli() {
                     &finished["lifecycle"],
                 ),
                 (
+                    true,
                     &json!("stopped"),
                     &json!("pause"),
                     &json!(RUN),
@@ -177,7 +194,7 @@ fn cli() {
                     &json!(RUN),
                     &json!("finished"),
                 ),
-                "{after_restart} {resumed} {finished}"
+                "{daemons:?} {after_restart} {resumed} {finished}"
             );
         },
     );
@@ -195,12 +212,14 @@ fn cli() {
             let expected: Vec<Value> = (1..=committed.len()).map(|number| json!(number)).collect();
             assert_eq!(
                 (
-                    !before.is_empty() && committed.starts_with(&before),
+                    !at_pause.is_empty()
+                        && at_pause.len() < committed.len()
+                        && committed.starts_with(&at_pause),
                     urls.len(),
                     numbers,
                 ),
                 (true, committed.len(), expected),
-                "{before:?}"
+                "{at_pause:?}"
             );
         },
     );

@@ -8,11 +8,11 @@
 //! again, and the crawl finishes there with every product once.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the person carries the Checkpoint and the home's configuration to the second home"
+    reason = "the person carries the Checkpoint to the second home"
 )]
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_test_client::Attached;
@@ -24,6 +24,7 @@ use crate::attached_spawned;
 use crate::checkpoint_resume::{ORDER_TASK, orders, place_order};
 use crate::fetch_tiers::settings;
 use crate::frontier::seed_labels;
+use crate::provenance::{records, records_through};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -50,31 +51,12 @@ fn crawl_settings(proving_ground: &ProvingGround) -> Value {
     )
 }
 
-/// `executable`, Foxhound's, as the program's engine in `env`, on the
-/// Goodfetch home `home` when given, the variant's otherwise.
-fn engine(env: &TestEnv, executable: &Path, home: Option<&Path>) -> Attached {
+/// `executable`, Foxhound's, as the program's engine in `env`, on its
+/// Goodfetch home.
+fn engine(env: &TestEnv, executable: &Path) -> Attached {
     let mut command = env.process_command(executable);
     command.arg("attached-engine");
-    if let Some(home) = home {
-        command.env("GOODFETCH_HOME", home);
-    }
     attached_spawned(env, None, &mut command)
-}
-
-/// A second Goodfetch home beside the variant's, configured as it is:
-/// each major's `configuration.toml` copied.
-fn second_home(env: &TestEnv) -> PathBuf {
-    let home = env.folder().join("second-home");
-    for version in std::fs::read_dir(env.home()).unwrap() {
-        let version = version.unwrap();
-        let configuration = version.path().join("configuration.toml");
-        if configuration.is_file() {
-            let there = home.join(version.file_name());
-            std::fs::create_dir_all(&there).unwrap();
-            std::fs::copy(&configuration, there.join("configuration.toml")).unwrap();
-        }
-    }
-    home
 }
 
 /// The reply to the call `id` of `method` with `params`, the engine's
@@ -114,34 +96,6 @@ fn order_once(engine: &mut Attached, proving_ground: &ProvingGround) -> Value {
     opened
 }
 
-/// The Records of the crawl's Dataset `pages` read with `run.records`,
-/// through the number `through` when given, every Record once the Run
-/// ended otherwise.
-fn records(engine: &mut Attached, through: Option<u64>) -> Vec<Value> {
-    let mut params = json!({ "run_id": RUN, "dataset": "pages" });
-    if let Some(through) = through {
-        params["through"] = json!(through);
-    }
-    engine.send(&json!({
-        "jsonrpc": "2.0", "id": "records", "method": "run.records", "params": params,
-    }));
-    engine.send(&json!({
-        "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "records", "credits": 1000 },
-    }));
-    let mut read = Vec::new();
-    loop {
-        let message = engine
-            .next()
-            .expect("the engine closed before the reader answered");
-        if message["method"] == "$/record" {
-            read.push(message["params"]["record"].clone());
-        } else if message["id"] == "records" && message.get("method").is_none() {
-            assert!(message.get("result").is_some(), "{message}");
-            return read;
-        }
-    }
-}
-
 /// Covers: story:3-34, row:RT-10, operation:run.migrate, operation:run.resume, operation:effect.open
 #[test]
 #[expect(
@@ -154,7 +108,7 @@ fn cli() {
     let mut first: Option<Attached> = None;
     let mut placed = Value::Null;
     let mut migrated = Value::Null;
-    let mut before: Vec<Value> = Vec::new();
+    let mut at_migration: Vec<Value> = Vec::new();
     let checkpoint = run.env().folder().join("moved.sqlite");
     let mut resumed = Value::Null;
     let mut declared_again = Value::Null;
@@ -165,7 +119,7 @@ fn cli() {
         "Start a run that orders the product of the catalog's order page once, then crawls the catalog",
         |run| {
             let proving_ground = run.proving_ground().expect("J-012 has a Proving ground");
-            let mut engine = engine(run.env(), run.engine(), None);
+            let mut engine = engine(run.env(), run.engine());
             let seeds = [json!({
                 "url": proving_ground.start_url(CATALOG).unwrap(),
                 "label": "page",
@@ -192,7 +146,8 @@ fn cli() {
         "Stop the run once the order is placed and part of the catalog is crawled",
         |_| {
             let engine = first.as_mut().expect("the first engine runs");
-            before = records(engine, Some(1));
+            // Answers once the first Record committed.
+            records_through(engine, RUN, "pages", 1);
             migrated = answered(
                 engine,
                 "migrate",
@@ -200,11 +155,13 @@ fn cli() {
                 &json!({ "run_id": RUN, "location": checkpoint.display().to_string() }),
             );
             assert!(migrated.get("result").is_some(), "{migrated}");
+            at_migration = records(engine, RUN, "pages");
             assert!(first.take().expect("the first engine runs").finished());
         },
     );
-    let home = second_home(run.env());
-    let carried = home.join("moved.sqlite");
+    // The second Goodfetch home, set up as test support sets every home.
+    let second = TestEnv::new();
+    let carried = second.folder().join("moved.sqlite");
     run.step(
         "Take the run's Checkpoint to a second Goodfetch home",
         |_| {
@@ -215,7 +172,7 @@ fn cli() {
         "Resume the run from its Checkpoint in the second home and let it finish",
         |run| {
             let proving_ground = run.proving_ground().expect("J-012 has a Proving ground");
-            let mut engine = engine(run.env(), run.engine(), Some(&home));
+            let mut engine = engine(&second, run.engine());
             resumed = answered(
                 &mut engine,
                 "resume",
@@ -233,16 +190,18 @@ fn cli() {
                 "run.finish",
                 &json!({ "run_id": RUN }),
             );
-            committed = records(&mut engine, None);
+            committed = records(&mut engine, RUN, "pages");
             assert!(engine.finished());
         },
     );
 
     run.check(
         "The resumed run checked the order its Effect journal holds instead of placing it again",
-        |_| {
+        |run| {
+            let proving_ground = run.proving_ground().expect("J-012 has a Proving ground");
             assert_eq!(
                 (
+                    orders(proving_ground).len(),
                     &placed["result"]["answer"],
                     &migrated["result"]["stop_reason"]["kind"],
                     &resumed["result"]["started_as"],
@@ -251,6 +210,7 @@ fn cli() {
                     &finished["result"]["lifecycle"],
                 ),
                 (
+                    1,
                     &json!("perform"),
                     &json!("migrate"),
                     &json!("resumed"),
@@ -266,8 +226,7 @@ fn cli() {
         "The oracle verifies the order was placed once",
         &json!({ "status": "success" }),
     );
-    run.check("No Record is in the run's Dataset twice", |run| {
-        let proving_ground = run.proving_ground().expect("J-012 has a Proving ground");
+    run.check("No Record is in the run's Dataset twice", |_| {
         let urls: BTreeSet<&str> = committed
             .iter()
             .filter_map(|record| record["url"].as_str())
@@ -279,13 +238,14 @@ fn cli() {
         let expected: Vec<Value> = (1..=committed.len()).map(|number| json!(number)).collect();
         assert_eq!(
             (
-                !before.is_empty() && before.len() < committed.len(),
+                !at_migration.is_empty()
+                    && at_migration.len() < committed.len()
+                    && committed.starts_with(&at_migration),
                 urls.len(),
                 numbers,
-                orders(proving_ground).len(),
             ),
-            (true, committed.len(), expected, 1),
-            "{before:?}"
+            (true, committed.len(), expected),
+            "{at_migration:?}"
         );
     });
     run.expect_task(

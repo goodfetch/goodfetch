@@ -460,7 +460,7 @@ fn a_paused_run_survives_a_restart_and_resumes_at_the_next_run_epoch() {
 /// that Checkpoint in another home at the next run epoch and redoes what
 /// the first committed after it. The fencing of the first copy's writes
 /// is conformance's two-copies case (`conformance/two-copies/cases.toml`).
-/// Covers: story:3-34, story:3-43, operation:run.resume
+/// Covers: story:3-34, operation:run.resume
 #[test]
 fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint() {
     let (first, second) = (TestEnv::new(), TestEnv::new());

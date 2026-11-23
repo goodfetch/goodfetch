@@ -56,9 +56,28 @@ pub(crate) fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data:
 /// Every Record of `dataset` of the Run `run_id`, as `run.records` reads
 /// them, granted credit for all at once.
 pub(crate) fn records(engine: &mut Attached, run_id: &str, dataset: &str) -> Vec<Value> {
+    read_records(engine, &json!({ "run_id": run_id, "dataset": dataset }))
+}
+
+/// The Records of `dataset` of the live Run `run_id` through the number
+/// `through`, as `run.records` reads them once that many committed.
+pub(crate) fn records_through(
+    engine: &mut Attached,
+    run_id: &str,
+    dataset: &str,
+    through: u64,
+) -> Vec<Value> {
+    read_records(
+        engine,
+        &json!({ "run_id": run_id, "dataset": dataset, "through": through }),
+    )
+}
+
+/// The Records `run.records` reads with `params`, granted credit for all
+/// at once.
+fn read_records(engine: &mut Attached, params: &Value) -> Vec<Value> {
     engine.send(&json!({
-        "jsonrpc": "2.0", "id": "records", "method": "run.records",
-        "params": { "run_id": run_id, "dataset": dataset },
+        "jsonrpc": "2.0", "id": "records", "method": "run.records", "params": params,
     }));
     engine.send(&json!({
         "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "records", "credits": 1000 },

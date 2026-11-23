@@ -636,7 +636,7 @@ fn the_start_table_of_a_crawl_is_proved_against_foxhound() {
 /// run epoch, a destination that compares and sets refuses the first
 /// copy's Checkpoints and Exports.
 ///
-/// Covers: story:3-34, story:3-43, operation:run.resume, operation:run.export
+/// Covers: story:3-43
 #[test]
 fn the_fenced_copy_has_its_writes_refused_against_foxhound() {
     let env = TestEnv::new();

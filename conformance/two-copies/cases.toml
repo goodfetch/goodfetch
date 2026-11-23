@@ -26,4 +26,4 @@ name = "run.resume"
 
 [[capability.case]]
 id = "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets"
-covers = ["story:3-34", "story:3-43", "operation:run.resume", "operation:run.export", "operation:run.checkpoint"]
+covers = ["story:3-43", "operation:run.resume", "operation:run.export", "operation:run.checkpoint"]

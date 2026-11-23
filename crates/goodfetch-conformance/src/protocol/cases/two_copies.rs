@@ -92,7 +92,7 @@ fn fenced(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let Some(elsewhere) = elsewhere(target) else {
+    let Some(elsewhere) = elsewhere(target)? else {
         checks.check(
             "the target is an Attached engine, so a second copy runs in a Goodfetch home of its own",
             false,
@@ -196,24 +196,28 @@ fn second_copy(
 
 /// The target's twin on a Goodfetch home of its own, beside the
 /// target's, configured as the target's home is; none when the target is
-/// a Daemon, whose further Connections reach the same engine.
+/// a Daemon, whose further Connections reach the same engine. A failure to
+/// set the home up fails the case with its error.
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn elsewhere(target: &EngineTarget) -> Option<EngineTarget> {
+fn elsewhere(target: &EngineTarget) -> Result<Option<EngineTarget>, Gone> {
     if target.mode != EngineMode::Attached {
-        return None;
+        return Ok(None);
     }
+    let failed =
+        |error: std::io::Error| Gone::Failed(format!("setting up the second home: {error}"));
     let home = target.folder.join("two-copies-elsewhere");
-    std::fs::create_dir_all(&home).ok()?;
+    std::fs::create_dir_all(&home).map_err(failed)?;
     if let Some(here) = target.environment.get("GOODFETCH_HOME") {
-        for version in std::fs::read_dir(here).ok()?.flatten() {
+        for version in std::fs::read_dir(here).map_err(failed)? {
+            let version = version.map_err(failed)?;
             let configuration = version.path().join("configuration.toml");
             if configuration.is_file() {
                 let there = home.join(version.file_name());
-                std::fs::create_dir_all(&there).ok()?;
-                std::fs::copy(&configuration, there.join("configuration.toml")).ok()?;
+                std::fs::create_dir_all(&there).map_err(failed)?;
+                std::fs::copy(&configuration, there.join("configuration.toml")).map_err(failed)?;
             }
         }
     }
@@ -221,7 +225,7 @@ fn elsewhere(target: &EngineTarget) -> Option<EngineTarget> {
     elsewhere
         .environment
         .insert("GOODFETCH_HOME".to_owned(), home.display().to_string());
-    Some(elsewhere)
+    Ok(Some(elsewhere))
 }
 
 /// Starts the crawl of one page of the Proving ground's plain host,

@@ -564,6 +564,67 @@ fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_the_filter_lists_off_
     );
 }
 
+/// A crawl that asks for a format cleans each page with the Filter lists'
+/// cosmetic rules. At its default `filter_lists.host_cache`, the Run keeps
+/// the one host's rule list built, so the crawl builds it once and ends
+/// holding that host; at `0` each page builds its own and the Run holds
+/// none. Either way each page reads the same text (spec #2164).
+///
+/// Covers: setting:filter_lists.host_cache
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "two crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn the_host_cache_setting_bounds_the_rule_lists_a_crawl_builds_and_changes_no_text() {
+    let crawled = |settings: Value| {
+        let env = TestEnv::new();
+        let metrics = Metrics::none();
+        let work = metrics.counted_work().clone();
+        let crawled = crawl_with(
+            env.home(),
+            env.start_time(),
+            env.seed(),
+            Options {
+                metrics,
+                settings: settings.as_object().unwrap().clone(),
+                formats: Map::from_iter([("text".to_owned(), json!(true))]),
+                ..Options::default()
+            },
+        );
+        let mut texts: Vec<String> = crawled
+            .records
+            .iter()
+            .map(|record| record["text"].as_str().unwrap_or_default().to_owned())
+            .collect();
+        texts.sort();
+        let counts = (
+            work.read(Row::PageRuleListBuilds),
+            work.read(Row::PageHostCacheEntries),
+        );
+        (counts, texts)
+    };
+
+    let (kept, off) = std::thread::scope(|scope| {
+        let kept = scope.spawn(|| crawled(json!({})));
+        let off = scope.spawn(|| crawled(json!({ "filter_lists": { "host_cache": 0 } })));
+        (kept.join().unwrap(), off.join().unwrap())
+    });
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(
+        kept.1.iter().all(|text| !text.is_empty()),
+        "a page read no text: {:?}",
+        kept.1
+    );
+    assert_eq!((kept.0, off.0), ((1, 1), (pages, 0)));
+    assert_eq!(kept.1, off.1);
+}
+
 /// The rows of a Record's work (F4).
 const RECORD_ROWS: [Row; 7] = [
     Row::RecordDeclarationReads,

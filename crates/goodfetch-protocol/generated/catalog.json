@@ -8688,7 +8688,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
+      "description": "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. A Sentinel's primary is reached over TLS whenever a `password` is set, and a `cluster`'s nodes are all `rediss://` or all on loopback. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
       "fixed_for_run": false,
       "name": "politeness.store",
       "product": "collie",
@@ -8728,7 +8728,7 @@
               },
               {
                 "additionalProperties": false,
-                "description": "The primary that Sentinel elects for a service, found again through\nthe sentinels after a failover.",
+                "description": "The primary that Sentinel elects for a service, asked of the\nsentinels when the engine connects.",
                 "properties": {
                   "kind": {
                     "const": "sentinel",
@@ -8736,7 +8736,7 @@
                   },
                   "sentinels": {
                     "arrived_in": "0.1",
-                    "description": "The sentinels' addresses, at least one; the primary is reached\nover TLS when they are.",
+                    "description": "The sentinels' addresses, at least one; the primary is reached\nover TLS when they are, or when a `password` is set, so that the\npassword never travels in clear.",
                     "items": {
                       "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
                       "type": "string"
@@ -8760,7 +8760,7 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A Cluster, discovered from these nodes, at least one; the nodes it\nfinds are reached as these are.",
+                "description": "A Cluster, discovered from these nodes, at least one, all over TLS\nor all on loopback, and none a Unix socket; the nodes it finds are\nreached as these are, and a Cluster on loopback that announces a\nnode off loopback is refused when the engine connects.",
                 "properties": {
                   "kind": {
                     "const": "cluster",

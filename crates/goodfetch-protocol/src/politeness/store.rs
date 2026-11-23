@@ -102,14 +102,12 @@ impl StoreUrl {
             "redis+unix" | "unix" if rest.starts_with('/') => Ok(Self(text.to_owned())),
             "rediss" | "redis" => {
                 let authority = rest.split('/').next().unwrap_or_default();
-                let host = if let Some(bracketed) = authority.strip_prefix('[') {
-                    bracketed.split(']').next().unwrap_or_default()
-                } else {
-                    authority.split(':').next().unwrap_or_default()
+                let Some(host) = host(authority) else {
+                    return Err(
+                        "a store's address names its host, and any port as a number up to 65535"
+                            .to_owned(),
+                    );
                 };
-                if host.is_empty() {
-                    return Err("a store's address names its host".to_owned());
-                }
                 if scheme == "redis" && !is_loopback(host) {
                     return Err("`redis://` would send the store's password and keys in clear: off loopback a store's address is `rediss://` (TLS)".to_owned());
                 }
@@ -128,6 +126,28 @@ impl StoreUrl {
     pub fn tls(&self) -> bool {
         self.0.starts_with("rediss://")
     }
+
+    /// Whether it is a Unix socket on this machine.
+    fn unix(&self) -> bool {
+        self.0.starts_with("redis+unix://") || self.0.starts_with("unix://")
+    }
+}
+
+/// `authority`'s host, an IPv6 address out of its brackets; `None` when
+/// it names none, or a port that is no number up to 65535.
+fn host(authority: &str) -> Option<&str> {
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(bracketed) => match bracketed.split_once(']')? {
+            (host, "") => (host, None),
+            (host, after) => (host, Some(after.strip_prefix(':')?)),
+        },
+        None => match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        },
+    };
+    let port_read = port.is_none_or(|port| port.parse::<u16>().is_ok());
+    (!host.is_empty() && port_read).then_some(host)
 }
 
 /// Whether `host` is this machine's loopback: `localhost` or a loopback
@@ -176,19 +196,22 @@ pub enum StoreAddressing {
         #[schemars(extend("arrived_in" = "0.1"))]
         url: StoreUrl,
     },
-    /// The primary that Sentinel elects for a service, found again through
-    /// the sentinels after a failover.
+    /// The primary that Sentinel elects for a service, asked of the
+    /// sentinels when the engine connects.
     Sentinel {
         /// The service whose primary the sentinels name.
         #[schemars(length(min = 1), extend("arrived_in" = "0.1"))]
         service: String,
         /// The sentinels' addresses, at least one; the primary is reached
-        /// over TLS when they are.
+        /// over TLS when they are, or when a `password` is set, so that the
+        /// password never travels in clear.
         #[schemars(length(min = 1), extend("arrived_in" = "0.1"))]
         sentinels: Vec<StoreUrl>,
     },
-    /// A Cluster, discovered from these nodes, at least one; the nodes it
-    /// finds are reached as these are.
+    /// A Cluster, discovered from these nodes, at least one, all over TLS
+    /// or all on loopback, and none a Unix socket; the nodes it finds are
+    /// reached as these are, and a Cluster on loopback that announces a
+    /// node off loopback is refused when the engine connects.
     Cluster {
         /// The nodes' addresses.
         #[schemars(length(min = 1), extend("arrived_in" = "0.1"))]
@@ -283,6 +306,12 @@ impl PolitenessStoreConfiguration {
                 if nodes.is_empty() {
                     return Err("a Cluster store lists at least one of its `nodes`".to_owned());
                 }
+                if nodes.iter().any(StoreUrl::unix) {
+                    return Err("a Cluster store's `nodes` are no Unix sockets: a Cluster announces its nodes by host and port".to_owned());
+                }
+                if nodes.iter().any(StoreUrl::tls) != nodes.iter().all(StoreUrl::tls) {
+                    return Err("a Cluster store's `nodes` are all `rediss://` or all `redis://` on loopback: every node it finds is reached as its first".to_owned());
+                }
             }
         }
         Ok(configuration)
@@ -342,7 +371,7 @@ fn none() -> Value {
 /// `politeness.store` (ADR 0053).
 pub const POLITENESS_STORE: Setting = Setting {
     name: "politeness.store",
-    description: "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
+    description: "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. A Sentinel's primary is reached over TLS whenever a `password` is set, and a `cluster`'s nodes are all `rediss://` or all on loopback. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
     kind: ValueKind::Shape(&POLITENESS_STORE_SHAPE),
     default: none,
     clearable: true,

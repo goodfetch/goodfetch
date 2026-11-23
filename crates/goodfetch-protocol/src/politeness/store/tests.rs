@@ -61,6 +61,9 @@ fn a_store_over_tls_with_a_password_reference_is_read() {
 #[case::localhost_lookalike("redis://localhost.example:6379", false)]
 #[case::not_a_store("https://valkey.example", false)]
 #[case::no_host("rediss://:6379", false)]
+#[case::not_a_port("rediss://valkey.example:sixty", false)]
+#[case::port_past_its_range("rediss://valkey.example:65536", false)]
+#[case::bracketed_not_a_port("redis://[::1]:sixty", false)]
 fn a_plaintext_address_is_taken_on_loopback_only(#[case] url: &str, #[case] taken: bool) {
     let value = json!({
         "namespace": "crawl",
@@ -68,23 +71,6 @@ fn a_plaintext_address_is_taken_on_loopback_only(#[case] url: &str, #[case] take
     });
 
     assert_eq!(checked(&value).is_ok(), taken, "{:?}", checked(&value));
-}
-
-/// A plaintext address off loopback is refused with a message that asks
-/// for TLS.
-#[test]
-fn a_plaintext_address_off_loopback_asks_for_tls() {
-    let refused = checked(&json!({
-        "namespace": "crawl",
-        "addressing": { "kind": "server", "url": "redis://valkey.example:6379" },
-    }));
-
-    assert!(
-        refused
-            .as_ref()
-            .is_err_and(|message| message.contains("rediss://")),
-        "{refused:?}"
-    );
 }
 
 /// The password is a Secret reference, never a value, and no refusal
@@ -125,7 +111,9 @@ fn a_password_is_a_secret_reference_and_never_repeated(#[case] value: Value) {
 }
 
 /// A Sentinel deployment names its sentinels and the service whose primary
-/// they elect; a Cluster names the nodes it is discovered from. Each
+/// they elect; a Cluster names the nodes it is discovered from, all over
+/// TLS or all on loopback, and none a Unix socket, since a Cluster announces
+/// its nodes by host and port and reaches each one as its first. Each
 /// address follows the TLS rule, and neither list is empty.
 ///
 /// Covers: setting:politeness.store
@@ -153,6 +141,11 @@ fn a_password_is_a_secret_reference_and_never_repeated(#[case] value: Value) {
     "sentinels": ["rediss://sentinel-1.example:26379"],
 }), false)]
 #[case::no_node(json!({ "kind": "cluster", "nodes": [] }), false)]
+#[case::unix_node(json!({ "kind": "cluster", "nodes": ["redis+unix:///run/valkey.sock"] }), false)]
+#[case::tls_and_plaintext_nodes(json!({
+    "kind": "cluster",
+    "nodes": ["redis://127.0.0.1:7000", "rediss://node-1.example:6379"],
+}), false)]
 #[case::unknown_kind(json!({ "kind": "replica", "url": "rediss://valkey.example" }), false)]
 fn sentinel_and_cluster_addressing_follow_the_same_rules(
     #[case] addressing: Value,

@@ -19,8 +19,11 @@
 //! The store is one server, a Sentinel deployment or a Cluster, as
 //! `politeness.store` names it. Its password, resolved from the setting's
 //! Secret reference (ADR 0015), never travels in clear off loopback: an
-//! address off loopback is `rediss://`, and a Sentinel's elected primary is
-//! reached over TLS whenever a password is set or a sentinel is.
+//! address off loopback is `rediss://`, a Sentinel's elected primary is
+//! reached over TLS whenever a password is set or a sentinel is, and a
+//! Cluster reached on loopback without TLS is refused when its `CLUSTER
+//! SLOTS` names a node off loopback, which the client would reach without
+//! TLS too.
 
 use std::fmt;
 use std::time::Duration;
@@ -78,9 +81,10 @@ pub enum StoreError {
     /// user it denies a command.
     #[error("the Politeness store refused its user or password")]
     Refused(Party),
-    /// The primary a Sentinel elected is off loopback and reached without
-    /// TLS, which would carry every key in clear.
-    #[error("the Politeness store's Sentinel elected a primary off loopback without TLS")]
+    /// The primary a Sentinel elected, or a node a Cluster on loopback
+    /// announced, is off loopback and reached without TLS, which would
+    /// carry every key in clear.
+    #[error("the Politeness store names a server off loopback reached without TLS")]
     Plaintext,
     /// The store answered with a failure this module does not know.
     #[error("the Politeness store failed")]
@@ -141,7 +145,7 @@ impl Scripts {
     }
 
     /// Loads each script, on every primary of a Cluster.
-    async fn load(&self, connection: &mut Connection) -> Result<(), StoreError> {
+    async fn load(&self, connection: &mut StoreConnection) -> Result<(), StoreError> {
         for script in [&self.take, &self.renew, &self.give_back, &self.pace] {
             script.prepare_invoke().load_async(connection).await?;
         }
@@ -190,7 +194,7 @@ pub struct PolitenessStore {
     /// primary a Sentinel elected, or a Cluster's first node, since a
     /// Cluster carries every publication to each of its nodes.
     subscriber: redis::Client,
-    connection: Connection,
+    connection: StoreConnection,
     layout: Layout,
     scripts: Scripts,
 }
@@ -210,8 +214,9 @@ impl PolitenessStore {
     /// # Errors
     ///
     /// [`StoreError::Refused`] when the store refuses the user or password,
-    /// [`StoreError::Plaintext`] for a Sentinel's primary off loopback
-    /// without TLS, else the store's failure.
+    /// [`StoreError::Plaintext`] for a Sentinel's primary, or a node a
+    /// Cluster on loopback announces, off loopback without TLS, else the
+    /// store's failure.
     ///
     /// # Cancel safety
     ///
@@ -397,12 +402,12 @@ impl Wakes {
 /// The connection the store's scripts run on: one server's, or a
 /// Cluster's, which sends each call to its key's slot.
 #[derive(Clone)]
-enum Connection {
+enum StoreConnection {
     One(MultiplexedConnection),
     Cluster(ClusterConnection),
 }
 
-impl ConnectionLike for Connection {
+impl ConnectionLike for StoreConnection {
     fn req_packed_command<'a>(
         &'a mut self,
         command: &'a redis::Cmd,
@@ -468,12 +473,12 @@ impl Authentication<'_> {
 async fn reach(
     addressing: &StoreAddressing,
     authentication: &Authentication<'_>,
-) -> Result<(redis::Client, Connection), StoreError> {
+) -> Result<(redis::Client, StoreConnection), StoreError> {
     match addressing {
         StoreAddressing::Server { url } => {
             let client = redis::Client::open(authentication.at(url)?)?;
             let connection = client.get_multiplexed_async_connection().await?;
-            Ok((client, Connection::One(connection)))
+            Ok((client, StoreConnection::One(connection)))
         }
         StoreAddressing::Sentinel { service, sentinels } => {
             let mut sentinel = Sentinel::build(sentinels.iter().map(StoreUrl::as_str).collect())?;
@@ -488,7 +493,7 @@ async fn reach(
                 return Err(StoreError::Plaintext);
             }
             let connection = client.get_multiplexed_async_connection().await?;
-            Ok((client, Connection::One(connection)))
+            Ok((client, StoreConnection::One(connection)))
         }
         StoreAddressing::Cluster { nodes } => {
             let seeds = nodes
@@ -501,8 +506,20 @@ async fn reach(
                 .next()
                 .expect("invariant: a Cluster client is built from one node at least");
             let client = redis::Client::open(first)?;
+            // Every node is reached as the first: without TLS, the Cluster
+            // is taken only while it announces none off loopback.
+            if !nodes.first().is_some_and(StoreUrl::tls) {
+                let mut seed = client.get_multiplexed_async_connection().await?;
+                let slots: redis::Value = redis::cmd("CLUSTER")
+                    .arg("SLOTS")
+                    .query_async(&mut seed)
+                    .await?;
+                if announces_off_loopback(&slots) {
+                    return Err(StoreError::Plaintext);
+                }
+            }
             let connection = cluster.get_async_connection().await?;
-            Ok((client, Connection::Cluster(connection)))
+            Ok((client, StoreConnection::Cluster(connection)))
         }
     }
 }
@@ -510,6 +527,37 @@ async fn reach(
 /// Whether `address` is reached without TLS off loopback.
 fn plaintext_off_loopback(address: &ConnectionAddr) -> bool {
     matches!(address, ConnectionAddr::Tcp(host, _port) if !is_loopback(host))
+}
+
+/// Whether a `CLUSTER SLOTS` answer names a node off loopback, primary or
+/// replica. A node named by no host, `?` or a wildcard address is the
+/// answering node's own, or none, as redis reads it.
+fn announces_off_loopback(slots: &redis::Value) -> bool {
+    let redis::Value::Array(ranges) = slots else {
+        return false;
+    };
+    ranges
+        .iter()
+        .filter_map(|range| match range {
+            redis::Value::Array(range) => range.get(2..),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|node| match node {
+            redis::Value::Array(node) => match node.first() {
+                Some(redis::Value::BulkString(host)) => Some(String::from_utf8_lossy(host)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .any(|host| {
+            let answering = host.is_empty()
+                || host == "?"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|address| address.is_unspecified());
+            !answering && !is_loopback(&host)
+        })
 }
 
 /// `duration` in whole milliseconds, at least 1, so a lease never expires
@@ -523,9 +571,9 @@ fn milliseconds(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use goodfetch_protocol::politeness::store::StoreNamespace;
-    use redis::ConnectionAddr;
+    use redis::{ConnectionAddr, Value};
 
-    use super::{Layout, plaintext_off_loopback};
+    use super::{Layout, announces_off_loopback, plaintext_off_loopback};
 
     /// Every part of a key shares one hash tag, the whole key, even when
     /// the key holds a brace that would otherwise end the tag early.
@@ -560,5 +608,42 @@ mod tests {
         assert!(!plaintext_off_loopback(&tcp("127.0.0.1")));
         assert!(!plaintext_off_loopback(&tcp("::1")));
         assert!(!plaintext_off_loopback(&tls));
+    }
+
+    /// A plaintext Cluster reaches every node it announces as it reaches
+    /// its first, without TLS, so its `CLUSTER SLOTS` answer is refused
+    /// when it names a node off loopback, primary or replica; a node named
+    /// by no host, `?` or a wildcard is the answering node's own, which
+    /// redis reads as the loopback node asked (ADR 0053).
+    #[test]
+    fn a_plaintext_cluster_announcing_a_node_off_loopback_is_refused() {
+        let node = |host: &str| {
+            Value::Array(vec![
+                Value::BulkString(host.as_bytes().to_vec()),
+                Value::Int(7000),
+                Value::BulkString(b"id".to_vec()),
+            ])
+        };
+        let slots = |nodes: Vec<Value>| {
+            let range = [vec![Value::Int(0), Value::Int(16_383)], nodes].concat();
+            Value::Array(vec![Value::Array(range)])
+        };
+
+        assert!(!announces_off_loopback(&slots(vec![
+            node("127.0.0.1"),
+            node("::1"),
+            node("localhost"),
+        ])));
+        assert!(!announces_off_loopback(&slots(vec![
+            node(""),
+            node("?"),
+            node("0.0.0.0"),
+            node("::"),
+        ])));
+        assert!(announces_off_loopback(&slots(vec![node("10.0.0.5")])));
+        assert!(announces_off_loopback(&slots(vec![
+            node("127.0.0.1"),
+            node("node-2.example"),
+        ])));
     }
 }

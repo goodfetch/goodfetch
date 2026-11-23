@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use goodfetch_collie::linked::ProductConnection;
 use goodfetch_collie::{ConnectOptions, EngineInfo};
-use goodfetch_collie_client::{Error, blocking};
-use goodfetch_protocol::run::CatalogTarget;
+use goodfetch_collie_client::{Error, RunView, blocking};
+use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use crawl::{Crawl, CrawlContext, CrawlRun, StartCrawl};
@@ -134,6 +134,17 @@ impl Foxhound {
         self.connection.start_catalog_run(target)
     }
 
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::Foxhound::open_run`] does, with no round trip, so nothing
+    /// blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Foxhound::open_run`].
+    pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        self.connection.open_run(run_id)
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -173,6 +184,10 @@ impl Connection for Foxhound {
 
     fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
         Foxhound::start_catalog_run(self, target)
+    }
+
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        Foxhound::open_run(self, run_id)
     }
 
     fn call(&self, operation: &str) -> RawCall {

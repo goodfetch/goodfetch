@@ -59,7 +59,7 @@ pub use goodfetch_collie::{
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
     FieldValues, HandlerlessStart, Limits, Locator, Money, MoneyError, Page, Query, RawCall,
-    Response, Run, Schema, SchemaError, Session, Start, UsageKind, events, schemars,
+    Response, Run, RunView, Schema, SchemaError, Session, Start, UsageKind, events, schemars,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):

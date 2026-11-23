@@ -322,6 +322,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -413,6 +422,15 @@ receiver = "Connection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1384,6 +1402,33 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "RunView"
+entry = "none"
+reason = "The view of a Run another program started that `open_run` opens (ADR 0102), which takes no writer role."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "TraceContextSource"
 entry = "none"
 reason = "Reads the host program's current Trace context, which each request the Connection sends carries (ADR 0132)."
@@ -1590,6 +1635,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -1654,6 +1708,15 @@ receiver = "blocking::Connection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]

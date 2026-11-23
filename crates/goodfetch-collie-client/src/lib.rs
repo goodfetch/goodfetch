@@ -7,7 +7,8 @@
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
 //! the builders every call goes through (ADR 0081). A [`Run`] is what a
 //! Connection starts, or a [`HandlerlessStart`] starts with no handler in
-//! the program; it and the handles it opens, [`Session`], [`Page`]
+//! the program, and a [`RunView`] names one another program started; a
+//! Run and the handles it opens, [`Session`], [`Page`]
 //! and [`Locator`], have the members the catalog gives them, one form per
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
 //! program that does not use async. [`file_saving`] writes a file to the
@@ -48,6 +49,7 @@ mod relink;
 mod response;
 mod rpc;
 mod run;
+mod run_view;
 mod schema;
 pub mod settings;
 mod sync;
@@ -74,6 +76,7 @@ pub use listener_queue::ListenerQueue;
 pub use raw_call::RawCall;
 pub use response::{Exchange, Response};
 pub use run::Start;
+pub use run_view::RunView;
 pub use schema::{Schema, SchemaError};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).

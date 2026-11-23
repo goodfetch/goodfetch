@@ -87,7 +87,6 @@ receiver = "Collie"
 member = "openRun"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -165,7 +164,6 @@ receiver = "Foxhound"
 member = "openRun"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.openRun`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -359,7 +357,6 @@ receiver = "Connection"
 member = "openRun"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -1227,7 +1224,6 @@ receiver = "(module)"
 member = "RunView"
 entry = "none"
 reason = "The view of a Run another program started that `openRun()` opens (ADR 0102), which takes no writer role."
-only = "Issue 3396's Rust part adds it."
 words = ["run", "view"]
 form = "type"
 
@@ -1237,7 +1233,6 @@ receiver = "RunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -1247,7 +1242,6 @@ receiver = "RunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -1257,7 +1251,6 @@ receiver = "RunView"
 member = "[Symbol.asyncDispose]"
 entry = "none"
 reason = "The scoped form of `close()` (ADR 0078), which frees only the view."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -1267,7 +1260,7 @@ receiver = "RunView"
 member = "constructor"
 entry = "none"
 reason = "A Connection's `openRun()` opens a view; a program never constructs one."
-only = "Python's view has no constructor a program calls, and issue 3396's Rust part adds one with none either."
+only = "Python's and Rust's views have no constructor a program calls."
 words = ["run", "view"]
 form = "read"
 

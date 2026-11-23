@@ -4,8 +4,8 @@
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
-use goodfetch_collie_client::blocking;
-use goodfetch_protocol::run::CatalogTarget;
+use goodfetch_collie_client::{RunView, blocking};
+use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
@@ -123,6 +123,17 @@ impl Collie {
         self.connection.start_catalog_run(target)
     }
 
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::Collie::open_run`] does, with no round trip, so nothing
+    /// blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Collie::open_run`].
+    pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        self.connection.open_run(run_id)
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -161,6 +172,10 @@ impl blocking::Connection for Collie {
 
     fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
         Collie::start_catalog_run(self, target)
+    }
+
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        Collie::open_run(self, run_id)
     }
 
     fn call(&self, operation: &str) -> RawCall {

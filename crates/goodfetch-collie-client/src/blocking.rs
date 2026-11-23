@@ -22,6 +22,7 @@ use serde_json::Value;
 use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
+use crate::run_view::RunView;
 pub use twins::{Locator, Page, Run, Session, WebSocket};
 
 /// The blocking twins of the handles, which `xtask codegen` writes.
@@ -121,6 +122,17 @@ impl ClientConnection {
     /// sends.
     pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
         HandlerlessStart(self.0.start_catalog_run(target), self.0.clone())
+    }
+
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::ClientConnection::open_run`] does, with no round trip, so
+    /// nothing blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::ClientConnection::open_run`].
+    pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        self.0.open_run(run_id)
     }
 
     /// Shows each setting's effective value, the layer that set it and the
@@ -259,6 +271,14 @@ pub trait Connection {
     /// The start of a code-free catalog run, as
     /// [`crate::Connection::start_catalog_run`]'s, which `send()` sends.
     fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart;
+
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::Connection::open_run`] does.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Connection::open_run`].
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
 
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.

@@ -344,6 +344,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
             "doctor": { "$ref": "#/$defs/DoctorReport" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
+            "skill.install": { "$ref": "#/$defs/SkillsInstalled" },
             "upgrade-files": { "$ref": "#/$defs/FilesUpgraded" },
         })
     );

@@ -1698,3 +1698,14 @@ prefix = ""
 number = 11
 kind = "skill"
 prefix = ""
+
+# `skill install` and its refusal.
+[[area]]
+number = 11
+kind = "command"
+prefix = "skill."
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "skill_"

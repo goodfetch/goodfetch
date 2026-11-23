@@ -897,6 +897,14 @@ class SitePreferencesRefusedError(RefusedError):
         super().__init__(message, code="site_preferences_refused", group="refused", retryable=False, **fields)
 
 
+class SkillInstallRefusedError(RefusedError):
+    """`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="skill_install_refused", group="refused", retryable=False, **fields)
+
+
 class TargetNotUniqueError(PageError):
     """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
 
@@ -1075,6 +1083,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
     "site_preferences_refused": SitePreferencesRefusedError,
+    "skill_install_refused": SkillInstallRefusedError,
     "target_not_unique": TargetNotUniqueError,
     "too_many_calls": TooManyCallsError,
     "too_many_redirects": TooManyRedirectsError,

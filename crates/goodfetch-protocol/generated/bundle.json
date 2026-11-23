@@ -7359,6 +7359,32 @@
       ],
       "type": "object"
     },
+    "InstalledSkill": {
+      "description": "One skill `skill install` made sure of.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of its files, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, such as `goodfetch-collie`.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Its folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "digest"
+      ],
+      "type": "object"
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "One Journey: a goal a person reaches through its Product's public\nsurfaces, written as steps from a starting state to an outcome checked\nfrom outside the engine (ADR 0063).",
@@ -17051,6 +17077,75 @@
       "required": [
         "sitemap",
         "rules"
+      ],
+      "type": "object"
+    },
+    "SkillHost": {
+      "description": "The coding agent whose skills folder `skill install` writes.",
+      "oneOf": [
+        {
+          "const": "claude_code",
+          "description": "Claude Code, which reads `.claude/skills`.",
+          "type": "string"
+        },
+        {
+          "const": "codex",
+          "description": "Codex, which reads `.agents/skills`.",
+          "type": "string"
+        },
+        {
+          "const": "cursor",
+          "description": "Cursor, which reads `.cursor/skills` among others.",
+          "type": "string"
+        },
+        {
+          "const": "agents",
+          "description": "Any host of the Agent Skills specification that reads\n`.agents/skills`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SkillScope": {
+      "description": "Where the skills folder `skill install` writes is.",
+      "oneOf": [
+        {
+          "const": "project",
+          "description": "In the working folder, for the project the host opens there.",
+          "type": "string"
+        },
+        {
+          "const": "user",
+          "description": "In the user's home folder, for every project.",
+          "type": "string"
+        }
+      ]
+    },
+    "SkillsInstalled": {
+      "description": "What `skill install --json` prints (spec #608): every skill the\nexecutable carries, as the skills folder now holds it, whether this run\nwrote it or found it already there.",
+      "properties": {
+        "installed": {
+          "arrived_in": "0.1",
+          "description": "Each skill, by name.",
+          "items": {
+            "$ref": "#/$defs/InstalledSkill"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/SkillScope",
+          "arrived_in": "0.1",
+          "description": "Where that folder is."
+        },
+        "target": {
+          "$ref": "#/$defs/SkillHost",
+          "arrived_in": "0.1",
+          "description": "The host whose skills folder it wrote."
+        }
+      },
+      "required": [
+        "target",
+        "scope",
+        "installed"
       ],
       "type": "object"
     },
@@ -29488,6 +29583,9 @@
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"
+    },
+    "skill.install": {
+      "$ref": "#/$defs/SkillsInstalled"
     },
     "upgrade-files": {
       "$ref": "#/$defs/FilesUpgraded"

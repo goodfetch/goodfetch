@@ -4,6 +4,7 @@
 //! the layers that may set it and how.
 
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::net::IpAddr;
 
 use serde_json::{Value, json};
@@ -201,6 +202,50 @@ impl ValueKind {
                 "description": "A Secret reference, such as `env:NAME`.",
             }),
             Self::Shape(shape) => (shape.schema)(),
+        }
+    }
+
+    /// Which way `weakens`, a Setting's values that weaken a guarantee, lie
+    /// among this kind's values, for the API breakage check to tell a
+    /// default that weakens from one that strengthens (issue 148):
+    /// `{"values": [...]}`, the values that weaken, for a boolean or a
+    /// choice; `{"toward": "lower"}` or `{"toward": "higher"}` for a count or
+    /// a duration whose weakening values all lie on that side of the others,
+    /// read on probes from its lowest value to its highest; `null` where the
+    /// probes find no side or the kind has no order.
+    pub fn weakening(&self, weakens: fn(&Value) -> bool) -> Value {
+        let values = |values: Vec<Value>| {
+            let weakening: Vec<Value> = values.into_iter().filter(weakens).collect();
+            json!({ "values": weakening })
+        };
+        let (lowest, highest) = match self {
+            Self::Boolean => return values(vec![json!(false), json!(true)]),
+            Self::Choice(words) => return values(words.iter().map(|word| json!(word)).collect()),
+            Self::Count | Self::Duration => (0, u64::MAX),
+            Self::CountUpTo(most) => (0, *most),
+            Self::CountFromOne => (1, u64::MAX),
+            _ => return Value::Null,
+        };
+        let mut probes: BTreeSet<u64> = (0..=16).collect();
+        for exponent in 4..64 {
+            let power = 1_u64 << exponent;
+            probes.extend([power - 1, power, power + 1]);
+        }
+        for exponent in 1..=19 {
+            let power = 10_u64.pow(exponent);
+            probes.extend([power - 1, power, power + 1]);
+        }
+        probes.insert(u64::MAX);
+        let held: Vec<bool> = probes
+            .range(lowest..=highest)
+            .map(|probe| weakens(&json!(probe)))
+            .collect();
+        let rises = held.windows(2).all(|pair| pair[0] <= pair[1]);
+        let falls = held.windows(2).all(|pair| pair[0] >= pair[1]);
+        match (held.first(), held.last()) {
+            (Some(false), Some(true)) if rises => json!({ "toward": "higher" }),
+            (Some(true), Some(false)) if falls => json!({ "toward": "lower" }),
+            _ => Value::Null,
         }
     }
 }

@@ -135,6 +135,7 @@ export type CollieWireType =
   | "RunLimit"
   | "RunList"
   | "RunListParams"
+  | "RunMigrateParams"
   | "RunMigrating"
   | "RunOwner"
   | "RunParams"
@@ -314,6 +315,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunLimit": { fields: { "usage_kind": "usageKind" } },
     "RunList": { fields: { "runs": ["runs", { items: { type: "RunIndexRow" } }] } },
     "RunListParams": { fields: { "ended": ["ended", { type: "TimeRange" }], "started": ["started", { type: "TimeRange" }], "watch_runs": "watchRuns" } },
+    "RunMigrateParams": { fields: { "run_id": "runId" } },
     "RunMigrating": { fields: { "run_id": "runId" } },
     "RunOwner": { fields: { "attached": ["attached", { type: "PrivateEndpoint" }] } },
     "RunParams": { fields: { "run_id": "runId" } },
@@ -416,7 +418,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.discard": { type: "RunParams" },
     "run.finish": { type: "RunFinishParams" },
     "run.list": { type: "RunListParams" },
-    "run.migrate": { type: "RunCheckpointParams" },
+    "run.migrate": { type: "RunMigrateParams" },
     "run.new_page": { type: "NewPageParams" },
     "run.new_session": { type: "NewSessionParams" },
     "run.pause": { type: "RunParams" },

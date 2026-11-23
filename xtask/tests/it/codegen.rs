@@ -1242,6 +1242,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "    Loaded(u64),\n}",
     "operation `page.wait_for_ready`: its parameter `state` takes a deprecated variant that is no string"
 )]
+#[case::a_required_parameter_marked_catalog_only(
+    "    /// The URL to navigate to.\n",
+    "    /// The URL to navigate to.\n    #[schemars(extend(\"catalog_only\" = true))]\n",
+    "operation `page.goto`: its required parameter `url` is marked `catalog_only`"
+)]
 fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
     #[case] from: &str,
     #[case] to: &str,

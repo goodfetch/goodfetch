@@ -5772,6 +5772,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the Run's state it was written from, which a\ndestination that compares and sets holds it against (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "sha256": {
           "arrived_in": "0.1",
           "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
@@ -5792,7 +5799,8 @@
         "records",
         "last_number",
         "size",
-        "sha256"
+        "sha256",
+        "run_epoch"
       ],
       "type": "object"
     },
@@ -5882,7 +5890,7 @@
       ]
     },
     "ExportId": {
-      "description": "An Export of a Run, named by the engine when its file is whole:\n`<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase\nhexadecimal, so two Exports of the same bytes are one file.",
+      "description": "An Export of a Run, named by the engine when its file is whole:\n`<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's\nstate it was written from (ADR 0003) and the SHA-256 of its bytes in\nlowercase hexadecimal, so two Exports of the same bytes under one run\nepoch are one file.",
       "type": "string"
     },
     "ExportSaveAsParams": {
@@ -5915,6 +5923,13 @@
     "ExportSaved": {
       "description": "What `export.save_as` answers once the file is whole.",
       "properties": {
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch the Export was written under (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "sha256": {
           "arrived_in": "0.1",
           "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
@@ -5936,7 +5951,8 @@
       "required": [
         "size",
         "sha256",
-        "written"
+        "written",
+        "run_epoch"
       ],
       "type": "object"
     },
@@ -5962,6 +5978,13 @@
     "ExportStreamed": {
       "description": "What `export.stream` answers once it sent every byte.",
       "properties": {
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch the Export was written under (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "sha256": {
           "arrived_in": "0.1",
           "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
@@ -5977,7 +6000,8 @@
       },
       "required": [
         "size",
-        "sha256"
+        "sha256",
+        "run_epoch"
       ],
       "type": "object"
     },
@@ -13924,7 +13948,8 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "catalog_only": true,
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -14447,6 +14472,33 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    },
+    "RunMigrateParams": {
+      "additionalProperties": false,
+      "description": "What `run.migrate` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
       "type": "object"
     },
     "RunMigrating": {

@@ -394,7 +394,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
     let mut later = attached(&env);
     let saved_to = env.home().join("books.json");
     let saved = save_as(&mut later, &held["result"]["export_id"], &saved_to);
-    let exports = run_folder(&env, "killed").join("exports");
+    let exports = run_folder(&env, "killed").join("exports").join("1");
     let visible_whole: Vec<bool> = names_in(&exports)
         .into_iter()
         .filter(|name| !name.starts_with('.'))
@@ -419,6 +419,59 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
             200,
             true,
             &held["result"]["sha256"]
+        )
+    );
+}
+
+/// An Export carries the run epoch of the Run's state it was written from:
+/// a crawl resumed after its engine was killed writes under run epoch 2,
+/// which its answer, its ID and its kept file's folder carry, and which
+/// `export.save_as` and `export.stream` answer too, so a destination that
+/// compares and sets can refuse a fenced copy's Export (ADR 0003).
+///
+/// Covers: story:3-43, operation:run.export, operation:export.save_as, operation:export.stream
+#[test]
+fn an_export_carries_the_run_epoch_of_the_state_it_was_written_from() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut killed = site.engine(&env);
+    crawl((&mut killed, &site), "resumed", 2);
+    killed.kill();
+    let mut engine = site.engine(&env);
+    let resumed = engine.call(
+        "resume",
+        "run.resume",
+        &json!({ "run_id": "resumed" }),
+        &mut |_| None,
+    );
+    finish(&mut engine, "resumed", book);
+    let exported = export(&mut engine, "resumed", "jsonl");
+    let saved = save_as(
+        &mut engine,
+        &exported["result"]["export_id"],
+        &env.home().join("books.jsonl"),
+    );
+    let (_, sent) = streamed(&mut engine, &exported["result"]["export_id"]);
+    assert!(engine.finished());
+
+    let sha256 = exported["result"]["sha256"].as_str().unwrap().to_owned();
+    let exports = run_folder(&env, "resumed").join("exports");
+    assert_eq!(
+        (
+            &resumed["result"]["started_as"],
+            &exported["result"]["records"],
+            &exported["result"]["run_epoch"],
+            &exported["result"]["export_id"],
+            (&saved["result"]["run_epoch"], &sent["result"]["run_epoch"]),
+            (names_in(&exports), names_in(&exports.join("2"))),
+        ),
+        (
+            &json!("resumed"),
+            &json!(2),
+            &json!(2),
+            &json!(format!("resumed.export-2-{sha256}")),
+            (&json!(2), &json!(2)),
+            (vec!["2".to_owned()], vec![sha256]),
         )
     );
 }
@@ -479,7 +532,7 @@ fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown(
         &json!({ "run_id": "declared", "dataset": "pages", "format": "json" }),
         &mut |_| None,
     );
-    let named = format!("declared.export-{}", "0".repeat(64));
+    let named = format!("declared.export-1-{}", "0".repeat(64));
     let no_export = save_as(&mut engine, &json!(named), &env.home().join("x.json"));
     assert!(engine.finished());
 
@@ -589,10 +642,11 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
     let folder = run_folder(&env, "full");
     let filler = fill_filesystem(pid, env.home(), 512 * 1024);
     let failed = export(&mut engine, "full", "json");
-    let left = names_in(&inside_mount(pid, &folder.join("exports")));
+    let exports = folder.join("exports").join("1");
+    let left = names_in(&inside_mount(pid, &exports));
     free_filesystem(&filler);
     let written = export(&mut engine, "full", "json");
-    let kept = names_in(&inside_mount(pid, &folder.join("exports")));
+    let kept = names_in(&inside_mount(pid, &exports));
     assert!(engine.finished());
 
     let data = &failed["error"]["data"];

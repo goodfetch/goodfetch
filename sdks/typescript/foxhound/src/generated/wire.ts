@@ -28,7 +28,9 @@ export type FoxhoundWireType =
   | "EnqueueDocument"
   | "Export"
   | "ExportSaveAsParams"
+  | "ExportSaved"
   | "ExportStreamParams"
+  | "ExportStreamed"
   | "FailedRequests"
   | "HeldDomain"
   | "InFlightRequest"
@@ -81,9 +83,11 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetPageParams": { fields: { "run_id": "runId" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
     "EnqueueDocument": { fields: { "base_href": "baseHref" } },
-    "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber" } },
+    "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
+    "ExportSaved": { fields: { "run_epoch": "runEpoch" } },
     "ExportStreamParams": { fields: { "export_id": "exportId" } },
+    "ExportStreamed": { fields: { "run_epoch": "runEpoch" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
     "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
     "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
@@ -138,6 +142,8 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "crawl.serve": { type: "CrawlRunReport" },
     "crawl.start": { type: "RunStarted" },
     "dataset.page": { type: "DatasetPage" },
+    "export.save_as": { type: "ExportSaved" },
+    "export.stream": { type: "ExportStreamed" },
     "run.add_seeds": { type: "RunSeedsAdded" },
     "run.export": { type: "Export" },
     "run.failed_requests": { type: "FailedRequests" },

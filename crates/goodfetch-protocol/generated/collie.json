@@ -7099,7 +7099,8 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "catalog_only": true,
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -7528,6 +7529,33 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    },
+    "RunMigrateParams": {
+      "additionalProperties": false,
+      "description": "What `run.migrate` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
       "type": "object"
     },
     "RunMigrating": {
@@ -14281,7 +14309,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
       "events": [
         "run.checkpointing"
       ],
@@ -14368,7 +14396,7 @@
       "kind": "round_trip",
       "name": "run.migrate",
       "params": {
-        "$ref": "#/$defs/RunCheckpointParams"
+        "$ref": "#/$defs/RunMigrateParams"
       },
       "product": "collie",
       "reach": "all_surfaces",

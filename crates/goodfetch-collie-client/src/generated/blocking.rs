@@ -40,7 +40,7 @@ impl Run {
         crate::blocking::Call::new(self.inner.abort(), self.inner.host.connection())
     }
 
-    /// Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    /// Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -97,7 +97,7 @@ impl Run {
         &self,
     ) -> crate::blocking::Call<
         crate::Answer<::goodfetch_protocol::run::RunReport>,
-        ::goodfetch_protocol::checkpoint::RunCheckpointParams,
+        ::goodfetch_protocol::checkpoint::RunMigrateParams,
     > {
         crate::blocking::Call::new(self.inner.migrate(), self.inner.host.connection())
     }
@@ -843,9 +843,10 @@ impl Locator {
     }
 }
 
-impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunCheckpointParams> {
-    /// Where to write the Checkpoint, a path on the engine's machine; by
-    /// default where the engine keeps the Run's Checkpoints, its own folder.
+impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
+    /// Where to write the Checkpoint the Run is resumed from, a path on the
+    /// engine's machine; by default where the engine keeps the Run's
+    /// Checkpoints, its own folder.
     pub fn location(self, location: impl Into<String>) -> Self {
         self.edit(move |params| params.location = Some(location.into()))
     }

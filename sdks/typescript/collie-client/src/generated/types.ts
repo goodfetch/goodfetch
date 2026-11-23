@@ -6040,6 +6040,9 @@ export interface RunCheckpointParams {
   /**
    * Where to write the Checkpoint, a path on the engine's machine; by
    * default where the engine keeps the Run's Checkpoints, its own folder.
+   * The catalog's caller alone gives it, such as Goodfetch Cloud: an
+   * SDK's `checkpoint()` takes no path, which would break on a Daemon or
+   * Goodfetch Cloud (ADR 0102).
    */
   location?: string | null;
   /**
@@ -6272,6 +6275,24 @@ export interface TimeRange {
    * The point it ends before, excluded.
    */
   until?: PointInTime | null;
+}
+/**
+ * What `run.migrate` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunMigrateParams".
+ */
+export interface RunMigrateParams {
+  /**
+   * Where to write the Checkpoint the Run is resumed from, a path on the
+   * engine's machine; by default where the engine keeps the Run's
+   * Checkpoints, its own folder.
+   */
+  location?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
 }
 /**
  * What `run.migrating` carries.

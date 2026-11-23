@@ -568,8 +568,10 @@ class ExportId(RootModel[str]):
     root: str
     """
     An Export of a Run, named by the engine when its file is whole:
-    `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
-    hexadecimal, so two Exports of the same bytes are one file.
+    `<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's
+    state it was written from (ADR 0003) and the SHA-256 of its bytes in
+    lowercase hexadecimal, so two Exports of the same bytes under one run
+    epoch are one file.
     """
 
 
@@ -595,6 +597,8 @@ class ExportSaved(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch the Export was written under (ADR 0003)."""
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
@@ -623,6 +627,8 @@ class ExportStreamed(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch the Export was written under (ADR 0003)."""
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
@@ -2236,6 +2242,11 @@ class Export(BaseModel):
     """The number of the last Record it holds, 0 when it holds none."""
     records: Annotated[int, Field(ge=0)]
     """How many Records it holds."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """
+    The run epoch of the Run's state it was written from, which a
+    destination that compares and sets holds it against (ADR 0003).
+    """
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]

@@ -9,7 +9,8 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{RunOrigin, SESSION_SOURCE, SettingsLayer};
 use serde_json::{Map, Value};
@@ -206,4 +207,21 @@ pub fn check_session_source(
             _ => Ok(()),
         }
     })
+}
+
+/// `value`, given for `setting` by a nearer layer or scope, over `below`,
+/// the value beneath it: `value` whole, but for `secrets.placeholders`,
+/// which binds each placeholder on its own, nearest winning (ADR 0092),
+/// so a placeholder `value` leaves out keeps `below`'s binding.
+pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
+    match (below, value) {
+        (Value::Object(below), Value::Object(nearer))
+            if setting.name == SECRETS_PLACEHOLDERS.name =>
+        {
+            let mut bound = below.clone();
+            bound.extend(nearer.clone());
+            Value::Object(bound)
+        }
+        _ => value.clone(),
+    }
 }

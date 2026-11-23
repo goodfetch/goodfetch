@@ -17,7 +17,7 @@ use serde_json::{Map, Value};
 
 use super::error::SettingsError;
 use super::setting;
-use super::values::Values;
+use super::values::{Values, over};
 
 /// The settings a Client applies to its own transport, of
 /// `Authority::ConnectionAlone`, which the engine takes only from a Client
@@ -121,8 +121,9 @@ fn opener(scope: SettingScope) -> &'static str {
 /// The run layer of a Run started on a Connection: the Connection's own
 /// settings `connection`, beneath the Run's own `own`, key by key, each
 /// key written whole as one dotted key, so a value that is a table
-/// replaces the Connection's whole. `own` as given when the Connection
-/// set none.
+/// replaces the Connection's whole, but for `secrets.placeholders`, whose
+/// bindings the Run's take over the Connection's placeholder by
+/// placeholder (ADR 0092). `own` as given when the Connection set none.
 ///
 /// # Errors
 ///
@@ -137,10 +138,17 @@ pub fn beneath_connection(
     }
     let connection = Values::read(SettingsLayer::Run, connection, engine)?;
     let own = Values::read(SettingsLayer::Run, own, engine)?;
-    Ok(connection
+    let mut layer: Map<String, Value> = connection
         .applied
         .into_iter()
-        .chain(own.applied)
         .map(|(key, value)| (key.to_owned(), value))
-        .collect())
+        .collect();
+    for (key, value) in own.applied {
+        let value = match (layer.get(key), setting(key)) {
+            (Some(below), Some(setting)) => over(setting, below, &value),
+            _ => value,
+        };
+        layer.insert(key.to_owned(), value);
+    }
+    Ok(layer)
 }

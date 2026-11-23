@@ -13,6 +13,11 @@ count = 1
 how = "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, as the program gave them"
 
 [[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/hooks.rs"
+count = 1
+how = "holds no value: the Hooks in code a crawl's latest start declared, in order, as the program gave them (names, stages and scopes, never their code)"
+
+[[writer]]
 path = "crates/foxhound/goodfetch-crawl/src/labels.rs"
 count = 2
 how = "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments"

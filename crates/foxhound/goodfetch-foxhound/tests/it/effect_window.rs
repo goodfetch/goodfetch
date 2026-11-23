@@ -2,7 +2,9 @@
 //! Proving ground on the `http` tier: a body a handler declares through
 //! its attempt turns `sent` before the attempt's first fetch hop goes out,
 //! a navigation of its served page, and a body another attempt declared
-//! stays `open`.
+//! stays `open`. The Run's end then cuts short the bodies no `effect.close`
+//! judged (ADR 0106): the sent one `uncertain`, the other dropped as never
+//! sent.
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
@@ -43,7 +45,8 @@ fn journal(env: &TestEnv, run_id: &str) -> Vec<(String, String, Option<String>)>
 
 /// The first attempt declares `other` and answers; the second declares
 /// `order`, then navigates its served page, whose fetch hop marks `order`
-/// sent and leaves `other` open.
+/// sent and leaves `other` open: at the Run's end, `order` is left
+/// `uncertain` with its first command, and `other`, never sent, is dropped.
 ///
 /// Covers: operation:effect.open, operation:page.goto
 #[test]
@@ -78,13 +81,10 @@ fn an_attempts_fetch_hop_marks_its_own_body_sent_and_not_another_attempts() {
     );
     assert_eq!(
         journal(&env, "window"),
-        vec![
-            ("other".to_owned(), "open".to_owned(), None),
-            (
-                "order".to_owned(),
-                "sent".to_owned(),
-                Some("page.goto".to_owned())
-            ),
-        ]
+        vec![(
+            "order".to_owned(),
+            "uncertain".to_owned(),
+            Some("page.goto".to_owned())
+        )]
     );
 }

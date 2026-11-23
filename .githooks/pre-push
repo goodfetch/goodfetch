@@ -25,7 +25,13 @@
 # such a commit is only mended by rewriting it, after which a gate that ran
 # on it reuses nothing (ADR 0135). Each records the commits it judged green
 # in the gate's records, so neither this hook nor `just merge` judges one of
-# them again; a reworded commit is another commit, and is judged.
+# them again; a reworded commit is another commit, and is judged. A head a
+# green run holds also takes the floor guard (`just floor-guard`), which
+# reads the commits' `Quality-change:` trailers, and the scan for secrets
+# (`just commit-leaks`), which reads each commit's patch, against the base it
+# was held against, as a held `just quick` runs them: a reword, or a history
+# that adds a secret and removes it again, keeps the tree (issue 3497). A
+# head that is due takes both from `just quick`.
 #
 # A push of a branch the hosted tier serves, a batch's or a spec's (`batch/…`,
 # `spec/<n>`) with an open pull request to `main` while the pull-request
@@ -51,6 +57,8 @@ own=${GOODFETCH_QUICK_BASE:-$(branch_base)}
 base=""
 due=0
 pushed=""
+# Each held head and the base it was held against, a pair a line.
+held=""
 # Whether the hosted tier serves the remote ref `$1`, as GitHub says it.
 served() {
   local branch=${1#refs/heads/} open state
@@ -84,6 +92,7 @@ while read -r _local_ref local_oid remote_ref remote_oid; do
   fi
   # The ref list is this loop's input, which no command under it reads.
   if just _quick-held "$local_oid" "${ref_base:-$own}" changed < /dev/null; then
+    held="$held$local_oid ${ref_base:-$own}"$'\n'
     continue
   fi
   due=1
@@ -91,15 +100,20 @@ while read -r _local_ref local_oid remote_ref remote_oid; do
     base=$ref_base
   fi
 done
-# Both checks run on every pushed head even after one failed, so one push
-# names every commit to rewrite. The empty base is the recipes' own.
+# Every check runs on every head it judges even after one failed, so one
+# push names every commit to rewrite. The empty base is the recipes' own.
 commits=0
 for oid in $pushed; do
   just dco "" "$oid" || commits=1
   just commit-messages "" "$oid" || commits=1
 done
+while read -r oid held_base; do
+  [[ -n $oid ]] || continue
+  just floor-guard "$held_base" "$oid" < /dev/null || commits=1
+  just commit-leaks "$held_base" "$oid" < /dev/null || commits=1
+done <<< "$held"
 if ((commits)); then
-  echo "error: pre-push refuses this push: a commit it adds is not signed off, or its subject is no Conventional Commit (above, CONTRIBUTING.md). Rewrite it and push again; \`just quick\` did not run." >&2
+  echo "error: pre-push refuses this push: a commit it adds is not signed off, its subject is no Conventional Commit, or, on a tree a green \`just quick\` holds, the floor guard or the scan for secrets is red (above, CONTRIBUTING.md, TESTING.md's Quality register). Rewrite it and push again; \`just quick\` did not run." >&2
   exit 1
 fi
 ((due)) || exit 0

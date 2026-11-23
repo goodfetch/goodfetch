@@ -688,11 +688,14 @@ fn two_commits(workspace: &Workspace) -> (String, String) {
     (first, head)
 }
 
-/// A tree `just quick` passed on says nothing of the messages of the commits
-/// that hold it: a reworded commit keeps its tree. So the hook judges the
-/// pushed commits' sign-offs and subjects on every push, and a head a green
-/// run holds, against the base `just quick` would read it against, spares
-/// the push `just quick` alone.
+/// A tree `just quick` passed on says nothing of the commits that hold it: a
+/// reworded commit keeps its tree, and so does a history that adds a secret
+/// and removes it again. So the hook judges the pushed commits' sign-offs and
+/// subjects on every push, and on a head a green run holds, against the base
+/// `just quick` would read it against, it also runs the floor guard, which
+/// reads the commits' `Quality-change:` trailers, and the scan for secrets,
+/// as a held `just quick` would: the hold spares the push the lints and the
+/// suite alone (issue 3497).
 #[test]
 fn a_push_of_a_head_a_green_run_holds_checks_its_commits_and_runs_no_quick() {
     let workspace = Workspace::from_fixture("empty");
@@ -707,11 +710,48 @@ fn a_push_of_a_head_a_green_run_holds_checks_its_commits_and_runs_no_quick() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.calls, commit_checks(&head));
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(held_commit_checks(&first, &head));
+    assert_eq!(run.calls, calls);
     assert_eq!(
         quick_runs(&stand_in),
         [format!("_quick-held {head} {first} changed")]
     );
+}
+
+/// The hook's calls of the commit checks a held `just quick` runs besides the
+/// sign-offs and subjects, for `head` against `base`.
+fn held_commit_checks(base: &str, head: &str) -> [String; 2] {
+    [
+        format!("floor-guard {base} {head} base=unset"),
+        format!("commit-leaks {base} {head} base=unset"),
+    ]
+}
+
+/// A red floor guard or scan for secrets on a held head refuses the push as
+/// a red sign-off does, and every commit check has run, so one push names
+/// every commit to rewrite.
+#[rstest]
+#[case::a_sign_off("dco")]
+#[case::the_floor_guard("floor-guard")]
+#[case::a_secret("commit-leaks")]
+fn a_held_push_whose_commits_fail_a_check_is_refused(#[case] failing: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in_failing(&workspace, Some(failing));
+    let (first, head) = two_commits(&workspace);
+    std::fs::write(stand_in.join("held"), "").unwrap();
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(held_commit_checks(&first, &head));
+    assert_eq!(run.calls, calls);
+    assert!(run.stderr.contains("error: "), "{}", run.stderr);
 }
 
 /// A commit that is not signed off, or whose subject is no Conventional

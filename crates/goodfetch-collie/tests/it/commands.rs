@@ -828,9 +828,9 @@ fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
 ///
 /// Covers: error:run_target_unbuilt
 #[rstest]
-/// Covers: command:recipe.start
+/// Covers: command:recipe.start, operation:recipe.start
 #[case::recipe(&["recipe", "start", "--recipe", "shop-prices"], "recipe.start", "recipe")]
-/// Covers: command:catalog-run.start
+/// Covers: command:catalog-run.start, operation:catalog_run.start
 #[case::plan_replay(
     &["catalog-run", "start", "--target", r#"{"kind":"plan_replay","plan":"plans/checkout.json"}"#],
     "catalog_run.start",

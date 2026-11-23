@@ -22,7 +22,8 @@ use serde_json::json;
 use url::Url;
 
 use std::io::{Read as _, Write as _};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::time::Duration;
 
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_fetch_tier::FetchFailure;
@@ -150,7 +151,12 @@ fn treat(mut stream: TcpStream, raw: Raw) {
         Raw::AnswersPlainText => {
             let _ = stream.peek(&mut [0; 1]);
             let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n");
-            let _ = stream.read(&mut [0; 1024]);
+            // Reads the hello to the client's close: closed with its bytes
+            // unread, the socket would reset, and on Windows a reset drops
+            // the answer the client has not read yet (issue 3535).
+            let _ = stream.shutdown(Shutdown::Write);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+            let _ = std::io::copy(&mut stream, &mut std::io::sink());
         }
     }
 }

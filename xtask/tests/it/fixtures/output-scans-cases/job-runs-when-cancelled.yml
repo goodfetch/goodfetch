@@ -1,0 +1,23 @@
+# The job runs under `always()`, so it still starts after the run is
+# cancelled and holds the workflow's concurrency group.
+name: extra
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: "Test: just test"
+        run: just test
+
+  record:
+    needs: test
+    if: always() && needs.test.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record
+        run: just record

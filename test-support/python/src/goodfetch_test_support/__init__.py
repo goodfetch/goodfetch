@@ -42,7 +42,6 @@ from goodfetch_test_support.journey import (
     JourneyOther,
     JourneyRun,
     JourneyUnreadable,
-    OracleRefused,
     SurfaceUnlisted,
     VariantNotProved,
     journey,
@@ -67,6 +66,7 @@ from goodfetch_test_support.play_script import (
     play_script,
 )
 from goodfetch_test_support.proving_ground import (
+    OracleRefused,
     ProvingGround,
     ProvingGroundFixtures,
     ProvingGroundRoutes,

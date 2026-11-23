@@ -187,6 +187,48 @@ describe("a page's responses on an Attached engine", () => {
     },
   );
 
+  // A program's own `goto` is outside Politeness (ADR 0086): the redirect's
+  // `Retry-After` asks for an hour, far past `timeout.navigation`, so its
+  // target answering is the proof, with no measured time (ADR 0118). A file
+  // the browser downloads answers no response and the page keeps its
+  // document, which a reload loads again (ADR 0119).
+  test(
+    "follows a redirect at once past its Retry-After and answers null for a file",
+    {
+      tags: [
+        "client_case/goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",
+        "attached",
+        "story:11-84",
+        "operation:page.goto",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const redirect = provingGroundUrl(provingGround, FETCH_EDGE, "/retry-after/302/seconds/long");
+      const target = provingGroundUrl(provingGround, FETCH_EDGE, "/target");
+      const document = await taskStartUrl(provingGround, "catalog/2");
+      const file = new URL("/files/report.pdf", await taskStartUrl(provingGround, "files/2")).href;
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const followed = await page.goto(redirect);
+      await page.goto(document);
+      const downloaded = await page.goto(file);
+      const reloaded = await page.reload();
+
+      await clientCase.check("a 302 whose Retry-After asks for an hour is followed at once", () =>
+        expect([followed?.status(), followed?.url()]).toEqual([200, target]),
+      );
+      await clientCase.check("a goto to a file the browser downloads answers null", () =>
+        expect(downloaded).toBeNull(),
+      );
+      await clientCase.check("the page keeps its document, which a reload loads again", () =>
+        expect([reloaded?.status(), reloaded?.url()]).toEqual([200, document]),
+      );
+    },
+  );
+
   test(
     "decodes text with a legacy charset and JSON past a BOM, and names the URL of no JSON",
     {

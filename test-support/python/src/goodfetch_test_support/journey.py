@@ -11,9 +11,6 @@ and check in the file's order and wording, and writes the document through
 Features are its Journey's `covers`.
 """
 
-import http
-import http.client
-import json
 import os
 import re
 import subprocess
@@ -48,7 +45,7 @@ from goodfetch_test_support.generated.result_document import (
 from goodfetch_test_support.generated.result_document import (
     Product as DocumentProduct,
 )
-from goodfetch_test_support.proving_ground import ProvingGround, proving_ground_routes
+from goodfetch_test_support.proving_ground import ProvingGround
 from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError, validate
 
@@ -82,10 +79,6 @@ class SurfaceUnlisted(Exception):
 
 class EngineVersionUnreported(Exception):
     """The executable's `--version` does not report its Product and version."""
-
-
-class OracleRefused(Exception):
-    """The Proving ground's oracle gave no answer to a submission."""
 
 
 class VariantNotProved(Exception):
@@ -176,34 +169,6 @@ def _reported_version(test_env: TestEnv, engine: Path) -> Executable:
     return Executable(product=DocumentProduct(found[1]), version=found[2])
 
 
-def _judge(
-    proving_ground: ProvingGround, submission: Mapping[str, object]
-) -> OracleAnswer:
-    """The oracle's answer to `submission`, checked against its schema first."""
-    validate(submission, "proving-ground-oracle-submission.schema.json")
-    host, port = proving_ground.address.rsplit(":", 1)
-    connection = http.client.HTTPConnection(host, int(port), timeout=30)
-    try:
-        connection.request(
-            "POST",
-            proving_ground_routes().oracle,
-            json.dumps(submission),
-            {"Content-Type": "application/json"},
-        )
-        response = connection.getresponse()
-        body = response.read().decode("utf-8", errors="replace")
-    finally:
-        connection.close()
-    if response.status != http.HTTPStatus.OK:
-        message = f"the Proving ground's oracle answered {response.status}: {body}"
-        raise OracleRefused(message)
-    answer: object = json.loads(body)
-    if not isinstance(answer, dict) or not {"outcome", "task"} <= answer.keys():
-        message = "the Proving ground's oracle answered no outcome"
-        raise OracleRefused(message)
-    return OracleAnswer.model_validate(answer)
-
-
 def judge_task(
     proving_ground: ProvingGround, task: str, records: Sequence[object]
 ) -> OracleAnswer:
@@ -214,8 +179,8 @@ def judge_task(
     Raises:
         OracleRefused: The oracle gave no answer.
     """
-    return _judge(
-        proving_ground, {"task": task, "status": "success", "records": list(records)}
+    return proving_ground.judge(
+        {"task": task, "status": "success", "records": list(records)}
     )
 
 
@@ -462,7 +427,7 @@ class JourneyRun:
         self._running += 1
         try:
             answer = await anyio.to_thread.run_sync(
-                _judge, self.proving_ground, {**submission, "task": task}
+                self.proving_ground.judge, {**submission, "task": task}
             )
         except Exception as error:  # recorded as the check's failure.
             self._failures.append(

@@ -165,6 +165,7 @@ details! {
     crate::page::route::PageHandlerFailedDetails => ErrorCode::PAGE_HANDLER_FAILED,
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
     crate::response_limits::ResponseLimitExceededDetails => ErrorCode::RESPONSE_LIMIT_EXCEEDED,
+    crate::run::DetachUnsupportedDetails => ErrorCode::DETACH_UNSUPPORTED,
     crate::run::ResourcesExhaustedDetails => ErrorCode::RESOURCES_EXHAUSTED,
     crate::run::RunConflictDetails => ErrorCode::RUN_CONFLICT,
     crate::run::RunIdInvalidDetails => ErrorCode::RUN_ID_INVALID,

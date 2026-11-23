@@ -1377,6 +1377,17 @@
       ]
     },
     {
+      "id": "error:detach_unsupported",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:dialog_already_handled",
       "kind": "error",
       "area": 5,
@@ -18596,6 +18607,28 @@
     },
     {
       "id": "story:3-172",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-173",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-174",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

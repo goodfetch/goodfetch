@@ -51,6 +51,7 @@ mod run_key;
 mod run_limits;
 mod settings;
 mod settings_edits;
+mod starts;
 mod storage;
 mod takeover;
 mod trace;

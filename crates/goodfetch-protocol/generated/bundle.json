@@ -3517,6 +3517,11 @@
           },
           "type": "array"
         },
+        "detached": {
+          "arrived_in": "0.1",
+          "description": "Whether the Run outlives the Connection that started it (ADR 0102),\nas a Recipe's run does: only a code-free crawl with no Hook, started\non a Daemon, detaches, and any other such start fails with\n`detach_unsupported`.",
+          "type": "boolean"
+        },
         "extraction": {
           "anyOf": [
             {

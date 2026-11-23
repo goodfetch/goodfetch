@@ -1063,6 +1063,7 @@ pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .unwrap();

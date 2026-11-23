@@ -1359,3 +1359,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 173
+title = "As a user, I want a start from any Client that carries a Schedule's reserved tag, `goodfetch.schedule`, `occurrence`, `trigger`, `creator` or `role`, refused with `invalid_params` naming the tag before any Run begins, so that the Runs list never shows a Schedule that did not start the Run (ADR 0036)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 174
+title = "As a developer, I want a `detached` start on an Attached or linked engine, or of a Run the program serves by a handler or a Hook, refused with `detach_unsupported` whose `fix` names `engine: daemon` or the key that gives the Run its handler, and a code-free crawl started detached on the Daemon to go on after my Connection ends, so that work meant to outlive my program never dies with it, nor waits on a program gone (ADRs 0078 and 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

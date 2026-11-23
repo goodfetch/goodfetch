@@ -28,7 +28,11 @@
 //! Records is refused with `dataset_unknown`, and one that changes its key
 //! with `dataset_key_invalid` (ADR 0103); its declarations, its Labels and
 //! a code-free crawl's extraction among them, are recorded when the Run
-//! resumes.
+//! resumes. A tag only the Daemon's scheduler sets is refused with
+//! `invalid_params`, and a `detached` start of a crawl the program serves,
+//! by its handler or a Hook, or on an engine that is no Daemon, with
+//! `detach_unsupported`, before the Run begins; a code-free crawl started
+//! detached on a Daemon outlives its Connection.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -37,8 +41,8 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    StartLimits, checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error,
-    start_error,
+    InProgram, StartLimits, checkpoint_interval, client_tags, detachable, resume_run, run_error,
+    run_id, run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
@@ -199,6 +203,22 @@ async fn serve(
         .map_err(|error| run_error(error, &context))
 }
 
+/// What gives the crawl `params` start a handler in the program, if
+/// anything does: its program's crawl handler when it has no `extraction`,
+/// else its Hooks in code (ADRs 0102 and 0104).
+fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
+    if params.extraction.is_none() {
+        return Some(InProgram {
+            key: "extraction",
+            fix: "Give the crawl an `extraction`, so the engine handles each request itself, or start it without `detached`.".to_owned(),
+        });
+    }
+    (!params.hooks.is_empty()).then(|| InProgram {
+        key: "hooks",
+        fix: "Start the crawl without its Hooks in code, or without `detached`.".to_owned(),
+    })
+}
+
 /// A start's inputs: its `seeds`.
 fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
     BTreeMap::from([(
@@ -216,6 +236,10 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    client_tags(&params.tags)?;
+    if params.detached {
+        detachable(in_program(&params), &context)?;
+    }
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();
@@ -271,6 +295,7 @@ async fn start(
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
+            detached: params.detached,
         })
         .await
         .map_err(start_error)?;

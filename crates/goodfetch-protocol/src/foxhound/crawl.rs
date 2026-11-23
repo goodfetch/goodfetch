@@ -316,6 +316,13 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub limits: Vec<RunLimit>,
+    /// Whether the Run outlives the Connection that started it (ADR 0102),
+    /// as a Recipe's run does: only a code-free crawl with no Hook, started
+    /// on a Daemon, detaches, and any other such start fails with
+    /// `detach_unsupported`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub detached: bool,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).

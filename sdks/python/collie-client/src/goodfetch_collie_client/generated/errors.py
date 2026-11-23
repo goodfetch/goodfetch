@@ -277,6 +277,14 @@ class DaemonUnreachableError(UnavailableError):
         super().__init__(message, code="daemon_unreachable", group="unavailable", retryable=True, **fields)
 
 
+class DetachUnsupportedError(ProgramError):
+    """A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="detach_unsupported", group="program", retryable=False, **fields)
+
+
 class DialogAlreadyHandledError(ProgramError):
     """The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing."""
 
@@ -990,6 +998,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "connection_overloaded": ConnectionOverloadedError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
+    "detach_unsupported": DetachUnsupportedError,
     "dialog_already_handled": DialogAlreadyHandledError,
     "edge_handlers_unsupported": EdgeHandlersUnsupportedError,
     "effect_key_invalid": EffectKeyInvalidError,

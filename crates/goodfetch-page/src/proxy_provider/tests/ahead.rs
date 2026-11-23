@@ -107,6 +107,7 @@ async fn untaken_allowance(params: Value, context: CallContext) -> Result<Value,
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .map_err(goodfetch_engine::run::start_error)?;

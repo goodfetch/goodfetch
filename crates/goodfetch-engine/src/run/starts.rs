@@ -1,12 +1,13 @@
 //! `recipe.start` and `catalog_run.start`, the starts of Runs with no
 //! handler in the program (ADRs 0036 and 0102). This engine runs neither a
 //! Recipe nor a code-free target yet, so each refuses with
-//! `run_target_unbuilt` once its params read, and starts no Run. The
-//! tickets that build those runtimes remove the refusal and its Error code.
+//! `run_target_unbuilt` once its params read and its tags and `detached`
+//! are checked, and starts no Run. The tickets that build those runtimes
+//! remove the refusal and its Error code.
 
 use goodfetch_protocol::run::{
     CATALOG_RUN_START, CatalogRunStartParams, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams,
-    RunStarted, RunTargetUnbuiltDetails,
+    RunStarted, RunTargetUnbuiltDetails, Tags,
 };
 
 use crate::call_error::CallError;
@@ -21,17 +22,30 @@ pub(super) fn handlers() -> [Handler; 2] {
 }
 
 async fn recipe_start(
-    _params: RecipeStartParams,
-    _context: CallContext,
+    params: RecipeStartParams,
+    context: CallContext,
 ) -> Result<RunStarted, CallError> {
+    checked(&params.tags, params.detached, &context)?;
     Err(unbuilt(RECIPE_START.name, "recipe"))
 }
 
 async fn catalog_run_start(
     params: CatalogRunStartParams,
-    _context: CallContext,
+    context: CallContext,
 ) -> Result<RunStarted, CallError> {
+    checked(&params.tags, params.detached, &context)?;
     Err(unbuilt(CATALOG_RUN_START.name, params.target.kind()))
+}
+
+/// Checks what every start from a Client is checked for: its tags, and,
+/// when `detached`, that its Run, with no handler in the program, may
+/// outlive the Connection.
+fn checked(tags: &Tags, detached: bool, context: &CallContext) -> Result<(), CallError> {
+    super::client_tags(tags)?;
+    if detached {
+        super::detachable(None, context)?;
+    }
+    Ok(())
 }
 
 /// `run_target_unbuilt`: `operation` names a `target` this engine does not

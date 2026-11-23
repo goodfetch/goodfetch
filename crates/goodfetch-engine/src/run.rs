@@ -28,9 +28,11 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
+use goodfetch_protocol::run::{RESERVED_TAG_PREFIX, Tags};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
@@ -78,7 +80,10 @@ use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
+mod detached;
 mod starts;
+
+pub use detached::{InProgram, detachable};
 
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
@@ -184,6 +189,27 @@ pub fn run_id(run_id: Option<&str>) -> Result<Option<RunId>, CallError> {
             })
         })
         .transpose()
+}
+
+/// Checks the tags a start from a Client gives its Run: the reserved tags
+/// of a Schedule's run, [`goodfetch_protocol::run::SCHEDULER_TAGS`], are
+/// the Daemon's scheduler's alone (ADR 0036), which starts its Runs
+/// without a Client.
+///
+/// # Errors
+///
+/// `invalid_params` naming the first such tag.
+pub fn client_tags(tags: &Tags) -> Result<(), CallError> {
+    match tags.scheduler_reserved() {
+        Some(tag) => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "The tag `{tag}` is reserved for the Daemon's scheduler; tag the Run without the prefix `{RESERVED_TAG_PREFIX}`.",
+                tag = tag.as_str()
+            ),
+        )),
+        None => Ok(()),
+    }
 }
 
 /// The Limits a start gives its Run (ADRs 0041, 0080 and 0102), which every
@@ -962,6 +988,7 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    client_tags(&params.tags)?;
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
         .engine()
@@ -994,6 +1021,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
+            detached: false,
         })
         .await
         .map_err(start_error)?;

@@ -15,7 +15,7 @@ Decided in [ADR 0066](../adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-s
 - **Never change a frozen set** (`compat/<format>/<major>.<minor>/`). If the reading of an old file must change, change its snapshot in a reviewed pull request whose changelog entry says so.
   _Why:_ a frozen file is what a released version really wrote.
 - **Change a format's schema only with a version bump** once a frozen set exists. `xtask compat check` fails otherwise.
-- **Bump a format's version only on `main`.** A patch never changes one: `xtask release` compares a patch's `head/` versions and schemas with the `x.y.0` tag's.
+- **Bump a format's version only on `main`.** A patch never changes one: `xtask release prepare` and `xtask release check` compare a patch's `head/` versions and schemas with the `x.y.0` tag's.
 - **Freeze from the release tag.** `xtask compat freeze --tag <tag>` copies the tag's `head/`, never `main`'s, which may hold unreleased versions. The release's entry in `compat/releases.toml` records its format versions, and `xtask compat check` requires a frozen set for each.
 - **Fixtures cover the whole schema:** every property in a JSON document and a non-null value in every column. They hold synthetic data and Secret references only.
 - **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.

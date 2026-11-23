@@ -11,8 +11,9 @@
 //! happen, or if a feature off did not take its work away.
 //!
 //! Its Usage charge scenario (`support/charge_counts.rs`) charges requests,
-//! and proxy bytes as a provider Session's relay reserves them ahead, under
-//! a Limit on each in every cell but `no_limit`, whose run no Limit holds and
+//! proxy bytes as a provider Session's relay reserves them ahead, and paid
+//! calls, each a paid solve's worst case reserved and then settled, under a
+//! Limit on each in every cell but `no_limit`, whose run no Limit holds and
 //! which takes the Slice's work away. What no wrapper sees of a charge comes from
 //! outside the process: `E3.prepares` is Callgrind's call count of
 //! `sqlite3_prepare_v3` inside the charges that took a Slice, run again under

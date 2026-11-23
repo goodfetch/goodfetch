@@ -40,7 +40,7 @@
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
 
-use schemars::generate::SchemaSettings;
+use schemars::generate::{SchemaGenerator, SchemaSettings};
 use serde_json::{Value, json};
 
 use goodfetch_protocol::browser_cache::{BrowserCleaned, BrowserInstalled};
@@ -125,25 +125,7 @@ pub(super) fn emit() -> Emitted {
         "record": { "params": generator.subschema_for::<RecordRead>() },
         "meta": generator.subschema_for::<RequestMeta>(),
     });
-    let outputs = json!({
-        "browser.clean": generator.subschema_for::<BrowserCleaned>(),
-        "browser.install": generator.subschema_for::<BrowserInstalled>(),
-        "config.explain": generator.subschema_for::<SettingsExplanation>(),
-        "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
-        "daemon.http-listener-token": generator.subschema_for::<HttpListenerToken>(),
-        "daemon.install": generator.subschema_for::<DaemonStatus>(),
-        "daemon.restart": generator.subschema_for::<DaemonStatus>(),
-        "daemon.rotate-token": generator.subschema_for::<TokenRotated>(),
-        "daemon.run": generator.subschema_for::<DaemonStatus>(),
-        "daemon.start": generator.subschema_for::<DaemonStatus>(),
-        "daemon.status": generator.subschema_for::<DaemonStatus>(),
-        "daemon.stop": generator.subschema_for::<DaemonStatus>(),
-        "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
-        "doctor": generator.subschema_for::<DoctorReport>(),
-        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
-        "skill.install": generator.subschema_for::<SkillsInstalled>(),
-        "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
-    });
+    let outputs = outputs(&mut generator);
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
@@ -188,6 +170,29 @@ pub(super) fn emit() -> Emitted {
         }),
         catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
+}
+
+/// The schema of each command's `--json` output, by the command's name.
+fn outputs(generator: &mut SchemaGenerator) -> Value {
+    json!({
+        "browser.clean": generator.subschema_for::<BrowserCleaned>(),
+        "browser.install": generator.subschema_for::<BrowserInstalled>(),
+        "config.explain": generator.subschema_for::<SettingsExplanation>(),
+        "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
+        "daemon.http-listener-token": generator.subschema_for::<HttpListenerToken>(),
+        "daemon.install": generator.subschema_for::<DaemonStatus>(),
+        "daemon.restart": generator.subschema_for::<DaemonStatus>(),
+        "daemon.rotate-token": generator.subschema_for::<TokenRotated>(),
+        "daemon.run": generator.subschema_for::<DaemonStatus>(),
+        "daemon.start": generator.subschema_for::<DaemonStatus>(),
+        "daemon.status": generator.subschema_for::<DaemonStatus>(),
+        "daemon.stop": generator.subschema_for::<DaemonStatus>(),
+        "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
+        "doctor": generator.subschema_for::<DoctorReport>(),
+        "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
+        "skill.install": generator.subschema_for::<SkillsInstalled>(),
+        "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
+    })
 }
 
 /// Adds `_meta`, the request's Trace context and raw mark, to the params type `params`

@@ -152,3 +152,33 @@ fn the_mutual_tls_host_serves_only_the_client_certificate_it_hands_out() {
         serde_json::json!(["client-certificate.certificates.test"])
     );
 }
+
+/// The mutual-TLS host's refusal reaches a client that sent its request
+/// with its certificate, before the server read either, as the alert and
+/// then an orderly close. A socket closed with bytes unread resets its
+/// connection instead, and on Windows a reset drops what the client had
+/// received and not yet read, the alert among it (issue 3535).
+/// Covers: story:2-43
+#[test]
+fn a_refused_handshake_ends_with_its_alert_then_an_orderly_close() {
+    let proving_ground = ProvingGround::start(SEED);
+    // Past what the server's TLS reads at once while it handshakes.
+    let request = vec![b'x'; 32 * 1024];
+
+    let ended = clients::refused_tls(
+        proving_ground.address(),
+        "client-certificate.certificates.test",
+        clients::trusting(&proving_ground.certificate_authority(), &["http/1.1"]),
+        &request,
+    );
+
+    assert_eq!(
+        ended,
+        (
+            Ok(rustls::Error::AlertReceived(
+                rustls::AlertDescription::CertificateRequired
+            )),
+            Ok(0)
+        )
+    );
+}

@@ -42,8 +42,9 @@ BUILD = {
 }
 """The build every refused page needs."""
 
-PINNED_BY = {"product": "collie", "product_version": "0.0.0"}
-"""The Product version that pins it."""
+PINNED_BY = [{"kind": "product", "name": "collie", "version": "0.0.0"}]
+"""What pins it: the Product version alone, in a list that also names the
+Plugins using a Plugin runtime (ADR 0115)."""
 
 CACHE = "/srv/goodfetch/browsers"
 """The Browser cache the engine reads."""

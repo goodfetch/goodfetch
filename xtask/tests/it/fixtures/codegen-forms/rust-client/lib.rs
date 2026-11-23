@@ -26,6 +26,15 @@ fn reads(run: &generated::handles::Run, blocking: &generated::blocking::Run) {
     let _: bool = blocking.is_resumed();
 }
 
+/// What a program writes against a page's Session (ADR 0078): it answers
+/// at once, without a call, the Session every answer that opens the page
+/// names, by a method of the async handle and of its blocking twin.
+#[expect(dead_code, reason = "rustc checks the Session's type; nothing runs it")]
+fn sessions(page: &generated::handles::Page, blocking: &generated::blocking::Page) {
+    let _: generated::handles::Session = page.session();
+    let _: generated::blocking::Session = blocking.session();
+}
+
 mod markers {
     /// ADR 0030's run-time warning of a deprecated or Experimental entry.
     pub(crate) fn warn(
@@ -122,6 +131,29 @@ impl<T, P> Query<T, P> {
 pub(crate) mod host {
     use super::{Call, Connection, DeserializeOwned, PhantomData, Query, RawCall, Serialize};
 
+    /// The handles a handle keeps of the answers that name them, each
+    /// built by the first.
+    #[derive(Debug)]
+    pub(crate) struct Kept<Id, T>(PhantomData<fn() -> (Id, T)>);
+
+    impl<Id, T> Clone for Kept<Id, T> {
+        fn clone(&self) -> Self {
+            Self(PhantomData)
+        }
+    }
+
+    impl<Id, T> Default for Kept<Id, T> {
+        fn default() -> Self {
+            Self(PhantomData)
+        }
+    }
+
+    impl<Id: PartialEq + Clone, T: Clone> Kept<Id, T> {
+        pub(crate) fn share(&self, id: Id, build: impl FnOnce(Id) -> T) -> T {
+            build(id)
+        }
+    }
+
     /// What a handle reaches its engine through.
     #[derive(Clone, Debug)]
     pub(crate) struct Host<Id> {
@@ -139,6 +171,13 @@ pub(crate) mod host {
         }
 
         pub(crate) fn child<C>(&self, id: C) -> Host<C> {
+            Host {
+                connection: self.connection.clone(),
+                id,
+            }
+        }
+
+        pub(crate) fn reached<C>(&self, id: C) -> Host<C> {
             Host {
                 connection: self.connection.clone(),
                 id,

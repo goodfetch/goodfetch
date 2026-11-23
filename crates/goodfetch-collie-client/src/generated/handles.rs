@@ -7,6 +7,7 @@
 pub struct Run {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::run::RunId>,
     pub(crate) opened: ::std::sync::Arc<::goodfetch_protocol::run::RunStarted>,
+    pub(crate) sessions: crate::host::Kept<::goodfetch_protocol::page::SessionId, Session>,
 }
 
 impl Run {
@@ -152,6 +153,7 @@ impl Run {
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::page::NewPageParams> {
         crate::markers::warn("run.new_page", true, None);
         let host = self.host.clone();
+        let sessions = self.sessions.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
             ::goodfetch_protocol::page::NewPageParams,
@@ -162,8 +164,14 @@ impl Run {
                 settings: <::serde_json::Map<String, ::serde_json::Value>>::default(),
             },
         );
-        call.map(move |opened| Page {
-            host: host.child(opened.page_id),
+        call.map(move |opened| {
+            let session = sessions.share(opened.session_id, |id| Session {
+                host: host.reached(id),
+            });
+            Page {
+                host: session.host.child(opened.page_id),
+                session,
+            }
         })
     }
 
@@ -370,7 +378,7 @@ impl Session {
         &self,
     ) -> crate::Call<Page, ::goodfetch_protocol::page::session::NewSessionPageParams> {
         crate::markers::warn("session.new_page", true, None);
-        let host = self.host.clone();
+        let session = self.clone();
         let call: crate::Call<
             ::goodfetch_protocol::page::PageOpened,
             ::goodfetch_protocol::page::session::NewSessionPageParams,
@@ -382,7 +390,8 @@ impl Session {
             },
         );
         call.map(move |opened| Page {
-            host: host.child(opened.page_id),
+            host: session.host.child(opened.page_id),
+            session,
         })
     }
 
@@ -442,6 +451,7 @@ impl Session {
 #[derive(Clone, Debug)]
 pub struct Page {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::page::PageId>,
+    pub(crate) session: Session,
 }
 
 impl Page {
@@ -458,6 +468,14 @@ impl Page {
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::RawCall {
         self.host.raw(operation, "page", "page_id")
+    }
+
+    /// Its `session`, which every answer that opens a `page` names,
+    /// answered without a call: a clone of the `session` that opened or told
+    /// of it, or of the one its opener keeps (ADRs 0078, 0092).
+    #[must_use]
+    pub fn session(&self) -> Session {
+        self.session.clone()
     }
 
     /// Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.

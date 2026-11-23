@@ -53,8 +53,9 @@ struct Api {
 #[serde(deny_unknown_fields)]
 struct Announced {
     /// The finding's subject: `<collie|foxhound> <section> <name>`,
-    /// `bundle outputs <command>` or `bundle command_failed` for the
-    /// contracts, `rust <crate> <lint>` for a crate's ([`RUST`]),
+    /// `bundle outputs <command>`, `bundle command_failed` or
+    /// `collie-client connection <message>` for the contracts,
+    /// `rust <crate> <lint>` for a crate's ([`RUST`]),
     /// `typescript <entry> <name>` and `python <module> <name>` for an SDK
     /// package's ([`TYPESCRIPT`], [`PYTHON`]).
     entry: String,

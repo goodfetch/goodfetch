@@ -10,3 +10,4 @@ publish = false
 [workspace.dependencies]
 goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
+goodfetch-workspace-hack = { path = "crates/goodfetch-workspace-hack" }

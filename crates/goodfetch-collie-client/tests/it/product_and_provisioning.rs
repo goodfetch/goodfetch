@@ -83,9 +83,10 @@ fn build() -> Value {
     json!({"kind": "browser", "name": "chrome-for-testing", "build": "141.0.7390.54-linux64"})
 }
 
-/// The Product version that pins it.
+/// What pins it: the Product version alone, in a list that also names the
+/// Plugins using a Plugin runtime (ADR 0115).
 fn pinned_by() -> Value {
-    json!({"product": "collie", "product_version": "0.0.0"})
+    json!([{"kind": "product", "name": "collie", "version": "0.0.0"}])
 }
 
 /// Foxhound's operation and setting fail with `not_in_product`, naming

@@ -6,7 +6,9 @@
 //! closes its pages while the others open pages still. The script fails on
 //! a message it does not expect and on a step left unused, so its clean
 //! exit says the crate sent exactly what it holds. This is Rust's `daemon`
-//! mode play.
+//! mode play. So is the `a-page-reaches-its-session` case's: each page
+//! reaches its Session without a call, the Run's pages sharing its default
+//! one.
 
 use goodfetch_collie_client::settings::{Settings, browser};
 use goodfetch_collie_client::transport::{Endpoint, Network};
@@ -14,6 +16,7 @@ use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorC
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::DaemonEndpoint;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{SettingInvalidDetails, SettingsLayer};
 use goodfetch_test_support::{TestEnv, case_logs};
@@ -125,6 +128,96 @@ fn sessions_open_from_their_source_and_close_with_their_pages() {
             "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
         )
     );
+    assert!(
+        process.child().wait().unwrap().success(),
+        "the Scripted engine played its script whole"
+    );
+}
+
+/// What the `a-page-reaches-its-session` play saw, in its order.
+struct Reached {
+    /// The IDs of the Sessions the Run's two pages, then the page of the
+    /// program's own Session, reach.
+    sessions: [SessionId; 3],
+    /// The second page's `goto` once the default Session is closed.
+    after_close: Error,
+    /// The `run.new_page` sent once the default Session is closed.
+    reopened: Error,
+}
+
+/// Plays the `a-page-reaches-its-session` script's calls on a Connection
+/// to the Daemon at `endpoint`.
+async fn play_reached(endpoint: DaemonEndpoint) -> Reached {
+    let (connection, _said) = ClientConnection::open(
+        ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+        &Network::Os,
+        &Endpoint::Daemon(endpoint),
+        daemon_hello(),
+    )
+    .await
+    .unwrap();
+    let run = connection.start().await.unwrap();
+    let first = run.new_page().await.unwrap();
+    let second = run.new_page().await.unwrap();
+    let own = run.new_session().source(None).await.unwrap();
+    // Held to the Connection's close: dropping an unclosed value would send
+    // its close (ADR 0078).
+    let own_page = own.new_page().await.unwrap();
+    let sessions = [
+        first.session().id().clone(),
+        second.session().id().clone(),
+        own_page.session().id().clone(),
+    ];
+    // A page's Session is a clone of the one its opener holds: dropping it
+    // sends nothing, which the script would refuse.
+    drop((first.session(), own_page.session()));
+
+    first.session().close().await.unwrap();
+    let after_close = failure(second.goto(SHOP_URL).await);
+    let reopened = failure(run.new_page().await);
+    let own_second_page = own_page.session().new_page().await.unwrap();
+    run.finish().await.unwrap();
+    connection.close().await.unwrap();
+    drop((own, own_page, own_second_page));
+    Reached {
+        sessions,
+        after_close,
+        reopened,
+    }
+}
+
+/// The `a-page-reaches-its-session` client conformance case, played by the
+/// Scripted engine's Daemon: the Run's two pages reach its default Session
+/// and a page of the program's own Session that Session, each without a
+/// call; closing the default Session through one page closes the other,
+/// whose `goto` raises `closed` without a message, and a later
+/// `run.new_page` raises the engine's `closed`, while the program's Session,
+/// reached from its page, opens a page still. Dropping a page's Session
+/// sends no `session.close`.
+/// Covers: story:11-92
+#[test]
+fn a_page_reaches_its_session_without_a_call() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "a-page-reaches-its-session",
+        RustMode::Daemon,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let (process, endpoint) = scripted_daemon(&env, "run/a-page-reaches-its-session.json");
+    let reached = goodfetch_test_support::real_time_runtime().block_on(play_reached(endpoint));
+
+    assert_eq!(
+        reached.sessions,
+        ["session-1", "session-1", "session-2"].map(|id| SessionId(id.to_owned()))
+    );
+    for error in [&reached.after_close, &reached.reopened] {
+        assert_eq!(
+            (error.code(), error.group()),
+            (ErrorCode::CLOSED, ErrorGroup::Program),
+            "{error:?}"
+        );
+    }
     assert!(
         process.child().wait().unwrap().success(),
         "the Scripted engine played its script whole"

@@ -16,10 +16,12 @@ from goodfetch_collie_client.generated.handles import (
     AsyncPage,
     AsyncPageKeyboard,
     AsyncRun,
+    AsyncSession,
     Locator,
     Page,
     PageKeyboard,
     Run,
+    Session,
 )
 from goodfetch_collie_client.handle import NotGiven
 from goodfetch_collie_client.generated.models import (
@@ -91,6 +93,11 @@ async def async_forms(
     async with await run.new_page() as opened:
         assert_type(opened, AsyncPage)
 
+    # A page answers the Session every answer that opens it names, at once,
+    # by a property, as Playwright's `page.context` (ADR 0092).
+    assert_type(page.session, AsyncSession)
+    assert_type(await page.session.new_page(), AsyncPage)
+
     # A read answers at once, unawaited, from the answer that opened its
     # handle: a property, which the program cannot replace, or a method for
     # an `is_` name.
@@ -148,6 +155,8 @@ def sync_forms(
     assert_type(run.new_page(), Page)
     with run.new_page() as opened:
         assert_type(opened, Page)
+    assert_type(page.session, Session)
+    assert_type(page.session.new_page(), Page)
 
     assert_type(run.label, str)
     run.label = "other"  # type: ignore[misc]

@@ -40,6 +40,7 @@ mod html;
 )]
 mod interface;
 mod languages;
+mod linger;
 mod login;
 mod markdown;
 mod model;

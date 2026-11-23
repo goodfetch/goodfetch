@@ -98,3 +98,55 @@ async def test_opens_sessions_from_their_source_and_closes_each_with_its_pages(
         " them, and the others opened pages still"
     ):
         assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-92")
+@pytest.mark.client_case(id="a-page-reaches-its-session", mode="attached")
+@three_ways
+async def test_a_page_reaches_its_session_without_a_call(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Run's pages share its default Session; closing it closes them."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/a-page-reaches-its-session.json"
+    )
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    first = await run.new_page()
+    second = await run.new_page()
+    own = await run.new_session(source=None)
+    own_page = await own.new_page()
+
+    # A property is the sync API's own value, which `way.api` hands with
+    # awaited methods.
+    default_session = first.session
+    await way.api(default_session, default_session).close()
+    after_close = await failure(second.goto(SHOP_URL))
+    reopened = await failure(run.new_page())
+    own_session = own_page.session
+    await way.api(own_session, own_session).new_page()
+    await run.finish()
+    await collie.close()
+
+    with client_case.check(
+        "the Run's two pages reach one default Session, and a page of the"
+        " program's Session reaches that Session"
+    ):
+        assert second.session is default_session
+        assert own_session is not default_session
+    with client_case.check(
+        "closing the default Session through a page closes the other page,"
+        " and a later run.new_page() raises ClosedError"
+    ):
+        assert [
+            (type(error), error.code, error.group) for error in (after_close, reopened)
+        ] == [(ClosedError, "closed", "program")] * 2
+    with client_case.check(
+        "no call reached a page's Session but those the program made, as the"
+        " script holds them"
+    ):
+        assert engine_warnings(caplog) == []

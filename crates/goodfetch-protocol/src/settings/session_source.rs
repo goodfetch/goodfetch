@@ -162,6 +162,20 @@ impl SessionSource {
             Self::CdpUrl { .. } => "cdp_url",
         }
     }
+
+    /// The registrable domains its kind lists in `domains`, as written;
+    /// none for a kind without them or a source that leaves them out.
+    pub fn domains(&self) -> &[String] {
+        match self {
+            Self::StateFile { domains, .. } | Self::CdpUrl { domains, .. } => {
+                domains.as_deref().unwrap_or_default()
+            }
+            Self::ProfileDirectory { domains, .. }
+            | Self::InstalledBrowser { domains, .. }
+            | Self::RunningBrowser { domains, .. } => domains,
+            Self::SavedIdentity { .. } | Self::CookieHeader { .. } => &[],
+        }
+    }
 }
 
 /// `session.source`'s values: a [`SessionSource`].

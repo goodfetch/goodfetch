@@ -14,8 +14,9 @@
 # runtime archives built position-independent, and prints the command it
 # ran its bundled LLD with (`ZIG_VERBOSE_LINK`). That command then runs
 # again through `zig ld.lld` with `-z pack-relative-relocs` added, over the
-# first link's output. A link rustc does not ask a static-PIE for goes to
-# Zig's `cc` unchanged.
+# first link's output. rustc's static executable at a fixed base, which
+# it links on aarch64-unknown-linux-musl, becomes a static-PIE first. Any
+# other link goes to Zig's `cc` unchanged.
 set -euo pipefail
 
 target=${GOODFETCH_MUSL_LINK_TARGET:?ci/musl/cargo sets the target this links for}
@@ -55,17 +56,52 @@ while [[ $# -gt 0 ]]; do
 done
 set -- ${arguments[@]+"${arguments[@]}"}
 
-# rustc asks for a static-PIE with `-static-pie`, among its arguments or in
-# the response file it passes them in when they are too long for a command.
-static_pie=false
-for argument in "$@"; do
-  if [[ "$argument" == -static-pie ]]; then
-    static_pie=true
-  elif [[ "$argument" == @* && -f "${argument#@}" ]] && grep -qx -e '-static-pie' -e '"-static-pie"' "${argument#@}"; then
-    static_pie=true
-  fi
-done
-if [[ "$static_pie" == false ]]; then
+# Whether rustc passes the option $1 among the arguments after it, or in the
+# response file it passes them in when they are too long for a command.
+passes() {
+  local option=$1 argument
+  shift
+  for argument in "$@"; do
+    if [[ "$argument" == "$option" ]]; then
+      return 0
+    elif [[ "$argument" == @* && -f "${argument#@}" ]] && grep -qx -e "$option" -e "\"$option\"" "${argument#@}"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# rustc asks for a static-PIE only on a target whose specification offers
+# one: x86_64-unknown-linux-musl's does, aarch64-unknown-linux-musl's does
+# not, so there rustc links each executable at a fixed base, with `-static`,
+# `-no-pie` and the start files for that, though it compiles the code
+# position-independent all the same. Such a link becomes the one rustc asks
+# for on x86_64: `-static-pie`, and the position-independent start files
+# of the same self-contained folder, `rcrt1.o`, `crtbeginS.o` and
+# `crtendS.o`. A response file is rewritten in a copy, one argument a line.
+to_static_pie='/^"?-no-pie"?$/d
+s/^("?)-static("?)$/\1-static-pie\2/
+s#(/self-contained/)crt1\.o("?)$#\1rcrt1.o\2#
+s#(/self-contained/)crtbegin\.o("?)$#\1crtbeginS.o\2#
+s#(/self-contained/)crtend\.o("?)$#\1crtendS.o\2#'
+if passes -static "$@" && passes -no-pie "$@"; then
+  arguments=()
+  for argument in "$@"; do
+    if [[ "$argument" == @* && -f "${argument#@}" ]]; then
+      copy=$(mktemp "$scratch/arguments.XXXXXX")
+      sed -E "$to_static_pie" "${argument#@}" >"$copy"
+      arguments+=("@$copy")
+    else
+      argument=$(sed -E "$to_static_pie" <<<"$argument")
+      if [[ -n "$argument" ]]; then
+        arguments+=("$argument")
+      fi
+    fi
+  done
+  set -- ${arguments[@]+"${arguments[@]}"}
+fi
+
+if ! passes -static-pie "$@"; then
   # Not `exec`: the scratch folder goes when the link ends.
   status=0
   "$cc" "$@" || status=$?

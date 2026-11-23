@@ -1347,6 +1347,13 @@ number = 11
 kind = "error"
 prefix = "listener_events_lost"
 
+# The Error code an SDK raises when a schema's own validation throws
+# something other than a rejection (ADR 0082; issue 1338).
+[[area]]
+number = 11
+kind = "error"
+prefix = "schema_validator_failed"
+
 # The Error code a Connection's own bounds refuse a call with (issue 2332).
 [[area]]
 number = 11

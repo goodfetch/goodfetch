@@ -19,6 +19,12 @@
 //! compared on its own, so each failed lint is that crate's: its subject is
 //! `rust <crate> <lint>`, which a `compat/api.toml` announcement names to
 //! pass it, and the items it failed in are its message.
+//!
+//! An Experimental item, marked by the doc paragraph ADR 0099 gives rustdoc,
+//! is outside semver (ADR 0030): each side's rustdoc JSON marks it hidden
+//! before the comparison, so a change to an item that was Experimental
+//! passes, and a stable item made Experimental fails as its `*_now_doc_hidden`
+//! lint.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
@@ -30,8 +36,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
+use serde_json::{Value, json};
 
 use crate::api_baseline::{self, Changes, RUST};
+use crate::codegen::EXPERIMENTAL;
 
 /// The crates under semver: each Product's, and the Collie client's, which
 /// both Products' SDKs share (ADR 0095).
@@ -157,7 +165,38 @@ fn rustdoc(
     let kept = target.join(format!("{crate_name}-{side}.json"));
     std::fs::rename(&written, &kept)
         .with_context(|| format!("moving {} to {}", written.display(), kept.display()))?;
+    hide_experimental(&kept)?;
     Ok(kept)
+}
+
+/// Marks `#[doc(hidden)]` each Experimental item of the rustdoc JSON at
+/// `path`: one whose doc has the paragraph ADR 0099 gives rustdoc
+/// ([`EXPERIMENTAL`]). cargo-semver-checks leaves a hidden item, and what
+/// only it reaches, out of the public API, so an item that was Experimental
+/// changes and goes freely, and a stable one made Experimental fails as
+/// hidden (ADR 0030), as `xtask api-check` judges a catalog entry.
+fn hide_experimental(path: &Path) -> Result<()> {
+    let text = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut rustdoc: Value =
+        serde_json::from_slice(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let Some(index) = rustdoc.get_mut("index").and_then(Value::as_object_mut) else {
+        bail!("{} has no item index", path.display());
+    };
+    for (id, item) in index.iter_mut() {
+        let experimental = item
+            .get("docs")
+            .and_then(Value::as_str)
+            .is_some_and(|docs| docs.lines().any(|line| line.trim() == EXPERIMENTAL));
+        if !experimental {
+            continue;
+        }
+        let Some(attributes) = item.get_mut("attrs").and_then(Value::as_array_mut) else {
+            bail!("{}: item {id} has no attributes", path.display());
+        };
+        attributes.push(json!({ "other": "#[doc(hidden)]" }));
+    }
+    let text = serde_json::to_vec(&rustdoc).context("writing the rustdoc JSON")?;
+    std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
 
 /// Each failed lint of a cargo-semver-checks report and the items it failed

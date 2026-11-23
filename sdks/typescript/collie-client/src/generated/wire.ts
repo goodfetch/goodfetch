@@ -50,6 +50,7 @@ export type CollieWireType =
   | "GotoParams"
   | "HelloParams"
   | "HelloResult"
+  | "HookFailedDetails"
   | "HumanPause"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
@@ -230,6 +231,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
+    "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },

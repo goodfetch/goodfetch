@@ -60,8 +60,8 @@ ENGINE_VERSION = cast(
 )["workspace"]["package"]["version"]
 """The real engine's Product version, the workspace's version."""
 
-PINNED_BY = {"product": "collie", "product_version": ENGINE_VERSION}
-"""The Product version that pins it."""
+PINNED_BY = [{"kind": "product", "name": "collie", "version": ENGINE_VERSION}]
+"""What pins it: the Product version alone (ADR 0115)."""
 
 DESCRIBED = (
     f"the browser build chrome-for-testing {PINNED_BUILD}, pinned by Collie"

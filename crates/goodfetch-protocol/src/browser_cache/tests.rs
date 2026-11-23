@@ -1,8 +1,26 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::{BROWSER_MIRROR, CHROME_FOR_TESTING_STORAGE};
-use crate::catalog::ValueKind;
+use super::{BROWSER_MIRROR, CHROME_FOR_TESTING_STORAGE, Pinner};
+use crate::catalog::{Product, ValueKind};
+use crate::connection::ProductVersion;
+
+#[rstest]
+#[case::a_product_version(
+    Pinner::Product { name: Product::Collie, version: ProductVersion::parse("1.4.0").unwrap() },
+    json!({"kind": "product", "name": "collie", "version": "1.4.0"}),
+)]
+#[case::a_plugin(
+    Pinner::Plugin { name: "price-watch".to_owned(), version: "2.1.0".to_owned() },
+    json!({"kind": "plugin", "name": "price-watch", "version": "2.1.0"}),
+)]
+fn a_pinner_is_its_kind_name_and_version(
+    #[case] pinner: Pinner,
+    #[case] written: serde_json::Value,
+) {
+    assert_eq!(serde_json::to_value(&pinner).unwrap(), written);
+    assert_eq!(serde_json::from_value::<Pinner>(written).unwrap(), pinner);
+}
 
 fn checked(value: &serde_json::Value) -> Result<(), String> {
     let ValueKind::Shape(shape) = BROWSER_MIRROR.kind else {

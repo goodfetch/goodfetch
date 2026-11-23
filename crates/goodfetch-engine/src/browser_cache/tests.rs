@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 use crate::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
 
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, PinnedBy,
+    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, PinnedBy, Pinner,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -67,6 +67,15 @@ fn pinned_by() -> PinnedBy {
         product: Product::Collie,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
     }
+}
+
+/// What a refusal's details say pins the build `pinned_by()` pins: that
+/// Product version alone (ADR 0115).
+fn its_pinners() -> Vec<Pinner> {
+    vec![Pinner::Product {
+        name: Product::Collie,
+        version: ProductVersion::parse("1.4.0").unwrap(),
+    }]
 }
 
 fn artifact(kind: ArtifactKind, name: &str, build: &str) -> ArtifactId {
@@ -281,7 +290,7 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
         panic!("expected artifact_unavailable_offline, got {refused:?}");
     };
     assert_eq!(details.artifact, id);
-    assert_eq!(details.pinned_by, pinned_by());
+    assert_eq!(details.pinned_by, its_pinners());
     assert_eq!(details.limit.key, "egress.offline");
     assert_eq!(details.limit.layer, SettingsLayer::UserConfiguration);
     assert_eq!(
@@ -355,7 +364,7 @@ fn a_missing_build_whose_pin_names_no_archive_digest_is_not_installed() {
         (
             MissingBrowser::Pinned {
                 artifact: id,
-                pinned_by: pinned_by(),
+                pinned_by: its_pinners(),
                 cache: cache.root().display().to_string(),
             },
             0
@@ -396,7 +405,7 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
         details.missing,
         MissingBrowser::Pinned {
             artifact: id,
-            pinned_by: pinned_by(),
+            pinned_by: its_pinners(),
             cache: root.display().to_string(),
         }
     );

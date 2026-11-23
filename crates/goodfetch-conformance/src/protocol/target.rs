@@ -77,6 +77,40 @@ pub struct EngineTarget {
     pub folder: PathBuf,
 }
 
+impl EngineTarget {
+    /// The target on a Goodfetch home of its own, the folder `name` in the
+    /// target's folder, configured as the target's home is: each version's
+    /// `configuration.toml` is copied into it.
+    ///
+    /// # Errors
+    ///
+    /// When the home cannot be made or the configuration copied.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the synchronous harness copies its target's configuration into a home of its own before starting it, outside any async worker"
+    )]
+    pub(crate) fn on_a_home_of_its_own(&self, name: &str) -> io::Result<Self> {
+        let home = self.folder.join(name);
+        std::fs::create_dir_all(&home)?;
+        if let Some(here) = self.environment.get("GOODFETCH_HOME") {
+            for version in std::fs::read_dir(here)? {
+                let version = version?;
+                let configuration = version.path().join("configuration.toml");
+                if configuration.is_file() {
+                    let there = home.join(version.file_name());
+                    std::fs::create_dir_all(&there)?;
+                    std::fs::copy(&configuration, there.join("configuration.toml"))?;
+                }
+            }
+        }
+        let mut elsewhere = self.clone();
+        elsewhere
+            .environment
+            .insert("GOODFETCH_HOME".to_owned(), home.display().to_string());
+        Ok(elsewhere)
+    }
+}
+
 /// How the harness reaches a target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EngineMode {

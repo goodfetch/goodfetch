@@ -271,6 +271,28 @@ fn the_catalog_records_each_settings_products_from_its_mark_and_its_authority(
     );
 }
 
+/// The weakening direction the API breakage check reads (issue 148).
+#[rstest]
+#[case::a_choice("consent.handling", json!({ "values": ["off"] }))]
+#[case::a_count_off_at_zero("storage.low_free", json!({ "toward": "lower" }))]
+#[case::a_map_with_no_order("tls.accept_invalid_certs", serde_json::Value::Null)]
+#[case::a_setting_that_never_weakens("timeout.navigation", serde_json::Value::Null)]
+fn a_settings_entry_says_which_way_its_values_weaken(
+    #[case] key: &str,
+    #[case] weakening: serde_json::Value,
+) {
+    let catalog = emit().catalog;
+
+    let entry = catalog["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|setting| setting["name"] == key)
+        .unwrap();
+
+    assert_eq!(entry["weakening"], weakening);
+}
+
 #[test]
 fn a_settings_entry_carries_its_values_schema_and_default() {
     let catalog = emit().catalog;

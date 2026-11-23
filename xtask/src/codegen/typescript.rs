@@ -26,6 +26,7 @@ use super::{Generated, TypesFile};
 
 mod answered;
 mod errors;
+mod holders;
 mod listeners;
 mod markers;
 mod operation;
@@ -719,7 +720,8 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
                 String::new(),
                 format!("Promise<{class}>"),
                 format!(
-                    "    const opened = await {call};\n    return new {class}(this.#host.child(opened.{id}));\n"
+                    "    const opened = await {call};\n{}",
+                    holders::opened(member.holding.as_ref(), &class, &id)
                 ),
             )
         }
@@ -923,6 +925,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         if let Some(opened) = opened {
             let _ = writeln!(text, "  readonly #opened: types.{opened};");
         }
+        text.push_str(&holders::fields(handle, &operation_types));
         for sub_object in &handle.sub_objects {
             let _ = writeln!(
                 text,
@@ -931,8 +934,11 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
                 name = camel(sub_object.name)
             );
         }
-        let opened_param =
-            opened.map_or(String::new(), |opened| format!(", opened: types.{opened}"));
+        let opened_param = format!(
+            "{}{}",
+            opened.map_or(String::new(), |opened| format!(", opened: types.{opened}")),
+            holders::parameter(handle)
+        );
         let _ = write!(
             text,
             "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}{opened_param}) {{\n    super(host, {:?}, {:?}, {{ type: {:?} }});\n    this.#host = host;\n",
@@ -941,6 +947,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         if opened.is_some() {
             text.push_str("    this.#opened = opened;\n");
         }
+        text.push_str(&holders::assignment(handle));
         for sub_object in &handle.sub_objects {
             let _ = writeln!(
                 text,
@@ -950,6 +957,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
             );
         }
         text.push_str("  }\n");
+        text.push_str(&holders::members(handle, &operation_types));
         for held in &handle.members {
             text.push('\n');
             text.push_str(&member(held, &handle.id)?);

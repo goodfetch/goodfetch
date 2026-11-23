@@ -19,9 +19,19 @@
 //! data:
 //! - a case is `not_reached` with no entry, `passed` when every entry has at
 //!   least one check and every check passed, and `failed` otherwise;
+//! - in gate mode (ADR 0047), and only there, each mode's entries are a pair, one with
+//!   Filter-list blocking on and one with it off: the mode passed when its
+//!   entry with blocking on passed, failed when that entry failed and the
+//!   one with blocking off passed, and is otherwise `inconclusive`, as a
+//!   vendor's scoring change moves both; a case is `failed` when any mode
+//!   failed, `inconclusive` when none failed and one is inconclusive, and
+//!   `passed` otherwise;
 //! - a capability is `failed` when any case failed, `proved` when it has
 //!   cases and every one passed, and `unproved` otherwise, so a capability
-//!   the suite did not reach is never `proved` (ADR 0033);
+//!   the suite did not reach, or one with an inconclusive case, is never
+//!   `proved` (ADR 0033);
+//! - a document blocks its run when a case failed, unless it is an online
+//!   result outside gate mode, which only reports (ADR 0043);
 //! - a Journey variant is `proved` when every automated step and every check
 //!   passed, every named task is `verified` and no error failed its test
 //!   outside them (`test_errors`), a `manual` step aside, and `failed`
@@ -34,6 +44,8 @@
 //! Size: one contract, the result document's shape with the rules that
 //! derive its outcomes and the reader that refuses a stored document breaking
 //! them, kept whole so every rule sits beside the types it constrains.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -540,6 +552,11 @@ pub struct ConformanceHeader {
     /// Whether the Proving ground was the online copy, whose results report
     /// and never block a release.
     pub online: bool,
+    /// Whether the suite ran in gate mode, each case once with Filter-list
+    /// blocking on and once with it off, its failures blocking the job that
+    /// asked for it (ADR 0047): the Clean-up rules' daily channel's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gate: bool,
 }
 
 /// A conformance suite.
@@ -598,11 +615,31 @@ pub struct CaseEntry {
     /// runs in several.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Whether Filter-list blocking was on or off, in gate mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocking: Option<Blocking>,
+    /// What it could not reach while it ran, such as a vendor or the
+    /// online Proving ground, each as its runner names it. An entry with
+    /// any neither passes nor fails, whatever its checks: an outage is
+    /// inconclusive (ADR 0064).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreachable: Vec<String>,
     /// Each check's result.
     pub checks: Vec<CaseCheck>,
     /// What it saw.
     #[serde(default)]
     pub evidence: Evidence,
+}
+
+/// Whether a gate mode's entry ran with Filter-list blocking on or off
+/// (ADR 0047).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Blocking {
+    /// The Filter lists blocked as the case's settings say.
+    On,
+    /// Every Filter list was off.
+    Off,
 }
 
 /// One check of a case.
@@ -637,11 +674,11 @@ impl ConformanceDocument {
     /// Derives the outcome of every case and capability.
     pub fn new(header: ConformanceHeader, capabilities: Vec<CapabilityFacts>) -> Self {
         Self {
-            header,
             capabilities: capabilities
                 .into_iter()
-                .map(CapabilityResult::new)
+                .map(|facts| CapabilityResult::new(facts, header.gate))
                 .collect(),
+            header,
         }
     }
 
@@ -654,6 +691,17 @@ impl ConformanceDocument {
     pub fn capabilities(&self) -> &[CapabilityResult] {
         &self.capabilities
     }
+
+    /// Whether the document blocks the job that ran it: a case failed, and
+    /// it is no online result outside gate mode, which only reports (ADRs
+    /// 0043 and 0047).
+    pub fn blocks(&self) -> bool {
+        (!self.header.online || self.header.gate)
+            && self
+                .capabilities
+                .iter()
+                .any(|capability| capability.outcome == Outcome::Failed)
+    }
 }
 
 /// One capability of a `conformance` document.
@@ -665,8 +713,13 @@ pub struct CapabilityResult {
 }
 
 impl CapabilityResult {
-    fn new(facts: CapabilityFacts) -> Self {
-        let cases: Vec<CaseResult> = facts.cases.into_iter().map(CaseResult::new).collect();
+    /// Derives its outcome, judging gate pairs when `gate`.
+    fn new(facts: CapabilityFacts, gate: bool) -> Self {
+        let cases: Vec<CaseResult> = facts
+            .cases
+            .into_iter()
+            .map(|facts| CaseResult::new(facts, gate))
+            .collect();
         Self {
             name: facts.name,
             outcome: capability_outcome(&cases),
@@ -699,9 +752,10 @@ pub struct CaseResult {
 }
 
 impl CaseResult {
-    fn new(facts: CaseFacts) -> Self {
+    /// Derives its outcome, judging gate pairs when `gate`.
+    fn new(facts: CaseFacts, gate: bool) -> Self {
         Self {
-            outcome: case_outcome(&facts.entries),
+            outcome: case_outcome(&facts.entries, gate),
             facts,
         }
     }
@@ -745,15 +799,27 @@ impl Outcome {
 pub enum CaseOutcome {
     /// Every entry has checks and every check held.
     Passed,
-    /// A check failed, or an entry holds no check.
+    /// A check failed, or an entry holds no check; in gate mode, it failed
+    /// with Filter-list blocking on and passed with it off.
     Failed,
+    /// An entry could not reach something it needed, such as a vendor, and
+    /// no entry that reached everything failed (ADR 0064); or, in gate
+    /// mode, it failed with Filter-list
+    /// blocking on and did not pass with it off, as when a vendor's scoring
+    /// change moves both (ADR 0047). It neither passes nor blocks.
+    Inconclusive,
     /// The case log holds no entry for it.
     NotReached,
 }
 
 impl CaseOutcome {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 3] = [Self::Passed, Self::Failed, Self::NotReached];
+    pub const ALL: [Self; 4] = [
+        Self::Passed,
+        Self::Failed,
+        Self::Inconclusive,
+        Self::NotReached,
+    ];
 
     /// The outcome as a document writes it.
     pub fn as_str(self) -> &'static str {
@@ -761,16 +827,80 @@ impl CaseOutcome {
     }
 }
 
-fn case_outcome(entries: &[CaseEntry]) -> CaseOutcome {
+/// A case's outcome from its entries; outside gate mode, an entry's
+/// blocking makes no pair, so only an entry that could not reach something
+/// is inconclusive.
+fn case_outcome(entries: &[CaseEntry], gate: bool) -> CaseOutcome {
     if entries.is_empty() {
-        CaseOutcome::NotReached
-    } else if entries
-        .iter()
-        .all(|entry| !entry.checks.is_empty() && entry.checks.iter().all(|check| check.passed))
-    {
-        CaseOutcome::Passed
+        return CaseOutcome::NotReached;
+    }
+    // Each mode's gate pair: its entries with blocking on, then off.
+    let mut pairs: BTreeMap<Option<&str>, (Vec<&CaseEntry>, Vec<&CaseEntry>)> = BTreeMap::new();
+    let mut outcome = CaseOutcome::Passed;
+    for entry in entries {
+        let Some(blocking) = entry.blocking.filter(|_| gate) else {
+            let judged = if !reached_everything(entry) {
+                CaseOutcome::Inconclusive
+            } else if passed(entry) {
+                CaseOutcome::Passed
+            } else {
+                CaseOutcome::Failed
+            };
+            outcome = worse(outcome, judged);
+            continue;
+        };
+        let (on, off) = pairs.entry(entry.mode.as_deref()).or_default();
+        match blocking {
+            Blocking::On => on.push(entry),
+            Blocking::Off => off.push(entry),
+        }
+    }
+    for (on, off) in pairs.values() {
+        let all_passed = |entries: &[&CaseEntry]| {
+            !entries.is_empty() && entries.iter().all(|entry| passed(entry))
+        };
+        // A failure with blocking on is the rules' only when that run
+        // reached everything: an outage then is no evidence either way.
+        let judged = if all_passed(on) {
+            CaseOutcome::Passed
+        } else if !on.is_empty()
+            && on.iter().all(|entry| reached_everything(entry))
+            && all_passed(off)
+        {
+            CaseOutcome::Failed
+        } else {
+            CaseOutcome::Inconclusive
+        };
+        outcome = worse(outcome, judged);
+    }
+    outcome
+}
+
+/// Whether an entry reached everything it needed, holds checks and every
+/// one passed: an entry that could not reach something never passes.
+fn passed(entry: &CaseEntry) -> bool {
+    reached_everything(entry)
+        && !entry.checks.is_empty()
+        && entry.checks.iter().all(|check| check.passed)
+}
+
+/// Whether an entry reached everything it needed while it ran.
+fn reached_everything(entry: &CaseEntry) -> bool {
+    entry.unreachable.is_empty()
+}
+
+/// The worse of two outcomes of a reached case: failed, then inconclusive,
+/// then passed.
+fn worse(left: CaseOutcome, right: CaseOutcome) -> CaseOutcome {
+    let rank = |outcome| match outcome {
+        CaseOutcome::Passed | CaseOutcome::NotReached => 0,
+        CaseOutcome::Inconclusive => 1,
+        CaseOutcome::Failed => 2,
+    };
+    if rank(right) > rank(left) {
+        right
     } else {
-        CaseOutcome::Failed
+        left
     }
 }
 
@@ -1023,11 +1153,12 @@ struct StoredJourney {
 
 impl StoredConformance {
     fn verify(self) -> Result<ConformanceDocument, ReadError> {
+        let gate = self.header.gate;
         let mut capabilities = Vec::with_capacity(self.capabilities.len());
         for stored in self.capabilities {
             let mut cases = Vec::with_capacity(stored.cases.len());
             for case in stored.cases {
-                let derived = CaseResult::new(case.facts);
+                let derived = CaseResult::new(case.facts, gate);
                 if derived.outcome != case.outcome {
                     return Err(ReadError::CaseOutcome {
                         case: derived.facts.id,
@@ -1037,10 +1168,13 @@ impl StoredConformance {
                 }
                 cases.push(derived.facts);
             }
-            let derived = CapabilityResult::new(CapabilityFacts {
-                name: stored.name,
-                cases,
-            });
+            let derived = CapabilityResult::new(
+                CapabilityFacts {
+                    name: stored.name,
+                    cases,
+                },
+                gate,
+            );
             if derived.outcome != stored.outcome {
                 return Err(ReadError::CapabilityOutcome {
                     capability: derived.name,

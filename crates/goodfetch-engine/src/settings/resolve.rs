@@ -129,10 +129,11 @@ impl Recipe {
     }
 }
 
-/// The defaults an engine chose for its host in place of the catalog's,
-/// such as the encrypted local file's `run_state.key_reference` on a host
-/// with no OS keychain; still the default layer's, as `config explain`
-/// shows them.
+/// The defaults an engine gives in place of the catalog's: those it chose
+/// for its host, such as the encrypted local file's
+/// `run_state.key_reference` on a host with no OS keychain, and those of
+/// its Product version, such as `daemon.address`'s port; still the default
+/// layer's, as `config explain` shows them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HostDefaults(BTreeMap<&'static str, Value>);
 

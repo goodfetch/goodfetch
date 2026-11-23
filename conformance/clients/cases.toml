@@ -420,11 +420,13 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # code no table has, and Foxhound's values of the types both Products
 # share, a Usage kind and a Limit scope, as strings.
 # Played by the Scripted engine, each value written raw, attached and as a
-# Daemon in TypeScript and Python (asyncio, Trio and the sync API).
+# Daemon in TypeScript and Python (asyncio, Trio and the sync API) and as a
+# Daemon in Rust; Rust's linked engine answers the same values from a test
+# contribution, as a newer contribution's would.
 [[capability.case]]
 id = "unknown-values-are-kept"
 covers = ["story:11-33", "story:11-188"]
-surfaces = ["sdk-typescript", "sdk-python"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # A remote Daemon's dropped link (spec 606; issue 3174): the Client reaches
 # the Daemon again by itself, greets it with the same hello and sends again

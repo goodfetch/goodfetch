@@ -202,12 +202,8 @@ impl EndMerged for Merged {
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
     ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
-        let ended = work_items::end_merged(
-            connection,
-            crawl_requests,
-            &self.ended_at,
-            &mut self.changed,
-        )?;
+        let ended =
+            work_items::end_merged(connection, crawl_requests, self.ended_at, &mut self.changed)?;
         Ok(ended
             .into_iter()
             .map(|(id, url, key)| {

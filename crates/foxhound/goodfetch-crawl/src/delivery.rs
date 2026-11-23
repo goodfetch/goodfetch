@@ -639,7 +639,7 @@ async fn answered(
     run: &Run,
     (admission, state): (&mut Admission, &mut RunState),
     in_flight: &SharedInFlight,
-    ask: Box<Question>,
+    ask: Question,
 ) -> bool {
     let Some(added) = state.answer(ask).await else {
         return false;
@@ -719,7 +719,7 @@ pub(crate) async fn resume(
             // The crawl's Run state opens after this job, and counts its
             // requests on from what the run file then holds.
             let recovered = &mut Changed::default();
-            work_items::recover_leases(connection, &lost, retry_max, &resumed_at, recovered)?;
+            work_items::recover_leases(connection, &lost, retry_max, resumed_at, recovered)?;
             let fragments = labels::Fragments::read(connection)?;
             let invariants = Invariants::read(connection, fragments.clone())?;
             Ok((

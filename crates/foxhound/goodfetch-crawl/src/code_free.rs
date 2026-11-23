@@ -393,7 +393,7 @@ fn sitemap_seeds<'a>(
 pub(crate) fn record_of(
     mut formats: PageFormats,
     status: Option<u16>,
-    fetched_at: &SystemTime,
+    fetched_at: SystemTime,
     fields: Map<String, Value>,
 ) -> Value {
     let texts = [
@@ -411,7 +411,7 @@ pub(crate) fn record_of(
         properties.insert("status".to_owned(), json!(status));
         properties.insert(
             FETCHED_AT.to_owned(),
-            Value::String(goodfetch_engine::clock::rfc3339(*fetched_at)),
+            Value::String(goodfetch_engine::clock::rfc3339(fetched_at)),
         );
         properties.extend(fields);
     }
@@ -536,7 +536,7 @@ impl CodeFree {
             CrawlRequestHandled {
                 records: vec![PushedRecord {
                     dataset: CODE_FREE_DATASET.to_owned(),
-                    data: record_of(formats, status, &fetched_at, values),
+                    data: record_of(formats, status, fetched_at, values),
                 }],
                 skipped: None,
             },

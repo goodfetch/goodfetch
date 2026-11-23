@@ -333,7 +333,7 @@ impl Commit {
             fetched: &fetched,
             fields: &fields,
             masks: &masks,
-            ended_at: &ended_at,
+            ended_at,
             not_added: &not_added,
             work: &counted_work,
             keeps_records: declared.keeps_records(),

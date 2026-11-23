@@ -270,7 +270,10 @@ fn a_daemon_that_hands_over_is_waited_past_until_the_pick_serves() {
             &hello(SCRIPTED_DAEMON_TOKEN),
             "socket",
         );
-        let url = listening(&line);
+        // The waiting connection may reach the pick, whose play then ends
+        // and takes its runtime file, before this could read it: the
+        // address comes from the line the pick printed instead.
+        let url = line["address"].as_str().unwrap().to_owned();
         (pick, url, connecting.join().unwrap())
     });
 

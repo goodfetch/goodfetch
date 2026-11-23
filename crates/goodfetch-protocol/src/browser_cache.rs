@@ -75,15 +75,51 @@ pub struct ArtifactId {
     pub build: String,
 }
 
-/// The Product version that pins an artifact (ADR 0098).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// The Product version that pins an artifact (ADR 0098), inside the engine;
+/// an error's details name it as its [`Pinner`]s.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PinnedBy {
     /// The Product.
-    #[schemars(extend("arrived_in" = "0.1"))]
     pub product: Product,
     /// Its Product version.
-    #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
+}
+
+impl PinnedBy {
+    /// What an error's details say pins the artifact: this Product version
+    /// alone.
+    pub fn pinners(&self) -> Vec<Pinner> {
+        vec![Pinner::Product {
+            name: self.product,
+            version: self.product_version.clone(),
+        }]
+    }
+}
+
+/// What pins an artifact, as an error's details name it, by its `kind`: a
+/// Product version, or an installed Plugin that uses a Plugin runtime (ADRs
+/// 0098 and 0115).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Pinner {
+    /// A Product version.
+    Product {
+        /// The Product.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: Product,
+        /// Its Product version.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        version: ProductVersion,
+    },
+    /// An installed Plugin, for the Plugin runtime it uses.
+    Plugin {
+        /// The Plugin's name.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: String,
+        /// Its version.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        version: String,
+    },
 }
 
 /// One Pinned artifact's entry in the Browser cache, `entry.json` beside its
@@ -141,9 +177,9 @@ pub enum MissingBrowser {
         /// The build.
         #[schemars(extend("arrived_in" = "0.1"))]
         artifact: ArtifactId,
-        /// The Product version that pins it.
+        /// What pins the build: the Product version alone.
         #[schemars(extend("arrived_in" = "0.1"))]
-        pinned_by: PinnedBy,
+        pinned_by: Vec<Pinner>,
         /// The Browser cache's path.
         #[schemars(extend("arrived_in" = "0.1"))]
         cache: String,
@@ -196,9 +232,10 @@ pub struct ArtifactUnavailableOfflineDetails {
     /// The artifact.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub artifact: ArtifactId,
-    /// The Product version that pins it.
+    /// What pins it: the Product version, or for a Plugin's runtime the
+    /// installed Plugins that use it.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub pinned_by: PinnedBy,
+    pub pinned_by: Vec<Pinner>,
     /// The Browser cache's path.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub cache: String,
@@ -226,9 +263,10 @@ pub struct ArtifactDownloadFailedDetails {
     /// The artifact.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub artifact: ArtifactId,
-    /// The Product version that pins it.
+    /// What pins it: the Product version, or for a Plugin's runtime the
+    /// installed Plugins that use it.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub pinned_by: PinnedBy,
+    pub pinned_by: Vec<Pinner>,
     /// The host it came from, never a full URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub host: String,

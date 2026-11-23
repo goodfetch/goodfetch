@@ -17,6 +17,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
     BlockedError,
     CallCancelledError,
+    HookFailedError,
     InternalError,
     PageError,
     ProgramError,
@@ -297,6 +298,55 @@ def test_call_cancelled_reads_its_details_typed(
     details = error.typed_details
     assert details is not None
     assert (details.by, details.closed, details.person) == read
+
+
+@pytest.mark.covers("error:hook_failed")
+@pytest.mark.parametrize("stage", ["after_response", "a_stage_from_a_newer_engine"])
+def test_hook_failed_reads_its_details_typed(stage: str) -> None:
+    """A Hook that raised reads its stage, Hook and exception typed (ADRs 0079, 0104).
+
+    The client package carries them, since a Collie Run's Script Hooks raise
+    it too; a stage a newer engine names reaches the program unchanged.
+    """
+    error = error_of_reply(
+        {
+            "code": -32001,
+            "message": "the Hook checkPrice raised TypeError: price is undefined",
+            "data": {
+                "code": "hook_failed",
+                "retryable": True,
+                "stage": stage,
+                "hook": "checkPrice",
+                "label": None,
+                "exception_type": "TypeError",
+                "exception_message": "price is undefined",
+                "exception_stack": "at checkPrice (crawl.ts:12:5)",
+                "wrapped_code": "header_forbidden",
+            },
+        },
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, HookFailedError)
+    details = error.typed_details
+    assert details is not None
+    assert (
+        details.stage,
+        details.hook,
+        details.label,
+        details.exception_type,
+        details.exception_message,
+        details.exception_stack,
+        details.wrapped_code,
+    ) == (
+        stage,
+        "checkPrice",
+        None,
+        "TypeError",
+        "price is undefined",
+        "at checkPrice (crawl.ts:12:5)",
+        "header_forbidden",
+    )
 
 
 def test_call_cancelled_naming_no_one_who_stopped_it_has_no_typed_details() -> None:

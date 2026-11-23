@@ -10,7 +10,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { CallCancelledDetails, NotVerifiedDetails } from "./types.ts";
+import type { CallCancelledDetails, HookFailedDetails, NotVerifiedDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -590,8 +590,15 @@ export class HeaderValueInvalidError extends ProgramError<"header_value_invalid"
  * A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.
  */
 export class HookFailedError extends ProgramError<"hook_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<HookFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "HookFailedError", code: "hook_failed", group: "program", retryable: true });
+    this.typedDetails = detailsOf<HookFailedDetails>(fields.details, ["stage", "hook", "exceptionType", "exceptionMessage", "exceptionStack"], { path: { type: "HookFailedDetails" }, types: collieWire.types });
   }
 }
 

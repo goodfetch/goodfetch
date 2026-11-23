@@ -25,6 +25,7 @@ pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
 pub const TYPED_IN_SDKS: &[TypedDetails] = &[
     TypedDetails::of::<crate::connection::CallCancelledDetails>(),
     TypedDetails::of::<crate::page::ai_work::NotVerifiedDetails>(),
+    TypedDetails::of::<crate::hook::HookFailedDetails>(),
 ];
 
 /// A details type the SDKs read typed: the codes whose details it holds and

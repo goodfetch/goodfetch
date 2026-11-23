@@ -13,7 +13,8 @@
 
 mod diff;
 mod moves;
-mod register;
+/// `xtask counts`' tests read the gate's own files from it too.
+pub(crate) mod register;
 
 use std::collections::BTreeSet;
 use std::path::Path;

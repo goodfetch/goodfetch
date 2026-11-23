@@ -113,6 +113,7 @@ mod settings_flags;
 #[cfg(unix)]
 mod shedding;
 mod signing_key;
+mod skill_install;
 #[cfg(target_os = "linux")]
 mod storage;
 #[cfg(target_os = "linux")]

@@ -70,6 +70,7 @@ use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsExplanation;
+use goodfetch_protocol::skills::SkillsInstalled;
 use goodfetch_protocol::versions::FilesUpgraded;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
@@ -138,6 +139,7 @@ pub(super) fn emit() -> Emitted {
         "daemon.stop": generator.subschema_for::<DaemonStatus>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
+        "skill.install": generator.subschema_for::<SkillsInstalled>(),
         "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
     });
     let command_failed = generator.subschema_for::<CommandFailed>();

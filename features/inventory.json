@@ -921,6 +921,17 @@
       ]
     },
     {
+      "id": "command:skill.install",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:upgrade-files",
       "kind": "command",
       "area": 3,
@@ -2382,6 +2393,17 @@
       "id": "error:site_preferences_refused",
       "kind": "error",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:skill_install_refused",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

@@ -123,6 +123,15 @@
         "commands": [
           {
             "commands": [],
+            "name": "install"
+          }
+        ],
+        "name": "skill"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "list"
           },
           {
@@ -485,6 +494,15 @@
           }
         ],
         "name": "runs"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "install"
+          }
+        ],
+        "name": "skill"
       },
       {
         "commands": [

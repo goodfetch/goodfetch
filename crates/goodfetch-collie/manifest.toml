@@ -381,6 +381,42 @@ form = "constant"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "executable"
+member = "SkillFile"
+entry = "none"
+reason = "One file of the agent skills an executable embeds: its path under the skills folder and its bytes."
+words = ["skill", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Skills"
+entry = "none"
+reason = "The agent skills an executable embeds, which `skill install` writes into a coding agent's skills folder."
+words = ["skills"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's: its renderings of `skills/`."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "new"
+entry = "none"
+reason = "The skills of `files`, such as a Product's generated list."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
 member = "Start"
 entry = "none"
 reason = "What a Product's `main` passes to `main`."

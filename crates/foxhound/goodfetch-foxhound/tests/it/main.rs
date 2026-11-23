@@ -203,6 +203,7 @@ mod service_manager;
 mod session_pool;
 mod site;
 mod sitemap;
+mod skill_install;
 mod soak;
 mod sql_tab;
 mod staging;

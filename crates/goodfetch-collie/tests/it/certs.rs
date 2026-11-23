@@ -9,9 +9,9 @@
 //! `certs accept` and `certs forget` are a person's answers (ADRs 0011 and
 //! 0042): asked in a pseudo-terminal they replace or remove the pin, the
 //! accepted change recorded in the Audit log; under `--json`, with stdin no
-//! terminal, and over the protocol from any surface but the CLI's, as an
-//! agent's or a program's, they are refused with `person_required` and the
-//! pin stays.
+//! terminal, and over the protocol from any surface but a person's (the
+//! CLI's or the Kennel's), as an agent's or a program's, they are refused
+//! with `person_required` and the pin stays.
 
 #![expect(
     clippy::disallowed_methods,
@@ -378,20 +378,21 @@ fn certs_accept_and_forget_are_refused_where_no_person_answers(
     }
     let refused = asked.run().unwrap();
 
+    let (code, retryable, fix) = refusal(&refused, json);
     assert_eq!(
         (
             refused.exit,
-            refusal(&refused, json),
+            code,
+            retryable,
+            fix.contains(&format!("`certs {command}`")),
             pin_of_host(&env),
             audit_entries(&env).len(),
         ),
         (
             Some(4),
-            (
-                json!("person_required"),
-                json!(false),
-                format!("Run `certs {command}` in a terminal, without `--json`.")
-            ),
+            json!("person_required"),
+            json!(false),
+            true,
             Some((json!(PINNED), json!(CHANGED))),
             0
         ),
@@ -403,28 +404,31 @@ fn certs_accept_and_forget_are_refused_where_no_person_answers(
 /// `certs.forget` are refused with `person_required` to a Client acting
 /// for a model (MCP) and to a program's SDK, through which a Recipe's code
 /// reaches the engine too; the CLI's and the Kennel's own Connections, a
-/// person's, are answered (positive controls): the same writes a prompt's
-/// yes makes. The refused calls changed nothing.
+/// person's, are answered (positive controls) with the writes a prompt's
+/// yes makes: the change accepted, then the pin removed, each recorded in
+/// the Audit log as the person's. The refused calls changed nothing.
 /// Covers: story:4-36, story:4-37, operation:certs.accept, operation:certs.forget
 #[rstest::rstest]
 /// Covers: error:person_required
-#[case::from_an_agent(Surface::Mcp, "person_required", Some((json!(PINNED), json!(CHANGED))))]
+#[case::from_an_agent(Surface::Mcp, "person_required", Some((json!(PINNED), json!(CHANGED))), &[])]
 /// Covers: error:person_required
 #[case::from_the_typescript_sdk(
     Surface::SdkTypescript,
     "person_required",
-    Some((json!(PINNED), json!(CHANGED)))
+    Some((json!(PINNED), json!(CHANGED))),
+    &[]
 )]
 /// Covers: error:person_required
-#[case::from_the_python_sdk(Surface::SdkPython, "person_required", Some((json!(PINNED), json!(CHANGED))))]
+#[case::from_the_python_sdk(Surface::SdkPython, "person_required", Some((json!(PINNED), json!(CHANGED))), &[])]
 /// Covers: error:person_required
-#[case::from_a_rust_program(Surface::Rust, "person_required", Some((json!(PINNED), json!(CHANGED))))]
-#[case::from_the_cli(Surface::Cli, "answered", None)]
-#[case::from_the_kennel(Surface::Kennel, "answered", None)]
+#[case::from_a_rust_program(Surface::Rust, "person_required", Some((json!(PINNED), json!(CHANGED))), &[])]
+#[case::from_the_cli(Surface::Cli, "answered", None, ANSWERED)]
+#[case::from_the_kennel(Surface::Kennel, "answered", None, ANSWERED)]
 fn a_person_only_certs_call_is_refused_to_every_surface_but_a_persons(
     #[case] surface: Surface,
     #[case] expected: &str,
     #[case] after: Option<(Value, Value)>,
+    #[case] recorded: &[(&str, &str)],
 ) {
     let env = TestEnv::new();
     changed_store(&env);
@@ -450,8 +454,23 @@ fn a_person_only_certs_call_is_refused_to_every_surface_but_a_persons(
         answers.iter().map(outcome).collect::<Vec<_>>(),
         [expected, expected]
     );
-    assert_eq!(pin_of_host(&env), after);
+    let audited: Vec<(Value, Value)> = audit_entries(&env)
+        .into_iter()
+        .map(|entry| (entry[0].clone(), entry[1]["kind"].clone()))
+        .collect();
+    let recorded: Vec<(Value, Value)> = recorded
+        .iter()
+        .map(|(kind, actor)| (json!(kind), json!(actor)))
+        .collect();
+    assert_eq!((pin_of_host(&env), audited), (after, recorded));
 }
+
+/// What a person's `certs.accept` of the changed key, then `certs.forget`,
+/// record in the Audit log: each entry's kind and its actor's kind.
+const ANSWERED: &[(&str, &str)] = &[
+    ("certificate_change_accepted", "person"),
+    ("certificate_pin_forgotten", "person"),
+];
 
 /// Story 4-36: a key other than the one that stopped the host is not
 /// accepted, even by a person; the pin stays.

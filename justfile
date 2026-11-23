@@ -538,6 +538,7 @@ fetch:
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
+    ci/valkey/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

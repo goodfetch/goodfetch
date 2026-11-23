@@ -116,6 +116,8 @@ mod unicode;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod user_namespaces;
+#[cfg(target_os = "linux")]
+mod valkey;
 mod variables;
 
 #[cfg(unix)]
@@ -277,6 +279,8 @@ pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
+#[cfg(target_os = "linux")]
+pub use valkey::Valkey;
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
     ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,

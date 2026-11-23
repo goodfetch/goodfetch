@@ -11,10 +11,9 @@
 //! whose request is made there. In `linked` mode the engine's own request
 //! spans reach the program's subscriber, so the spans it exports show it:
 //! the engine's span of a call made in the program's span is that span's
-//! child, and that of a call made outside any span a root.
+//! child, and that of a call made outside any span a root. Without the
+//! feature, `without_opentelemetry.rs` is its twin.
 //! Covers: story:11-138
-
-use std::sync::mpsc;
 
 use goodfetch_collie::{Collie, EngineChoice, blocking};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
@@ -25,14 +24,14 @@ use opentelemetry::trace::{
     TracerProvider as _,
 };
 use opentelemetry::{Context, KeyValue};
-use opentelemetry_sdk::error::OTelSdkResult;
-use opentelemetry_sdk::trace::{IdGenerator, SdkTracerProvider, SpanData, SpanExporter};
+use opentelemetry_sdk::trace::{IdGenerator, SdkTracerProvider};
 use serde_json::json;
 use tracing::Instrument as _;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::engine_choice::{hello, played_whole, scripted};
+use super::exported_spans::{linked_spans, the_span};
 use super::options;
 
 /// The case's script.
@@ -154,52 +153,15 @@ fn a_blocking_call_carries_its_threads_trace_context() {
     });
 }
 
-/// The spans the OpenTelemetry SDK exports, each sent on as it ends.
-#[derive(Debug)]
-struct Exported(mpsc::Sender<SpanData>);
-
-impl SpanExporter for Exported {
-    fn export(
-        &self,
-        batch: Vec<SpanData>,
-    ) -> impl std::future::Future<Output = OTelSdkResult> + Send {
-        for span in batch {
-            // The test reads every span once the provider is shut down,
-            // so the receiver outlives each export.
-            self.0.send(span).unwrap();
-        }
-        std::future::ready(Ok(()))
-    }
-}
-
-/// The one exported span named `name`.
-fn the_span<'a>(spans: &'a [SpanData], name: &str) -> &'a SpanData {
-    let found: Vec<&SpanData> = spans.iter().filter(|span| span.name == name).collect();
-    assert_eq!(found.len(), 1, "{name}: {found:#?}");
-    found[0]
-}
-
-/// The case in `linked` mode, on the linked engine itself, whose threads
-/// record their spans through the process's global subscriber: so it runs
-/// in a process of its own, as `just test` runs every test.
+/// The case in `linked` mode, on the linked engine itself, whose spans the
+/// program's subscriber exports.
 /// Covers: story:11-138
 #[test]
 fn a_call_in_a_span_makes_the_linked_engines_span_its_child_and_one_outside_a_root() {
     let mut case =
         ClientCaseRun::start(case_logs().as_deref(), "trace-context", RustMode::Linked).unwrap();
-    let (sender, received) = mpsc::channel();
-    let provider = SdkTracerProvider::builder()
-        .with_simple_exporter(Exported(sender))
-        .build();
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::registry()
-            .with(tracing_opentelemetry::layer().with_tracer(provider.tracer("program"))),
-    )
-    .unwrap();
-    let env = TestEnv::new();
 
-    real_time_runtime().block_on(async {
-        let collie = Collie::connect(options(&env)).await.unwrap();
+    let spans = linked_spans(async |collie| {
         async { collie.explain_settings().await.unwrap() }
             .instrument(tracing::info_span!("program"))
             .await;
@@ -208,10 +170,7 @@ fn a_call_in_a_span_makes_the_linked_engines_span_its_child_and_one_outside_a_ro
             .params(json!({ "lifecycle": "running" }))
             .await
             .unwrap();
-        collie.close().await.unwrap();
     });
-    provider.shutdown().unwrap();
-    let spans: Vec<SpanData> = received.try_iter().collect();
 
     let program = the_span(&spans, "program").span_context.clone();
     let inside = the_span(&spans, "config.explain");

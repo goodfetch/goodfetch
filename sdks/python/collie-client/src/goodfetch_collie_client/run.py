@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client._shared_subscription import SharedSubscription
-    from goodfetch_collie_client.generated.models import RunStarted
+    from goodfetch_collie_client.generated.models import ProjectSettings, RunStarted
     from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
     from goodfetch_collie_client.handle import (
         AsyncHandleHost,
@@ -874,17 +874,23 @@ class AsyncRun(AsyncRunMembers):
 
 
 def explain_params(
-    keys: Iterable[str] | None, *, run_id: str | None = None
+    keys: Iterable[str] | None,
+    *,
+    run_id: str | None = None,
+    project: ProjectSettings | None = None,
 ) -> ConfigExplainParams:
     """`config.explain`'s params, for the Run `run_id` or else the Connection.
 
-    `keys` and `run_id` each stay off the wire when left out.
+    `project` is the project file the Connection read (ADR 0083). `keys`,
+    `run_id` and `project` each stay off the wire when left out.
     """
     params = ConfigExplainParams()
     if run_id is not None:
         params.run_id = run_id
     if keys is not None:
         params.keys = list(keys)
+    if project is not None:
+        params.project = project
     return params
 
 

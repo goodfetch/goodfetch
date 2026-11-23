@@ -198,6 +198,78 @@ pub enum Operation<R> {
         /// The Usage charged.
         charged: u64,
     },
+    /// The host acted as Lead Daemon under the lead epoch `epoch`: it was
+    /// promoted, granted a slice or fired a Schedule.
+    Lead {
+        /// Its lead epoch.
+        epoch: Epoch,
+    },
+    /// A Schedule fired for one of its occurrences.
+    Fired {
+        /// The Schedule.
+        schedule: String,
+        /// The occurrence, as the scenario names it (its planned time).
+        occurrence: String,
+    },
+    /// A run discovered a URL.
+    Discovered {
+        /// The URL.
+        url: String,
+    },
+    /// A discovered URL joined a Partition's Frontier.
+    Frontier {
+        /// The Partition.
+        partition: String,
+        /// The URL's domain.
+        domain: String,
+        /// The URL.
+        url: String,
+    },
+    /// A Partition admitted a request to a domain, which it holds from then
+    /// until it hands it off.
+    Admitted {
+        /// The Partition.
+        partition: String,
+        /// The domain.
+        domain: String,
+    },
+    /// A Partition handed a domain off, with its URLs in its Frontier.
+    HandedOff {
+        /// The Partition.
+        partition: String,
+        /// The domain.
+        domain: String,
+    },
+    /// An Audit log entry was appended: chained to the entry whose hash is
+    /// `previous`, and, for the Lead Daemon's merge entry, carrying the
+    /// head hash of the branch a Group member chained while it could not
+    /// reach the lead (ADR 0055).
+    Audit {
+        /// The entry's hash.
+        hash: String,
+        /// The hash of the entry it chains to.
+        previous: String,
+        /// The entry as the product's chain verifier reads it (a line of
+        /// `audit export`).
+        entry: String,
+        /// The head hash of the branch it merges, for a merge entry.
+        merges: Option<String>,
+    },
+    /// A run started, or resumed.
+    Started {
+        /// The run.
+        run: String,
+    },
+    /// A run finished.
+    Finished {
+        /// The run.
+        run: String,
+    },
+    /// A run stopped where it can be resumed: checkpointed, or handed off.
+    Resumable {
+        /// The run.
+        run: String,
+    },
     /// A fault the test injected.
     Fault(Fault),
     /// One of the test's own operations, which no checker reads.

@@ -35,6 +35,8 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
+use super::readings;
+
 /// The memory limit of the Job object the engine runs in, per process or
 /// for the whole job, whichever is tighter.
 pub(super) fn job_limit() -> Option<u64> {
@@ -80,22 +82,11 @@ pub(super) fn physical() -> Option<u64> {
     memory_status().map(|status| status.ullTotalPhys)
 }
 
-/// The host's own memory pressure: the low-memory notification is critical,
-/// and the memory in use past `pressure` or `critical` percent counts too.
+/// The host's own memory pressure, from the memory in use and the
+/// low-memory notification, as [`readings::windows_host`] judges them.
 pub(super) fn host(pressure: u64, critical: u64) -> GovernorLevel {
     let load = memory_status().map_or(0, |status| u64::from(status.dwMemoryLoad));
-    let in_use = if load >= critical {
-        GovernorLevel::Critical
-    } else if load >= pressure {
-        GovernorLevel::Pressure
-    } else {
-        GovernorLevel::Normal
-    };
-    in_use.max(if low_memory() {
-        GovernorLevel::Critical
-    } else {
-        GovernorLevel::Normal
-    })
+    readings::windows_host(load, low_memory(), pressure, critical)
 }
 
 fn low_memory() -> bool {
@@ -121,19 +112,20 @@ pub(super) fn footprint() -> u64 {
 
 /// The private bytes of `root` and every descendant.
 pub(super) fn footprint_from(root: u32) -> u64 {
+    tree(root).into_iter().map(private_bytes).sum()
+}
+
+/// `root` and every descendant, from one snapshot of every process's
+/// parent.
+pub(super) fn tree(root: u32) -> Vec<u32> {
     let parents = parents();
-    let mut found = vec![root];
-    let mut total = 0;
-    while let Some(process) = found.pop() {
-        total += private_bytes(process);
-        found.extend(
-            parents
-                .iter()
-                .filter(|(child, parent)| **parent == process && **child != process)
-                .map(|(child, _)| *child),
-        );
-    }
-    total
+    readings::tree(root, |process| {
+        parents
+            .iter()
+            .filter(|(_, parent)| **parent == process)
+            .map(|(child, _)| *child)
+            .collect()
+    })
 }
 
 /// Each process's parent, from a snapshot of every process.
@@ -215,5 +207,68 @@ fn close(handle: HANDLE) {
     // SAFETY: `handle` is one this module opened and closes once.
     unsafe {
         CloseHandle(handle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::governor::AllowanceSource;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+    };
+
+    use super::super::{Inputs, System};
+    use super::*;
+
+    /// A Job object's memory limit tighter than half of physical memory,
+    /// with no setting, is the Memory allowance (#2357). Nextest runs each
+    /// test in its own process, so the limit holds this test alone.
+    ///
+    /// Covers: story:3-56
+    #[test]
+    fn a_job_objects_memory_limit_tighter_than_the_others_is_the_allowance() {
+        let limit = physical().unwrap() / 4;
+        // SAFETY: no pointer argument but nulls, which ask for an unnamed
+        // job with default security.
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        assert!(!job.is_null());
+        // SAFETY: an all-zero JOBOBJECT_EXTENDED_LIMIT_INFORMATION is valid.
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        limits.ProcessMemoryLimit = usize::try_from(limit).unwrap();
+        let size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()).unwrap();
+        // SAFETY: `job` is the handle just made, and `limits` holds `size`
+        // readable bytes of the class named.
+        let set = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&raw const limits).cast(),
+                size,
+            )
+        };
+        // SAFETY: `job` is the handle just made, and the current process's
+        // pseudo-handle needs no closing.
+        let assigned = unsafe { AssignProcessToJobObject(job, GetCurrentProcess()) };
+        let system = System::os();
+        let inputs = Inputs {
+            memory_allowance: None,
+            pressure: 85,
+            critical: 95,
+            host_memory: false,
+        };
+
+        let reading = system.read(&system.locate(), &inputs, &[]);
+        close(job);
+
+        assert_eq!(
+            (
+                set != FALSE,
+                assigned != FALSE,
+                reading.allowance,
+                reading.allowance_source
+            ),
+            (true, true, limit, AllowanceSource::JobObject)
+        );
     }
 }

@@ -324,11 +324,7 @@ fn with_dependants<'a, T>(
 }
 
 fn products(paths: &[RepoPath]) -> Products {
-    let confined = !paths.is_empty()
-        && paths
-            .iter()
-            .all(|path| foxhound_side::contains(path.as_str()));
-    if confined {
+    if foxhound_side::confines(paths.iter().map(RepoPath::as_str)) {
         Products::Foxhound
     } else {
         Products::Both

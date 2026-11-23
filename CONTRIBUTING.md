@@ -23,6 +23,7 @@ feat(collie)!: rename the session's timeout setting
 
 - The type is one of `feat`, `fix`, `perf`, `docs`, `refactor` and `revert`, which the changelog lists, or `build`, `chore`, `ci`, `style` and `test`, which it leaves out.
 - The scope, when there is one, is lowercase: the crate, package or area the commit changes, such as `xtask`, `protocol`, `ci` or `adr`.
+- The paths a commit changes, never its scope, decide where the changelog lists it: under Foxhound only when every one is on Foxhound's side (`crates/foxhound/`, `sdks/typescript/foxhound/` and `sdks/python/foxhound/`), under both Products otherwise (ADR 0094).
 - A `!` before the colon, or a `BREAKING CHANGE:` footer, marks a breaking change.
 - The description says what the commit does, in the imperative.
 

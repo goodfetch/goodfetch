@@ -12,6 +12,7 @@
 //! turns into the wire's error object.
 
 mod call_streams;
+mod closing;
 pub(crate) mod params;
 
 use std::any::Any;
@@ -49,6 +50,7 @@ use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
 pub(crate) use call_streams::{CallNotifier, InputSender};
+pub(crate) use closing::Closing;
 pub use params::Params;
 
 /// What a handler is given beside its params: its Connection's handles,
@@ -127,33 +129,6 @@ pub(crate) enum Holding {
 
 /// A boxed future of a [`DaemonSide`]'s answer.
 pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-/// How a Daemon closes one of its Connections under the calls in flight
-/// on it (ADR 0113): each call the close cancels raises the error it was
-/// closed with, `call_cancelled` naming the Connection.
-#[derive(Clone, Default)]
-pub(crate) struct Closing {
-    closed: CancellationToken,
-    error: Arc<OnceLock<CallError>>,
-}
-
-impl Closing {
-    /// Closes the Connection with `error`; a later close changes nothing.
-    pub(crate) fn close(&self, error: CallError) {
-        let _ = self.error.set(error);
-        self.closed.cancel();
-    }
-
-    /// Ends once the Connection is closed.
-    pub(crate) async fn closed(&self) {
-        self.closed.cancelled().await;
-    }
-
-    /// What a call the close cancelled raises, once it is closed.
-    pub(crate) fn error(&self) -> Option<CallError> {
-        self.error.get().cloned()
-    }
-}
 
 /// What a Daemon gives each of its Connections (ADRs 0024 and 0098): the
 /// token every `hello` carries, the count of its Clients, whether it hands

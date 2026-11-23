@@ -2,7 +2,8 @@
 //! the Browser cache of the test's Goodfetch home or of
 //! `GOODFETCH_BROWSERS_PATH` (ADRs 0024, 0059 and 0098). Entries are laid
 //! out as a prepared copy holds them, used long before or long after the
-//! command's own wall time, so no test reads a clock.
+//! command's own wall time, so no test reads a clock. One test's builds
+//! are kept by a program linking the crate, this test binary itself.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests lay out cache entries by hand, as a prepared GOODFETCH_BROWSERS_PATH copy holds them"
@@ -15,13 +16,17 @@
 use std::fs;
 use std::path::Path;
 
+use goodfetch_collie::{Collie, ConnectOptions};
+use goodfetch_engine::daemon::files::DaemonFiles;
+use goodfetch_engine::home::Home;
 use goodfetch_protocol::browser_cache::{
     BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild,
 };
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     TestEnv, assert_cli_snapshot, browser_cache, browser_cache_with_headless_shell, cli,
-    lay_out_browser_entry,
+    lay_out_browser_entry, real_time_runtime,
 };
 use serde_json::{Value, json};
 
@@ -237,6 +242,44 @@ fn browser_clean_keeps_what_an_installed_executable_pins() {
     assert_eq!(
         (removed(&output), kept.join("entry.json").exists()),
         (vec!["pinned-by-a-removed-foxhound"], true)
+    );
+}
+
+/// A program linking the crate records itself on `connect()` with the
+/// builds its version pins, so `browser clean` keeps them, unused since
+/// 2020, and removes the build nothing pins; the program never runs the
+/// Daemon (ADR 0098).
+///
+/// Covers: story:11-298
+#[test]
+fn browser_clean_keeps_the_builds_a_linked_program_recorded_and_no_daemon_runs() {
+    let env = TestEnv::new();
+    let cache = env.home().join("browsers");
+    let pins: Value = serde_json::from_str(PINS).unwrap();
+    let build = pins["chrome_for_testing"]["build"].as_str().unwrap();
+    let pinned = lay_out_browser_entry(&cache, build, "2020-01-01T00:00:00Z");
+    lay_out_browser_entry(&cache, "pinned-by-nothing", "2020-01-01T00:00:00Z");
+
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(ConnectOptions::default().environment(env.env_os()))
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+    });
+    let output = run(&env, &["browser", "clean", "--json"], &[]);
+
+    let output: BrowserCleaned = serde_json::from_value(output).unwrap();
+    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    assert_eq!(
+        (
+            removed(&output),
+            pinned.join("entry.json").exists(),
+            DaemonFiles::of(&Home::new(env.home().to_owned()), &version)
+                .running()
+                .unwrap()
+                .is_none()
+        ),
+        (vec!["pinned-by-nothing"], true, true)
     );
 }
 

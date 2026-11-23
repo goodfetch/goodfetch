@@ -56,6 +56,7 @@ mod crash_dumps;
 mod crash_vfs;
 mod daemon;
 mod description;
+mod determinism;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
 mod endpoints;
@@ -151,6 +152,7 @@ pub use crash_vfs::{
 };
 pub use daemon::{DAEMON_DEADLINE, Daemon, DaemonDescription, DaemonError};
 pub use description::{Description, schemas};
+pub use determinism::{Divergence, Replay, ReplayOutput, check_determinism};
 #[cfg(target_os = "linux")]
 pub use dns_namespace::{
     DNS_NAMESPACE_COMMAND, DnsNamespace, DnsNamespaceError, Inside, InsideUser, Mechanism,

@@ -5,12 +5,13 @@
 //! - an earlier step that runs `ci/leaks.sh` over each path the upload takes,
 //!   or over a folder holding it, with no step between them but other
 //!   uploads and scans, since any other step may write what uploads;
-//! - that the scan runs after a failed step (`if: always()`, or
-//!   `if: "!cancelled()"` when nothing it guards uploads after a cancel),
-//!   since a job's JUnit files upload pass or fail (TESTING.md);
+//! - that the scan runs after a failed step (`if: always()` or
+//!   `if: "!cancelled()"`), since a job's JUnit files upload pass or fail
+//!   (TESTING.md), and after a cancel too (`always()`) when the upload does;
 //! - that the upload's `if:` requires the scan's success
-//!   (`always() && steps.<id>.outcome == 'success'`, a conjunction with no
-//!   `||`), so a found secret never uploads.
+//!   (`always() && steps.<id>.outcome == 'success'`, or the same after
+//!   `!cancelled()`, a conjunction with no `||`), so a found secret never
+//!   uploads.
 //!
 //! A job that uploads nothing has nothing to scan. Its log, which GitHub
 //! receives while each step runs, cannot be scanned before it uploads; the
@@ -129,6 +130,18 @@ fn upload(before: &[Step], step: &Step, subject: &str) -> Option<Finding> {
             ),
         ));
     }
+    if runs_after_a_cancel(step)
+        && let Some(scan) = guarding.iter().find(|scan| !runs_after_a_cancel(scan))
+    {
+        return Some(Finding::new(
+            "scan-skipped-on-cancel",
+            subject,
+            format!(
+                "\"{name}\" runs after a cancel, but \"{}\" runs `{SCAN}` without `if: always()`, so after a cancel it never uploads",
+                scan.name.as_deref().unwrap_or(SCAN)
+            ),
+        ));
+    }
     let condition = step.condition.as_deref().unwrap_or_default();
     let unheeded: Vec<&str> = guarding
         .iter()
@@ -177,9 +190,17 @@ fn covers(folder: &str, path: &str) -> bool {
 }
 
 fn runs_after_a_failure(step: &Step) -> bool {
-    step.condition.as_deref().is_some_and(|condition| {
-        condition.contains("always()") || condition.contains("!cancelled()")
-    })
+    runs_after_a_cancel(step)
+        || step
+            .condition
+            .as_deref()
+            .is_some_and(|condition| condition.contains("!cancelled()"))
+}
+
+fn runs_after_a_cancel(step: &Step) -> bool {
+    step.condition
+        .as_deref()
+        .is_some_and(|condition| condition.contains("always()"))
 }
 
 /// Whether `condition` requires the step `id`'s success: a conjunction, with

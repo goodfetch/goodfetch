@@ -25,6 +25,7 @@ fn uploads_behind_a_passing_scan_of_their_paths_pass() {
 #[case::upload_ignores_the_scan("upload-ignores-scan.yml", "upload-ignores-scan")]
 #[case::upload_also_runs_without_the_scan("upload-or-always.yml", "upload-ignores-scan")]
 #[case::scan_skipped_when_a_test_fails("scan-skipped-on-failure.yml", "scan-skipped-on-failure")]
+#[case::scan_skipped_on_a_cancel("scan-skipped-on-cancel.yml", "scan-skipped-on-cancel")]
 fn upload_not_guarded_by_its_scan_fails(#[case] workflow: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("output-scans");
     workspace.add_fixture_file(

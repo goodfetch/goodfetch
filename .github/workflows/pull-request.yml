@@ -460,7 +460,8 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      # Only this run's shards read the upload, and a cancel skips them.
+      # Only this run's shards and pre-merge record read the upload, and a
+      # cancel skips them.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: "!cancelled()"

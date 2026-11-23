@@ -2488,6 +2488,16 @@
       ]
     },
     {
+      "id": "error:sheet_capacity_exceeded",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:site_preferences_refused",
       "kind": "error",
       "area": 6,

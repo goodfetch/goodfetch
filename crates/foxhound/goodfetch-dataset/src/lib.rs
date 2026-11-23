@@ -36,7 +36,7 @@ use goodfetch_engine::run_state::RunStateTables;
 pub use declaration::{Datasets, Declarations, Refused, counted_validator};
 pub use encoding::ExportOptions;
 pub use open::open_run;
-pub use pipeline::write_export;
+pub use pipeline::{WriteExportError, write_export};
 pub use records::{Checked, Committing, Query, commit, read};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;

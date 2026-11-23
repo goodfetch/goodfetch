@@ -244,6 +244,14 @@ class SampleCrawlRefusedError(RefusedError):
         super().__init__(message, code="sample_crawl_refused", group="refused", retryable=True, **fields)
 
 
+class SheetCapacityExceededError(ProgramError):
+    """An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="sheet_capacity_exceeded", group="program", retryable=False, **fields)
+
+
 class StagingFullError(ProgramError):
     """The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names."""
 
@@ -281,6 +289,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "response_unavailable": ResponseUnavailableError,
     "retry_requested": RetryRequestedError,
     "sample_crawl_refused": SampleCrawlRefusedError,
+    "sheet_capacity_exceeded": SheetCapacityExceededError,
     "staging_full": StagingFullError,
 }
 """The exception class of each Error code."""

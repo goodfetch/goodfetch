@@ -17,7 +17,9 @@
 //! write one element per Record; each is shaped by the `export.*`
 //! settings, and plain, gzip or zstd (CO-27). A Record read past a Wall
 //! carries its marker in every format, and an Export can take only those
-//! Records or only the others (ADR 0052).
+//! Records or only the others (ADR 0052). An XLSX Export whose one sheet
+//! would pass what Excel opens, in rows, columns or one cell's length,
+//! fails with `sheet_capacity_exceeded` before any byte is written.
 //! Foxhound's own; the two Error codes of a failed write are Collie's (ADR
 //! 0095).
 
@@ -26,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::catalog::{
-    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
-    Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
 use crate::settings::ProjectSettings;
@@ -221,10 +223,67 @@ pub struct Export {
     pub run_epoch: u64,
 }
 
+/// What a sheet holds at most, as Excel's specifications and limits give
+/// it, which an XLSX Export's one sheet may not pass (issue 1678).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SheetCapacity {
+    /// 1,048,576 rows, the header row included.
+    Rows,
+    /// 16,384 columns, `A` to `XFD`.
+    Columns,
+    /// 32,767 characters in one cell, a column's name included, counted in
+    /// UTF-16 code units as Excel counts them, so a character outside the
+    /// Basic Multilingual Plane counts two.
+    CellLength,
+}
+
+impl SheetCapacity {
+    /// The most a sheet holds of it.
+    pub const fn maximum(self) -> u64 {
+        match self {
+            Self::Rows => 1_048_576,
+            Self::Columns => 16_384,
+            Self::CellLength => 32_767,
+        }
+    }
+}
+
+/// What `sheet_capacity_exceeded` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SheetCapacityExceededDetails {
+    /// The Dataset's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub dataset: String,
+    /// What its sheet would pass.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub capacity: SheetCapacity,
+    /// How much of it the Dataset needs: its rows with the header, its
+    /// columns, or the length of its longest cell.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub figure: u64,
+    /// The most a sheet holds of it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub maximum: u64,
+    /// What to do instead.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// An XLSX Export whose sheet would pass what Excel opens (issue 1678).
+pub const SHEET_CAPACITY_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "sheet_capacity_exceeded",
+    description: "An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.export`.
 pub const RUN_EXPORT: Operation = Operation {
     name: "run.export",
-    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's limits, with `sheet_capacity_exceeded`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -575,7 +634,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[RUN_EXPORT, EXPORT_SAVE_AS, EXPORT_STREAM],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[SHEET_CAPACITY_EXCEEDED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

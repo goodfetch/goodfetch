@@ -136,12 +136,13 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
             }
         }
     }
+    let encoding = pipeline.encoding(&params.dataset)?;
     let pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
     let (kept, written) = tokio::join!(
         context
             .runs()
             .keep_export(params.run_id.clone(), run_epoch, source),
-        encode(&mut reader, pages, pipeline.encoding(), send),
+        encode(&mut reader, pages, encoding, send),
     );
     let (records, last_number) = written.map_err(failed)?;
     let kept = match kept {

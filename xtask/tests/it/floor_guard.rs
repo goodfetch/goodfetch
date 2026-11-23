@@ -661,17 +661,16 @@ fn a_new_gate_file_or_another_file_is_silent(#[case] path: &str) {
 }
 
 /// The workspace's own Floor bullet on the gate's own files names what
-/// `just counts` measures with: each family's harness and the reader of
-/// Callgrind's counts, as it names `xtask counts`' own files.
+/// `just counts` measures with: the harnesses, whose every family
+/// `xtask counts`' own test holds, and the readers of Callgrind's counts and
+/// of SQLite's syncs and opens they share.
 #[rstest]
 #[case::the_b1_harness("crates/foxhound/goodfetch-foxhound/examples/counts.rs")]
-#[case::the_b2_harness("crates/goodfetch-page/examples/counts.rs")]
-#[case::the_b3_harness("crates/goodfetch-engine/examples/counts.rs")]
 #[case::the_b3_harness_support("crates/goodfetch-engine/examples/support/charge_counts.rs")]
-#[case::the_b4_harness("crates/foxhound/goodfetch-foxhound/examples/counts-extraction.rs")]
 #[case::the_callgrind_reader("crates/goodfetch-test-support/src/callgrind.rs")]
 #[case::the_callgrind_readers_folder("crates/goodfetch-test-support/src/callgrind/at_once.rs")]
-#[case::xtask_counts("xtask/src/counts.rs")]
+#[case::the_counting_vfs("crates/goodfetch-test-support/src/counting_vfs.rs")]
+#[case::the_counting_vfs_folder("crates/goodfetch-test-support/src/counting_vfs/tests.rs")]
 fn the_workspaces_floor_holds_what_the_counts_measure_with(#[case] path: &str) {
     let testing = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../TESTING.md"),

@@ -1,23 +1,53 @@
-//! The minute ceiling of test health while the repository is private (ADRs
-//! 0064, 0072 and 0108, as amended by ADR 0135): the month's hosted minutes
-//! of the test-health, diagnostic and coverage jobs, counted from the store
-//! in Linux-equivalent minutes, skip the constrained runs, then the
-//! diagnostic runs, as they near 1,000, and the coverage job from 550; a
-//! skip goes to the job summary. The in-diff mutation job runs on the
-//! owner's machine and counts nothing.
+//! The minute ceiling of test health (ADRs 0064, 0072 and 0108, as amended
+//! by ADR 0135): the month's hosted minutes of the test-health, diagnostic
+//! and coverage jobs that bill, counted from the store in Linux-equivalent
+//! minutes, skip the constrained runs, then the diagnostic runs, as they
+//! near 1,000, and the coverage job from 550; a skip goes to the job
+//! summary. A public repository's standard runners bill nothing, so they
+//! count nothing. The in-diff mutation job runs on the owner's machine and
+//! counts nothing.
 //! Covers: story:1-113
 
 use rstest::rstest;
 
+use crate::github::GitHub;
 use crate::store::{Attempt, STORE, job, write_store};
 use crate::workspace::{Outcome, Workspace};
+
+/// The repository's visibility, which GitHub gives the ceiling's own run's
+/// `repository` as `private`.
+#[derive(Clone, Copy)]
+enum Visibility {
+    Private,
+    Public,
+}
 
 fn ceiling(workspace: &Workspace, run: &str) -> Outcome {
     ceiling_for_jobs(workspace, run, "1")
 }
 
-/// The ceiling's answer for a run of `jobs` hosted jobs.
+/// The ceiling's answer for a run of `jobs` hosted jobs in a private
+/// repository.
 fn ceiling_for_jobs(workspace: &Workspace, run: &str, jobs: &str) -> Outcome {
+    ceiling_in(workspace, Visibility::Private, run, jobs)
+}
+
+/// The ceiling's answer for a run of `jobs` hosted jobs, asked by run 7 of
+/// a repository of `visibility`, which a GitHub stand-in serves.
+fn ceiling_in(workspace: &Workspace, visibility: Visibility, run: &str, jobs: &str) -> Outcome {
+    let private = matches!(visibility, Visibility::Private);
+    let github = GitHub::serving(&[(
+        "/repos/goodfetch/goodfetch/actions/runs/7",
+        &format!(
+            r#"{{"id": 7, "created_at": "2026-10-18T03:00:00Z", "head_branch": "main", "head_sha": "abc", "repository": {{"private": {private}}}}}"#
+        ),
+    )]);
+    ceiling_asked(workspace, &github, run, jobs)
+}
+
+/// The ceiling's answer for a run of `jobs` hosted jobs, asked by run 7 of
+/// the repository `github` serves.
+fn ceiling_asked(workspace: &Workspace, github: &GitHub, run: &str, jobs: &str) -> Outcome {
     workspace.xtask(&[
         "results",
         "ceiling",
@@ -31,6 +61,12 @@ fn ceiling_for_jobs(workspace: &Workspace, run: &str, jobs: &str) -> Outcome {
         "2026-10-18",
         "--summary",
         "summary.md",
+        "--repository",
+        "goodfetch/goodfetch",
+        "--run-id",
+        "7",
+        "--api-url",
+        github.url(),
     ])
 }
 
@@ -118,6 +154,55 @@ fn month_counts_hosted_minutes_of_test_health_jobs_rounded_up_and_multiplied() {
 
     assert_eq!(outcome.code, 0);
     assert_eq!(value(&outcome, "minutes").as_deref(), Some("29"));
+}
+
+/// A public repository's standard runners bill nothing, so they count
+/// nothing; a larger runner bills in any repository and still counts
+/// (ADR 0064's note of 2026-11-23).
+#[rstest]
+#[case::standard_linux(&["ubuntu-24.04"], 125, "0")]
+#[case::standard_windows(&["windows-2025"], 30, "0")]
+#[case::standard_macos(&["macos-15"], 61, "0")]
+#[case::larger_linux(&["ubuntu-24.04-16core"], 125, "3")]
+#[case::larger_macos(&["macos-15-xlarge"], 61, "22")]
+fn public_repository_counts_only_the_minutes_that_bill(
+    #[case] labels: &[&str],
+    #[case] seconds: u64,
+    #[case] minutes: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[attempt(
+            ".github/workflows/test-health.yml",
+            10,
+            "2026-10-02T03:00:00Z",
+            vec![job(labels, seconds, "2026-10-02T03:00:00Z")],
+        )],
+    );
+
+    let outcome = ceiling_in(&workspace, Visibility::Public, "constrained", "1");
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(value(&outcome, "minutes").as_deref(), Some(minutes));
+}
+
+/// Without the repository's visibility no minute's billing is known, so
+/// the ceiling admits nothing and the run it guards does not start.
+#[test]
+fn ceiling_fails_when_github_cannot_give_the_asking_run() {
+    let workspace = Workspace::from_fixture("empty");
+    month_of(&workspace, 0);
+
+    let outcome = ceiling_asked(&workspace, &GitHub::serving(&[]), "constrained", "1");
+
+    assert_ne!(outcome.code, 0);
+    assert_eq!(value(&outcome, "admitted"), None);
+    assert!(
+        outcome.stderr.contains("reading run 7"),
+        "{}",
+        outcome.stderr
+    );
 }
 
 #[test]

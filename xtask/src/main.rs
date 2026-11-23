@@ -491,6 +491,14 @@ enum ResultsCommand {
         /// The job summary, `$GITHUB_STEP_SUMMARY`.
         #[arg(long)]
         summary: Option<PathBuf>,
+        /// The repository, and GitHub's API, whose visibility decides which
+        /// minutes bill.
+        #[command(flatten)]
+        github: github::Arguments,
+        /// The asking run, `$GITHUB_RUN_ID`, on which GitHub gives the
+        /// repository's visibility.
+        #[arg(long)]
+        run_id: u64,
     },
     /// Prints the tests that failed in a run attempt, for its diagnostic
     /// runs (ADR 0064): `matrix=<JSON>`, one entry each, at most 20, and
@@ -681,9 +689,23 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
             jobs,
             today,
             summary,
+            github,
+            run_id,
         } => {
             let summary = summary.as_ref().map(path);
-            ceiling::check(&path(&store), run, jobs, today, summary.as_deref())?;
+            let visibility = release_suite::visibility(
+                github.api(environment.token()),
+                &github.repository,
+                run_id,
+            )?;
+            ceiling::check(
+                &path(&store),
+                run,
+                jobs,
+                today,
+                visibility,
+                summary.as_deref(),
+            )?;
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Failed { attempt, os, arch } => {

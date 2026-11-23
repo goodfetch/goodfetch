@@ -101,10 +101,13 @@ jobs:
         id: ceiling
         env:
           HOSTED_COUNT: ${{ steps.hosted.outputs.count }}
+          # This run's repository visibility decides which minutes bill.
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run diagnostic --jobs "$HOSTED_COUNT" --today "$(date -u +%F)"
           --summary "$GITHUB_STEP_SUMMARY"
+          --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
           | tee -a "$GITHUB_OUTPUT"
       - name: Name the failed tests left undiagnosed
         env:

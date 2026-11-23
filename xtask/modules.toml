@@ -152,6 +152,7 @@ validate = ["models", "run", "tools"]
 [submodules.release]
 gates = []
 line = []
+publish = []
 
 # Which of `release_suite`'s own modules may import which.
 [submodules.release_suite]

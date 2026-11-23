@@ -8,6 +8,7 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-collie-client",
  "goodfetch-engine",
+ "goodfetch-workspace-hack",
 ]
 
 [[package]]
@@ -27,6 +28,10 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-collie",
 ]
+
+[[package]]
+name = "goodfetch-workspace-hack"
+version = "0.0.0"
 
 [[package]]
 name = "itoa"

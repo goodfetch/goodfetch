@@ -1,0 +1,26 @@
+---
+source: xtask/tests/it/release_publish.rs
+expression: outcome.stdout
+---
+github draft v1.4.0: create
+crates.io goodfetch-collie-client 1.4.0: publish
+crates.io goodfetch-engine 0.0.0: published
+crates.io goodfetch-collie 1.4.0: publish
+crates.io goodfetch-foxhound 1.4.0: publish
+npm @goodfetch/collie-client 1.4.0: publish
+npm @goodfetch/collie-darwin-arm64 1.4.0: publish
+npm @goodfetch/collie-darwin-x64 1.4.0: publish
+npm @goodfetch/collie-linux-arm64 1.4.0: publish
+npm @goodfetch/collie-linux-x64 1.4.0: publish
+npm @goodfetch/collie-win32-arm64 1.4.0: publish
+npm @goodfetch/collie-win32-x64 1.4.0: publish
+npm @goodfetch/collie 1.4.0: publish
+npm @goodfetch/foxhound-darwin-arm64 1.4.0: publish
+npm @goodfetch/foxhound-darwin-x64 1.4.0: publish
+npm @goodfetch/foxhound-linux-arm64 1.4.0: publish
+npm @goodfetch/foxhound-linux-x64 1.4.0: publish
+npm @goodfetch/foxhound-win32-arm64 1.4.0: publish
+npm @goodfetch/foxhound-win32-x64 1.4.0: publish
+npm @goodfetch/foxhound 1.4.0: publish
+github tag v1.4.0: push
+github release v1.4.0: publish

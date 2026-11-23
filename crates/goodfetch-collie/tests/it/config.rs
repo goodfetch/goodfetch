@@ -243,13 +243,7 @@ fn config_explain_shows_one_line_per_key_with_its_origin(#[case] mode: Mode) {
 #[test]
 fn config_explain_shows_the_happy_eyeballs_delays() {
     let env = TestEnv::new();
-    let layout = HomeLayout::of(env.home());
-    fs::create_dir_all(layout.per_major()).unwrap();
-    fs::write(
-        layout.user_configuration(),
-        "version = \"0.1\"\n\n[settings.resolver]\nattempt_delay = 100\n",
-    )
-    .unwrap();
+    env.user_configuration("resolver.attempt_delay = 100\n");
 
     let (stdout, _, succeeded) = explain(&env, Mode::Attached, &["resolver", "--json"]);
 
@@ -473,13 +467,7 @@ fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_
     };
     let by_default = TestEnv::new();
     let configured = TestEnv::new();
-    let layout = HomeLayout::of(configured.home());
-    fs::create_dir_all(layout.per_major()).unwrap();
-    fs::write(
-        layout.user_configuration(),
-        "version = \"0.1\"\n\n[settings.browser]\nheadless = false\n",
-    )
-    .unwrap();
+    configured.user_configuration("browser.headless = false\n");
 
     assert_eq!(
         (headless(&by_default), headless(&configured)),
@@ -618,13 +606,7 @@ fn config_explain_names_the_access_mode_a_stealth_item_yields_to(
     #[case] says: &str,
 ) {
     let env = TestEnv::new();
-    let layout = HomeLayout::of(env.home());
-    fs::create_dir_all(layout.per_major()).unwrap();
-    fs::write(
-        layout.user_configuration(),
-        "version = \"0.1\"\n\n[settings.stealth]\nhuman_input = true\n",
-    )
-    .unwrap();
+    env.user_configuration("stealth.human_input = true\n");
     let flags: Vec<&str> = set.iter().flat_map(|value| ["--set", value]).collect();
     let arguments = |json: bool| {
         let mut arguments = vec!["stealth.human_input"];

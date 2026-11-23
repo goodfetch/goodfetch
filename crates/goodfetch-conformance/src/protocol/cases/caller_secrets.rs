@@ -79,6 +79,16 @@ struct Opened {
     cancelled: Vec<Value>,
 }
 
+/// Whether the engine cancelled the first `secrets.resolve` it sent.
+fn cancelled_first(opened: &Opened) -> bool {
+    opened.asked.first().is_some_and(|request| {
+        opened
+            .cancelled
+            .iter()
+            .any(|cancel| cancel["params"]["id"] == request["id"])
+    })
+}
+
 /// Starts the Run `run_id` with `settings`, opens a page of it, its
 /// `secrets.resolve` answered as `resolver` says, and loads the storage
 /// page through it when it opened, as `mark`: what the engine sent while
@@ -98,13 +108,17 @@ fn opened_through(
         asked: Vec::new(),
         cancelled: Vec::new(),
     };
-    loop {
+    // The `$/cancel` of a request left unanswered may reach the program
+    // after the call's answer, so a silent resolver's case also waits for it.
+    while opened.answer.is_null()
+        || (matches!(resolver, Resolver::Silent)
+            && !opened.asked.is_empty()
+            && !cancelled_first(&opened))
+    {
         let message = connection.next_within(BROWSER_DEADLINE)?;
         if message.get("method").is_none() && message["id"] == json!(id) {
             opened.answer = message;
-            break;
-        }
-        if message["method"] == json!(SECRETS_RESOLVE.name) {
+        } else if message["method"] == json!(SECRETS_RESOLVE.name) {
             match resolver {
                 Resolver::Value(value) => connection.reply_secret(&message["id"], value)?,
                 Resolver::Fails => connection.fail(
@@ -236,15 +250,9 @@ fn not_answered(connection: &mut Connection, site: &Site, checks: &mut Checks) -
                 .as_str()
                 .is_some_and(|fix| fix.contains("resolveSecret")),
         );
-        let cancelled = opened.asked.first().is_some_and(|request| {
-            opened
-                .cancelled
-                .iter()
-                .any(|cancel| cancel["params"]["id"] == request["id"])
-        });
         checks.check(
             format!("`{run_id}`: a request left unanswered, and only it, is cancelled"),
-            cancelled == matches!(resolver, Resolver::Silent),
+            cancelled_first(&opened) == matches!(resolver, Resolver::Silent),
         );
     }
     Ok(())

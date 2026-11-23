@@ -129,7 +129,7 @@ fn failure(request: &Value, class: i64, code: &str) -> Value {
 /// the value, masks it in the call's result, and writes it nowhere in the
 /// Goodfetch home.
 ///
-/// Covers: story:4-59, error:secret_unavailable
+/// Covers: story:4-59
 #[test]
 fn a_callers_resolver_answers_a_caller_reference_which_is_used_masked_and_never_kept() {
     let env = TestEnv::new();
@@ -240,11 +240,12 @@ enum NoValue {
 /// `timeout.secret` each fail the use with `secret_unavailable`,
 /// `failure: "resolver_failed"`, and a fix naming `resolveSecret`; the
 /// request left unanswered is cancelled.
-///
-/// Covers: story:4-59, error:secret_unavailable, setting:timeout.secret
 #[rstest]
+/// Covers: story:4-59, error:secret_unavailable
 #[case::no_resolver(NoValue::NoResolver)]
+/// Covers: story:4-59, error:secret_unavailable
 #[case::threw(NoValue::Threw)]
+/// Covers: story:4-59, error:secret_unavailable, setting:timeout.secret
 #[case::no_answer(NoValue::NoAnswer)]
 fn a_caller_reference_no_resolver_answers_is_resolver_failed_naming_resolve_secret(
     #[case] no_value: NoValue,

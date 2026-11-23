@@ -284,6 +284,7 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 delegation = true
+store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [settings.politeness.proxy]
 concurrency = 4
@@ -701,6 +702,7 @@ age_notice = true
 [lock.politeness]
 sharing = "shared"
 delegation = true
+store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [lock.politeness.proxy]
 concurrency = 4

@@ -21,6 +21,7 @@ export type FoxhoundWireType =
   | "CrawlRunProgress"
   | "CrawlRunReport"
   | "CrawlStartParams"
+  | "DatasetKeyInvalidDetails"
   | "DatasetListParams"
   | "DatasetPage"
   | "DatasetPageParams"
@@ -32,16 +33,21 @@ export type FoxhoundWireType =
   | "ExportStreamParams"
   | "ExportStreamed"
   | "FailedRequests"
+  | "HandlerFailedDetails"
   | "HeldDomain"
   | "InFlightRequest"
   | "NotAddedAtCommit"
+  | "PayloadInvalidDetails"
+  | "PayloadSchemaChangedDetails"
   | "PaymentMark"
   | "RecordProvenance"
   | "RejectedRecord"
   | "RejectedRecords"
   | "RequestCounts"
   | "RequestProgress"
+  | "ResponseNotDocumentDetails"
   | "ResponseOrigin"
+  | "ResponseUnavailableDetails"
   | "RunAddSeedParams"
   | "RunAddSeedsParams"
   | "RunExportParams"
@@ -78,6 +84,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlRunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "concurrency": ["concurrency", { type: "CrawlConcurrency" }], "in_flight": ["inFlight", { items: { type: "InFlightRequest" } }], "pauses": ["pauses", { items: { type: "HumanPause" } }], "requests": ["requests", { type: "RequestProgress" }], "run_id": "runId", "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }], "waiting": ["waiting", { items: { type: "WaitGroup" } }] } },
     "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "CrawlStartParams": { fields: { "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "DatasetKeyInvalidDetails": { fields: { "began_with": "beganWith" } },
     "DatasetListParams": { fields: { "run_id": "runId" } },
     "DatasetPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
     "DatasetPageParams": { fields: { "run_id": "runId" } },
@@ -89,16 +96,21 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "ExportStreamParams": { fields: { "export_id": "exportId" } },
     "ExportStreamed": { fields: { "run_epoch": "runEpoch" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
+    "HandlerFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType" } },
     "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
     "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
     "NotAddedAtCommit": { fields: { "duplicate_of": "duplicateOf" } },
+    "PayloadInvalidDetails": { fields: { "max_size": "maxSize" } },
+    "PayloadSchemaChangedDetails": { fields: { "crawl_request_id": "crawlRequestId" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RejectedRecord": { fields: { "request_id": "requestId" } },
     "RejectedRecords": { fields: { "records": ["records", { items: { type: "RejectedRecord" } }] } },
     "RequestCounts": { fields: { "by_block_cause": "byBlockCause", "by_error_code": "byErrorCode", "by_skip_reason": "bySkipReason" } },
     "RequestProgress": { fields: { "by_block_cause": "byBlockCause", "by_error_code": "byErrorCode", "by_skip_reason": "bySkipReason", "in_human_pause": "inHumanPause" } },
+    "ResponseNotDocumentDetails": { fields: { "content_type": "contentType" } },
     "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
+    "ResponseUnavailableDetails": { fields: { "retry_after": ["retryAfter", "time"] } },
     "RunAddSeedParams": { fields: { "attempt": ["attempt", { type: "SeedAttempt" }], "run_id": "runId" } },
     "RunAddSeedsParams": { fields: { "run_id": "runId" } },
     "RunExportParams": { fields: { "run_id": "runId" } },

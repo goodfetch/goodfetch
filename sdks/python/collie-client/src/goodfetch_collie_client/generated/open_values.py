@@ -7,6 +7,19 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
+BlockCause: TypeAlias = Literal["challenge", "captcha", "rate_limit", "ip_block", "payment_required", "consent_required"] | str
+"""Why a site refused a page (ADR 0035), on the wire as written.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `challenge`: A page that checks the browser before it lets it through.
+- `captcha`: A page that asks a person to prove they are human.
+- `rate_limit`: The site refused because too many requests came too fast.
+- `ip_block`: The site refused the address the request came from.
+- `payment_required`: The site asked to be paid for the page (ADR 0045).
+- `consent_required`: A wall that asks for consent before it shows the page (ADR 0048).
+"""
+
 CancelledBy: TypeAlias = Literal["person", "client", "program", "browser"] | str
 """Who stopped a call that `call_cancelled` ended (ADR 0113): the
 vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open

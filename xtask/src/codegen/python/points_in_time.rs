@@ -57,12 +57,25 @@ fn replace(value: &mut Value, reference: &str) -> Result<()> {
                 object.remove("$ref");
                 name_client_type(object);
             } else if is_date_time(object) {
-                if object.get("type").and_then(Value::as_str) != Some("string") {
-                    bail!("a `date-time` whose type is not `string` alone: {object:?}");
-                }
+                let nullable = match object.get("type") {
+                    Some(Value::String(kind)) if kind == "string" => false,
+                    Some(Value::Array(kinds)) if *kinds == ["string", "null"] => true,
+                    _ => bail!(
+                        "a `date-time` whose type is neither `string` nor `string` or `null`: {object:?}"
+                    ),
+                };
                 object.remove("type");
                 object.remove("format");
-                name_client_type(object);
+                if nullable {
+                    let mut point = Map::new();
+                    name_client_type(&mut point);
+                    object.insert(
+                        "anyOf".to_owned(),
+                        serde_json::json!([point, { "type": "null" }]),
+                    );
+                } else {
+                    name_client_type(object);
+                }
             }
             object
                 .values_mut()

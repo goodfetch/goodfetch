@@ -125,6 +125,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "ruff-check",
 ];
 
+mod enum_members;
 mod handle_classes;
 pub(super) mod model_defaults;
 mod points_in_time;
@@ -174,6 +175,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         &mut input,
         &format!("{}.{OPEN_VALUES}", own_package(layer.product)),
     );
+    enum_members::with_free_member_names(&mut input);
     // The root holds no value: an empty model with a docstring, never
     // `RootModel[Any]`.
     input["type"] = Value::from("object");
@@ -751,7 +753,7 @@ fn error_class(code: &ErrorCode, class: &str) -> String {
         );
         set.push_str("        self.retry_after = retry_after_of(self.details)\n");
     }
-    if let Some(details) = &code.details {
+    if let Some(details) = code.class_details() {
         let name = &details.0;
         let _ = write!(
             field,
@@ -786,7 +788,7 @@ fn errors(layer: &Layer) -> String {
     let detail_types: BTreeSet<String> = layer
         .error_codes
         .iter()
-        .filter_map(|code| code.details.as_ref().map(|name| name.0.clone()))
+        .filter_map(|code| code.class_details().map(|name| name.0.clone()))
         .collect();
     let (details_helper, details_models) = if detail_types.is_empty() {
         (String::new(), String::new())

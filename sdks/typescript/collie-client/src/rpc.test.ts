@@ -2,7 +2,7 @@
 // writes, the replies it reads in any order, and how a call that cannot be
 // sent fails alone.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { encodeMessage } from "./framing.ts";
+import { encodeMessage, isRecord } from "./framing.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -353,11 +353,12 @@ describe("a Channel under the engine's cap on calls in flight", () => {
     await expect.poll(() => engine.written).toHaveLength(2);
     engine.send({ id: 1, result: "navigated" });
     await queued;
-    const sent = engine.written[1] as { params: { url: string; timeout: number } };
+    const sent = engine.written[1];
+    const params = isRecord(sent) && isRecord(sent["params"]) ? sent["params"] : {};
+    const left = params["timeout"];
 
-    expect(sent.params.url).toBe("https://example.test");
-    expect(sent.params.timeout).toBeGreaterThanOrEqual(1);
-    expect(sent.params.timeout).toBeLessThanOrEqual(960);
+    expect(params["url"]).toBe("https://example.test");
+    expect(typeof left === "number" && left >= 1 && left <= 960).toBe(true);
   });
 
   test(

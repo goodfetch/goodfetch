@@ -1900,6 +1900,44 @@ loom:
         cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
 
+# The Simulation's scenario `scenario` (ADR 0060): the tests of each
+# crate's `tests/it/simulation/<scenario>.rs`, built with `--cfg
+# tokio_unstable` in a folder of their own, `target/simulation/`, in the
+# suite GOODFETCH_TEST_SUITE names (Quick unless it names another).
+# `--plan <file>`, the command a failing scenario prints, runs only the
+# scenario's Fault plan tests, those named `…fault_plans`, each replaying
+# that plan alone (GOODFETCH_FAULT_PLAN).
+# Runs a Simulation scenario: `just simulate <scenario> [--plan <file>]`.
+[positional-arguments]
+simulate scenario *plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shift
+    filter="test(/^simulation::{{ scenario }}::/)"
+    if [[ $# -gt 0 ]]; then
+      if [[ $# -ne 2 || "$1" != --plan ]]; then
+        echo "usage: just simulate <scenario> [--plan <file>]" >&2
+        exit 2
+      fi
+      GOODFETCH_FAULT_PLAN=$(realpath -- "$2")
+      export GOODFETCH_FAULT_PLAN
+      filter="test(/^simulation::{{ scenario }}::.*fault_plans$/)"
+    fi
+    packages=()
+    while IFS= read -r file; do
+      manifest="$PWD/${file%/tests/it/simulation/*}/Cargo.toml"
+      packages+=(-p "$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" \
+        | jq -r --arg manifest "$manifest" '.packages[] | select(.manifest_path == $manifest) | .name')")
+    done < <(find crates -path '*/tests/it/simulation/{{ scenario }}.rs' -not -path '*/target/*')
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "error: no crate has the Simulation scenario {{ scenario }} (tests/it/simulation/{{ scenario }}.rs)" >&2
+      exit 2
+    fi
+    {{ just_executable() }} _test-tools
+    GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-quick}" GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json" \
+      RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
+      cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} -E "$filter"
+
 # Builds Miri's sysroot, which fetches the standard library's dependencies,
 # so CI runs it before the egress deny; nothing while no module opts in.
 miri-setup:

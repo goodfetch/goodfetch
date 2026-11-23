@@ -9,6 +9,9 @@ use crate::workspace::{Finding, Workspace, finding};
 
 const CASES: &str = "conformance/clients/cases.toml";
 const COLLIE_CASES: &str = "crates/goodfetch-collie/tests/it/client_conformance.rs";
+/// Foxhound's executable crate's tests, which carry the Foxhound case
+/// `crawl-resumes`.
+const FOXHOUND_TESTS: &str = "crates/goodfetch-foxhound/tests/it/main.rs";
 const HELLO_REFUSED: &str = "crates/goodfetch-collie/tests/it/client_conformance/hello_refused.rs";
 const ATTACHED_ENGINE_STOPS: &str =
     "crates/goodfetch-collie/tests/it/client_conformance/attached_engine_stops.rs";
@@ -63,11 +66,35 @@ fn check_notes_each_listed_surface_whose_tests_it_does_not_read_without_listings
     "",
     vec![finding("missing", "hello-refused cli daemon")],
 )]
-#[case::case_missing_from_the_other_products_crate(
-    "crates/goodfetch-foxhound/tests/it/main.rs",
+#[case::foxhound_case_missing_from_foxhounds_crate(
+    FOXHOUND_TESTS,
     "        #[test]\n        fn daemon() {}\n",
     "",
     vec![finding("missing", "crawl-resumes cli daemon")],
+)]
+#[case::collie_case_tested_in_foxhounds_crate_only(
+    CASES,
+    "product = \"foxhound\"\n",
+    "",
+    vec![
+        finding("missing", "crawl-resumes cli attached"),
+        finding("missing", "crawl-resumes cli daemon"),
+    ],
+)]
+#[case::foxhound_case_tested_in_collies_crate(
+    COLLIE_CASES,
+    "mod hello_refused;\n",
+    "mod hello_refused;\n\nmod crawl_resumes {\n    #[test]\n    fn attached() {}\n}\n",
+    vec![finding(
+        "other-product",
+        "goodfetch-collie::it client_conformance::crawl_resumes::attached",
+    )],
+)]
+#[case::case_naming_an_unknown_product(
+    CASES,
+    "product = \"foxhound\"",
+    "product = \"beagle\"",
+    vec![finding("schema", CASES)],
 )]
 #[case::test_carrying_an_unknown_case(
     COLLIE_CASES,

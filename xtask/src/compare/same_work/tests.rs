@@ -150,6 +150,42 @@ fn a_run_that_names_one_cell_counts_the_trials_of_that_cell_alone() {
     );
 }
 
+/// A run that names scenario 1's two Foxhound cells alone (#2175) holds the
+/// first to the requests served by the main rows held to them: the cell at
+/// the defaults samples, so its pages fetched twice cast no vote there, and
+/// it is held to the pages first served, where both cells vote.
+#[test]
+fn a_sampling_rows_requests_cast_no_vote_for_the_requests_served() {
+    let cells = ["raw/foxhound", "raw/foxhound defaults"];
+    let mut trials = comparison(|_, _| work(0));
+    trials.declared.cells = cells.map(str::to_owned).to_vec();
+    of_cells(&mut trials, &cells);
+    for trial in &mut trials.trials {
+        if trial.cell == matrix::AT_DEFAULTS {
+            let work = &mut trial.measured.work;
+            work.requests += 1;
+            work.bytes += 600;
+        }
+    }
+    let sampled = named(&trials);
+    for trial in &mut trials.trials {
+        if trial.cell == matrix::AT_DEFAULTS && trial.number == 2 {
+            trial.measured.work.first_bytes += 1;
+        }
+    }
+
+    assert_eq!(
+        (sampled, named(&trials)),
+        (
+            vec![],
+            vec![(
+                "different_bytes",
+                "raw foxhound defaults trial 2".to_owned()
+            )]
+        )
+    );
+}
+
 /// A run that names no cell measures every cell of its scenarios, and the
 /// check counts every one: each cell with no trial is short of its
 /// declared trials.

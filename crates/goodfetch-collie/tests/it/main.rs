@@ -51,6 +51,7 @@ mod commands;
 mod config;
 mod daemon;
 mod daemon_commands;
+mod daemon_kills;
 mod daemon_log;
 mod daemon_run;
 mod doctor;

@@ -23,9 +23,9 @@
 //   has the `@experimental` tag;
 // - `required_member`, whether it is a property an interface requires.
 //
-// An entry point under a `generated` folder, and a declaration in a
-// generated file, are the generator's, which `xtask api-check` judges
-// through the catalog, and are left out.
+// The generated layer is read as the rest is: its entry points, such as
+// `@goodfetch/collie-client/generated`, and the declarations an entry
+// re-exports from a generated file are public API a program imports.
 import { Extractor, ExtractorConfig } from "@microsoft/api-extractor";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -52,18 +52,16 @@ for (const folder of packages) {
   const declarations = join(out, folder, "declarations");
   declare(source, declarations);
   writeFileSync(join(declarations, "package.json"), JSON.stringify({ name: manifest.name }));
-  const entries = Object.entries(manifest.exports ?? {})
-    .filter(([subpath]) => !subpath.split("/").includes("generated"))
-    .map(([subpath, file]) => {
-      const entry = subpath === "." ? manifest.name : manifest.name + subpath.slice(1);
-      const declared = join(
-        declarations,
-        relative(join(source, "src"), resolve(source, file)),
-      ).replace(/\.ts$/, ".d.ts");
-      if (!existsSync(declared)) throw new Error(`${entry}: TypeScript wrote no ${declared}`);
-      paths[entry] = [declared];
-      return [entry, declared];
-    });
+  const entries = Object.entries(manifest.exports ?? {}).map(([subpath, file]) => {
+    const entry = subpath === "." ? manifest.name : manifest.name + subpath.slice(1);
+    const declared = join(
+      declarations,
+      relative(join(source, "src"), resolve(source, file)),
+    ).replace(/\.ts$/, ".d.ts");
+    if (!existsSync(declared)) throw new Error(`${entry}: TypeScript wrote no ${declared}`);
+    paths[entry] = [declared];
+    return [entry, declared];
+  });
   for (const [entry, declared] of entries) {
     const slug = entry.replace(/[@/]/g, "_");
     const model = join(out, folder, `${slug}.api.json`);
@@ -159,7 +157,6 @@ function extract(projectFolder, entryFile, reportFolder, slug, model) {
 
 // Adds `item` and its members to `items`.
 function walk(item, entry, top, enclosingExperimental, parentKind) {
-  if ((item.fileUrlPath ?? "").split("/").includes("generated")) return;
   const experimental = enclosingExperimental || /@experimental\b/.test(item.docComment ?? "");
   const reference = item.canonicalReference ?? item.name;
   const tokens = item.excerptTokens ?? [];

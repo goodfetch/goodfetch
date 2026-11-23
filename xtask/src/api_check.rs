@@ -25,7 +25,7 @@
 //!
 //! The Collie client packages carry, beside Collie's projection, the
 //! bundle's `connection` section, which is compared too ([`connection`]);
-//! their hand-written code is `xtask sdk-api`'s and `xtask
+//! their code, generated and hand-written, is `xtask sdk-api`'s and `xtask
 //! semver-checks`'.
 //!
 //! An entry that was Experimental may change in any way, and a break that

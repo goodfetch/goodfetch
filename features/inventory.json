@@ -1938,6 +1938,17 @@
       ]
     },
     {
+      "id": "error:page_navigated_during_call",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_value_invalid",
       "kind": "error",
       "area": 5,

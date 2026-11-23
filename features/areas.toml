@@ -1326,6 +1326,14 @@ number = 11
 kind = "error"
 prefix = "not_verified"
 
+# The Error code an AI verb fails with when a navigation it did not start
+# replaces the document it read, which the SDKs' error catalog declares
+# (ADR 0114; issue 3168).
+[[area]]
+number = 11
+kind = "error"
+prefix = "page_navigated_during_call"
+
 # The Error code an SDK raises for a listener of published events that fell
 # too far behind its own queue (ADR 0081; issue 2986).
 [[area]]

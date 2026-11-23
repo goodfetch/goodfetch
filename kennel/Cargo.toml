@@ -99,7 +99,7 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(goodfetch_without_opentelemetry)", "cfg(tokio_unstable)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

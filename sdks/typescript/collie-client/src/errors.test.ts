@@ -16,12 +16,14 @@ import {
   InternalError,
   isCollieError,
   PageError,
+  PageNavigatedDuringCallError,
   ProgramError,
   SettingInvalidError,
   type ArtifactDownloadFailedDetails,
   type CallCancelledDetails,
   type ErrorGroup,
   type HookFailedDetails,
+  type PageNavigatedDuringCallDetails,
 } from "./generated/index.ts";
 
 interface CatalogCode {
@@ -340,6 +342,29 @@ describe("errorOfReply", () => {
       status: 503,
     });
     expect(error.fix).toBe("Retry, or install beforehand with `collie browser install`.");
+  });
+
+  // ADR 0079: a page that navigated during a call reads only where it went
+  // as its details; the page it left is the error's `url`.
+  test("reads page_navigated_during_call's details as where the page went", () => {
+    const error = errorOfReply(
+      {
+        code: -32003,
+        message: "the page navigated during the call",
+        data: {
+          code: "page_navigated_during_call",
+          retryable: true,
+          url: "https://example.com/cart",
+          navigated_to: "https://example.com/login",
+        },
+      },
+      collieErrorClasses,
+    );
+
+    const details: Readonly<PageNavigatedDuringCallDetails> | undefined =
+      error instanceof PageNavigatedDuringCallError ? error.typedDetails : undefined;
+    expect(details).toEqual({ navigatedTo: "https://example.com/login" });
+    expect(error.url).toBe("https://example.com/cart");
   });
 
   test("gives an error with no call log an empty one", () => {

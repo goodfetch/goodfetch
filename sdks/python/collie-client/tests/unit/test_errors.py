@@ -21,6 +21,7 @@ from goodfetch_collie_client.generated.errors import (
     HookFailedError,
     InternalError,
     PageError,
+    PageNavigatedDuringCallError,
     ProgramError,
     SettingInvalidError,
 )
@@ -402,6 +403,31 @@ def test_artifact_download_failed_reads_its_pinners_typed_beside_its_failure() -
     assert (product.name, product.version.root) == ("collie", "0.1.0")
     assert (plugin.name, plugin.version) == ("stealth", "2.0.0")
     assert error.fix == "Retry, or install beforehand with `collie browser install`."
+
+
+def test_page_navigated_during_call_reads_where_the_page_went_typed() -> None:
+    """A page that navigated during a call reads where it went (ADR 0079).
+
+    The page it left is the error's `url`, which every error carries.
+    """
+    error = error_of_reply(
+        {
+            "code": -32003,
+            "message": "the page navigated during the call",
+            "data": {
+                "code": "page_navigated_during_call",
+                "retryable": True,
+                "url": "https://example.com/cart",
+                "navigated_to": "https://example.com/login",
+            },
+        },
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, PageNavigatedDuringCallError)
+    assert error.typed_details is not None
+    assert error.typed_details.navigated_to == "https://example.com/login"
+    assert error.url == "https://example.com/cart"
 
 
 def test_call_cancelled_naming_no_one_who_stopped_it_has_no_typed_details() -> None:

@@ -221,6 +221,34 @@ covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
+# and Python SDKs on an Attached engine, the Rust SDK `linked`. A Rust
+# program reads a page's `EventStream` itself, so no listener of its throws
+# and this case's `listener_failed` has no Rust form (a crawl context's
+# `for_each` raises it, ADR 0111): its test checks the console in order and
+# the page open once its stream is dropped.
+[[capability.case]]
+id = "listeners-in-order-and-a-thrower-raises-listener-failed"
+covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# A program's Sessions (ADRs 0092 and 0078; issue 1310): `run.newSession`
+# sends its `source`, ADR 0056's tagged union, as the call's own argument
+# beside its `settings`, and `source: null` as null for a fresh Session;
+# each Session's pages are its own, and closing one closes its pages, whose
+# later calls raise `closed` without a message, while the other Session and
+# the Run's default Session open pages still. A `domains` entry that is no
+# registrable domain raises `SettingInvalidError` whose `fix` names the
+# registrable one. Played by the Scripted engine: attached in TypeScript
+# and Python (asyncio, Trio and the sync API), and as the Daemon Rust's
+# client crate reaches.
+[[capability.case]]
+id = "sessions-open-from-their-source"
+covers = ["story:11-92"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
 # `page.request` through the page's Session (issue 1303, ADRs 0085 and
 # 0118), on the Proving ground: the request carries the cookie a page of
 # the Session got and leaves through the Run's proxy, as the Proving
@@ -239,18 +267,6 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
 covers = ["story:11-87", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
-surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = ["attached", "linked"]
-
-# A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
-# and Python SDKs on an Attached engine, the Rust SDK `linked`. A Rust
-# program reads a page's `EventStream` itself, so no listener of its throws
-# and this case's `listener_failed` has no Rust form (a crawl context's
-# `for_each` raises it, ADR 0111): its test checks the console in order and
-# the page open once its stream is dropped.
-[[capability.case]]
-id = "listeners-in-order-and-a-thrower-raises-listener-failed"
-covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 

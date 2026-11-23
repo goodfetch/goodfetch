@@ -251,6 +251,9 @@ rows! {
     ActionFillCommands => "C3.commands.fill", "action", "fill_commands";
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
     ActionPressCommands => "C3.commands.press", "action", "press_commands";
+    /// `C3.owner_round_trips`: an ask an action's attempt sends its Page's
+    /// owner and awaits the answer to (ADR 0146).
+    ActionOwnerRoundTrips => "C3.owner_round_trips", "action", "owner_round_trips";
     /// `F2.transactions`: a transaction on a run file: a commit its commit
     /// hook saw, and each job the writer folded into a commit's group, so the
     /// count does not depend on how commits group (ADR 0138's note).
@@ -412,6 +415,9 @@ rows! {
     /// sends, held per `page.read` at one field and at twenty (ADR 0147):
     /// one engine read, whatever its fields.
     PageFieldReadCommands => "C2.read_commands", "page_read", "read_commands";
+    /// `C2.owner_round_trips`: an ask an engine read in a frame sends its
+    /// Page's owner and awaits the answer to (ADR 0146).
+    PageReadOwnerRoundTrips => "C2.owner_round_trips", "page_read", "owner_round_trips";
     /// `E4.configuration_reads`: a settings file read for a governor sample.
     GovernorConfigurationReads => "E4.configuration_reads", "governor_sample", "configuration_reads";
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
@@ -436,6 +442,10 @@ rows! {
     /// pool makes as it opens, once for the Session's life; a Borrowed
     /// browser's Session finds the default one and makes none.
     ContextsCreated => "C7.contexts_created", "page_opening", "contexts_created";
+    /// `C7.page_tasks`: a task or an actor a page's opening starts, from
+    /// its target's creation to its last set-up (ADR 0146): a task one of
+    /// those starts later counts nothing here.
+    PageTasks => "C7.page_tasks", "page_opening", "page_tasks";
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
     InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";

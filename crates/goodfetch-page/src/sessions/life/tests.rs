@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue,
 };
@@ -21,7 +22,7 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use super::{Ending, PageLife, SessionLife};
-use crate::errors::{network_error, renderer_crashed};
+use crate::errors::{network_error, page_panicked, renderer_crashed};
 use crate::sessions::lifecycle::{
     Attributes, Owner, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent, SessionState,
     Source,
@@ -226,6 +227,11 @@ fn in_flight_then_later(life: &PageLife, ending: &Ending) -> (CallError, CallErr
     Ending::LeaseEnded(withheld()),
     ("call_cancelled", json!({ "by": "program" })),
     ("closed", json!({ "page_id": "page-1" }))
+)]
+#[case::a_panic_of_its_owners_task(
+    Ending::Panicked(page_panicked(&Metrics::default(), &PageId("page-1".to_owned()), None)),
+    ("engine_panicked", json!({ "ended": "page", "id": "page-1" })),
+    ("engine_panicked", json!({ "ended": "page", "id": "page-1" }))
 )]
 #[case::its_renderer_crashed(
     Ending::RendererCrash,
@@ -727,5 +733,5 @@ fn a_page_ended_past_its_memory_cap_stays_so_whatever_ends_its_close(
         life.end(ending).expect("each end is one the table takes");
     }
 
-    assert_eq!(life.ended_past_cap(), past);
+    assert_eq!(life.keeps_its_end(), past);
 }

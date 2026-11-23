@@ -15,7 +15,9 @@
 
 use std::sync::Arc;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::runs::Run;
+use goodfetch_protocol::connection::ENGINE_PANICKED;
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PageEventName};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
@@ -25,7 +27,7 @@ use tokio::sync::mpsc;
 use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
 use super::{OpenPage, PageLife, Session, Sessions};
-use crate::driver::Lost;
+use crate::driver::{Lost, PageDriver};
 use crate::errors::run_stopped;
 use crate::pool::BrowserLoss;
 
@@ -35,7 +37,8 @@ impl Sessions {
     /// Usage (ADR 0040), a browser's once its caller counted it; a page that
     /// closed emits `close`, then leaves with its events and routes, so later
     /// calls raise `closed`, or `page_memory_exceeded` again for one ended
-    /// past its memory cap; a page whose browser crashed leaves its browser,
+    /// past its memory cap and `engine_panicked` again for one a panic of
+    /// its owner's tasks closed; a page whose browser crashed leaves its browser,
     /// as a released one does.
     pub(super) async fn page_ended(
         &self,
@@ -70,12 +73,13 @@ impl Sessions {
                 }
                 let mut state = self.state.lock().await;
                 state.pages.remove(page_id);
-                // One the Resource governor ended past its memory cap goes
-                // straight to the ended pages under the same lock, so a
-                // call finds it in one or the other and raises
-                // `page_memory_exceeded` again until its Run stops; once
-                // the Run's clean-up took it out, nothing keeps it.
-                if life.ended_past_cap() && state.runs.contains_key(run.id()) {
+                // One the Resource governor ended past its memory cap, or a
+                // panic of one of its owner's tasks closed, goes straight
+                // to the ended pages under the same lock, so a call finds
+                // it in one or the other and raises `page_memory_exceeded`
+                // or `engine_panicked` again until its Run stops; once the
+                // Run's clean-up took it out, nothing keeps it.
+                if life.keeps_its_end() && state.runs.contains_key(run.id()) {
                     state
                         .crashed
                         .insert(page_id.clone(), (run.id().clone(), life.clone()));
@@ -192,8 +196,9 @@ impl Sessions {
     }
 
     /// Follows the page `page_id`, which `page` is, of the Session `open`,
-    /// in its Run's browser `browser`, until it ends: its lease ended, which
-    /// closes its target, a target the browser destroyed, a renderer that
+    /// in its Run's browser `browser`, until it ends: its lease ended, or a
+    /// panic of one of its owner's tasks, either of which closes its target
+    /// (ADR 0148), a target the browser destroyed, a renderer that
     /// crashed, or its browser lost, which ends its Session too when the
     /// Session is seated there. Once its Run stops, or the engine closes
     /// its browser, its calls in flight end with the Run's close (ADR
@@ -202,6 +207,7 @@ impl Sessions {
         let sessions = self.clone();
         let OpenPage {
             driver,
+            owner,
             life,
             run,
             session,
@@ -227,6 +233,9 @@ impl Sessions {
                         Err(error) => tracing::error!(%error, "a page's end was refused"),
                     }
                     return;
+                }
+                panicked = owner.panicked() => {
+                    return sessions.close_panicked(&page_id, &run, &life, &driver, panicked).await;
                 }
             };
             let ending = match &lost {
@@ -263,6 +272,40 @@ impl Sessions {
                 tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
             }
         });
+    }
+
+    /// Closes the page `page_id` of `run`, whose state `life` is, through
+    /// `driver`, as a panic of one of its owner's tasks asks (ADR 0148):
+    /// its calls in flight and its later calls raise `panicked`, its Run
+    /// trace records `engine_panicked`, and its target closes, the close
+    /// confirmed; its Session and its Run go on.
+    async fn close_panicked(
+        &self,
+        page_id: &PageId,
+        run: &Run,
+        life: &PageLife,
+        driver: &PageDriver,
+        panicked: CallError,
+    ) {
+        tracing::error!(
+            page_id = %page_id.0,
+            "a task of the page's owner panicked: the engine closes the page alone"
+        );
+        run.record_outcome(ENGINE_PANICKED.name);
+        match life.end(&Ending::Panicked(panicked)) {
+            Ok(PageEffect::Close) => {}
+            // Something else ended it first, which its own end acts on.
+            Ok(_) => return,
+            Err(error) => {
+                tracing::error!(%error, "a page's end on a panic was refused");
+                return;
+            }
+        }
+        driver.close().await;
+        match life.end(&Ending::Destroyed) {
+            Ok(effect) => self.page_ended(page_id, run, life, effect).await,
+            Err(error) => tracing::error!(%error, "a page's end was refused"),
+        }
     }
 }
 

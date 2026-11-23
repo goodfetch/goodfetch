@@ -23,7 +23,7 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
-use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
+use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue, ENGINE_PANICKED};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
 use goodfetch_protocol::page::{BrowserExit, PAGE_CRASHED, PageId, SessionId};
 use goodfetch_protocol::settings::SettingLimit;
@@ -74,12 +74,16 @@ pub(crate) enum Ending {
     /// stop raises for its calls in flight, the Limit it reached or the
     /// program's close of its Session.
     RunStopped(CallError),
+    /// A panic of one of its owner's tasks closed it (a `Close` the engine
+    /// makes, ADR 0148): the `engine_panicked` its calls in flight and its
+    /// later calls raise.
+    Panicked(CallError),
 }
 
 impl Ending {
     fn event(&self) -> PageEvent {
         match self {
-            Self::Closed(_) | Self::RunStopped(_) => PageEvent::Close,
+            Self::Closed(_) | Self::RunStopped(_) | Self::Panicked(_) => PageEvent::Close,
             Self::Destroyed => PageEvent::TargetDestroyed,
             Self::RendererCrash => PageEvent::RendererCrash,
             Self::BrowserQuit => PageEvent::BrowserQuit,
@@ -209,14 +213,12 @@ impl PageLife {
         self.shared.past_cap.set(()).is_ok()
     }
 
-    /// Whether the Resource governor ended the page past its memory cap:
-    /// its later calls raise `page_memory_exceeded` again once it left.
-    pub(crate) fn ended_past_cap(&self) -> bool {
-        self.shared
-            .ended
-            .borrow()
-            .as_ref()
-            .is_some_and(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+    /// Whether the page's later calls raise what ended it again once it
+    /// left: the Resource governor ended it past its memory cap
+    /// (`page_memory_exceeded`), or a panic of one of its owner's tasks
+    /// closed it (`engine_panicked`).
+    pub(crate) fn keeps_its_end(&self) -> bool {
+        self.shared.ended.borrow().as_ref().is_some_and(kept_end)
     }
 
     /// Waits until no call on the page is in flight: its safe point, where
@@ -414,7 +416,7 @@ impl PageLife {
                 .ended
                 .borrow()
                 .clone()
-                .filter(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+                .filter(kept_end)
                 .unwrap_or_else(|| page_closed(&self.shared.page_id)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared
@@ -476,9 +478,10 @@ impl PageLife {
             (PageEffect::Close, Ending::Closed(closed)) => {
                 Some(cancelled(CancelledBy::Program, closed.clone()))
             }
-            (PageEffect::Close, Ending::LeaseEnded(withheld) | Ending::RunStopped(withheld)) => {
-                Some(withheld.clone())
-            }
+            (
+                PageEffect::Close,
+                Ending::LeaseEnded(raised) | Ending::RunStopped(raised) | Ending::Panicked(raised),
+            ) => Some(raised.clone()),
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),
@@ -555,6 +558,12 @@ async fn ending(ended: &mut watch::Receiver<Option<CallError>>) -> Option<CallEr
         .await
         .ok()
         .and_then(|raised| raised.clone())
+}
+
+/// Whether `ended`, what ended a page that closed, is what its later calls
+/// raise in place of `closed`: `page_memory_exceeded` or `engine_panicked`.
+fn kept_end(ended: &CallError) -> bool {
+    [PAGE_MEMORY_EXCEEDED.name, ENGINE_PANICKED.name].contains(&ended.code())
 }
 
 /// `closed` for the page `page`.

@@ -236,6 +236,10 @@ fn units(session: &session::Counted) -> Map<String, Value> {
         ("refusals".to_owned(), json!(session.refused)),
         ("checks".to_owned(), json!(session.checks)),
         ("navigations".to_owned(), json!(session.navigations)),
+        (
+            "attempts".to_owned(),
+            json!(session.attempts.values().sum::<u64>()),
+        ),
     ]);
     units.extend(
         session

@@ -137,6 +137,8 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
         .map(|row| counted.count(row)),
         [10, 4, 8]
     );
+    // Only a click asks its Page's owner yet (issue 3253), once an attempt.
+    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 2);
 }
 
 /// A plant adds one unit of its row per command, which takes the row past
@@ -219,7 +221,7 @@ fn each_read_counts_its_commands_and_its_world() {
     assert_eq!((counted.reads, counted.documents), (6, 3));
     assert_eq!(
         READ_ROWS.map(|row| counted.count(row)),
-        [2 * counted.reads, counted.reads, counted.reads]
+        [2 * counted.reads, counted.reads, counted.reads, 0]
     );
     assert_eq!(counted.read_commands, counted.count(Row::PageReadCommands));
 }
@@ -287,6 +289,7 @@ fn a_planted_unit_adds_two_a_serialization() {
 #[case::commands(Row::PageReadCommands, 2)]
 #[case::world_creations(Row::PageReadWorldCreations, 1)]
 #[case::document_worlds(Row::PageReadDocumentWorlds, 1)]
+#[case::owner_round_trips(Row::PageReadOwnerRoundTrips, 0)]
 fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
     let counted = run(Some(row));
 
@@ -307,6 +310,7 @@ fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
 #[case::click_commands(Row::ActionClickCommands)]
 #[case::fill_commands(Row::ActionFillCommands)]
 #[case::press_commands(Row::ActionPressCommands)]
+#[case::owner_round_trips(Row::ActionOwnerRoundTrips)]
 fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
     let unplanted = run(None);
 

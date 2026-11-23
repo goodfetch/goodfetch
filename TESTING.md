@@ -199,9 +199,11 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.serialization_commands` | CDP commands per serialization of a page for its formats (`DOM.getDocument`, `DOM.getOuterHTML`) | 2 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.read_commands` | CDP commands per `page.read`, at one field and at twenty (ADR 0147); Exception X10 names it until the Shared paths spec: every read makes its isolated world, so it reads 2 on today's read path | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C2.owner_round_trips` | asks to its Page's owner per engine read in a frame (ADR 0146); no read passes through the owner until #2271 moves them there, which raises the figure up to the Contract | 1 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | click 5, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.owner_round_trips` | asks to its Page's owner per action attempt, over every kind's attempts (ADR 0146); only a click passes through the owner until spec #2256 moves the other actions there, which raises the figure up to the Contract | 1 | 0.334 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.script_compilations` | script compilations per navigation | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
@@ -216,6 +218,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C7.pool_walks` | memory walks per page opened in the browser pool (ADR 0143; was `E4.pool_walks`) | 0 | 0.667 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C7.opening_commands` | CDP commands awaited in turn per page target created, before the page is ready (owner, 2026-11-10, G-05 Q9); sending them together is #2183's write-up's (#2254 Q7) | no cap (ratchet) | 13 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C7.contexts_created` | browser contexts created per Session opened in the browser pool (ADR 0143); a Borrowed browser's Session makes none | ≤ 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C7.page_tasks` | tasks and actors a page's opening starts itself per page opened, its Page's owner among them (ADR 0146); those they start in turn are theirs; its figure follows the settings (9 with the Filter lists off, 8 with Consent handling off) | no cap (ratchet) | 11 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.deep_copies` | deep copies per incoming message | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.encodes` | encodes per answer or event | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.decodes` | decodes of its params per request, straight into typed params | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |

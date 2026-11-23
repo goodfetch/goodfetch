@@ -68,6 +68,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::tasks;
 use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -231,9 +232,13 @@ tokio::task_local! {
 }
 
 /// Runs `opening`, a page's opening, from its target's creation to its last
-/// set-up, counting each command it sends on `C7.opening_commands`.
-pub(crate) async fn counted_as_opening<F: Future>(opening: F) -> F::Output {
-    OPENING.scope((), opening).await
+/// set-up, counting each command it sends on `C7.opening_commands` and
+/// each task it starts on `C7.page_tasks`, on `work`, its Run's.
+/// The opening is boxed, once a page: its two scopes would otherwise grow
+/// every future that awaits it.
+pub(crate) async fn counted_as_opening<F: Future>(work: &CountedWork, opening: F) -> F::Output {
+    let opening = Box::pin(OPENING.scope((), opening));
+    tasks::counting_starts(work.clone(), Row::PageTasks, opening).await
 }
 
 /// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
@@ -843,7 +848,8 @@ impl<B: Connect> SessionDriver<B> {
     /// deadline its Run's `timeout.navigation`.
     pub(crate) async fn new_page(&self, visibility: Visibility) -> Result<PageDriver, CallError> {
         let browser = self.browser.connect().await?;
-        counted_as_opening(self.new_page_in(browser, visibility)).await
+        let work = browser.work.clone();
+        counted_as_opening(&work, self.new_page_in(browser, visibility)).await
     }
 
     /// Opens a page in the Session, of `visibility`, in its browser

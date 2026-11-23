@@ -192,10 +192,11 @@ pub(crate) fn identified() -> Map<String, Value> {
 const READS: usize = 2;
 
 /// The rows C2's reads count, read over the reads alone.
-pub(crate) const READ_ROWS: [Row; 3] = [
+pub(crate) const READ_ROWS: [Row; 4] = [
     Row::PageReadCommands,
     Row::PageReadWorldCreations,
     Row::PageReadDocumentWorlds,
+    Row::PageReadOwnerRoundTrips,
 ];
 
 /// The rows a page's serialization for its formats counts, read over those
@@ -217,12 +218,13 @@ const READ_FIELDS: &str = include_str!("../src/fields/read.js");
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
-const ACTION_ROWS: [Row; 5] = [
+const ACTION_ROWS: [Row; 6] = [
     Row::ActionScriptSends,
     Row::ActionCheckCommands,
     Row::ActionClickCommands,
     Row::ActionFillCommands,
     Row::ActionPressCommands,
+    Row::ActionOwnerRoundTrips,
 ];
 
 /// The range the pages' address is in, which the Run lists in

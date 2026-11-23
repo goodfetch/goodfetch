@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 141] = [
+const ROWS: [Row; 144] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -534,6 +534,15 @@ const ROWS: [Row; 141] = [
         family: "B2",
         unit: "sessions_opened",
         happens: false,
+        valgrind: None,
+    },
+    // The tasks and actors a page's opening starts itself, its Page's owner
+    // among them (ADR 0146); those they start in turn are theirs.
+    Row {
+        name: "C7.page_tasks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -964,6 +973,15 @@ const ROWS: [Row; 141] = [
         happens: true,
         valgrind: None,
     },
+    // An engine read's ask to its Page's owner (ADR 0146): no read passes
+    // through the owner until issue 2271 moves them there.
+    Row {
+        name: "C2.owner_round_trips",
+        family: "B2",
+        unit: "reads",
+        happens: false,
+        valgrind: None,
+    },
     Row {
         name: "C5.fetch_messages_no_rule",
         family: "B2",
@@ -1045,6 +1063,15 @@ const ROWS: [Row; 141] = [
         name: "C3.commands.press",
         family: "B2",
         unit: "press_attempts",
+        happens: true,
+        valgrind: None,
+    },
+    // An action attempt's ask to its Page's owner (ADR 0146), over every
+    // kind's attempts.
+    Row {
+        name: "C3.owner_round_trips",
+        family: "B2",
+        unit: "attempts",
         happens: true,
         valgrind: None,
     },

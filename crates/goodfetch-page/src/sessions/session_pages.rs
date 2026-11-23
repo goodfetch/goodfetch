@@ -199,6 +199,13 @@ impl Drop for Listening {
 }
 
 impl Sessions {
+    /// The ID of the next page the engine opens.
+    async fn next_page_id(&self) -> PageId {
+        let mut state = self.state.lock().await;
+        state.opened_pages += 1;
+        PageId(format!("page-{}", state.opened_pages))
+    }
+
     /// Takes in the page `adopting` describes as one of its Session's: it is
     /// named, followed and announced, and its Session's popups handed back
     /// to it; `closed` when its Session closed meanwhile.
@@ -220,11 +227,7 @@ impl Sessions {
         let run = open.run.clone();
         let session = &super::session_id(run.id(), open.position);
         let action_timeout = action_timeout(&run);
-        let page = {
-            let mut state = self.state.lock().await;
-            state.opened_pages += 1;
-            PageId(format!("page-{}", state.opened_pages))
-        };
+        let page = self.next_page_id().await;
         let browser = in_browser.browser();
         let taken_in = TakenIn {
             sessions: self,
@@ -272,7 +275,13 @@ impl Sessions {
         // Nothing awaits from here until the page is in the table.
         let in_browser = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
-        let owner = PageOwner::start(&open.owner, identity(&run).span(), page_closed(&page));
+        let owner = PageOwner::start(
+            &open.owner,
+            identity(&run).span(),
+            &page,
+            page_closed(&page),
+            run.metrics(),
+        );
         let opened = OpenPage {
             clock: run.clock(),
             run,

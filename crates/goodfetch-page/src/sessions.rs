@@ -733,15 +733,18 @@ impl Sessions {
             .with_reader(self.handler_pages.reader(run.id(), session));
         let open_session = Arc::clone(&open);
         // Its set-up is the rest of its opening (ADR 0140's C7).
-        let page = counted_as_opening(self.adopt(session_pages::Adopting {
-            observer: self.handler_pages.observer(run.id(), session),
-            settings,
-            open,
-            driver,
-            in_browser,
-            admission,
-            events: context.events().clone(),
-        }))
+        let page = counted_as_opening(
+            run.metrics().counted_work(),
+            self.adopt(session_pages::Adopting {
+                observer: self.handler_pages.observer(run.id(), session),
+                settings,
+                open,
+                driver,
+                in_browser,
+                admission,
+                events: context.events().clone(),
+            }),
+        )
         .await?;
         tracing::Span::current().record("page_id", page.0.as_str());
         mark_egress(&open_session, session).await;

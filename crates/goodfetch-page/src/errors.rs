@@ -16,12 +16,14 @@
 use futures_util::FutureExt as _;
 use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError, Refusal};
 use goodfetch_engine::CallError;
+use goodfetch_engine::crash_report;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run::limit_reached;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, INTERNAL, InternalDetails,
-    WaitedFor,
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, EnginePanickedDetails,
+    INTERNAL, InternalDetails, PanicEnded, WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
@@ -203,6 +205,29 @@ pub(crate) fn page_memory_exceeded(
             memory,
             limit,
         },
+    )
+}
+
+/// `engine_panicked` for the page `page_id`, which a panic of one of its
+/// owner's tasks closed, alone: its Session and its Run go on (ADR 0148).
+/// It names the crash report the panic left, `crash_report`, when one was
+/// written, and is counted on `metrics`, its Run's.
+pub(crate) fn page_panicked(
+    metrics: &Metrics,
+    page_id: &PageId,
+    crash_report: Option<&str>,
+) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Page,
+            id: Some(page_id.0.clone()),
+            crash_report: crash_report.map(str::to_owned),
+        },
+        &format!(
+            "The engine hit a bug in Goodfetch while it served the page `{}`, which closed the page; its Session and its Run go on",
+            page_id.0
+        ),
     )
 }
 

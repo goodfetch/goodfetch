@@ -105,6 +105,7 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
+use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
@@ -486,6 +487,10 @@ impl LeaseCheck for HandlerLease {
 
     fn enclosing(&self) -> Option<Enclosing> {
         self.lease.enclosing()
+    }
+
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        self.lease.effect_attempt()
     }
 }
 

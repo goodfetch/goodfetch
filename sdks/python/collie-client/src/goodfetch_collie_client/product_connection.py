@@ -26,6 +26,7 @@ from goodfetch_collie_client._installed_executables import (
     PickedClient,
     would_be_the_pick,
 )
+from goodfetch_collie_client._project_file import read_project
 from goodfetch_collie_client._relink import Reconnect
 from goodfetch_collie_client._rpc import ChannelBounds, bounds_of, phase_exceeded
 from goodfetch_collie_client.connection import (
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
 
+    from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import OperationClass
     from goodfetch_collie_client.engine_choice import (
         DaemonReach,
@@ -139,6 +141,7 @@ async def open_engine(
     connect_timeout: timedelta | NotGiven | None = not_given,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Mapping[str, object] | None = None,
+    project: str | os.PathLike[str] | NotGiven | None = not_given,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -175,7 +178,16 @@ async def open_engine(
     `connection.max_pending_calls` and `connection.max_queued_write_bytes`
     bound the Connection's own calls from `hello` on; one that is no whole
     number of 1 or more (`setting_invalid`) raises before any engine is
-    reached.
+    reached. `project` is the project file to read (ADR 0083), sent as the
+    project configuration of each Run the Connection starts and of its
+    `explain_settings()`: the `goodfetch.toml` in the working directory or
+    the nearest folder above it when not given, the file it names, a
+    relative one from the working directory, or none for `None`. Its
+    `timeout.connect` bounds `hello` when `connect_timeout` is not given,
+    and `EngineInfo.project_file` names it. A named file that is not there,
+    or one that does not read as a project file (`setting_invalid`), or
+    one of a format version this Goodfetch cannot read
+    (`format_version_unsupported`) raises before any engine is reached.
     """
     connection_limits = limit_list(limits)
     listener_queue = listener_queue_of(max_listener_queue)
@@ -187,17 +199,32 @@ async def open_engine(
     )
     environment = dict(os.environ if env is None else env)
     check_deployment_variables(environment)
+    project_file = await anyio.to_thread.run_sync(read_project, project, os.getcwd)
+    # The argument's `timeout.connect`, else the project file's, else the default.
+    connect_bound: ConnectTimeout = (
+        project_file.connect_timeout
+        if isinstance(checked, NotGiven)
+        and project_file is not None
+        and project_file.connect_timeout is not None
+        else checked
+    )
     # A remote Daemon's handshake and `hello` share one `timeout.connect`.
     started_at = anyio.current_time()
     reach = await reach_engine(
         engine,
         environment,
         lambda: locate_engine(environment, product),
-        connect_timeout=checked,
+        connect_timeout=connect_bound,
         started_at=started_at,
     )
     opening = _Opening(
-        close_timeout, connection_limits, checked, listener_queue, settings, bounds
+        close_timeout,
+        connection_limits,
+        connect_bound,
+        listener_queue,
+        settings,
+        bounds,
+        project_file,
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
@@ -227,10 +254,11 @@ class _Opening:
 
     close_timeout: float
     limits: Sequence[RunLimit]
-    connect_timeout: int | NotGiven | None
+    connect_timeout: ConnectTimeout
     listener_queue: int
     settings: Mapping[str, object] | None
     bounds: ChannelBounds
+    project: ProjectFile | None
 
 
 _REFUSALS = frozenset({"not_in_product", "protocol_version_unsupported"})
@@ -378,6 +406,7 @@ async def _open_attached(
         listener_queue=opening.listener_queue,
         settings=opening.settings,
         bounds=opening.bounds,
+        project=opening.project,
     )
 
 
@@ -413,6 +442,7 @@ async def _open_daemon(
         settings=opening.settings,
         bounds=opening.bounds,
         reconnect=reconnect,
+        project=opening.project,
     )
 
 

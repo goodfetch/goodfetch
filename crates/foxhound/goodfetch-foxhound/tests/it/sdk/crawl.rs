@@ -535,7 +535,9 @@ fn dropping_serve_gives_its_requests_back_uncounted() {
 }
 
 /// The serve's future is `Send` and, for a crawl whose handlers borrow
-/// nothing, `'static`: a spawned task serves the Run.
+/// nothing, `'static`: a spawned task serves the Run. Its handler runs
+/// inside that task, the one task alive on the program's runtime: the SDK
+/// spawns none of its own there.
 ///
 /// Covers: story:11-1025
 #[test]
@@ -547,8 +549,18 @@ fn a_spawned_task_serves_a_crawl() {
         let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
         let mut crawl = Crawl::new();
         let page = crawl.label::<Visit>("page").unwrap();
+        let (seen, mut handled) = mpsc::unbounded_channel();
         crawl
-            .handle(&page, |_ctx: CrawlContext<Visit>| async { Ok(()) })
+            .handle(&page, move |_ctx: CrawlContext<Visit>| {
+                let seen = seen.clone();
+                async move {
+                    let alive = tokio::runtime::Handle::current()
+                        .metrics()
+                        .num_alive_tasks();
+                    seen.send((tokio::task::try_id(), alive)).unwrap();
+                    Ok(())
+                }
+            })
             .unwrap();
         let run = foxhound
             .start_crawl(&crawl, [Seed::new(&book, &page, Visit { depth: 0 })])
@@ -560,10 +572,12 @@ fn a_spawned_task_serves_a_crawl() {
             reason = "the test spawns the serve as a program's own task would"
         )]
         let served = tokio::spawn(async move { crawl.serve(&run).await });
+        let serving = served.id();
         let report = served.await.unwrap().unwrap();
         foxhound.close().await.unwrap();
 
         assert_eq!(report.requests.unwrap().succeeded, 1);
+        assert_eq!(handled.recv().await, Some((Some(serving), 1)));
     });
 }
 

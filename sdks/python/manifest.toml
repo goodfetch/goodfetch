@@ -1558,6 +1558,164 @@ words = ["connecting"]
 form = "type"
 
 [[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Crawl"
+entry = "none"
+reason = "A crawl's declaration whose handlers are plain functions (ADRs 0081 and 0093), which the program holds with no connection and `crawl.start` sends."
+words = ["crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "label"
+entry = "none"
+reason = "Declares a Label, with no Payload, a Pydantic model's or a JSON Schema's, which `crawl.start` sends with the crawl's declaration (ADR 0093)."
+words = ["label"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "handle"
+entry = "none"
+reason = "A decorator that attaches a Label's handler and returns it unchanged; the program runs it for each `crawl_request.handle` the engine sends (ADR 0093)."
+words = ["handle"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "dataset"
+entry = "none"
+reason = "Declares a Dataset, which `crawl.start` sends with the crawl's declaration (ADR 0103)."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawl"
+entry = "none"
+reason = "A crawl's declaration whose handlers are `async def` functions, run as tasks of the Run's task group (ADRs 0081 and 0093)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "label"
+entry = "none"
+reason = "`Crawl.label` in the async API."
+words = ["label"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "handle"
+entry = "none"
+reason = "`Crawl.handle` in the async API, for an `async def` handler."
+words = ["handle"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "dataset"
+entry = "none"
+reason = "`Crawl.dataset` in the async API."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Label"
+entry = "none"
+reason = "A kind of page a crawl handles, with its Payload's type (ADR 0093)."
+words = ["label"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Label"
+member = "name"
+entry = "none"
+reason = "The name the Label was declared with, read without a round trip."
+words = ["name"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Dataset"
+entry = "none"
+reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."
+words = ["dataset"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Dataset"
+member = "name"
+entry = "none"
+reason = "The name the Dataset was declared with, read without a round trip."
+words = ["name"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlContext"
+entry = "none"
+reason = "What a plain-function handler is given for one attempt of a request of its Label (ADR 0093)."
+words = ["crawl", "context"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "request"
+entry = "none"
+reason = "The attempt's request from `crawl_request.handle`, its Payload typed by its Label, read without a round trip."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawlContext"
+entry = "none"
+reason = "What an `async def` handler is given for one attempt of a request of its Label (ADRs 0081 and 0093)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "crawl", "context"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "request"
+entry = "none"
+reason = "`CrawlContext.request` in the async API."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlRequest"
+entry = "none"
+reason = "The request a handler's attempt serves, from `crawl_request.handle`: its id, URL, Label, method and typed Payload."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["crawl", "request"]
+form = "type"
+
+[[member]]
 package = "goodfetch_foxhound.testing"
 receiver = "(module)"
 member = "connect_over"

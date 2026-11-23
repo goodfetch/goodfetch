@@ -30,7 +30,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::{CRATES, ProductVersion, Stage, name, read, toml};
+use super::{CRATES, ProductVersion, Stage, Tree, name, toml};
 use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
@@ -60,6 +60,9 @@ const CLIENT_PACKAGE: &str = "collie-client";
 /// publishes: `cargo hakari publish` takes its line out of a crate's
 /// manifest for the publish (ADR 0094's note of 2026-11-06, #2089).
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
+/// The dependency tables `cargo publish` keeps, each target's too; it
+/// strips a dev-dependency that carries no version.
+pub(super) const KEPT: [&str; 2] = ["dependencies", "build-dependencies"];
 
 /// Each Product's PyPI project's storage limit, in GiB.
 const PYPI_QUOTA: &str = "ci/pypi-quota.toml";
@@ -165,7 +168,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     let version = &arguments.version;
     let nightly = matches!(version.stage, Stage::Nightly(_));
     let semver = version.semver();
-    let crates = publish_order(root)?;
+    let crates = publish_order(Tree::Workspace(root))?;
     let unprepared = unprepared(&crates, &semver);
     if !unprepared.is_empty() {
         return Ok(check::report(&unprepared));
@@ -319,22 +322,24 @@ struct Release {
 }
 
 /// A crate the release publishes.
-struct Crate {
-    name: String,
-    version: String,
+pub(super) struct Crate {
+    pub(super) name: String,
+    pub(super) version: String,
+    /// Its folder, from the workspace's.
+    pub(super) folder: String,
     /// Its manifest's path, from the workspace's.
-    manifest: String,
+    pub(super) manifest: String,
     /// Whether it is a released crate, at the Product version; an internal
     /// crate keeps the workspace's `0.0.x`.
-    released: bool,
+    pub(super) released: bool,
 }
 
 /// The released crates and every workspace crate they depend on outside
 /// their dev-dependencies, which `cargo publish` strips: each after its
 /// dependencies, which crates.io needs published first, and in name order
 /// otherwise.
-fn publish_order(root: &Path) -> Result<Vec<Crate>> {
-    let workspace = toml(root, "Cargo.toml")?;
+pub(super) fn publish_order(tree: Tree<'_>) -> Result<Vec<Crate>> {
+    let workspace = toml(tree, "Cargo.toml")?;
     let empty = Table::new();
     let workspace_table = workspace
         .get("workspace")
@@ -356,7 +361,7 @@ fn publish_order(root: &Path) -> Result<Vec<Crate>> {
             continue;
         }
         let path = format!("{folder}/Cargo.toml");
-        let manifest = toml(root, &path)?;
+        let manifest = toml(tree, &path)?;
         let dependencies = path_dependencies(&manifest, &folder, shared_dependencies);
         pending.extend(dependencies.iter().cloned());
         manifests.insert(folder, (manifest, dependencies));
@@ -381,6 +386,7 @@ fn publish_order(root: &Path) -> Result<Vec<Crate>> {
                 Crate {
                     name: name(package, &path)?,
                     version: version.to_owned(),
+                    folder: folder.clone(),
                     manifest: path,
                     released: CRATES.contains(&folder.as_str()),
                 },
@@ -418,15 +424,14 @@ fn publish_order(root: &Path) -> Result<Vec<Crate>> {
 /// dependency with a `path`, or taken from a `[workspace.dependencies]`
 /// entry with one.
 fn path_dependencies(manifest: &DocumentMut, folder: &str, shared: &Table) -> BTreeSet<String> {
-    let mut tables: Vec<&Table> = ["dependencies", "build-dependencies"]
+    let mut tables: Vec<&Table> = KEPT
         .iter()
         .filter_map(|key| manifest.get(key).and_then(Item::as_table))
         .collect();
     if let Some(targets) = manifest.get("target").and_then(Item::as_table) {
         for (_, target) in targets {
             tables.extend(
-                ["dependencies", "build-dependencies"]
-                    .iter()
+                KEPT.iter()
                     .filter_map(|key| target.get(key).and_then(Item::as_table)),
             );
         }
@@ -461,7 +466,7 @@ fn path_dependencies(manifest: &DocumentMut, folder: &str, shared: &Table) -> BT
 }
 
 /// `path` without its `.` and `..` parts.
-fn normalized(path: &str) -> String {
+pub(super) fn normalized(path: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for part in path.split('/') {
         match part {
@@ -495,7 +500,7 @@ fn npm_packages(root: &Path) -> Result<Vec<String>> {
 fn package_json_name(root: &Path, folder: &str) -> Result<String> {
     let path = format!("sdks/typescript/{folder}/package.json");
     let package: Named =
-        serde_json::from_str(&read(root, &path)?).with_context(|| format!("parsing {path}"))?;
+        serde_json::from_str(&Tree::Workspace(root).read(&path)?).with_context(|| format!("parsing {path}"))?;
     Ok(package.name)
 }
 
@@ -516,7 +521,7 @@ fn pypi_projects(root: &Path) -> Result<(String, Vec<String>)> {
 
 fn pyproject_name(root: &Path, folder: &str) -> Result<String> {
     let path = format!("sdks/python/{folder}/pyproject.toml");
-    let manifest = toml(root, &path)?;
+    let manifest = toml(Tree::Workspace(root), &path)?;
     let project = manifest
         .get("project")
         .and_then(Item::as_table)
@@ -526,7 +531,7 @@ fn pyproject_name(root: &Path, folder: &str) -> Result<String> {
 
 /// Each Product project's storage limit in bytes, from [`PYPI_QUOTA`].
 fn pypi_quotas(root: &Path) -> Result<BTreeMap<String, u64>> {
-    let quotas = toml(root, PYPI_QUOTA)?;
+    let quotas = toml(Tree::Workspace(root), PYPI_QUOTA)?;
     quotas
         .iter()
         .map(|(project, gib)| {

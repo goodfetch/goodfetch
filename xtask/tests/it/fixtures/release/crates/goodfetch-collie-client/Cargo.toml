@@ -3,3 +3,11 @@ name = "goodfetch-collie-client"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+
+[build-dependencies]
+goodfetch-engine = { path = "../goodfetch-engine" }
+
+# Published with the crate when it carries a version, so the one taken
+# from the workspace's entry must not.
+[dev-dependencies]
+goodfetch-engine.workspace = true

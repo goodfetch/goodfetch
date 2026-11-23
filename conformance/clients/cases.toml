@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "60"
+version = "61"
 
 [[capability]]
 name = "lifecycle"
@@ -219,6 +219,27 @@ modes = ["attached", "linked"]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `page.request` through the page's Session (issue 1303, ADRs 0085 and
+# 0118), on the Proving ground: the request carries the cookie a page of
+# the Session got and leaves through the Run's proxy, as the Proving
+# ground's record shows; `max_redirects` follows its count, 0 answering
+# the 3xx, past it `too_many_redirects` naming the option and its count,
+# and above 19 `setting_invalid`. Each surface takes the modes it has.
+[[capability]]
+name = "page.request"
+
+[[capability.case]]
+id = "page-request-sends-the-sessions-cookie-through-its-proxy"
+covers = ["story:11-87", "operation:page.request"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:11-87", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript

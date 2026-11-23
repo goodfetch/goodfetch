@@ -284,3 +284,114 @@ describe("a page's responses on an Attached engine", () => {
     },
   );
 });
+
+describe("page.request through the page's Session on an Attached engine", () => {
+  test.override("provingGroundSeed", 1303);
+  test.override("withBrowser", true);
+
+  test(
+    "sends the cookie a page of its Session got, through the Run's proxy",
+    {
+      tags: [
+        "client_case/page-request-sends-the-sessions-cookie-through-its-proxy",
+        "attached",
+        "story:11-87",
+        "operation:page.request",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const openProxy = provingGround.fixtures.proxies["open"];
+      const storage = provingGroundUrl(provingGround, "scope.test", "/storage?mark=page-request");
+      const about = provingGroundUrl(provingGround, "scope.test", "/about?by=page-request");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start({ settings: { proxy: { server: `http://${openProxy}` } } });
+      const page = await run.newPage();
+      await page.goto(storage);
+
+      const response = await page.request(about);
+      await run.finish();
+      const observations: unknown = await (await fetch(provingGround.fixtures.connections)).json();
+
+      await clientCase.check("`page.request` from the Session answers 200", () =>
+        expect(response.status()).toBe(200),
+      );
+      await clientCase.check("it sends the cookie a page of its Session got", () =>
+        expect(observations).toMatchObject({
+          requests: expect.arrayContaining([
+            expect.objectContaining({
+              host: "scope.test",
+              target: "/about?by=page-request",
+              cookies: [["mark", "page-request"]],
+            }),
+          ]),
+        }),
+      );
+      await clientCase.check("it leaves through the Run's proxy", () =>
+        expect(observations).toMatchObject({
+          relays: expect.arrayContaining([
+            expect.objectContaining({
+              proxy: "open",
+              outcome: "relayed",
+              target: expect.stringMatching(/\/about\?by=page-request$/),
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
+  test(
+    "follows its maxRedirects, answering the 3xx at 0, and refuses a count above 19",
+    {
+      tags: [
+        "client_case/page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+        "attached",
+        "story:11-87",
+        "operation:page.request",
+        "error:too_many_redirects",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const chain = provingGroundUrl(provingGround, FETCH_EDGE, "/redirect/hops/5");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const refused = await goodfetchFailure(page.request(chain, { maxRedirects: 20 }));
+      const unfollowed = await page.request(chain, { maxRedirects: 0 });
+      const within = await page.request(chain, { maxRedirects: 5 });
+      const past = await goodfetchFailure(page.request(chain, { maxRedirects: 3 }));
+
+      await clientCase.check("`maxRedirects` 20 is refused, naming the option", () =>
+        expect(refused).toMatchObject({
+          code: "setting_invalid",
+          details: { key: "max_redirects" },
+        }),
+      );
+      await clientCase.check("`maxRedirects` 0 answers the 3xx itself", () => {
+        expect(unfollowed.status()).toBe(302);
+        expect(unfollowed.url()).toMatch(/\/redirect\/hops\/5$/);
+        expect(unfollowed.headers()["location"]).toBe("/redirect/hops/4");
+      });
+      await clientCase.check("a chain within its count answers its last response", () => {
+        expect(within.status()).toBe(200);
+        expect(within.url()).toMatch(/\/redirect\/hops\/0$/);
+      });
+      await clientCase.check(
+        "past its count, `too_many_redirects` names the chain, its hops and the option",
+        () =>
+          expect(past).toMatchObject({
+            code: "too_many_redirects",
+            url: chain,
+            details: {
+              hops: [expect.any(String), expect.any(String), expect.any(String)],
+              limit: { kind: "option", name: "max_redirects", count: 3 },
+            },
+          }),
+      );
+    },
+  );
+});

@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "54"
+version = "55"
 
 [[capability]]
 name = "lifecycle"
@@ -297,6 +297,22 @@ name = "product-conformance"
 id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+
+# A five-word edit ports a Collie program to Foxhound (ADRs 0090, 0097;
+# issue 1264): the installed package, the import, the connection type, the
+# executable and the engine-path variable change, and the program, its
+# Collie copy on Collie's executable and its port on Foxhound's, each in a
+# home of its own with both executables on `PATH` and both engine-path
+# variables set, prints the same: its engine, a setting, a Run started and
+# finished, `run report`, `run list` and a refused `run report` with their
+# `--json` output and exit codes. The members a Run its program drives takes
+# without a browser are the shared ones it plays; Python runs it, on the
+# sync API.
+[[capability.case]]
+id = "five-word-port"
+covers = ["story:11-297"]
+surfaces = ["sdk-python"]
 modes = ["attached"]
 
 # What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,

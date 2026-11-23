@@ -23,6 +23,9 @@ dev = [
   "goodfetch-test-support",
   "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
+  # LangChain's own agent loop, which drives Python LangChain tools in tests
+  # (ADR 0070); its scripted model is test support's `BindToolsChatModel`.
+  "langchain>=1.5.2",
   "mutmut>=3.8.1",
   "mypy>=2.4.0",
   "opentelemetry-api>=1.45.2",
@@ -71,6 +74,10 @@ strict_markers = true
 # Vitest's (ADR 0069); its paths are the workspace's.
 addopts = [
   "--import-mode=importlib",
+  # LangSmith, which langchain-core requires, registers a pytest plugin that
+  # adds about 0.7 s of imports to every pytest process; no test uses it.
+  "-p",
+  "no:langsmith_plugin",
   "--junitxml=target/junit/pytest.xml",
   "--case-log=target/case-logs/pytest.jsonl",
   "--case-list=conformance/clients/cases.toml",

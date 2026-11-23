@@ -6,6 +6,9 @@ install from PyPI resolves them, and gives the environment to run its console
 scripts and a package's `tests/integration` in. The environment is on the
 host, glibc on Linux, or in the pinned image of uv on Alpine Linux, musl
 (`ci/alpine/image.toml`), run with no network through Docker or Podman.
+`install_lowest_direct` installs an adapter's wheel the same way with each of
+its requirements at the lowest version the range allows, for ADR 0070's
+lowest-version runs.
 
 Every project lives in the test's folder under a name that holds a space and
 a non-ASCII letter, with a home, caches and no configuration of its own. The
@@ -14,12 +17,14 @@ the run needs that is missing fails with its own error, never a skip
 (ADR 0069).
 """
 
+import email
 import os
 import shutil
 import subprocess
 import sys
 import tomllib
 import uuid
+import zipfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -212,14 +217,93 @@ def install_wheel(
         ContainerEngineMissing: An Alpine install finds no Docker or Podman.
         ImageMissing: The Alpine image is not pulled.
     """
-    folder = test_env.folder / f"{installer} {system} café"
+    wheels = list(wheels)
+    return _install(
+        test_env,
+        f"{installer} {system}",
+        wheels,
+        [_pinned(wheel) for wheel in wheels],
+        installer=installer,
+        system=system,
+    )
+
+
+def install_lowest_direct(
+    test_env: TestEnv,
+    wheel: Path,
+    available: Iterable[Path],
+    *,
+    system: System,
+) -> InstalledEnvironment:
+    """Installs `wheel` with each of its requirements at its range's lowest version.
+
+    ADR 0070's lowest-version runs: uv resolves with `--resolution
+    lowest-direct`, which takes the lowest version a direct requirement
+    allows and the highest of everything else. The wheel's own requirements
+    are passed as direct ones beside `name==version`, since uv would take
+    them as transitive. The install looks only in the project's `wheels`
+    folder, where `wheel` and `available` are copied, so every version the
+    ranges could pick is among `available`.
+
+    Args:
+        test_env: The test's setup, in whose folder the project lives.
+        wheel: The wheel under test, an adapter's.
+        available: The wheels its requirements may resolve to, a framework's
+            versions among them.
+        system: The host, or the Alpine image on a Linux host.
+
+    Raises:
+        ToolMissing: uv is missing.
+        ContainerEngineMissing: An Alpine install finds no Docker or Podman.
+        ImageMissing: The Alpine image is not pulled.
+    """
+    return _install(
+        test_env,
+        f"uv lowest-direct {system}",
+        [wheel, *available],
+        [_pinned(wheel), *_requires(wheel)],
+        installer=Installer.UV,
+        system=system,
+        options=["--resolution", "lowest-direct"],
+    )
+
+
+def _pinned(wheel: Path) -> str:
+    name, version, _, _ = parse_wheel_filename(wheel.name)
+    return f"{name}=={version}"
+
+
+def _requires(wheel: Path) -> list[str]:
+    """The `Requires-Dist` lines of the wheel's metadata."""
+    with zipfile.ZipFile(wheel) as archive:
+        [metadata] = [
+            name
+            for name in archive.namelist()
+            if name.count("/") == 1 and name.endswith(".dist-info/METADATA")
+        ]
+        message = email.message_from_bytes(archive.read(metadata))
+    return [str(line) for line in message.get_all("Requires-Dist") or ()]
+
+
+def _install(
+    test_env: TestEnv,
+    name: str,
+    wheels: Iterable[Path],
+    requirements: Sequence[str],
+    *,
+    installer: Installer,
+    system: System,
+    options: Sequence[str] = (),
+) -> InstalledEnvironment:
+    """Installs `requirements` from `wheels` alone into a new environment.
+
+    The project's folder is `name` with a non-ASCII word after it.
+    """
+    folder = test_env.folder / f"{name} café"
     links = folder / "wheels"
     links.mkdir(parents=True)
-    requirements: list[str] = []
     for wheel in wheels:
         shutil.copy2(wheel, links / wheel.name)
-        name, version, _, _ = parse_wheel_filename(wheel.name)
-        requirements.append(f"{name}=={version}")
     home = folder / "home"
     home.mkdir()
     venv = folder / "venv"
@@ -272,7 +356,14 @@ def install_wheel(
             "--no-cache-dir",
         ]
     install = _run(
-        [*command, "--no-index", "--find-links", str(links), *requirements],
+        [
+            *command,
+            *options,
+            "--no-index",
+            "--find-links",
+            str(links),
+            *requirements,
+        ],
         env,
         folder,
         container,

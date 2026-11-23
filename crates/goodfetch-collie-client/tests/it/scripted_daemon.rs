@@ -1,8 +1,10 @@
 //! The Scripted engine as the Daemon of a test's home, playing a script of
 //! the corpus with this crate's `hello` in place of the TypeScript SDK's,
-//! for the cases that reach a Daemon through the client crate.
+//! for the cases that reach a Daemon through the client crate, and the
+//! lines a start the Daemon answers logs.
 
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_protocol::log::LogLevel;
 use goodfetch_test_support::{
     RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, reported_address, tools,
 };
@@ -15,6 +17,37 @@ pub(crate) fn daemon_hello() -> HelloParams {
     HelloParams {
         token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
         ..hello()
+    }
+}
+
+/// [`daemon_hello`] at the `trace` that `logged` records, so a start
+/// tells the engine no other level.
+pub(crate) fn traced_daemon_hello() -> HelloParams {
+    HelloParams {
+        log_level: Some(LogLevel::Trace),
+        ..daemon_hello()
+    }
+}
+
+/// Checks that `log` holds the resume of `resumed` at info and the ended
+/// `ended` at warning, with their fields, on the start's target, and
+/// nothing else there.
+pub(crate) fn assert_start_lines(log: &str, resumed: &str, ended: &str) {
+    let start_lines: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("goodfetch::client::run"))
+        .collect();
+    assert_eq!(start_lines.len(), 2, "{log}");
+    for (line, (level, run_id, started_as)) in start_lines
+        .iter()
+        .zip([("INFO", resumed, "resumed"), ("WARN", ended, "ended")])
+    {
+        assert!(
+            line.contains(level)
+                && line.contains(&format!("run_id={run_id}"))
+                && line.contains(&format!("started_as=\"{started_as}\"")),
+            "{log}"
+        );
     }
 }
 

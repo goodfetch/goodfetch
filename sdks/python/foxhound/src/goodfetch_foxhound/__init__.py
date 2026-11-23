@@ -28,6 +28,31 @@ reads, starts, patches and logs nothing (ADR 0078).
 
 from goodfetch_collie_client.markers import ExperimentalWarning
 
+from goodfetch_foxhound.crawl import (
+    AsyncCrawl,
+    AsyncCrawlContext,
+    Crawl,
+    CrawlContext,
+    CrawlRequest,
+    Dataset,
+    Label,
+    seed,
+)
+from goodfetch_foxhound.crawl_run import AsyncCrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
 
-__all__ = ["AsyncFoxhound", "Connecting", "ExperimentalWarning", "Foxhound"]
+__all__ = [
+    "AsyncCrawl",
+    "AsyncCrawlContext",
+    "AsyncCrawlRun",
+    "AsyncFoxhound",
+    "Connecting",
+    "Crawl",
+    "CrawlContext",
+    "CrawlRequest",
+    "Dataset",
+    "ExperimentalWarning",
+    "Foxhound",
+    "Label",
+    "seed",
+]

@@ -360,6 +360,9 @@ psl = { version = "2.1.244", default-features = false, features = ["helpers"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
+# The Politeness store's client, Valkey or Redis (ADR 0053): async on Tokio,
+# its Lua scripts loaded once and called by `EVALSHA`.
+redis = { version = "1.8.3", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
 # The parser behind `regex`, read for the construct a refused URL pattern
 # uses (ADR 0081).

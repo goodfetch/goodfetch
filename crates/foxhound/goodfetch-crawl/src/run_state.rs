@@ -74,7 +74,7 @@ mod stored;
 mod tally;
 pub(crate) mod teacher;
 
-pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
+pub(crate) use asks::{Asked, Asking, Escalated, Message, PermitAsk, Question, mailbox};
 pub(crate) use stored::{Opening, QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
@@ -516,9 +516,9 @@ impl RunState {
     /// ([`Stored::answer`]), counting what its write changed: the work
     /// items it added, each keyed, for the loop to offer their domains'
     /// queues, when the loop waited for the write itself.
-    pub(crate) async fn answer(&mut self, question: Box<Question>) -> Option<Vec<Waiting>> {
-        let ask = match *question {
-            Question::Stored(ask) => ask,
+    pub(crate) async fn answer(&mut self, question: Question) -> Option<Vec<Waiting>> {
+        let ask = match question {
+            Question::Stored(ask) => *ask,
             Question::Escalated { escalated, answer } => {
                 let drawn = self.escalated(&escalated);
                 // The attempt no longer waits for it: it served nothing.

@@ -8,9 +8,10 @@
 #   the archive holds no image under the tree's tag ($CI_IMAGE), saying why.
 #   So a job runs only the image of its own Containerfile, never an older
 #   one.
-# - `save` (the Release suite's `ci image` job, on `main` only): builds the
-#   image and writes it, compressed, where the cache saves it from, so that
-#   pull-request jobs restore it (ADR 0061: caches are saved only on `main`).
+# - `save` (the `ci image` job of the pull-request workflow and of the
+#   Release suite, on `main` only): builds the image and writes it,
+#   compressed, where the cache saves it from, so that pull-request jobs
+#   restore it (ADR 0061: caches are saved only on `main`).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -35,7 +36,7 @@ ready)
     fi
     echo "The cached archive holds no $CI_IMAGE; building it from the tree's ci/image/Containerfile."
   else
-    echo "The Actions cache holds no $CI_IMAGE, which the Release suite saves on main; building it from the tree's ci/image/Containerfile."
+    echo "The Actions cache holds no $CI_IMAGE: main has not saved it yet, or GitHub dropped it unused, and a ci image job saves it on main (the pull request workflow's after a push that changes ci/image/ or when dispatched there, the Release suite's on its runs); building it from the tree's ci/image/Containerfile."
   fi
   build
   ;;

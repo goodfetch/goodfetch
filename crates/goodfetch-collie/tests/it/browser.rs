@@ -23,7 +23,6 @@ use goodfetch_protocol::browser_cache::{
     BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild,
 };
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     TestEnv, assert_cli_snapshot, browser_cache, browser_cache_with_headless_shell, cli,
     lay_out_browser_entry, real_time_runtime,
@@ -293,12 +292,7 @@ fn browser_clean_keeps_what_was_used_within_the_age_user_configuration_sets() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
     let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
-    fs::create_dir_all(HomeLayout::of(env.home()).per_major()).unwrap();
-    fs::write(
-        HomeLayout::of(env.home()).user_configuration(),
-        "version = \"0.1\"\n\n[settings.browser_cache]\nmax_unused_age = 9999999999999\n",
-    )
-    .unwrap();
+    env.user_configuration("browser_cache.max_unused_age = 9999999999999\n");
 
     let output = run(&env, &["browser", "clean", "--json"], &[]);
 
@@ -371,12 +365,7 @@ fn browser_clean_never_cleans_a_read_only_goodfetch_browsers_path() {
 #[case::clean("clean")]
 fn a_browser_command_fails_a_bad_setting_by_its_row(#[case] command: &str) {
     let env = TestEnv::new();
-    fs::create_dir_all(HomeLayout::of(env.home()).per_major()).unwrap();
-    fs::write(
-        HomeLayout::of(env.home()).user_configuration(),
-        "version = \"0.1\"\n\n[settings.browser_cache]\nmax_unused_age = \"soon\"\n",
-    )
-    .unwrap();
+    env.user_configuration("browser_cache.max_unused_age = \"soon\"\n");
 
     let output = cli(&env, COLLIE)
         .args(["browser", command, "--json"])

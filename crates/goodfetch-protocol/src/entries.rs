@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 57] = [
+pub const MODULES: [&Entries; 58] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -68,6 +68,7 @@ pub const MODULES: [&Entries; 57] = [
     &foxhound::report::ENTRIES,
     &foxhound::session_pool::ENTRIES,
     &foxhound::settings::ENTRIES,
+    &foxhound::sink::ENTRIES,
     &foxhound::sql_tab::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,

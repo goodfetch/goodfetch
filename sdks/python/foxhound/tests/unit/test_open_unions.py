@@ -12,7 +12,22 @@ from datetime import UTC, datetime
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.unknown_member import UnknownMember
-from goodfetch_foxhound.generated.models import CrawlRequestOutcomes
+from goodfetch_foxhound.generated.models import (
+    CrawlRequestOutcomes,
+    Enqueued,
+    Enqueued1,
+)
+
+
+def test_a_result_that_is_one_of_several_models_reads_as_the_one_it_carries() -> None:
+    """`crawl_request.enqueue` answers `Enqueued`, a union, not an object of fields."""
+    sent = {"kind": "added", "id": "2", "url": "https://shop.test/products/2"}
+
+    enqueued = result_of(Enqueued, sent)
+
+    assert enqueued.root == Enqueued1(
+        kind="added", id="2", url="https://shop.test/products/2"
+    )
 
 
 def test_an_outcome_of_a_newer_kind_reads_as_the_unknown_member() -> None:

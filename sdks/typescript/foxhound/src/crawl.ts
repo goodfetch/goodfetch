@@ -147,7 +147,7 @@ export interface EnqueueLinksOptions {
  */
 export interface CrawlContext {
   /**
-   * Already navigated: the handler runs once the request's navigation has
+   * Already navigated. The handler runs once the request's navigation has
    * happened, so a route set on this page applies from its next navigation.
    * To keep a resource kind from loading on every request, set
    * `browser.block_resources`, which acts before each navigation (ADR 0117).

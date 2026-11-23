@@ -62,7 +62,9 @@ use goodfetch_engine::run::{local_settings_error, store_refusal};
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED};
+use goodfetch_protocol::connection::{
+    NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, ProductVersion,
+};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
     DaemonStopping, DaemonToken, HealthProbe, Unready,
@@ -246,6 +248,48 @@ fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))
 }
 
+/// The major's pick as one executable reads it on the machine (ADR 0098):
+/// what every `daemon` command reads, and what a Daemon keeps for its
+/// life to ask whether it is still the pick.
+pub(super) struct MajorsPick {
+    home: Home,
+    /// The Browser cache the versioned copies are in.
+    cache: PathBuf,
+    /// The executable's Product and version.
+    product: Product,
+    version: ProductVersion,
+    max_unused_age: MaxUnusedAge,
+    clock: Clock,
+}
+
+impl MajorsPick {
+    /// The pick now: among the executables Goodfetch home lists, of at
+    /// least the shared stores' lowest minor; `None` when none can be.
+    pub(super) fn picked(&self) -> Option<InstalledExecutable> {
+        let entries = InstalledList::of(&self.home).read().unwrap_or_default();
+        let seen: Vec<Seen<'_>> = entries
+            .iter()
+            .map(|entry| Seen::look(entry, &self.cache))
+            .collect();
+        pick(
+            &seen,
+            &self.version,
+            stores_floor(&self.home, &self.version).map(|floor| floor.version),
+            now_of(self.clock),
+            self.max_unused_age,
+        )
+        .cloned()
+    }
+
+    /// Whether the executable that reads it is the pick now, as it is
+    /// when no executable can be.
+    pub(super) fn is_this_executable(&self) -> bool {
+        self.picked().is_none_or(|picked| {
+            picked.product == self.product && picked.product_version == self.version
+        })
+    }
+}
+
 impl Machine<'_> {
     /// Wall time now, on the engine's Clock.
     pub(super) fn now(&self) -> jiff::Timestamp {
@@ -308,30 +352,26 @@ impl Machine<'_> {
             .unwrap_or_default()
     }
 
+    /// The major's pick, as this executable reads it on the machine.
+    pub(super) fn majors_pick(&self) -> MajorsPick {
+        MajorsPick {
+            home: self.home.clone(),
+            cache: self.cache(),
+            product: self.identity.product,
+            version: self.identity.product_version.clone(),
+            max_unused_age: self.max_unused_age(),
+            clock: self.clock,
+        }
+    }
+
     /// The major's pick now.
     pub(super) fn pick(&self) -> Option<InstalledExecutable> {
-        let entries = self.list().read().unwrap_or_default();
-        let cache = self.cache();
-        let seen: Vec<Seen<'_>> = entries
-            .iter()
-            .map(|entry| Seen::look(entry, &cache))
-            .collect();
-        pick(
-            &seen,
-            &self.identity.product_version,
-            stores_floor(self.home, &self.identity.product_version).map(|floor| floor.version),
-            self.now(),
-            self.max_unused_age(),
-        )
-        .cloned()
+        self.majors_pick().picked()
     }
 
     /// Whether this executable is its major's pick.
     fn is_the_pick(&self) -> bool {
-        self.pick().is_none_or(|picked| {
-            picked.product == self.identity.product
-                && picked.product_version == self.identity.product_version
-        })
+        self.majors_pick().is_this_executable()
     }
 
     /// The running Daemon, from its runtime file.

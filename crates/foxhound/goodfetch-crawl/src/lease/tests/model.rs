@@ -463,7 +463,7 @@ impl StateMachineTest for Subject {
                                 &id,
                                 epoch,
                                 Unsuccessful::Retried(Failure::new("handler_lost", "no answer")),
-                                &ended_at(),
+                                ended_at(),
                                 &mut Changed::default(),
                             )
                         }))

@@ -1225,6 +1225,12 @@ prefix = "delivery."
 number = 6
 kind = "setting"
 prefix = "webhook."
+
+# A crawl's Sinks, one map of entries by name (#1121).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "sinks"
 # The Browser cache's commands (#259, #1203): `browser install` and `browser clean`.
 [[area]]
 number = 3

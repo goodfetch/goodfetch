@@ -1,0 +1,11 @@
+# The pinned Valkey image the Politeness store's tests run (ADRs 0053 and
+# 0059: a real Valkey container on Linux). Its `digest` is the
+# multi-platform index of `repository:tag`, so each Linux architecture runs
+# its own image, and the image cannot move.
+#
+# Read by ci/valkey/fetch.sh (`just fetch`), which pulls it before ADR 0043's
+# deny, and by goodfetch-test-support's `Valkey`, which runs it with no
+# network.
+repository = "docker.io/valkey/valkey"
+tag = "8.1.12-alpine"
+digest = "sha256:9971099af41c36e887aabdfe22b80c0fe45df949163dfc9cb434febc57cfc3fc"

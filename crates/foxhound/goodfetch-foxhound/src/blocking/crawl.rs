@@ -179,7 +179,7 @@ impl<P> CrawlContext<P> {
         self.inner.run_id()
     }
 
-    /// Already navigated: the handler runs once the request's navigation
+    /// Already navigated. The handler runs once the request's navigation
     /// has happened, so a route set on this page applies from its next
     /// navigation.
     ///

@@ -98,6 +98,11 @@ count = 3
 how = "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference"
 
 [[writer]]
+path = "crates/foxhound/goodfetch-sink/src/sqlite.rs"
+count = 2
+how = "masked: the SQLite Sink's target table holds the Records the run file holds, masked as `Scope::Kept` when the crawl committed them (`goodfetch-dataset`'s `records.rs`, #972), with their Run's ID, run epoch, Dataset, number and commit time; its delivery log `_goodfetch_deliveries` holds only target and Dataset names, a Run's ID, its run epoch and a number"
+
+[[writer]]
 path = "crates/goodfetch-collie/src/executable/logs.rs"
 count = 5
 how = "masked: every log writer is `Masked`, `Scope::KeptOutput`"

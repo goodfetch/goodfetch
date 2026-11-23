@@ -33,9 +33,11 @@ use sha2::{Digest as _, Sha256};
 use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 use crate::attached;
+#[cfg(target_os = "linux")]
 use crate::attached_spawned;
 use crate::site::Site;
 
+#[cfg(target_os = "linux")]
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// The shared Unicode record as one Record's value: each field's text

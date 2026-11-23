@@ -1187,6 +1187,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 285
+title = "As a crawl developer, I want every delivery to carry its delivery ID, the Record's Dataset and number, and the run epoch, a stale epoch refused where the destination can compare and set, so that a zombie copy never overwrites the current run (ADRs 0003, 0008)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 304
 title = "As a CLI user, I want `goodfetch-foxhound crawl start <url> --format markdown` and `--field name=selector` to crawl in scope with no code and fill one Dataset, `pages`, keyed by URL, so that a site becomes Markdown and fields from one command (J-002, J-011, ADR 0103)."
 milestone = "M1 Core"

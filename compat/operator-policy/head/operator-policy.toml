@@ -1,6 +1,9 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings]
+sinks = { "example.test" = { batch = { max_bytes = 262144, max_records = 100 }, datasets = ["products"], deliver = "both", destination = "env:HOOK_URL", embedding = { chunk_chars = 2000, fields = ["body"], model = "openai/text-embedding-3-small" }, files = { compression = "zstd", format = "jsonl", part = { max_age = 300000, max_bytes = 268435456, max_records = 100000 } }, image = "airbyte/destination-postgres@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0", key = ["sku"], mode = "upsert", rate = { burst = 2, per_second = 10 }, schema = { contract = "evolve", flatten = false }, target = "products", type = "webhook", webhook = { max_batch_bytes = 262144, payload = "batch", signing_secret = "env:HOOK_SECRET" } } }
+
 [settings.timeout]
 hello = 30000
 secret = 30000
@@ -414,6 +417,9 @@ records = true
 [settings.dataset.query]
 memory_limit = 4
 max_rows = 4
+
+[lock]
+sinks = { "example.test" = { batch = { max_bytes = 262144, max_records = 100 }, datasets = ["products"], deliver = "both", destination = "env:HOOK_URL", embedding = { chunk_chars = 2000, fields = ["body"], model = "openai/text-embedding-3-small" }, files = { compression = "zstd", format = "jsonl", part = { max_age = 300000, max_bytes = 268435456, max_records = 100000 } }, image = "airbyte/destination-postgres@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0", key = ["sku"], mode = "upsert", rate = { burst = 2, per_second = 10 }, schema = { contract = "evolve", flatten = false }, target = "products", type = "webhook", webhook = { max_batch_bytes = 262144, payload = "batch", signing_secret = "env:HOOK_SECRET" } } }
 
 [lock.timeout]
 hello = 30000

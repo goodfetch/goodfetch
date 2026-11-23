@@ -121,12 +121,17 @@ describe("a program's crawls on an Attached engine", () => {
       const refused: unknown[] = [];
       crawl.handle(page, async (context) => {
         const long = { isbn: "9".repeat(65 * 1024) };
-        for (const enqueued of [
+        // `allSettled` handles each refusal as it is made: awaiting them one by one left
+        // a later refusal unhandled while an earlier one was still awaited.
+        const settled = await Promise.allSettled([
           context.enqueue("/shelf", shelf, { number: 0 }),
           context.enqueue("/isbn", book, { isbn: 7 }),
           context.enqueue("/long", book, long),
-        ]) {
-          await enqueued.catch((error: unknown) => refused.push(error));
+        ]);
+        for (const outcome of settled) {
+          if (outcome.status === "rejected") {
+            refused.push(outcome.reason);
+          }
         }
       });
       crawl.handle(shelf, () => undefined);

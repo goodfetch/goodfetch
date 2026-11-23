@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod blocking_client;
 mod detached;
 mod effect_wait;
 mod finishing;
@@ -37,6 +38,7 @@ mod resume;
 mod safe_point;
 mod sent_from;
 mod staging;
+mod start_table;
 mod verdict;
 mod wal;
 

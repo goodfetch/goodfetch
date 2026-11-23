@@ -47,6 +47,7 @@ from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
 
+from goodfetch_foxhound.crawl_run import CrawlRuns
 from goodfetch_foxhound.generated.connection import (
     FOXHOUND_ENGINE_PATH_VARIABLE,
     FOXHOUND_EXECUTABLE,
@@ -76,7 +77,10 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
-    from goodfetch_foxhound.generated.settings import FoxhoundSettings
+    from goodfetch_foxhound.crawl import AsyncCrawl
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun
+    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
 
 __all__ = [
     "AsyncFoxhound",
@@ -112,8 +116,9 @@ class AsyncFoxhound(AsyncConnection):
     """
 
     def __init__(self, connection: ClientConnection) -> None:
-        """Wraps an open Connection."""
+        """Wraps an open Connection, and serves its crawls' handlers."""
         self._connection = connection
+        self._crawls = CrawlRuns(connection)
 
     @staticmethod
     def connect(
@@ -268,6 +273,38 @@ class AsyncFoxhound(AsyncConnection):
             recording=recording,
             timeout=timeout,
             detached=detached,
+        )
+
+    async def start_crawl(
+        self,
+        crawl: AsyncCrawl,
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> AsyncCrawlRun:
+        """Starts `crawl` from `seeds`, at least one, and serves its handlers.
+
+        Starts a crawl from its seeds, and answers once its Run is started.
+        The engine then leases each work item to the program's handler as a
+        `crawl_request.handle` request, and the crawl's Run finishes once
+        every work item is done, or, with `crawl.keep_alive`, once
+        `run.finish` lets it and every work item is done. A Run ID works as
+        `run.start`'s.
+
+        Each work item goes to the handler of its Label, as a task beside
+        this Connection's (ADR 0093). Before anything is sent, a Label
+        without a handler fails with `label_unhandled`, and a seed whose
+        Label's name `crawl` does not declare with `label_unknown`, since a
+        seed carries its Label's name only. `settings` are the Run's own,
+        Collie's and Foxhound's, such as
+        `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return await self._crawls.start(
+            crawl, seeds=seeds, run_id=run_id, tags=tags, settings=settings
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:

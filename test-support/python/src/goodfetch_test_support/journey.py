@@ -204,6 +204,21 @@ def _judge(
     return OracleAnswer.model_validate(answer)
 
 
+def judge_task(
+    proving_ground: ProvingGround, task: str, records: Sequence[object]
+) -> OracleAnswer:
+    """The oracle's answer to `records`, a tool's result for the task `task`; it blocks.
+
+    The result is a success's. TypeScript's `judgeTask` is its twin.
+
+    Raises:
+        OracleRefused: The oracle gave no answer.
+    """
+    return _judge(
+        proving_ground, {"task": task, "status": "success", "records": list(records)}
+    )
+
+
 def _failure_of(error: Exception) -> str:
     return str(error) or repr(error)
 

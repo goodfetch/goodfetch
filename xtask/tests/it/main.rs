@@ -101,6 +101,7 @@ mod refusals;
 mod register;
 mod register_coverage;
 mod release;
+mod release_line;
 mod release_suite;
 mod repeat;
 mod rss;

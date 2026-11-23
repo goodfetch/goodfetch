@@ -7,14 +7,21 @@
 //! of the Collie client (ADRs 0090 and 0095). The internal `goodfetch-*`
 //! crates keep the workspace's `0.0.x` version, and the Zapier and Make apps,
 //! which their marketplaces version, are not among them.
+//!
+//! The release line (ADR 0032): `cut` gives a minor its `release/x.y`
+//! branch once every release's gates pass, `backports` lists the fixes it
+//! lacks and `range` gives a release's git-cliff range.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+mod gates;
+mod line;
+
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
 
@@ -22,6 +29,8 @@ use anyhow::{Context as _, Result, bail};
 use toml_edit::{DocumentMut, Item, Table, Value};
 
 use crate::environment::Environment;
+use crate::git;
+use crate::github;
 use crate::output;
 use crate::products;
 
@@ -43,6 +52,9 @@ const CARGO_TOML: &str = "Cargo.toml";
 /// `sdks/python/`.
 const PACKAGES: [&str; 3] = ["collie", "collie-client", "foxhound"];
 const CARGO_LOCK: &str = "Cargo.lock";
+
+/// The suffix of a minor's cut point tag on `main`, `x.y-branch` (ADR 0032).
+const CUT_POINT: &str = "-branch";
 const UV_LOCK: &str = "uv.lock";
 
 /// `xtask release`'s commands.
@@ -57,18 +69,130 @@ pub(crate) enum Command {
         #[arg(long)]
         version: ProductVersion,
     },
+    /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
+    /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
+    /// `main`'s commit and the first candidate's version commit on
+    /// `release-pr/x.y.0-rc.1`, then opens that candidate's release pull
+    /// request against the branch. `main` is left as it was.
+    Cut {
+        #[arg(long)]
+        minor: Minor,
+        /// The Feature report of the milestone the minor ships
+        /// (`xtask features report`'s `features.json`).
+        #[arg(long)]
+        feature_report: PathBuf,
+        #[command(flatten)]
+        github: github::Arguments,
+    },
+    /// Lists the commits on `main` since minor `x.y` was cut whose pull
+    /// requests carry the `backport` label and that `release/x.y` lacks.
+    Backports {
+        #[arg(long)]
+        minor: Minor,
+        #[command(flatten)]
+        github: github::Arguments,
+    },
+    /// Prints the git-cliff range of `version`'s changelog, ending at
+    /// `to`: from the previous minor's cut point for a first candidate and
+    /// a stable minor, the whole history before the first cut; from the
+    /// previous release tag for a later candidate and a patch.
+    Range {
+        #[arg(long)]
+        version: ProductVersion,
+        #[arg(long, default_value = "HEAD")]
+        to: String,
+    },
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
+    let root = &environment.root;
     match command {
         Command::Prepare { version } => {
-            for (path, text) in prepare(&environment.root, &version)? {
-                std::fs::write(environment.root.join(&path), text)
+            for (path, text) in prepare(Tree::Workspace(root), &version)? {
+                std::fs::write(root.join(&path), text)
                     .with_context(|| format!("writing {path}"))?;
                 output::line(&path);
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Cut {
+            minor,
+            feature_report,
+            github,
+        } => {
+            let findings = gates::release(root, &feature_report)?;
+            if !findings.is_empty() {
+                return Ok(crate::check::report(&findings));
+            }
+            let api = github.authenticated(environment.token())?;
+            line::cut(root, minor, &github.repository, api)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Backports { minor, github } => {
+            for backport in line::backports(
+                root,
+                minor,
+                &github.repository,
+                github.api(environment.token()),
+            )? {
+                output::line(&backport);
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Range { version, to } => {
+            output::line(&line::range(root, &version, &to)?);
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// Whether the repository at `root` has tag `tag`.
+fn tagged(root: &Path, tag: &str) -> Result<bool> {
+    Ok(git::succeeds(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/tags/{tag}"),
+        ],
+    )?)
+}
+
+/// A minor, `x.y`, whose release line `release/x.y` carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Minor {
+    major: u64,
+    minor: u64,
+}
+
+impl Minor {
+    /// Its release branch.
+    fn branch(self) -> String {
+        format!("release/{self}")
+    }
+
+    /// The tag of its cut point on `main`.
+    fn cut_point(self) -> String {
+        format!("{self}{CUT_POINT}")
+    }
+}
+
+impl std::fmt::Display for Minor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl FromStr for Minor {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let numbers: Vec<Option<u64>> = text.split('.').map(number).collect();
+        let [Some(major), Some(minor)] = numbers[..] else {
+            return Err(format!("`{text}` is not a minor: x.y"));
+        };
+        Ok(Self { major, minor })
     }
 }
 
@@ -111,6 +235,18 @@ impl ProductVersion {
             Stage::Candidate(number) => format!("{core}rc{number}"),
             Stage::Nightly(number) => format!("{core}.dev{number}"),
         }
+    }
+
+    fn minor(&self) -> Minor {
+        Minor {
+            major: self.major,
+            minor: self.minor,
+        }
+    }
+
+    /// Its release tag: `v1.4.0`, `v1.4.0-rc.2`.
+    fn tag(&self) -> String {
+        format!("v{}", self.semver())
     }
 }
 
@@ -167,7 +303,7 @@ fn number(text: &str) -> Option<u64> {
 /// Each released manifest's and lockfile's path, from the workspace's, and
 /// its text with `version` set; an error, before anything is written, when
 /// one is missing or cannot take it.
-fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)>> {
+fn prepare(tree: Tree<'_>, version: &ProductVersion) -> Result<Vec<(String, String)>> {
     let semver = version.semver();
     let pep440 = version.pep440();
     let mut written = Vec::new();
@@ -176,7 +312,7 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
     let mut client = String::new();
     for folder in CRATES {
         let path = format!("{folder}/Cargo.toml");
-        let mut manifest = toml(root, &path)?;
+        let mut manifest = toml(tree, &path)?;
         let package = table(manifest.as_table_mut(), "package", &path)?;
         let crate_name = name(package, &path)?;
         if folder == CLIENT_CRATE {
@@ -186,8 +322,8 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
         set_string(package, "version", &semver);
         written.push((path, manifest.to_string()));
     }
-    written.push(pin_client(root, &client, &semver)?);
-    written.push(lock(root, CARGO_LOCK, &crates, &semver, |entry| {
+    written.push(pin_client(tree, &client, &semver)?);
+    written.push(lock(tree, CARGO_LOCK, &crates, &semver, |entry| {
         !entry.contains_key("source")
     })?);
 
@@ -195,7 +331,7 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
         let path = format!("sdks/typescript/{package}/package.json");
         written.push((
             path.clone(),
-            package_json(&read(root, &path)?, &semver, &path)?,
+            package_json(&tree.read(&path)?, &semver, &path)?,
         ));
     }
 
@@ -203,7 +339,7 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
     let mut python = BTreeSet::new();
     for package in PACKAGES {
         let path = format!("sdks/python/{package}/pyproject.toml");
-        let mut manifest = toml(root, &path)?;
+        let mut manifest = toml(tree, &path)?;
         python.insert(name(
             table(manifest.as_table_mut(), "project", &path)?,
             &path,
@@ -225,7 +361,7 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
         }
         written.push((path, manifest.to_string()));
     }
-    written.push(lock(root, UV_LOCK, &python, &pep440, |entry| {
+    written.push(lock(tree, UV_LOCK, &python, &pep440, |entry| {
         entry
             .get("source")
             .and_then(Item::as_inline_table)
@@ -237,8 +373,8 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
 
 /// The workspace's manifest with its dependency on the client crate pinned
 /// at exactly `version`; an error when that dependency pins no version.
-fn pin_client(root: &Path, client: &str, version: &str) -> Result<(String, String)> {
-    let mut manifest = toml(root, CARGO_TOML)?;
+fn pin_client(tree: Tree<'_>, client: &str, version: &str) -> Result<(String, String)> {
+    let mut manifest = toml(tree, CARGO_TOML)?;
     let pin = manifest
         .get_mut("workspace")
         .and_then(Item::as_table_like_mut)
@@ -257,12 +393,32 @@ fn pin_client(root: &Path, client: &str, version: &str) -> Result<(String, Strin
     Ok((CARGO_TOML.to_owned(), manifest.to_string()))
 }
 
-fn read(root: &Path, path: &str) -> Result<String> {
-    std::fs::read_to_string(root.join(path)).with_context(|| format!("reading {path}"))
+/// Where [`prepare`] reads the released manifests and lockfiles from.
+#[derive(Clone, Copy)]
+enum Tree<'a> {
+    /// The files in the workspace's folder.
+    Workspace(&'a Path),
+    /// A commit's, in the repository at `root`: `main`'s commit, which `cut`
+    /// builds the first candidate's version commit over (ADR 0032).
+    Commit { root: &'a Path, commit: &'a str },
 }
 
-fn toml(root: &Path, path: &str) -> Result<DocumentMut> {
-    read(root, path)?
+impl Tree<'_> {
+    fn read(self, path: &str) -> Result<String> {
+        match self {
+            Self::Workspace(root) => {
+                std::fs::read_to_string(root.join(path)).with_context(|| format!("reading {path}"))
+            }
+            Self::Commit { root, commit } => {
+                git::text(root, &["show", &format!("{commit}:{path}")])
+                    .with_context(|| format!("reading {path} at {commit}"))
+            }
+        }
+    }
+}
+
+fn toml(tree: Tree<'_>, path: &str) -> Result<DocumentMut> {
+    tree.read(path)?
         .parse()
         .with_context(|| format!("parsing {path}"))
 }
@@ -305,13 +461,13 @@ fn replace_string(value: &mut Value, text: &str) {
 /// that `local` accepts, the workspace's own, set to `version`; an error
 /// when one of `names` has no such entry.
 fn lock(
-    root: &Path,
+    tree: Tree<'_>,
     path: &str,
     names: &BTreeSet<String>,
     version: &str,
     local: impl Fn(&Table) -> bool,
 ) -> Result<(String, String)> {
-    let mut lockfile = toml(root, path)?;
+    let mut lockfile = toml(tree, path)?;
     let entries = lockfile
         .get_mut("package")
         .and_then(Item::as_array_of_tables_mut)

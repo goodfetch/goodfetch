@@ -2244,8 +2244,10 @@ class Export(BaseModel):
     """How many Records it holds."""
     run_epoch: Annotated[int, Field(ge=0)]
     """
-    The run epoch of the Run's state it was written from, which a
-    destination that compares and sets holds it against (ADR 0003).
+    The run epoch of the Run's state it was written from, which its ID
+    and its kept file's name carry too, so a destination that compares
+    and sets refuses the Export of a copy an older run epoch fenced
+    (ADR 0003).
     """
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""

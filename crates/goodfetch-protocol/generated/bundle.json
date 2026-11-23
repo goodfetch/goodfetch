@@ -5774,7 +5774,7 @@
         },
         "run_epoch": {
           "arrived_in": "0.1",
-          "description": "The run epoch of the Run's state it was written from, which a\ndestination that compares and sets holds it against (ADR 0003).",
+          "description": "The run epoch of the Run's state it was written from, which its ID\nand its kept file's name carry too, so a destination that compares\nand sets refuses the Export of a copy an older run epoch fenced\n(ADR 0003).",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"

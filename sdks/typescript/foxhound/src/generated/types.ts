@@ -2488,8 +2488,10 @@ export interface Export {
    */
   records: number;
   /**
-   * The run epoch of the Run's state it was written from, which a
-   * destination that compares and sets holds it against (ADR 0003).
+   * The run epoch of the Run's state it was written from, which its ID
+   * and its kept file's name carry too, so a destination that compares
+   * and sets refuses the Export of a copy an older run epoch fenced
+   * (ADR 0003).
    */
   runEpoch: number;
   /**

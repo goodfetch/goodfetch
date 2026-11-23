@@ -1,22 +1,27 @@
 //! A Rust program's pages (issue 2803, Rust's part of issue 1236), on the
 //! linked engine, which launches the browser of the Browser cache in the
 //! test's Goodfetch home and reaches the test's own Proving ground through
-//! its user configuration: the `page` client conformance cases in Rust's
-//! mode, `linked` (Rust starts no Attached engine), and the Response
-//! `goto`, `go_back`, `go_forward`, `request` and
-//! `wait_for_request_finished` answer, whose body reads,
-//! decodes and fails as ADRs 0085, 0118 and 0119 say.
+//! its user configuration: the `page` and `page.request` client
+//! conformance cases in Rust's mode, `linked` (Rust starts no Attached
+//! engine), and the Response `goto`, `go_back`, `go_forward`, `request` and
+//! `wait_for_request_finished` answer, whose body reads, decodes and fails as
+//! ADRs 0085, 0118 and 0119 say.
 
 use std::collections::BTreeMap;
 
+use goodfetch_collie::settings::{Settings, proxy};
 use goodfetch_collie::{
     Collie, Error, ErrorCode, FieldLocator, FieldTransform, PageField, Response, UnreadField,
     UnreadReason, ValueField, blocking,
 };
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::page::route::UrlMatcher;
-use goodfetch_protocol::page::{FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions};
+use goodfetch_protocol::page::{
+    FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions, RedirectLimit,
+    TooManyRedirectsDetails,
+};
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::settings::SettingInvalidDetails;
 use goodfetch_test_support::{
     ProvingGround, TestEnv, ToolStatus, browser_cache_in_home, case_logs, real_time_runtime,
 };
@@ -342,6 +347,136 @@ fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
         assert!(
             matches!(&click, Err(error) if error.code() == ErrorCode::CLOSED),
             "{click:?}"
+        );
+    });
+}
+
+/// The `page-request-sends-the-sessions-cookie-through-its-proxy` client
+/// conformance case, linked: on a Run whose `proxy.server` is the Proving
+/// ground's open proxy, `page.request` sends the cookie a page of its
+/// Session got, and leaves through that proxy, as the Proving ground's
+/// record shows (ADR 0085).
+/// Covers: story:11-87, operation:page.request
+#[test]
+fn page_request_sends_the_sessions_cookie_through_its_proxy() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "page-request-sends-the-sessions-cookie-through-its-proxy",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let open_proxy = &proving_ground.description().fixtures.proxies["open"];
+    let storage = proving_ground.url("scope.test", "/storage?mark=page-request");
+    let about = proving_ground.url("scope.test", "/about?by=page-request");
+    let status = real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie
+            .start()
+            .settings(Settings::new().set(proxy::SERVER, format!("http://{open_proxy}")))
+            .await
+            .unwrap();
+        let page = run.new_page().await.unwrap();
+        page.goto(&storage).await.unwrap();
+
+        let status = page.request(&about).await.unwrap().status();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+        status
+    });
+
+    assert_eq!(status, 200);
+    let sent: Vec<Vec<(String, String)>> = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| {
+            request.host == "scope.test" && request.target == "/about?by=page-request"
+        })
+        .map(|request| request.cookies.clone())
+        .collect();
+    assert_eq!(sent, [vec![("mark".to_owned(), "page-request".to_owned())]]);
+    let observations = proving_ground.observations().unwrap();
+    let relayed = observations["relays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|relay| {
+            relay["proxy"] == json!("open")
+                && relay["outcome"] == json!("relayed")
+                && relay["target"]
+                    .as_str()
+                    .is_some_and(|target| target.ends_with("/about?by=page-request"))
+        });
+    assert!(relayed, "{}", observations["relays"]);
+}
+
+/// The `page-request-follows-its-max-redirects-and-refuses-a-count-above-19`
+/// client conformance case, linked, on the Proving ground's chain of 5
+/// redirects: `max_redirects` 20 is refused with `setting_invalid` naming
+/// the option, 0 answers the 3xx itself, 5 answers the chain's end, and 3
+/// raises `too_many_redirects` naming the chain, its 3 hops and the option
+/// with its count (ADR 0118).
+/// Covers: story:11-87, operation:page.request, error:too_many_redirects, error:setting_invalid
+#[test]
+fn page_request_follows_its_max_redirects_and_refuses_a_count_above_19() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let chain = proving_ground.url(FETCH_EDGE, "/redirect/hops/5");
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+
+        let refused = page.request(&chain).max_redirects(20).await;
+        let unfollowed = page.request(&chain).max_redirects(0).await.unwrap();
+        let within = page.request(&chain).max_redirects(5).await.unwrap();
+        let past = page.request(&chain).max_redirects(3).await;
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+
+        let (code, refused) = failure(refused);
+        assert_eq!(code, "setting_invalid");
+        assert_eq!(
+            refused
+                .details::<SettingInvalidDetails>()
+                .map(|details| details.key),
+            Some("max_redirects".to_owned()),
+            "{refused:?}"
+        );
+        assert_eq!(unfollowed.status(), 302);
+        assert!(
+            unfollowed.url().ends_with("/redirect/hops/5"),
+            "{unfollowed:?}"
+        );
+        assert_eq!(
+            unfollowed.headers().get("location").map(String::as_str),
+            Some("/redirect/hops/4")
+        );
+        assert_eq!(within.status(), 200);
+        assert!(within.url().ends_with("/redirect/hops/0"), "{within:?}");
+        let (code, past) = failure(past);
+        assert_eq!(code, "too_many_redirects");
+        let details = past
+            .details::<TooManyRedirectsDetails>()
+            .expect("too_many_redirects details");
+        assert_eq!(
+            (details.url, details.hops.len(), details.limit),
+            (
+                chain,
+                3,
+                RedirectLimit::Option {
+                    name: "max_redirects".to_owned(),
+                    count: 3,
+                }
+            )
         );
     });
 }

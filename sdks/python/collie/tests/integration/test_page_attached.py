@@ -10,6 +10,7 @@ ground (`with_browser`). `goto`, `reload`, `go_back`, `go_forward` and
 """
 
 from collections.abc import Mapping
+from typing import cast
 from urllib.parse import urljoin
 
 import anyio.to_thread
@@ -19,8 +20,10 @@ from goodfetch_collie import (
     BodyUnavailableError,
     ResponseNotJSONError,
     ResponseTruncatedError,
+    SettingInvalidError,
+    TooManyRedirectsError,
 )
-from goodfetch_test_support import ProvingGround, Way, three_ways
+from goodfetch_test_support import ClientCaseRecord, ProvingGround, Way, three_ways
 
 FETCH_EDGE = "fetch-edge.test"
 """The Proving ground's host of edge cases of the HTTP layer."""
@@ -216,3 +219,100 @@ async def test_back_and_forward_answer_the_documents_response_and_none_past_the_
     assert back is not None, "the first document's entry"
     assert forward is not None, "the second document's entry"
     assert (back.url, forward.url, past) == (first, then, None)
+
+
+@pytest.mark.covers("story:11-87", "operation:page.request")
+@pytest.mark.client_case(
+    id="page-request-sends-the-sessions-cookie-through-its-proxy", mode="attached"
+)
+@three_ways
+async def test_page_request_sends_the_sessions_cookie_through_its_proxy(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """On a Run whose `proxy.server` is the open proxy, as its record shows."""
+    open_proxy = proving_ground.fixtures.proxies["open"]
+    storage = proving_ground.url("scope.test", "/storage?mark=page-request")
+    about = proving_ground.url("scope.test", "/about?by=page-request")
+    collie = await open_collie(way, env)
+    run = await collie.start(settings={"proxy": {"server": f"http://{open_proxy}"}})
+    page = await run.new_page()
+    await page.goto(storage)
+
+    response = await page.request(about)
+    await run.finish()
+    await collie.close()
+    observations = await anyio.to_thread.run_sync(proving_ground.observations)
+
+    requests = cast("list[dict[str, object]]", observations["requests"])
+    relays = cast("list[dict[str, object]]", observations.get("relays", []))
+    with client_case.check("`page.request` from the Session answers 200"):
+        assert response.status == 200
+    with client_case.check("it sends the cookie a page of its Session got"):
+        assert [
+            request["cookies"]
+            for request in requests
+            if (request["host"], request["target"])
+            == ("scope.test", "/about?by=page-request")
+        ] == [[["mark", "page-request"]]]
+    with client_case.check("it leaves through the Run's proxy"):
+        assert any(
+            relay["proxy"] == "open"
+            and relay["outcome"] == "relayed"
+            and str(relay["target"]).endswith("/about?by=page-request")
+            for relay in relays
+        ), relays
+
+
+@pytest.mark.covers(
+    "story:11-87",
+    "operation:page.request",
+    "error:too_many_redirects",
+    "error:setting_invalid",
+)
+@pytest.mark.client_case(
+    id="page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+    mode="attached",
+)
+@three_ways
+async def test_page_request_follows_its_max_redirects_and_refuses_a_count_above_19(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """On the Proving ground's chain of 5 redirects (ADR 0118)."""
+    chain = proving_ground.url(FETCH_EDGE, "/redirect/hops/5")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+
+    refused = await failure(page.request(chain, max_redirects=20))
+    unfollowed = await page.request(chain, max_redirects=0)
+    within = await page.request(chain, max_redirects=5)
+    past = await failure(page.request(chain, max_redirects=3))
+    await run.finish()
+    await collie.close()
+
+    with client_case.check("`max_redirects` 20 is refused, naming the option"):
+        assert isinstance(refused, SettingInvalidError), refused
+        assert refused.details.get("key") == "max_redirects", refused.details
+    with client_case.check("`max_redirects` 0 answers the 3xx itself"):
+        assert unfollowed.status == 302
+        assert unfollowed.url.endswith("/redirect/hops/5"), unfollowed.url
+        assert unfollowed.headers.get("location") == "/redirect/hops/4"
+    with client_case.check("a chain within its count answers its last response"):
+        assert within.status == 200
+        assert within.url.endswith("/redirect/hops/0"), within.url
+    with client_case.check(
+        "past its count, `too_many_redirects` names the chain, its hops and the option"
+    ):
+        assert isinstance(past, TooManyRedirectsError), past
+        hops = cast("list[str]", past.details["hops"])
+        assert (past.url, len(hops), past.details["limit"]) == (
+            chain,
+            3,
+            {"kind": "option", "name": "max_redirects", "count": 3},
+        )

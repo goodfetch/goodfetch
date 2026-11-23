@@ -103,6 +103,15 @@ class ProvingGround:
             entry["start_url"] for entry in listed["tasks"] if entry["id"] == task
         )
 
+    def observations(self) -> dict[str, object]:
+        """What it has observed so far, read from its connection record; it blocks.
+
+        Every request its page hosts received, under `requests`, and the
+        connection record, its proxies' `relays` among it.
+        """
+        with urllib.request.urlopen(self.fixtures.connections) as answer:
+            return cast("dict[str, object]", json.load(answer))
+
 
 @dataclass(frozen=True)
 class ProvingGroundRoutes:

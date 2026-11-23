@@ -8,9 +8,10 @@
 //! it, and keep its hash, each enqueue is checked against the new Labels,
 //! a new one accepted, and each Label works under its new declaration,
 //! here and in an engine that reopens the Run (#2825). Its Hooks in code
-//! are kept beside them and handed to the resumed delivery, never recorded
-//! (ADR 0104). A start under the ID of a crawl this engine works changes
-//! none of its declarations.
+//! are kept beside them and handed to the resumed delivery, their names,
+//! stages and scopes recorded in the same write, never their code (ADR
+//! 0104 and its note of #2912). A start under the ID of a crawl this engine
+//! works changes none of its declarations.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use goodfetch_protocol::run::RunId;
 use tokio::sync::Mutex;
 
 use crate::serving::Crawls;
-use crate::{code_free, labels};
+use crate::{code_free, hooks, labels};
 
 /// What a start under the ID of a Run declared: its Datasets, its Labels,
 /// as declared and as the rules its Payloads are checked by, the
@@ -56,15 +57,17 @@ impl Redeclared {
     /// Keeps `datasets`, the Labels `labels` and their Payload rules
     /// `payloads`, `extraction` and `hooks` for the resume of the Run
     /// `run_id` a start under its ID found, in place of any kept before,
-    /// unless a crawl of `crawls` works it.
+    /// unless a crawl of `crawls` works it, and answers whether it kept
+    /// them.
     pub(crate) async fn keep(
         &self,
         run_id: &RunId,
         (datasets, labels, payloads, extraction): Kept,
         hooks: Vec<CrawlHookDeclaration>,
         crawls: &Crawls,
-    ) {
-        if crawls.live(run_id).await.is_none() {
+    ) -> bool {
+        let keeps = crawls.live(run_id).await.is_none();
+        if keeps {
             self.0.lock().await.insert(
                 run_id.clone(),
                 Declared {
@@ -76,6 +79,7 @@ impl Redeclared {
                 },
             );
         }
+        keeps
     }
 
     /// Records the declarations kept for the resuming `run`, if any, in its
@@ -93,18 +97,27 @@ impl Redeclared {
         else {
             return Vec::new();
         };
+        let recorded = hooks.clone();
         if let Err(error) = run
             .state()
             .write(move |connection| {
                 datasets.record_again(connection)?;
                 labels::record_again(connection, &labels)?;
                 payloads.record_labels_again(connection)?;
-                code_free::record_again(connection, extraction.as_ref())
+                code_free::record_again(connection, extraction.as_ref())?;
+                hooks::record(connection, &recorded)
             })
             .await
         {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Datasets and Labels were not recorded again");
         }
         hooks
+    }
+
+    /// Whether a start under the ID `run_id` kept declarations its resume
+    /// has not recorded yet: a reopen then calls the Hooks in code it
+    /// declared again.
+    pub(crate) async fn holds(&self, run_id: &RunId) -> bool {
+        self.0.lock().await.contains_key(run_id)
     }
 }

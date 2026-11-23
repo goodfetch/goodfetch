@@ -743,6 +743,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 None => format_refusal(format, &found, compatibility),
             }
         }
+        RunError::ReopenRefused(refused) => *refused,
         RunError::BoundToMachine(run_id) => CallError::new(
             &SESSION_BOUND_TO_MACHINE,
             format!(
@@ -1060,7 +1061,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
         },
-        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
+        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings, true).await?,
         Started::Ended(ended) => ended,
     };
     limits.give(&started, &context).await?;
@@ -1226,6 +1227,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         params.run_id,
         params.checkpoint.map(PathBuf::from),
         settings,
+        false,
     )
     .await
 }
@@ -1233,8 +1235,11 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
 /// Resumes the Run `run_id` from its run file, or the Checkpoint at
 /// `checkpoint`, under `settings`, and starts its kind's driver, as
 /// `run.resume` does and a start under the ID of an interrupted Run does
-/// (ADR 0102): a Run this engine runs already raises `run_in_use`, and a
-/// finished one is answered as it ended.
+/// (ADR 0102), `redeclared` for a start's, which declared again what its
+/// program holds: a Run this engine runs already raises `run_in_use`, a
+/// finished one is answered as it ended, and one its kind's
+/// [`Driving::reopen_check`](crate::runs::Driving::reopen_check) refuses
+/// when no start `redeclared` stays as it is.
 ///
 /// # Errors
 ///
@@ -1244,6 +1249,7 @@ pub async fn resume_run(
     run_id: RunId,
     checkpoint: Option<PathBuf>,
     settings: RunSettings,
+    redeclared: bool,
 ) -> Result<RunStarted, CallError> {
     let resumed = context
         .runs()
@@ -1254,6 +1260,7 @@ pub async fn resume_run(
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
+            redeclared,
         })
         .await
         .map_err(|error| run_error(error, context))?;

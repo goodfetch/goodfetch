@@ -128,6 +128,7 @@ details! {
     crate::foxhound::frontier::PayloadSchemaChangedDetails => foxhound::PAYLOAD_SCHEMA_CHANGED,
     crate::foxhound::hook::HookDuplicateDetails => foxhound::HOOK_DUPLICATE,
     crate::foxhound::hook::HookIneffectiveDetails => foxhound::HOOK_INEFFECTIVE,
+    crate::foxhound::hook::HookUndeclaredDetails => foxhound::HOOK_UNDECLARED,
     crate::foxhound::hook::HookUnknownDetails => foxhound::HOOK_UNKNOWN,
     crate::foxhound::sql_tab::QueryInvalidDetails => foxhound::QUERY_INVALID,
     crate::foxhound::sql_tab::QueryMemoryExceededDetails => foxhound::QUERY_MEMORY_EXCEEDED,

@@ -293,7 +293,17 @@ pub struct Driving {
     /// that admission's jobs while the Run goes: a Politeness of the Run's
     /// own is then held by its admission rather than by an actor (#2171).
     pub admits: bool,
+    /// What a reopen of its Run that no start under the Run's ID declared
+    /// again checks, `run.resume`'s or `run.retry_failed`'s, before the
+    /// Run reopens; none when such a reopen needs nothing a start declares.
+    pub reopen_check: Option<ReopenCheck>,
 }
+
+/// A kind's check of a reopen no start under the Run's ID declared again,
+/// run on the run file or Checkpoint the Run `RunId` would reopen from:
+/// the error it answers refuses the reopen, before anything is done (ADR
+/// 0104's note of #2912).
+pub type ReopenCheck = fn(&Connection, &RunId) -> rusqlite::Result<Result<(), CallError>>;
 
 impl Default for Driving {
     fn default() -> Self {
@@ -302,6 +312,7 @@ impl Default for Driving {
             defers_charges: false,
             provenance_log: None,
             admits: false,
+            reopen_check: None,
         }
     }
 }
@@ -364,6 +375,10 @@ pub struct Resume {
     /// `RetryFailed`, which also returns a `finished` Run to `running`,
     /// rather than a resume (ADR 0102).
     pub retry_failed: bool,
+    /// Whether a start under its ID declared again what its program holds,
+    /// so its kind's [`Driving::reopen_check`] is not run: a start's
+    /// resume, or `run.retry_failed` after one.
+    pub redeclared: bool,
 }
 
 impl Resume {
@@ -926,6 +941,10 @@ pub enum RunError {
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
     BoundToMachine(RunId),
+    /// Its kind's [`Driving::reopen_check`] refused a reopen no start
+    /// under the Run's ID declared again, with the error it carries.
+    #[error("the reopen was refused: {0}")]
+    ReopenRefused(Box<CallError>),
     /// A Checkpoint could not be written (ADR 0116); no file is left.
     #[error("a Checkpoint of `{run_id}` could not be written: {message}")]
     WriteFailed {
@@ -6505,6 +6524,7 @@ impl Registry {
             timeout,
             settings,
             retry_failed,
+            redeclared,
         } = resume;
         // Fixed keys the resume gives keep their values, in any state (ADR 0102).
         let fixed = FixedSettings::of(settings.as_ref(), &self.setup.masks);
@@ -6525,9 +6545,8 @@ impl Registry {
             Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
-        let options = self.opened_with(settings.as_ref());
         let (lock, writer, state) = self
-            .reopen(&run_id, held.lifecycle, checkpoint, &options)
+            .reopen(&run_id, &held, checkpoint, settings.as_ref(), redeclared)
             .await?;
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.forget(&run_id);
@@ -6615,6 +6634,40 @@ impl Registry {
             .ok_or_else(|| RunError::NotFound(run_id.clone()))
     }
 
+    /// Runs the check of a reopen of `run_id`, `held` as its state says,
+    /// its kind gives, unless a start under its ID `redeclared` what the
+    /// check reads, on the Checkpoint `checkpoint`, or else its run file
+    /// here: the reopen it refuses is refused before anything is done (ADR
+    /// 0104's note of #2912).
+    async fn may_reopen(
+        &self,
+        run_id: &RunId,
+        held: &checkpoint::Held,
+        checkpoint: Option<&Path>,
+        redeclared: bool,
+    ) -> Result<(), RunError> {
+        let Some(check) = self.driving(held.kind).reopen_check.filter(|_| !redeclared) else {
+            return Ok(());
+        };
+        let folder = self.folder(run_id);
+        let (path, vfs) = match checkpoint {
+            Some(checkpoint) => (checkpoint.to_owned(), None),
+            None => (folder.join(RUN_FILE), self.setup.run_state.vfs.clone()),
+        };
+        let checked_id = run_id.clone();
+        self.owner
+            .blocking(move || {
+                let connection = run_state::open_reader(&path, vfs.as_deref())?;
+                check(&connection, &checked_id).map_err(|error| RunStateError::Sqlite {
+                    path,
+                    message: error.to_string(),
+                })
+            })
+            .await
+            .map_err(|error| RunError::of_state(run_id, &folder, error))?
+            .map_err(|refused| RunError::ReopenRefused(Box::new(refused)))
+    }
+
     /// What the Checkpoint `checkpoint`, or else the run file of `run_id`
     /// here, holds of the Run, refusing a version this engine cannot read.
     async fn held(
@@ -6660,16 +6713,20 @@ impl Registry {
 
     /// Takes the writer role of `run_id`, `held` as its state says: its
     /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
-    /// given, then the next run epoch, under which its writer opens and
+    /// (`WriterFound`), then, once its kind's check of the reopen passed
+    /// ([`Self::may_reopen`], unless a start `redeclared` what it reads),
+    /// the Checkpoint `checkpoint` made its run file when given, then the
+    /// next run epoch, under which its writer opens, with `settings`, and
     /// marks it running again.
     async fn reopen(
         &mut self,
         run_id: &RunId,
-        held: Lifecycle,
+        held: &checkpoint::Held,
         checkpoint: Option<PathBuf>,
-        options: &RunStateOptions,
+        settings: Option<&RunSettings>,
+        redeclared: bool,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
+        let options = self.opened_with(settings);
         let folder = self.folder(run_id);
         let file = folder.join(RUN_FILE);
         let lock = self
@@ -6677,7 +6734,7 @@ impl Registry {
             .await
             .map_err(|error| match error {
                 StartError::InUse { run_id, folder } => {
-                    match lifecycle::apply(held, RunEvent::WriterFound) {
+                    match lifecycle::apply(held.lifecycle, RunEvent::WriterFound) {
                         Err(refused) => RunError::refused(&run_id, &folder, refused),
                         Ok(_) => RunError::InUse { run_id, folder },
                     }
@@ -6721,6 +6778,8 @@ impl Registry {
                 | StartError::FilesystemUnsupported(..)
                 | StartError::Stopped => RunError::Stopped,
             })?;
+        self.may_reopen(run_id, held, checkpoint.as_deref(), redeclared)
+            .await?;
         let mut after = 0;
         if let Some(checkpoint) = checkpoint {
             // The run epoch of a run file of this Run already here, which the
@@ -6750,7 +6809,7 @@ impl Registry {
             "took the Run's writer role to resume it"
         );
         let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
+        let state = RunState::open(file, &options, self.setup.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         state

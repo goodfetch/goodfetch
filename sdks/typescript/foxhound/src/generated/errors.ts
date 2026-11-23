@@ -103,6 +103,15 @@ export class HookIneffectiveError extends ProgramError<"hook_ineffective"> {
 }
 
 /**
+ * `run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed.
+ */
+export class HookUndeclaredError extends ProgramError<"hook_undeclared"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "HookUndeclaredError", code: "hook_undeclared", group: "program", retryable: false });
+  }
+}
+
+/**
  * A test's `runHook` names a Hook the crawl does not hold, so no Hook ran. The details name the Hook asked for and the closest name the crawl holds, if it holds any. Use a name the crawl's Hooks carry, which `name` sets.
  */
 export class HookUnknownError extends ProgramError<"hook_unknown"> {
@@ -276,6 +285,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   handler_lost: HandlerLostError,
   hook_duplicate: HookDuplicateError,
   hook_ineffective: HookIneffectiveError,
+  hook_undeclared: HookUndeclaredError,
   hook_unknown: HookUnknownError,
   label_duplicate: LabelDuplicateError,
   label_unhandled: LabelUnhandledError,
@@ -308,6 +318,7 @@ export type FoxhoundErrorCode =
   | "handler_lost"
   | "hook_duplicate"
   | "hook_ineffective"
+  | "hook_undeclared"
   | "hook_unknown"
   | "label_duplicate"
   | "label_unhandled"
@@ -326,7 +337,7 @@ export type FoxhoundErrorCode =
   | "sample_crawl_refused"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -342,6 +353,7 @@ export type FoxhoundError =
   | HandlerLostError
   | HookDuplicateError
   | HookIneffectiveError
+  | HookUndeclaredError
   | HookUnknownError
   | LabelDuplicateError
   | LabelUnhandledError

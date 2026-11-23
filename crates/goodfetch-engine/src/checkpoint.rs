@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::formats::RUN_STATE;
-use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::run::{Lifecycle, RunKind};
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, ErrorCode};
 use sha2::{Digest as _, Sha256};
@@ -159,6 +159,8 @@ fn carry_failed(error: CarryError, path: &Path) -> WriteError {
 pub(crate) struct Held {
     /// The Run's ID, as written.
     pub(crate) run_id: String,
+    /// What kind of Run it is.
+    pub(crate) kind: RunKind,
     /// The Product it needs.
     pub(crate) needs: Product,
     /// Where it is.
@@ -200,7 +202,8 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         .and_then(|mut statement| statement.query_row([RUN_STATE.name], |row| row.get(0)))
         .map_err(|error| damaged(error.to_string()))?;
     sqlite_store::check_format(&RUN_STATE, &found)?;
-    let (run_id, needs, lifecycle, binding, run_epoch, fixed_settings): (
+    let (run_id, kind, needs, lifecycle, binding, run_epoch, fixed_settings): (
+        String,
         String,
         String,
         String,
@@ -208,7 +211,9 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         i64,
         String,
     ) = connection
-        .prepare_cached("SELECT run_id, needs, lifecycle, binding, epoch, fixed_settings FROM run")
+        .prepare_cached(
+            "SELECT run_id, kind, needs, lifecycle, binding, epoch, fixed_settings FROM run",
+        )
         .and_then(|mut statement| {
             statement.query_row([], |row| {
                 Ok((
@@ -218,6 +223,7 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             })
         })
@@ -225,6 +231,8 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
     let text = |value: &str| serde_json::Value::String(value.to_owned());
     Ok(Held {
         run_id,
+        kind: serde_json::from_value(text(&kind))
+            .map_err(|error| damaged(format!("`kind`: {error}")))?,
         needs: serde_json::from_value(text(&needs))
             .map_err(|error| damaged(format!("`needs`: {error}")))?,
         lifecycle: serde_json::from_value(text(&lifecycle))

@@ -15,6 +15,7 @@ use crate::run::RunId;
 #[case::duplicate("hook_duplicate", Product::Foxhound)]
 #[case::ineffective("hook_ineffective", Product::Foxhound)]
 #[case::failed_also_by_a_collie_script_hook("hook_failed", Product::Collie)]
+#[case::undeclared("hook_undeclared", Product::Foxhound)]
 #[case::unknown("hook_unknown", Product::Foxhound)]
 fn each_hook_code_is_declared_once_in_the_smallest_product_that_raises_it(
     #[case] name: &str,

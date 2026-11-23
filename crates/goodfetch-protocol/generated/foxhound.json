@@ -16304,6 +16304,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "`run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_undeclared",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A test's `runHook` names a Hook the crawl does not hold, so no Hook ran. The details name the Hook asked for and the closest name the crawl holds, if it holds any. Use a name the crawl's Hooks carry, which `name` sets.",
       "exit_code": null,
       "group": "program",

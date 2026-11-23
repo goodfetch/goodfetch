@@ -329,6 +329,24 @@
         "commands": [
           {
             "commands": [],
+            "name": "start"
+          }
+        ],
+        "name": "recipe"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          }
+        ],
+        "name": "catalog-run"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "get"
           },
           {
@@ -727,6 +745,24 @@
           }
         ],
         "name": "signing-key"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          }
+        ],
+        "name": "recipe"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          }
+        ],
+        "name": "catalog-run"
       },
       {
         "commands": [

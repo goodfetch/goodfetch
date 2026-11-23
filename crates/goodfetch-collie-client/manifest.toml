@@ -2176,3 +2176,7 @@ entries = [
   "key_value_store.keys",
 ]
 reason = "The Rust SDK has no Key-value store yet; issue 1284 adds the Run's."
+
+[[unreached]]
+entries = ["recipe.start", "catalog_run.start"]
+reason = "Issue 3396's Rust part adds `start_recipe` and `start_catalog_run`."

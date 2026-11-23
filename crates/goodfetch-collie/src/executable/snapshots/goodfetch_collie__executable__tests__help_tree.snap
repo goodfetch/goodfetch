@@ -25,6 +25,8 @@ Commands:
   locator          Calls the catalog's `locator` operations
   response         Calls the catalog's `response` operations
   signing-key      Calls the catalog's `signing_key` operations
+  recipe           Calls the catalog's `recipe` operations
+  catalog-run      Calls the catalog's `catalog_run` operations
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
 
@@ -1135,6 +1137,74 @@ Options:
       --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                         Print help
+
+$ goodfetch-collie recipe --help
+Calls the catalog's `recipe` operations
+
+Usage: goodfetch-collie recipe [OPTIONS] <COMMAND>
+
+Commands:
+  start  Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie recipe start --help
+Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+
+Usage: goodfetch-collie recipe start [OPTIONS] --recipe <RECIPE>
+
+Options:
+      --detached               Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
+      --limit <KIND=AMOUNT>    Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>      The project configuration the Client found, layer 3 (ADR 0083)
+      --recipe <RECIPE>        The Recipe: an installed Recipe's name, or the path to its manifest
+      --recording <RECORDING>  The Response recording the Run replays or records (ADR 0105)
+      --run-id <RUN_ID>        The Run's ID, as `run.start`'s
+      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --set <KEY=VALUE>        Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->      Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>            The Run's opaque tags
+      --timeout <DURATION>     How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
+      --json                   Prints the result as JSON
+      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                   Print help
+
+$ goodfetch-collie catalog-run --help
+Calls the catalog's `catalog_run` operations
+
+Usage: goodfetch-collie catalog-run [OPTIONS] <COMMAND>
+
+Commands:
+  start  Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie catalog-run start --help
+Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+
+Usage: goodfetch-collie catalog-run start [OPTIONS] --target <TARGET>
+
+Options:
+      --detached               Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
+      --limit <KIND=AMOUNT>    Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>      The project configuration the Client found, layer 3 (ADR 0083)
+      --recording <RECORDING>  The Response recording the Run replays or records (ADR 0105)
+      --run-id <RUN_ID>        The Run's ID, as `run.start`'s
+      --set <KEY=VALUE>        Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --settings <FILE|->      Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>            The Run's opaque tags
+      --target <TARGET>        What the Run does
+      --timeout <DURATION>     How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
+      --json                   Prints the result as JSON
+      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                   Print help
 
 $ goodfetch-collie key-value-store --help
 Calls the catalog's `key_value_store` operations

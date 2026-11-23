@@ -175,6 +175,89 @@ export type ClosedValue = "page" | "session" | "browser" | "run" | "connection" 
  */
 export type RequestId = number | string;
 /**
+ * What a Run does with the Response recording its start names (ADR 0105).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingMode".
+ */
+export type RecordingMode = "replay" | "record";
+/**
+ * An opaque text a Run is tagged with (ADR 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Tag".
+ */
+export type Tag = string;
+/**
+ * A Run's tags, in the order given.
+ *
+ * @maxItems 16
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Tags".
+ */
+export type Tags = Tag[];
+/**
+ * What a code-free catalog run does (ADR 0036): its verbs come from the
+ * catalog, so nothing in the program serves it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CatalogTarget".
+ */
+export type CatalogTarget =
+  | {
+      /**
+       * What to extract, in words, beside the schema.
+       */
+      instruction?: string | null;
+      kind: "extract";
+      /**
+       * The JSON Schema of what it extracts.
+       */
+      schema: {
+        [k: string]: unknown;
+      };
+      /**
+       * The page.
+       */
+      url: string;
+    }
+  | {
+      /**
+       * Its Success check, which decides `verified`.
+       */
+      expect?: {
+        [k: string]: unknown;
+      };
+      kind: "agent";
+      /**
+       * The most steps it takes.
+       */
+      maxSteps?: number | null;
+      /**
+       * The JSON Schema of what it answers.
+       */
+      schema?: {
+        [k: string]: unknown;
+      };
+      /**
+       * The goal, in words.
+       */
+      task: string;
+      /**
+       * The page it starts from.
+       */
+      url: string;
+    }
+  | {
+      kind: "plan_replay";
+      /**
+       * The Plan file, on the program's machine, relative to its working
+       * directory.
+       */
+      plan: string;
+    };
+/**
  * The kind of an invalid-certificate exception (ADR 0042).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1144,22 +1227,6 @@ export type StopReason =
       [k: string]: unknown;
     };
 /**
- * An opaque text a Run is tagged with (ADR 0036).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Tag".
- */
-export type Tag = string;
-/**
- * A Run's tags, in the order given.
- *
- * @maxItems 16
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Tags".
- */
-export type Tags = Tag[];
-/**
  * Which way `run.list` sorts.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1562,6 +1629,117 @@ export interface CancelParams {
   id: RequestId;
 }
 /**
+ * What `catalog_run.start` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CatalogRunStartParams".
+ */
+export interface CatalogRunStartParams {
+  /**
+   * Whether the Run outlives the program (ADR 0102): closing its value
+   * then frees only the value, `run.finish` waits for its end and
+   * `run.stop` stops it.
+   */
+  detached?: boolean;
+  /**
+   * The Run's own Limits, as `run.start`'s.
+   */
+  limits?: RunLimit[];
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Response recording the Run replays or records (ADR 0105).
+   */
+  recording?: Recording | null;
+  /**
+   * The Run's ID, as `run.start`'s.
+   */
+  runId?: string | null;
+  /**
+   * The Run's settings, nested by key: the run layer (ADR 0083).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Run's opaque tags.
+   */
+  tags?: Tags;
+  /**
+   * What the Run does.
+   */
+  target: CatalogTarget;
+  /**
+   * How long the Run may last, in milliseconds, at least 1, as
+   * `timeout.run` for this Run: absent for the setting's value, `null`
+   * for none.
+   */
+  timeout?: number | null;
+}
+/**
+ * A Limit a program gives a Run at its start (`run.start`'s `limits`):
+ * the Run's own, with no period, set by its Client. A start that names
+ * the Run again lowers it and never raises it (ADR 0102).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunLimit".
+ */
+export interface RunLimit {
+  /**
+   * How much the Run may use: a count of the Usage kind, or millionths
+   * of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code; none for a
+   * count of the Usage kind.
+   */
+  currency?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usageKind: string;
+}
+/**
+ * A project configuration's values, which a Client reads where it runs and
+ * sends with a scope it opens (ADR 0083).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProjectSettings".
+ */
+export interface ProjectSettings {
+  /**
+   * The file's path, as the Client found it.
+   */
+  path: string;
+  /**
+   * Its settings, nested as the file nests them.
+   */
+  settings: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * A Response recording a start names (ADR 0105): an input of the Run,
+ * never a setting.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Recording".
+ */
+export interface Recording {
+  /**
+   * Whether the Run replays the file or records it.
+   */
+  mode: RecordingMode;
+  /**
+   * The WARC 1.1 file, on the program's machine, relative to its working
+   * directory.
+   */
+  path: string;
+}
+/**
  * The invalid-certificate exception a Record's document was fetched
  * under (ADR 0042, pitfall H03).
  *
@@ -1853,25 +2031,6 @@ export interface ConfigExplainParams {
    * them.
    */
   settings?: {
-    [k: string]: unknown;
-  };
-}
-/**
- * A project configuration's values, which a Client reads where it runs and
- * sends with a scope it opens (ADR 0083).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ProjectSettings".
- */
-export interface ProjectSettings {
-  /**
-   * The file's path, as the Client found it.
-   */
-  path: string;
-  /**
-   * Its settings, nested as the file nests them.
-   */
-  settings: {
     [k: string]: unknown;
   };
 }
@@ -5376,6 +5535,57 @@ export interface ReachedLimit {
   usageKind: string;
 }
 /**
+ * What `recipe.start` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecipeStartParams".
+ */
+export interface RecipeStartParams {
+  /**
+   * Whether the Run outlives the program (ADR 0102): closing its value
+   * then frees only the value, `run.finish` waits for its end and
+   * `run.stop` stops it.
+   */
+  detached?: boolean;
+  /**
+   * The Run's own Limits, as `run.start`'s.
+   */
+  limits?: RunLimit[];
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Recipe: an installed Recipe's name, or the path to its
+   * manifest.
+   */
+  recipe: string;
+  /**
+   * The Response recording the Run replays or records (ADR 0105).
+   */
+  recording?: Recording | null;
+  /**
+   * The Run's ID, as `run.start`'s.
+   */
+  runId?: string | null;
+  /**
+   * The Run's settings, nested by key: the run layer (ADR 0083).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Run's opaque tags.
+   */
+  tags?: Tags;
+  /**
+   * How long the Run may last, in milliseconds, at least 1, as
+   * `timeout.run` for this Run: absent for the setting's value, `null`
+   * for none.
+   */
+  timeout?: number | null;
+}
+/**
  * What `$/record` carries: the next Record a `run.records` call reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5972,30 +6182,6 @@ export interface RunIndexRow {
    * Its Verdict, once it ended.
    */
   verdict?: Verdict | null;
-}
-/**
- * A Limit a program gives a Run at its start (`run.start`'s `limits`):
- * the Run's own, with no period, set by its Client. A start that names
- * the Run again lowers it and never raises it (ADR 0102).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunLimit".
- */
-export interface RunLimit {
-  /**
-   * How much the Run may use: a count of the Usage kind, or millionths
-   * of the currency.
-   */
-  amount: number;
-  /**
-   * The currency it caps the price in, an ISO 4217 code; none for a
-   * count of the Usage kind.
-   */
-  currency?: string | null;
-  /**
-   * The Usage kind it caps.
-   */
-  usageKind: string;
 }
 /**
  * What `run.list` answers: the rows of its filter, in its order.

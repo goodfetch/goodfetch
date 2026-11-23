@@ -3,10 +3,12 @@
 // program's environment map, and finishes `hello`, naming Collie, before it
 // returns. Everything else is the client package's common Connection.
 import type {
+  CatalogTarget,
   ConnectOptions,
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  HandlerlessStartOptions,
   JSONValue,
   RawCallOptions,
   RawParams,
@@ -81,6 +83,33 @@ export class Collie implements Connection {
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);
+  }
+
+  /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startRecipe(recipe: string, options?: HandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startRecipe(recipe, options);
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startCatalogRun(target: CatalogTarget, options?: HandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startCatalogRun(target, options);
   }
 
   /**

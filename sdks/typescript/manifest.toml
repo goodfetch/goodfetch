@@ -68,6 +68,24 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie"
 receiver = "Collie"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -115,6 +133,24 @@ receiver = "Foxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "catalog", "run"]
 form = "opener"
 
 [[member]]
@@ -283,6 +319,24 @@ receiver = "Connection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Python and Rust parts add it."
+words = ["start", "catalog", "run"]
 form = "opener"
 
 [[member]]
@@ -1127,6 +1181,16 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
+member = "HandlerlessStartOptions"
+entry = "none"
+reason = "What starting a handler-less Run takes (ADR 0102), shaped by the SDK around the params `recipe.start` and `catalog_run.start` share."
+only = "Issue 3396's Python and Rust parts add their own."
+words = ["handlerless", "start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
 member = "ConnectOptions"
 entry = "none"
 reason = "The options of `connect()`, which no catalog entry shapes (ADR 0078)."
@@ -1897,6 +1961,22 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
+member = "startRecipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -2255,6 +2335,16 @@ entry = "none"
 reason = "What starting a Run takes, with Foxhound's Limits."
 only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
 words = ["foxhound", "start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FoxhoundHandlerlessStartOptions"
+entry = "none"
+reason = "What starting a handler-less Run takes, with Foxhound's Limits."
+only = "Issue 3396's Python and Rust parts add their own."
+words = ["foxhound", "handlerless", "start", "options"]
 form = "type"
 
 [[member]]

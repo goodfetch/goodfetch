@@ -31,7 +31,11 @@ import {
   type HelloResult,
   type KeyValueStoreSetParams,
   type LogLevel,
+  type CatalogRunStartParams,
+  type CatalogTarget,
   type Product,
+  type RecipeStartParams,
+  type Recording,
   type RunLimit,
   type RunStartParams,
   type RunStarted,
@@ -45,6 +49,7 @@ import { collieWire, type CollieWireType } from "./generated/wire.ts";
 import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
+import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
@@ -163,6 +168,28 @@ export interface StartOptions {
    * `{ timeout: { navigation: 30_000 } }`.
    */
   readonly settings?: RunSettings | undefined;
+}
+
+/**
+ * What starting a handler-less Run takes, a Recipe's or a code-free catalog
+ * run's (ADRs 0036 and 0102): a start's options, and how it records, how
+ * long it may last and whether it outlives its program.
+ */
+export interface HandlerlessStartOptions extends StartOptions {
+  /** The Response recording it replays or records, a WARC file on the program's machine. */
+  readonly recording?: Recording | undefined;
+  /**
+   * How long the Run may last, in milliseconds, at least 1, as
+   * `timeout.run` for this Run: left out for the setting's value, `null`
+   * for none. Any other number fails with `setting_invalid` before
+   * anything is sent.
+   */
+  readonly timeout?: number | null | undefined;
+  /**
+   * Whether the Run outlives its program: closing its value then frees
+   * only the value, `finish()` waits for its end and `stop()` stops it.
+   */
+  readonly detached?: boolean | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -442,18 +469,53 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "run.start");
-    const limits = limitList(options.limits);
-    const settings = settingsOnWire(options.settings);
-    const params: RunStartParams = {
-      ...(options.runId === undefined ? {} : { runId: options.runId }),
-      ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
-      ...(limits.length === 0 ? {} : { limits }),
-      ...(settings === undefined ? {} : { settings }),
-    };
+    const params = startParams(options);
     return this.startRun(
       "run.start",
       () => this.#operations.runStart(params),
       (host, started) => new Run(host, started),
+    );
+  }
+
+  /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  async startRecipe(recipe: string, options: HandlerlessStartOptions = {}): Promise<Run> {
+    warnEntry(collieOperations, "recipe.start");
+    const params: RecipeStartParams = { recipe, ...handlerlessParams(options) };
+    return this.startRun(
+      "recipe.start",
+      () => this.#operations.recipeStart(params),
+      (host, started) => new Run(host, started, options.detached === true),
+    );
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  async startCatalogRun(
+    target: CatalogTarget,
+    options: HandlerlessStartOptions = {},
+  ): Promise<Run> {
+    warnEntry(collieOperations, "catalog_run.start");
+    const params: CatalogRunStartParams = { target, ...handlerlessParams(options) };
+    return this.startRun(
+      "catalog_run.start",
+      () => this.#operations.catalogRunStart(params),
+      (host, started) => new Run(host, started, options.detached === true),
     );
   }
 
@@ -939,6 +1001,33 @@ function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
     details: { by: "program", closed: "connection" },
   });
+}
+
+/** The params every start carries, from `options`. */
+function startParams(options: StartOptions): RunStartParams {
+  const limits = limitList(options.limits);
+  const settings = settingsOnWire(options.settings);
+  return {
+    ...(options.runId === undefined ? {} : { runId: options.runId }),
+    ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+    ...(limits.length === 0 ? {} : { limits }),
+    ...(settings === undefined ? {} : { settings }),
+  };
+}
+
+/**
+ * The params a handler-less start carries besides its target, from
+ * `options`; a `timeout` off its form fails with `setting_invalid` before
+ * anything is sent.
+ */
+function handlerlessParams(options: HandlerlessStartOptions): Omit<RecipeStartParams, "recipe"> {
+  const timeout = timeoutOf(options.timeout, "timeout.run");
+  return {
+    ...startParams(options),
+    ...(options.recording === undefined ? {} : { recording: options.recording }),
+    ...(timeout === undefined ? {} : { timeout }),
+    ...(options.detached === true ? { detached: true } : {}),
+  };
 }
 
 /** The `usage.set` params, in the wire's form, setting `limit` on the Client connection's own scope (ADR 0080's note of issue 2830). */

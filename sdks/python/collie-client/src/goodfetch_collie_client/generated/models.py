@@ -241,6 +241,62 @@ class CallCancelledDetails(BaseModel):
     """Whom the stopping Client acts for (ADR 0031), when known."""
 
 
+class CatalogTarget1(BaseModel):
+    """An Extraction of one page by a schema."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instruction: str | None = None
+    """What to extract, in words, beside the schema."""
+    kind: Literal["extract"]
+    schema_: Annotated[Any, Field(alias="schema")]
+    """The JSON Schema of what it extracts."""
+    url: str
+    """The page."""
+
+
+class CatalogTarget2(BaseModel):
+    """An Agent task from a page (ADR 0091)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expect: Any | None = None
+    """Its Success check, which decides `verified`."""
+    kind: Literal["agent"]
+    max_steps: Annotated[int | None, Field(ge=0)] = None
+    """The most steps it takes."""
+    schema_: Annotated[Any | None, Field(alias="schema")] = None
+    """The JSON Schema of what it answers."""
+    task: str
+    """The goal, in words."""
+    url: str
+    """The page it starts from."""
+
+
+class CatalogTarget3(BaseModel):
+    """A Plan replayed with no model call (ADR 0091)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["plan_replay"]
+    plan: str
+    """
+    The Plan file, on the program's machine, relative to its working
+    directory.
+    """
+
+
+class CatalogTarget(RootModel[CatalogTarget1 | CatalogTarget2 | CatalogTarget3]):
+    root: CatalogTarget1 | CatalogTarget2 | CatalogTarget3
+    """
+    What a code-free catalog run does (ADR 0036): its verbs come from the
+    catalog, so nothing in the program serves it.
+    """
+
+
 class CertificateExceptionKind(StrEnum):
     """The kind of an invalid-certificate exception (ADR 0042)."""
 
@@ -1980,6 +2036,21 @@ class Reached(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class RecordingMode(StrEnum):
+    """What a Run does with the Response recording its start names (ADR 0105)."""
+
+    replay = "replay"
+    """
+    Every request the Run would send to a site is answered from the
+    file, and one it lacks is refused, never sent.
+    """
+    record = "record"
+    """
+    The Run fetches as usual and, when it ends, replaces the file with
+    every response it received.
+    """
 
 
 class RecordingReport(BaseModel):
@@ -5465,6 +5536,24 @@ class ReachedLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class Recording(BaseModel):
+    """
+    A Response recording a start names (ADR 0105): an input of the Run,
+    never a setting.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: RecordingMode
+    """Whether the Run replays the file or records it."""
+    path: str
+    """
+    The WARC 1.1 file, on the program's machine, relative to its working
+    directory.
+    """
+
+
 class RefetchDomainRemoved(BaseModel):
     """What `needs_you.remove_refetch_domain` answers."""
 
@@ -6245,6 +6334,42 @@ class AuditExported(BaseModel):
     """
 
 
+class CatalogRunStartParams(BaseModel):
+    """What `catalog_run.start` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detached: bool | None = None
+    """
+    Whether the Run outlives the program (ADR 0102): closing its value
+    then frees only the value, `run.finish` waits for its end and
+    `run.stop` stops it.
+    """
+    limits: list[RunLimit] | None = None
+    """The Run's own Limits, as `run.start`'s."""
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    recording: Recording | None = None
+    """The Response recording the Run replays or records (ADR 0105)."""
+    run_id: Annotated[
+        str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
+    ] = None
+    """The Run's ID, as `run.start`'s."""
+    settings: dict[str, Any] | None = None
+    """The Run's settings, nested by key: the run layer (ADR 0083)."""
+    tags: Tags | None = None
+    """The Run's opaque tags."""
+    target: CatalogTarget
+    """What the Run does."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the Run may last, in milliseconds, at least 1, as
+    `timeout.run` for this Run: absent for the setting's value, `null`
+    for none.
+    """
+
+
 class ClickParams(BaseModel):
     """What `locator.click` takes: the locator whose element it clicks."""
 
@@ -6656,6 +6781,45 @@ class PageReadParams(BaseModel):
     """The fields, by name."""
     page_id: PageId
     """The page."""
+
+
+class RecipeStartParams(BaseModel):
+    """What `recipe.start` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detached: bool | None = None
+    """
+    Whether the Run outlives the program (ADR 0102): closing its value
+    then frees only the value, `run.finish` waits for its end and
+    `run.stop` stops it.
+    """
+    limits: list[RunLimit] | None = None
+    """The Run's own Limits, as `run.start`'s."""
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    recipe: str
+    """
+    The Recipe: an installed Recipe's name, or the path to its
+    manifest.
+    """
+    recording: Recording | None = None
+    """The Response recording the Run replays or records (ADR 0105)."""
+    run_id: Annotated[
+        str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
+    ] = None
+    """The Run's ID, as `run.start`'s."""
+    settings: dict[str, Any] | None = None
+    """The Run's settings, nested by key: the run layer (ADR 0083)."""
+    tags: Tags | None = None
+    """The Run's opaque tags."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the Run may last, in milliseconds, at least 1, as
+    `timeout.run` for this Run: absent for the setting's value, `null`
+    for none.
+    """
 
 
 class RecordProvenance(BaseModel):

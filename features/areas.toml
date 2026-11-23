@@ -1475,6 +1475,28 @@ number = 11
 kind = "command"
 prefix = "dataset."
 
+# The starts of Runs with no handler in the program, a Recipe's run and a
+# code-free catalog run, their operations and their commands (#3396).
+[[area]]
+number = 11
+kind = "operation"
+prefix = "recipe.start"
+
+[[area]]
+number = 11
+kind = "operation"
+prefix = "catalog_run.start"
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "recipe.start"
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "catalog-run.start"
+
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).
 [[area]]

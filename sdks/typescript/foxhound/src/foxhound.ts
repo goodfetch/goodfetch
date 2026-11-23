@@ -7,10 +7,12 @@
 // Everything else is the client package's common Connection, whose members
 // `Collie` carries under the same names.
 import type {
+  CatalogTarget,
   ConnectOptions,
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  HandlerlessStartOptions,
   JSONValue,
   Limits,
   Money,
@@ -72,6 +74,11 @@ export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings>
 
 /** What starting a Run takes, with Foxhound's Limits. */
 export interface FoxhoundStartOptions extends StartOptions {
+  readonly limits?: FoxhoundLimits | undefined;
+}
+
+/** What starting a handler-less Run takes, with Foxhound's Limits. */
+export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
@@ -176,6 +183,33 @@ export class Foxhound implements Connection {
    */
   start(options?: FoxhoundStartOptions): Promise<Run> {
     return this.#connection.start(options);
+  }
+
+  /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startRecipe(recipe: string, options?: FoxhoundHandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startRecipe(recipe, options);
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startCatalogRun(target: CatalogTarget, options?: FoxhoundHandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startCatalogRun(target, options);
   }
 
   /**

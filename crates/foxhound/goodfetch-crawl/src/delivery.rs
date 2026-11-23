@@ -137,8 +137,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Opening, Question, QueuedEnd, Ran,
-    RunState, StateError, Stored, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Message, Opening, PermitAsk, QueuedEnd,
+    Ran, RunState, StateError, Stored, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -151,7 +151,7 @@ mod document_answer;
 mod failure;
 mod merged;
 
-use failure::{AttemptFailure, Why, kept_failure, retried_or_failed};
+use failure::{AttemptFailure, RETRY_AFTER_FIX, Why, kept_failure, retried_or_failed};
 mod pages;
 mod politeness;
 mod watch;
@@ -162,7 +162,7 @@ use attempt::{
 };
 use merged::merged;
 use pages::{Pages, Start};
-use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
+use politeness::{domain_ending, end_unsent, held_past_bound};
 use watch::Watch;
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -482,6 +482,11 @@ async fn deliver(
     let Some((mut admission, mut state)) = opened(run, settings, choices, arrivals).await else {
         return;
     };
+    // Its before-request Hooks run before each request's Permit is taken
+    // (#2905, the owner's decision of 2026-11-07 on #1546).
+    if fetching.hooks.before_request() {
+        admission.permit_after_hooks();
+    }
     let (in_flight, mut stop) = (&fetching.in_flight, None::<StopReason>);
     show_counted(run, &state, in_flight, []).await;
     let run_leases = leases_of(run, arrivals, &admission);
@@ -635,13 +640,24 @@ async fn show_counted<'a>(
 /// re-admission, it offers their domains' queues the work items the write
 /// added, shows what it changed of the crawl's requests by state, with
 /// the requests `in_flight`, and answers that the crawl may have new work.
+/// A request's Permit, its admission answers (#2905).
 async fn answered(
     run: &Run,
     (admission, state): (&mut Admission, &mut RunState),
     in_flight: &SharedInFlight,
-    ask: Question,
+    ask: Message,
 ) -> bool {
-    let Some(added) = state.answer(ask).await else {
+    let question = match ask {
+        Message::Question(question) => question,
+        Message::Permit(PermitAsk { id, key, answer }) => {
+            let permit = admission.permit(&id, &key, run.clock().now()).await;
+            // The attempt no longer waits for it: its end gives back what
+            // was taken.
+            let _ = answer.send(permit);
+            return false;
+        }
+    };
+    let Some(added) = state.answer(question).await else {
         return false;
     };
     for waiting in added {
@@ -916,14 +932,15 @@ impl Fetching<'_> {
     /// and the tier its site files are read on, from the own transport of
     /// the first of its Sessions that sends from one, the attempt's,
     /// `transport` or `site_files`, else of the attempt's Session, keeping
-    /// that Session's cookies (#2422).
+    /// that Session's cookies (#2422); it asks for its Permit once its
+    /// before-request Hooks ran when `permits_after_hooks` (#2905).
     fn served(
         &self,
         state: &RunState,
         leased: &Leased,
         ((session, local, sends_from), chosen): ((&SessionId, Local, SendsFrom), Chosen),
         (transport, site_files): (Option<DrawnSession>, Option<DrawnSession>),
-        (second_copies, settings): (&SecondCopies, PoolSettings),
+        (second_copies, settings, permits_after_hooks): (&SecondCopies, PoolSettings, bool),
     ) -> (Tiering, Option<HttpTier>) {
         let request = &leased.crawl_request;
         let plan = match chosen {
@@ -985,7 +1002,9 @@ impl Fetching<'_> {
                 pool,
                 settings,
             }
-        }));
+        }))
+        // Its Permit is asked once its before-request Hooks ran (#2905).
+        .permitting(permits_after_hooks.then(|| self.asking.clone()));
         (tiering, reader)
     }
 
@@ -1120,7 +1139,7 @@ async fn lease_to_servers(
                 &leased,
                 ((&session.id, local, sends_from), chosen),
                 (transport, site_files),
-                (&copies, pooled.settings),
+                (&copies, pooled.settings, admission.permits_after_hooks()),
             );
             let admission = FetchAdmission::holding(
                 permits

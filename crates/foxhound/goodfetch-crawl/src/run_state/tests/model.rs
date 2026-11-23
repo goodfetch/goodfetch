@@ -93,7 +93,7 @@ use crate::policy::CrawlPolicy;
 use crate::run_state::admission::{Enqueue, Link, LinksBatch, LinksRequest};
 use crate::run_state::asks::{Ask, Queued, Staged};
 use crate::run_state::{
-    Asked, Asking, Question, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
+    Asked, Asking, Message, Question, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
 };
 use crate::staging::Staging;
 use crate::tier_choice::TierChoices;
@@ -813,7 +813,10 @@ impl Crawl {
                 .next()
                 .await
                 .expect("invariant: the mailbox is open");
-            self.state.answer(ask).await;
+            let Message::Question(question) = ask else {
+                panic!("the model asks its Run state alone");
+            };
+            self.state.answer(question).await;
         };
         let (answered, ()) = tokio::join!(call, answer);
         answered.expect("the Run state answers")

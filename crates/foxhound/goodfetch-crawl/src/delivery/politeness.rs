@@ -6,24 +6,19 @@
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::admission::{Admission, Admitted, Ended};
-use goodfetch_engine::retry_after::{self, RetryAfter};
+use goodfetch_engine::retry_after::RetryAfter;
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::page::PageResponse;
-use serde_json::{Map, Value};
 use tokio::time::Instant;
 
 use super::attempt::Answer;
 use super::document_answer;
-use super::failure::{RETRY_AFTER, Why};
+use super::failure::{Why, unsent};
 use crate::run_state::{Ran, StateError, Stored};
-use crate::work_items::{Changed, Failure};
-
-/// The `fix` of a request a site's `Retry-After` holds further away than
-/// the Run waits (ADR 0118).
-pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retry_after`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
+use crate::work_items::Changed;
 
 /// What an attempt's ending says of its domain (ADRs 0021, 0053, 0086 and
 /// 0118; the `backoff_classes` rule): what its handler's failure says
@@ -164,21 +159,7 @@ pub(super) async fn end_unsent(
 ) -> Result<Ran<Changed>, StateError> {
     let unsent = refused
         .iter()
-        .map(|(admitted, until)| {
-            let mut details = Map::new();
-            details.insert("status".to_owned(), Value::Null);
-            details.insert(
-                RETRY_AFTER.to_owned(),
-                Value::from(retry_after::detail(*until)),
-            );
-            details.insert("fix".to_owned(), Value::from(RETRY_AFTER_FIX));
-            let failure = Failure {
-                code: RESPONSE_UNAVAILABLE.name.to_owned(),
-                message: "The site asked for no request to its domain before a time further away than `politeness.retry_after.max`; nothing was sent.".to_owned(),
-                details,
-            };
-            (admitted.id.clone(), failure)
-        })
+        .map(|(admitted, until)| (admitted.id.clone(), unsent(*until)))
         .collect();
     let ended = stored.end_unsent(unsent, run.point_in_time()).await?;
     let now = run.clock().now();

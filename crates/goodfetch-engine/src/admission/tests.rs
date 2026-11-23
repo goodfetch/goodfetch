@@ -24,8 +24,8 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
 
 use super::{
-    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, Keys, RateCap, Room,
-    SecondCopies, Waiting,
+    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, Keys, PermitAnswer, RateCap,
+    Room, SecondCopies, Waiting,
 };
 use crate::clock::Clock;
 use crate::politeness::{
@@ -802,5 +802,91 @@ fn a_run_whose_own_request_fills_its_key_keeps_its_turn_ahead_of_a_later_waiter(
     assert_eq!(
         admitted,
         [Some("1".to_owned()), None, None, Some("2".to_owned()), None]
+    );
+}
+
+/// What a Run asking for a request's Permit was answered, by name.
+fn answered(answer: &PermitAnswer, now: Instant) -> String {
+    match answer {
+        PermitAnswer::Granted(_) => "granted".to_owned(),
+        PermitAnswer::Wait { until, wakes } => format!(
+            "wait +{:?}{}",
+            until.duration_since(now),
+            if wakes.is_some() { " or a wake" } else { "" }
+        ),
+        PermitAnswer::Refused(_) => "refused".to_owned(),
+    }
+}
+
+/// A Run whose requests go through before-request Hooks takes each one's
+/// Permit only once its Hooks returned, in a second ask (#2905): it admits
+/// a request while its key is free, holding no Permit, so another Run
+/// sharing the Politeness may take the Permit meanwhile; its own ask then
+/// waits for that Run's request to end, whose give back wakes it, and is
+/// granted; and its next request waits for the first, as a Permit held
+/// would make it.
+///
+/// Covers: story:3-168, setting:politeness.domain.concurrency
+#[test]
+fn a_run_with_before_request_hooks_takes_each_permit_after_its_hooks() {
+    let answers = on_the_runtime(async |owner| {
+        let politeness = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
+        let one_at_a_time = SharedRule::new(Rule {
+            cap: 1,
+            delay: None,
+        });
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+        let mut admissions = Vec::new();
+        for (run, waiting) in [("hooked", &["1", "2"][..]), ("plain", &["3"][..])] {
+            let holder = Holder {
+                run_id: run.to_owned(),
+                epoch: 1,
+                run_folder: run.into(),
+                delegates: true,
+            };
+            let gate = InOrder::new(waiting, one_at_a_time.clone(), &Arc::default());
+            admissions.push(Admission::new(Box::new(gate), &settings).sharing(
+                (politeness.clone(), None),
+                holder,
+                clock,
+                &settings,
+            ));
+        }
+        let [mut hooked, mut plain] = <[Admission; 2]>::try_from(admissions).unwrap();
+        hooked.permit_after_hooks();
+        let now = Instant::now();
+        let one = hooked.admit(now).await.map(|admitted| admitted.id);
+        let two = hooked.admit(now).await.map(|admitted| admitted.id);
+        let three = plain.admit(now).await.map(|admitted| admitted.id);
+        let mut waits = hooked.permit("1", "shop.test", now).await;
+        let waited = answered(&waits, now);
+        plain.ended("3", "shop.test", now, Ended::Done).await;
+        let woken = match &mut waits {
+            PermitAnswer::Wait {
+                wakes: Some(wakes), ..
+            } => wakes.next().await,
+            _ => None,
+        };
+        let granted = answered(&hooked.permit("1", "shop.test", now).await, now);
+        let still = hooked.admit(now).await.map(|admitted| admitted.id);
+        hooked.ended("1", "shop.test", now, Ended::Done).await;
+        let next = hooked.admit(now).await.map(|admitted| admitted.id);
+        ([one, two, three, still, next], [waited, granted], woken)
+    });
+
+    assert_eq!(
+        answers,
+        (
+            [
+                Some("1".to_owned()),
+                None,
+                Some("3".to_owned()),
+                None,
+                Some("2".to_owned())
+            ],
+            ["wait +30s or a wake".to_owned(), "granted".to_owned()],
+            Some("shop.test".to_owned()),
+        )
     );
 }

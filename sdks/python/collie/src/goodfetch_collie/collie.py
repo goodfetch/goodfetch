@@ -44,6 +44,7 @@ from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
     from datetime import timedelta
 
@@ -99,6 +100,7 @@ class AsyncCollie(AsyncConnection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -146,6 +148,18 @@ class AsyncCollie(AsyncConnection):
         `settings` win over them key by key. A key the Connection does not
         take fails the opening with the engine's error, such as
         `setting_not_applicable` or `setting_locked`.
+
+        `project` is the project file to read (ADR 0083), sent to the
+        engine as the project configuration of each Run the Connection
+        starts and of its `explain_settings()`: the `goodfetch.toml` in the
+        working directory or the nearest folder above it when left out, the
+        file it names, a relative one from the working directory, or none
+        for `None`. Its `timeout.connect` bounds `hello` when `timeout` is
+        left out, and `engine.project_file` names it. A named file that is
+        not there or a file that does not read as a project file
+        (`setting_invalid`), or one of a format version this Goodfetch
+        cannot read (`format_version_unsupported`), raises here before any
+        engine is reached.
         """
         return Connecting(
             functools.partial(
@@ -157,6 +171,7 @@ class AsyncCollie(AsyncConnection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 
@@ -431,6 +446,7 @@ class Collie(Connection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -477,7 +493,8 @@ class Collie(Connection):
         a `timedelta`, sent in whole milliseconds, and a Run's own
         `settings` win over them key by key. A key the Connection does not
         take fails the opening with the engine's error, such as
-        `setting_not_applicable` or `setting_locked`.
+        `setting_not_applicable` or `setting_locked`. `project` is the
+        project file to read, as `AsyncCollie.connect()` reads it.
         """
         return _open_sync(
             functools.partial(
@@ -489,6 +506,7 @@ class Collie(Connection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 

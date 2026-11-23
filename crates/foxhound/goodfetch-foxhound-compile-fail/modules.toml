@@ -1,0 +1,3 @@
+# Which of goodfetch-foxhound-compile-fail's top-level modules may import
+# which (ADR 0126): it has none beside its root.
+[modules]

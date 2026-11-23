@@ -59,6 +59,7 @@ from goodfetch_foxhound.generated.operations import (
 )
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
     from datetime import timedelta
 
@@ -123,6 +124,7 @@ class AsyncFoxhound(AsyncConnection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: FoxhoundSettings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Connecting:
         """Reaches Foxhound's engine and finishes `hello`, naming Foxhound.
 
@@ -136,8 +138,9 @@ class AsyncFoxhound(AsyncConnection):
         Product and version and the install command of the channel this
         Client came from, which its `fix` names. `settings` are the
         Connection's own, Collie's and Foxhound's, sent in `hello`, which
-        every Run it starts inherits (ADR 0083). Importing the package or
-        connecting installs no signal handler (ADR 0078).
+        every Run it starts inherits (ADR 0083), and `project` the project
+        file read, as `AsyncCollie.connect()` reads it. Importing the
+        package or connecting installs no signal handler (ADR 0078).
         """
         return Connecting(
             functools.partial(
@@ -149,6 +152,7 @@ class AsyncFoxhound(AsyncConnection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 
@@ -352,6 +356,7 @@ class Foxhound(Connection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: FoxhoundSettings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Foxhound:
         """Reaches Foxhound's engine and finishes `hello`, naming Foxhound.
 
@@ -369,6 +374,7 @@ class Foxhound(Connection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 

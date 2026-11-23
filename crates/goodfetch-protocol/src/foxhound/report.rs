@@ -19,6 +19,7 @@ use super::frontier::{
     CRAWL_MAX_SITEMAP_NESTING, CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS,
 };
 use super::outcomes::DatasetRecords;
+use super::sink::GuaranteeClass;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -157,7 +158,7 @@ pub struct SinkReport {
     pub name: String,
     /// Its Guarantee class.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub guarantee_class: String,
+    pub guarantee_class: GuaranteeClass,
     /// How many deliveries are dead letters.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dead_letters: u64,

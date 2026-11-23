@@ -10530,6 +10530,16 @@
       ]
     },
     {
+      "id": "setting:sinks",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:site_preferences.mark_robots_txt_ignored",
       "kind": "setting",
       "area": 6,

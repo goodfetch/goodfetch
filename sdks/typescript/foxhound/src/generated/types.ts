@@ -265,6 +265,14 @@ export type EquivalentForm = "www" | "scheme" | "trailing_slash" | "index_html" 
  */
 export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
 /**
+ * What a Sink's probe proves of its destination (ADR 0026), from the
+ * strongest.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "GuaranteeClass".
+ */
+export type GuaranteeClass = "fenced" | "record_fenced" | "keyed" | "at_least_once";
+/**
  * A Sink's delivery status (ADRs 0026 and 0103).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -1753,7 +1761,7 @@ export interface SinkReport {
   /**
    * Its Guarantee class.
    */
-  guaranteeClass: string;
+  guaranteeClass: GuaranteeClass;
   /**
    * Its name.
    */

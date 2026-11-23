@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # The committed Records a delivery reads, through the Dataset's own query.
 goodfetch-dataset.workspace = true
+# The Guarantee class a probe reports, the protocol's own (ADR 0026).
+goodfetch-protocol.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
 rusqlite.workspace = true

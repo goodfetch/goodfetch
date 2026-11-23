@@ -14,7 +14,7 @@ use crate::composition::CallContext;
 
 /// What gives a Run a handler in the program: the key of its start that
 /// chose it, and how to start the Run with none.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct InProgram {
     /// The key.
     pub key: &'static str,
@@ -29,9 +29,8 @@ pub struct InProgram {
 /// # Errors
 ///
 /// `invalid_params` naming a tag only the Daemon's scheduler sets;
-/// `detach_unsupported` naming `in_program`'s
-/// key when it is some, else `engine` when the Connection's engine is no
-/// Daemon.
+/// `detach_unsupported` naming `in_program`'s key when it is some, else
+/// `engine` when the Connection's engine is no Daemon.
 pub fn client_start(
     tags: &Tags,
     detached: bool,

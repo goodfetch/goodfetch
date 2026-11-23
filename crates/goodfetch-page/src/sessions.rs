@@ -345,7 +345,11 @@ fn parse_session_id(session: &SessionId) -> Option<(RunId, u32)> {
 }
 
 /// The failure of a read or write of `run`'s state.
-fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext) -> CallError {
+pub(crate) fn unavailable(
+    run: &Run,
+    error: &impl std::fmt::Display,
+    context: &CallContext,
+) -> CallError {
     goodfetch_engine::run::run_error(
         RunError::Unavailable {
             run_id: run.id().clone(),

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 
+from goodfetch_collie_client._attached_engine import EngineExit
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
@@ -33,7 +34,6 @@ from goodfetch_collie_client._rpc import (
 )
 from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client._trace_context import carry, current, untraced
-from goodfetch_collie_client.attached_engine import EngineExit
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     PROTOCOL_VERSION,
@@ -91,10 +91,10 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._attached_engine import AttachedEngine
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
-    from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
         Recording,

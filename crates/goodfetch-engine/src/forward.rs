@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, StoppedBy, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, META, Message, Request, RequestId, RequestMeta, TraceContext, Version,
@@ -30,7 +30,7 @@ use crate::clock::Clock;
 use crate::daemon::files::DaemonFiles;
 use crate::deadline::Deadline;
 use crate::home::Home;
-use crate::runs::{Forwarder, ReadAnswer};
+use crate::runs::{Aborter, Forwarder, ReadAnswer};
 use crate::settings::Settings;
 use crate::tasks::TaskOwner;
 use crate::transport::Connection;
@@ -134,12 +134,17 @@ impl ToOwner {
 
 impl ToOwner {
     /// The `hello` that opens a Connection to an owner whose token is
-    /// `token`.
+    /// `token`, as the Rust SDK's.
     fn hello(&self, token: String, needs: Product) -> HelloParams {
+        self.hello_from(Surface::Rust, token, needs)
+    }
+
+    /// As [`Self::hello`], from `surface`.
+    fn hello_from(&self, surface: Surface, token: String, needs: Product) -> HelloParams {
         HelloParams {
             token: Some(token),
             needs: Some(needs),
-            ..HelloParams::new(Surface::Rust, self.version.clone())
+            ..HelloParams::new(surface, self.version.clone())
         }
     }
 }
@@ -149,6 +154,7 @@ impl Forwarder for ToOwner {
         &'a self,
         owner: &'a RunOwner,
         run_id: &'a RunId,
+        by: &'a Aborter,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>> {
         Box::pin(async move {
@@ -157,7 +163,13 @@ impl Forwarder for ToOwner {
                 run_id: run_id.clone(),
                 forwarded: true,
             };
-            let hello = self.hello(token, Product::Collie);
+            // A person's abort reaches the owner as the CLI's, a person's
+            // Client, so the owner names the person, the same OS user.
+            let surface = match by.stopped_by() {
+                StoppedBy::Person => Surface::Cli,
+                StoppedBy::Client | StoppedBy::Program | StoppedBy::Browser => Surface::Rust,
+            };
+            let hello = self.hello_from(surface, token, Product::Collie);
             let answered = self.call(&endpoint, &hello, RUN_ABORT.name, &params).await;
             let report = match answered {
                 Ok(Ok(report)) => serde_json::from_value(report).map_err(NoAnswer::NoReport),

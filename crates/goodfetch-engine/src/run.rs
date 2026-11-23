@@ -70,7 +70,7 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
+    Aborter, EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
     StartError, Started, StorageExhausted,
 };
 use crate::secrets::SecretError;
@@ -1237,9 +1237,16 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
     } else {
         Forwarded::No
     };
+    // A person's Client aborts as the person it acts for (ADRs 0031 and
+    // 0113), whom the calls the abort cancels name.
+    let by = if context.surface().is_a_person() {
+        Aborter::person(context.person())
+    } else {
+        Aborter::by(StoppedBy::Client)
+    };
     context
         .runs()
-        .abort(params.run_id, StoppedBy::Client, forwarded)
+        .abort(params.run_id, by, forwarded)
         .await
         .map_err(|error| run_error(error, &context))
 }

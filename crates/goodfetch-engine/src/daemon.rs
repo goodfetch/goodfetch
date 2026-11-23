@@ -46,7 +46,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{PanicEnded, ProductVersion, Surface};
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, PanicEnded, ProductVersion,
+    Surface,
+};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH, NOT_A_DAEMON,
     NotADaemonDetails, STATUS, STOP,
@@ -57,7 +60,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::{Answering, CallContext, DaemonSide, Handler, Holding};
+use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, Holding};
 use crate::endpoint::Authorities;
 use crate::engine_context::EngineContext;
 use crate::events::Events;
@@ -268,8 +271,9 @@ impl Presence {
 
 /// What a Connection asks of the Daemon's loop.
 enum Ask {
-    /// `daemon.stop`, from this Connection.
-    Stop(ConnectionId),
+    /// `daemon.stop`, from this Connection, closing the others with this
+    /// error for their calls in flight.
+    Stop(ConnectionId, CallError),
     /// A refusal by Product or version on this Connection: whether the
     /// Daemon hands over to its major's pick on it, which it has then
     /// begun.
@@ -278,8 +282,9 @@ enum Ask {
 
 /// Why the Daemon's loop ends.
 enum Ending {
-    /// `daemon.stop`, from this Connection.
-    Stop(ConnectionId),
+    /// `daemon.stop`, from this Connection, closing the others with this
+    /// error for their calls in flight.
+    Stop(ConnectionId, CallError),
     /// A handover, which [`Succession::begin_handover`] began, decided on
     /// a refusal on this Connection, if one asked it.
     HandOver(Box<dyn Send>, Option<ConnectionId>),
@@ -406,6 +411,7 @@ fn transition(
 struct ConnectionSide {
     shared: Arc<Shared>,
     connection: ConnectionId,
+    closing: Closing,
 }
 
 /// A Client counted while it is open.
@@ -427,6 +433,10 @@ impl Drop for Opened {
 impl DaemonSide for ConnectionSide {
     fn token(&self) -> &str {
         &self.shared.token
+    }
+
+    fn closing(&self) -> &Closing {
+        &self.closing
     }
 
     fn opened(&self, surface: Surface, holding: Holding) -> Box<dyn Send + Sync> {
@@ -480,11 +490,15 @@ impl DaemonSide for ConnectionSide {
         Box::pin(self.shared.health.check())
     }
 
-    fn stop(&self) -> Answering<'_, DaemonStopping> {
+    fn stop(&self, closing: CallError) -> Answering<'_, DaemonStopping> {
         Box::pin(async {
             let live_runs = count(self.shared.runs.live_count().await);
             // Once the loop decides nothing more, the Daemon ends anyway.
-            let _ = self.shared.asks.send(Ask::Stop(self.connection)).await;
+            let _ = self
+                .shared
+                .asks
+                .send(Ask::Stop(self.connection, closing))
+                .await;
             DaemonStopping { live_runs }
         })
     }
@@ -532,7 +546,7 @@ pub(crate) async fn serve(
     }
     let connections_owner = owner.part("Daemon's listener");
     let (ended, mut endings_of_connections) = mpsc::channel::<ConnectionId>(ENDED_CONNECTIONS);
-    let mut open: BTreeMap<ConnectionId, CancellationToken> = BTreeMap::new();
+    let mut open: BTreeMap<ConnectionId, Closing> = BTreeMap::new();
     let mut next: ConnectionId = 0;
     let clock = serving.engine.clock();
     let idle = idle(&shared, clock);
@@ -612,7 +626,7 @@ pub(crate) async fn serve(
 /// within its time on `clock`.
 async fn closed_for(
     ending: Ending,
-    open: &BTreeMap<ConnectionId, CancellationToken>,
+    open: &BTreeMap<ConnectionId, Closing>,
     ended: &mut mpsc::Receiver<ConnectionId>,
     clock: Clock,
 ) -> DaemonEnd {
@@ -621,15 +635,51 @@ async fn closed_for(
             // The refused Client that asked reads its refusal, which tells
             // it to wait for the pick, before its Connection closes.
             if let Some(asking) = asking {
-                close_all_but(open, asking, ended, clock).await;
+                let closing = connection_closed(
+                    CancelledBy::Client,
+                    None,
+                    "the Daemon handed over to its major's pick on another Client's refused `hello`, closing the call's Connection",
+                );
+                close_all_but(open, asking, &closing, ended, clock).await;
             }
             DaemonEnd::HandedOver(begun)
         }
-        Ending::Stop(asking) => {
-            close_all_but(open, asking, ended, clock).await;
+        Ending::Stop(asking, closing) => {
+            close_all_but(open, asking, &closing, ended, clock).await;
             DaemonEnd::Stopped
         }
     }
+}
+
+/// `call_cancelled` for a call in flight on a Connection the Daemon closes
+/// on the ask of another Client, `by`, which acts for `person` when known
+/// (ADR 0113).
+fn connection_closed(by: CancelledBy, person: Option<String>, message: &str) -> CallError {
+    CallError::new(
+        &CALL_CANCELLED,
+        message,
+        &CallCancelledDetails {
+            by,
+            closed: Some(ClosedValue::Connection),
+            person,
+        },
+    )
+}
+
+/// What `daemon.stop` closes the Daemon's other Connections with: a
+/// person's Client stops it for the person it acts for (ADR 0031), any
+/// other Client as a Client.
+fn closed_by_stop(context: &CallContext) -> CallError {
+    let (by, person) = if context.surface().is_a_person() {
+        (CancelledBy::Person, Some(context.person()))
+    } else {
+        (CancelledBy::Client, None)
+    };
+    connection_closed(
+        by,
+        person,
+        "another Client stopped the Daemon, closing the call's Connection",
+    )
 }
 
 /// What a panic in a part every Run shares under `owner` does to the
@@ -677,8 +727,8 @@ async fn stopped_on_panic(
 /// `state`: the loop's end, if it ends it.
 async fn decide(ask: Ask, shared: &Shared, state: &watch::Sender<EngineState>) -> Option<Ending> {
     match ask {
-        Ask::Stop(asking) => match transition(state, EngineEvent::StopAsked) {
-            Ok(EngineState::Stopping) => Some(Ending::Stop(asking)),
+        Ask::Stop(asking, closing) => match transition(state, EngineEvent::StopAsked) {
+            Ok(EngineState::Stopping) => Some(Ending::Stop(asking, closing)),
             // A stop once a handover or a drain is decided changes nothing.
             Ok(
                 EngineState::Attached
@@ -801,12 +851,12 @@ fn wait_after(failed: u32) -> Duration {
     }
 }
 
-/// Serves the next Connection, `next`, with `serve`, keeping the token
-/// that closes it in `open`.
+/// Serves the next Connection, `next`, with `serve`, keeping how it is
+/// closed in `open`.
 fn admit(
-    open: &mut BTreeMap<ConnectionId, CancellationToken>,
+    open: &mut BTreeMap<ConnectionId, Closing>,
     next: &mut ConnectionId,
-    serve: impl FnOnce(ConnectionId) -> CancellationToken,
+    serve: impl FnOnce(ConnectionId) -> Closing,
 ) {
     let id = *next;
     *next += 1;
@@ -814,7 +864,9 @@ fn admit(
 }
 
 /// Serves `connection` as the Daemon's Connection `id`, a task of
-/// `connections`, telling `ended` once it closes; the token that closes it.
+/// `connections`, telling `ended` once it closes; how the Daemon closes it
+/// under its calls in flight, which then answer before it closes. The
+/// Daemon's end stops it at once.
 fn serve_connection(
     serving: &Serving,
     shared: &Arc<Shared>,
@@ -822,11 +874,13 @@ fn serve_connection(
     connection: Connection,
     id: ConnectionId,
     ended: mpsc::Sender<ConnectionId>,
-) -> CancellationToken {
+) -> Closing {
     let token = connections.token().child_token();
+    let closing = Closing::default();
     let side: Arc<dyn DaemonSide> = Arc::new(ConnectionSide {
         shared: Arc::clone(shared),
         connection: id,
+        closing: closing.clone(),
     });
     let (dispatch, runs, events, engine) = (
         Arc::clone(&serving.dispatch),
@@ -883,21 +937,23 @@ fn serve_connection(
             drop(held);
         }
     });
-    token
+    closing
 }
 
 /// Closes every Connection of `open` but `asking`, which asked for the
-/// Daemon's end, with `daemon.stop` or a refused `hello`: that Client reads
-/// the answer and closes, and one that does not is closed after the grace.
+/// Daemon's end, with `daemon.stop` or a refused `hello`, their calls in
+/// flight raising `closing`: that Client reads the answer and closes, and
+/// one that does not is closed after the grace.
 async fn close_all_but(
-    open: &BTreeMap<ConnectionId, CancellationToken>,
+    open: &BTreeMap<ConnectionId, Closing>,
     asking: ConnectionId,
+    closing: &CallError,
     endings_of_connections: &mut mpsc::Receiver<ConnectionId>,
     clock: Clock,
 ) {
-    for (connection, token) in open {
+    for (connection, closed) in open {
         if *connection != asking {
-            token.cancel();
+            closed.close(closing.clone());
         }
     }
     let closed = async {
@@ -1091,7 +1147,8 @@ pub(crate) fn handlers() -> [Handler; 3] {
             },
         ),
         Handler::new(&STOP, |_: DaemonParams, context: CallContext| async move {
-            Ok::<_, CallError>(daemon_of(&context, STOP.name)?.stop().await)
+            let closing = closed_by_stop(&context);
+            Ok::<_, CallError>(daemon_of(&context, STOP.name)?.stop(closing).await)
         }),
         Handler::new(
             &HEALTH,

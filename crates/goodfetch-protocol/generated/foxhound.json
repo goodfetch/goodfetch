@@ -14066,6 +14066,14 @@
             "kind": {
               "const": "abort",
               "type": "string"
+            },
+            "person": {
+              "arrived_in": "0.1",
+              "description": "Whom the aborting Client acts for (ADR 0031), set when `by` is\n`person`.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -14213,6 +14221,11 @@
     "StoppedBy": {
       "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
       "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through `run.abort` from a Client that acts for them\n(ADR 0031).",
+          "type": "string"
+        },
         {
           "const": "client",
           "description": "A Client, through `run.abort`.",

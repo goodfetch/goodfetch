@@ -287,9 +287,10 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
     );
     let mut answer = answer.unwrap();
     let named = super::takes_engine_instance(&mut answer);
+    let timed = super::takes_timeouts(&mut answer);
 
     assert_eq!(
-        (answer, named),
+        (answer, named, timed),
         (
             json!({
                 "jsonrpc": "2.0", "id": 0,
@@ -298,6 +299,7 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
                     "max_calls_in_flight": super::IN_FLIGHT_CAP,
                 },
             }),
+            true,
             true
         )
     );
@@ -439,6 +441,53 @@ fn a_kept_alive_daemon_never_stops_idle_and_stops_when_asked() {
     assert_eq!(
         (answered, stopping["result"].clone(), format!("{end:?}")),
         (true, json!({ "live_runs": 0 }), "Stopped".to_owned())
+    );
+}
+
+/// `daemon.stop` from one Client closes the Daemon's other Connections:
+/// a call in flight on one answers `call_cancelled` naming the stopping
+/// Client, or the person a person's Client acts for, the OS user of an
+/// engine without accounts, and the Connection closed under it (ADR 0113).
+///
+/// Covers: story:11-48, operation:daemon.stop
+#[rstest]
+#[case::by_a_persons_client(
+    cli_hello(),
+    json!({ "by": "person", "closed": "connection", "person": "os_user" })
+)]
+#[case::by_a_programs_client(sdk_hello(), json!({ "by": "client", "closed": "connection" }))]
+fn a_stop_from_another_client_cancels_a_call_in_flight_naming_its_connection(
+    #[case] stopper: Value,
+    #[case] details: Value,
+) {
+    let (_, (stopping, answered)) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        the_pick(),
+        |dialer| async move {
+            let mut waiting = opened(&dialer, sdk_hello()).await;
+            waiting.send(&[super::request(1, "test.wait")]).await;
+            // Read in order, so `test.wait` is in flight once this answers.
+            call(&mut waiting, 2, "daemon.status", json!({})).await;
+            let mut asking = opened(&dialer, stopper).await;
+            let stopping = call(&mut asking, 1, "daemon.stop", json!({})).await;
+            let answered = waiting.next().await;
+            asking.close().await;
+            (stopping, answered)
+        },
+    );
+
+    let answered = answered.unwrap_or_default();
+    let mut data = answered["error"]["data"].clone();
+    if let Some(data) = data.as_object_mut() {
+        data.remove("retryable");
+    }
+    let mut expected = details;
+    expected["code"] = json!("call_cancelled");
+    assert_eq!(
+        (&stopping["result"], &answered["id"], &data),
+        (&json!({ "live_runs": 0 }), &json!(1), &expected),
+        "{answered}"
     );
 }
 

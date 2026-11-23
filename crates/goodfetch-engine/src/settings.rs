@@ -36,6 +36,7 @@ use serde_json::{Map, Value};
 
 pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
+pub(crate) use error::not_registrable;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
     fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,
@@ -48,7 +49,7 @@ pub use resolve::{
     catalog_default, catalog_value, get_or_default, resolve, value_as,
 };
 pub use scopes::{beneath_connection, check_client_bounds, check_scope};
-pub use values::Values;
+pub use values::{Values, check_session_source};
 
 use crate::tasks::TaskOwner;
 

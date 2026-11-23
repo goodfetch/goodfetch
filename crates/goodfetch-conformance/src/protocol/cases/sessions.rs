@@ -12,7 +12,7 @@ use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE, SessionId};
 use goodfetch_protocol::run::{RUN_ENDED, RUN_START};
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, SESSION_SOURCE, SETTING_NOT_APPLICABLE,
+    CAPABILITY_UNAVAILABLE, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
 };
 use serde_json::{Value, json};
 
@@ -26,6 +26,7 @@ pub(crate) enum Case {
     Isolated,
     Closed,
     Source,
+    NotRegistrable,
     Ended,
     ClosedWithItsRun,
     /// One of a Session's proxy cases.
@@ -46,6 +47,9 @@ impl Case {
             "a-closed-session-raises-closed-and-closing-it-again-changes-nothing" => Self::Closed,
             "session-source-in-a-sessions-own-settings-is-not-applicable-and-the-runs-is-the-default-beneath" => {
                 Self::Source
+            }
+            "a-session-source-domain-below-its-registrable-domain-is-setting-invalid-naming-it" => {
+                Self::NotRegistrable
             }
             "new-work-on-a-finished-run-raises-run-ended" => Self::Ended,
             "closing-a-session-whose-run-ended-changes-nothing" => Self::ClosedWithItsRun,
@@ -71,6 +75,7 @@ impl Case {
             Self::Isolated => isolated(connection, site, checks),
             Self::Closed => closed(connection, site, checks),
             Self::Source => source(connection, site, checks),
+            Self::NotRegistrable => not_registrable(connection, checks),
             Self::Ended => ended(connection, checks),
             Self::ClosedWithItsRun => closed_with_its_run(connection, site, checks),
             Self::Proxy(case) => case.run(connection, target, site, checks),
@@ -282,6 +287,40 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         session_of(&fresh).is_some(),
     );
     finish_run(connection, run_id)
+}
+
+/// A Session source's `domains` are registrable domains (ADR 0056): a Run
+/// whose `session.source` lists `www.example.com` does not start, and its
+/// `setting_invalid` names `session.source` and gives `example.com` instead.
+fn not_registrable(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let source = json!({
+        "kind": "cdp_url",
+        "url": "http://127.0.0.1:9222",
+        "domains": ["www.example.com"],
+    });
+    let started = connection.call(
+        RUN_START.name,
+        &json!({
+            "run_id": "conformance-sessions-not-registrable",
+            "settings": { "session": { "source": source } },
+        }),
+    )?;
+    let data = &started["error"]["data"];
+    checks.check(
+        format!(
+            "`www.example.com` in `domains` raises `{}` naming `{}`, whose fix gives `example.com`",
+            SETTING_INVALID.name, SESSION_SOURCE.name
+        ),
+        code_of(&started) == &json!(SETTING_INVALID.name)
+            && data["key"] == json!(SESSION_SOURCE.name)
+            && data["layer"] == json!("run")
+            && data["reason"]
+                == json!(
+                    "`www.example.com` in `domains` is no registrable domain, whose is `example.com`"
+                )
+            && data["fix"] == json!("Give `example.com` in `domains`"),
+    );
+    Ok(())
 }
 
 /// A finished Run takes no new Session and no new page: both raise

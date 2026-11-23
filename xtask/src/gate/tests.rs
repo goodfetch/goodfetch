@@ -1699,16 +1699,18 @@ fn the_batch_form_runs_the_quick_forms_steps_and_the_pre_merge_suite() {
     assert_eq!(pre_merge.owner, Owner::Hosted);
 }
 
-/// A crate whose tests launch no browser and use no OS service.
-const BROWSERLESS: &str = "goodfetch-protocol";
+/// A crate whose Pre-merge unit a hosted run of the case holds.
+const HELD: &str = "goodfetch-protocol";
 /// Another, so a plan of the two names both.
-const BROWSERLESS_TOO: &str = "goodfetch-crawl";
+const HELD_TOO: &str = "goodfetch-crawl";
+/// A crate whose tests launch the browser and use the user's service manager.
+const COLLIE: &str = "goodfetch-collie";
 
-/// The case's members with two crates whose tests launch no browser, and
-/// the shuffling runners' members among them.
+/// The case's members with two more crates and Collie's, and the shuffling
+/// runners' members among them.
 fn batch_members() -> (BTreeSet<String>, BTreeSet<String>) {
     let mut all = members();
-    all.extend([BROWSERLESS.to_owned(), BROWSERLESS_TOO.to_owned()]);
+    all.extend([HELD.to_owned(), HELD_TOO.to_owned(), COLLIE.to_owned()]);
     let shuffled = BTreeSet::from([
         "test-support/typescript".to_owned(),
         "sdks/python/collie-client".to_owned(),
@@ -1768,34 +1770,49 @@ fn planned_step(plan: &[Planned], step: Step) -> &Planned {
         .expect("every step is planned")
 }
 
-/// A batch's hosted run runs the Pre-merge suite of the members whose tests
-/// launch no browser and use no OS service, and those members' Quick units
-/// are covered by it: the hosted quick job runs only the others' (spec
-/// #3373). xtask's tests do launch one, so its codegen tests still run.
+/// A batch's hosted run runs every member's Pre-merge suite, those whose
+/// tests launch the browser or use an OS service too, so the Quick suite
+/// and xtask's codegen tests are covered by it and no hosted job runs them
+/// (spec #3373, issue 3380).
 #[test]
-fn a_batchs_hosted_run_runs_the_pre_merge_suite_of_the_members_that_launch_no_browser() {
+fn a_batchs_hosted_run_runs_every_members_pre_merge_suite() {
     let plan = planned_for_a_batch((Form::Batch, Layer::Hosted), &[]);
 
-    let browserless = BTreeSet::from([BROWSERLESS.to_owned(), BROWSERLESS_TOO.to_owned()]);
     assert!(
-        matches!(action(&plan, Step::PreMerge), Action::Part { members, .. } if members == &browserless),
+        matches!(action(&plan, Step::PreMerge), Action::Run { .. }),
         "{:?}",
         action(&plan, Step::PreMerge)
     );
+    for step in [Step::Quick, Step::CodegenTests] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Covered { by: Step::PreMerge },
+            "{step:?}"
+        );
+    }
+}
+
+/// A batch's hosted run on a head whose earlier hosted run holds some
+/// members' Pre-merge units runs the suite of the others, browser members
+/// among them, and covers their Quick units.
+#[test]
+fn a_batchs_hosted_run_runs_the_pre_merge_suite_of_each_member_it_does_not_hold() {
+    let hosted = [hosted_batch_run(&[HELD, HELD_TOO])];
+
+    let plan = planned_for_a_batch((Form::Batch, Layer::Hosted), &hosted);
+
     let (all, _) = batch_members();
-    let others: BTreeSet<String> = all.difference(&browserless).cloned().collect();
+    let held = BTreeSet::from([HELD.to_owned(), HELD_TOO.to_owned()]);
+    let others: BTreeSet<String> = all.difference(&held).cloned().collect();
+    assert!(others.contains(COLLIE), "{others:?}");
     assert!(
-        matches!(
-            action(&plan, Step::Quick),
-            Action::Part { members, why } if members == &others && why.contains("covered by pre-merge")
-        ),
+        matches!(action(&plan, Step::PreMerge), Action::Part { members, .. } if members == &others),
         "{:?}",
-        action(&plan, Step::Quick)
+        action(&plan, Step::PreMerge)
     );
-    assert!(
-        matches!(action(&plan, Step::CodegenTests), Action::Run { .. }),
-        "{:?}",
-        action(&plan, Step::CodegenTests)
+    assert_eq!(
+        action(&plan, Step::Quick),
+        &Action::Covered { by: Step::PreMerge }
     );
 }
 
@@ -1804,7 +1821,7 @@ fn a_batchs_hosted_run_runs_the_pre_merge_suite_of_the_members_that_launch_no_br
 /// the other members reuse their hosted Quick units.
 #[test]
 fn the_merge_covers_each_quick_unit_a_hosted_pre_merge_unit_holds() {
-    let hosted = [hosted_batch_run(&[BROWSERLESS, BROWSERLESS_TOO])];
+    let hosted = [hosted_batch_run(&[HELD, HELD_TOO])];
 
     let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &hosted);
 
@@ -1815,14 +1832,12 @@ fn the_merge_covers_each_quick_unit_a_hosted_pre_merge_unit_holds() {
         quick.action
     );
     assert!(
-        !quick
-            .carried
-            .contains_key(&unit(Step::Quick, Some(BROWSERLESS))),
+        !quick.carried.contains_key(&unit(Step::Quick, Some(HELD))),
         "{:?}",
         quick.carried
     );
     let pre_merge = planned_step(&plan, Step::PreMerge);
-    for member in [BROWSERLESS, BROWSERLESS_TOO] {
+    for member in [HELD, HELD_TOO] {
         assert_eq!(
             pre_merge
                 .carried
@@ -1858,10 +1873,10 @@ fn the_quick_suite_and_the_codegen_tests_are_covered_once_every_pre_merge_unit_h
 /// Quick suite, and runs neither again.
 #[test]
 fn a_red_hosted_pre_merge_unit_makes_the_quick_gate_red() {
-    let mut hosted = hosted_batch_run(&[BROWSERLESS, BROWSERLESS_TOO]);
+    let mut hosted = hosted_batch_run(&[HELD, HELD_TOO]);
     hosted
         .units
-        .get_mut(&unit(Step::PreMerge, Some(BROWSERLESS)))
+        .get_mut(&unit(Step::PreMerge, Some(HELD)))
         .unwrap()
         .green = false;
 
@@ -1872,34 +1887,6 @@ fn a_red_hosted_pre_merge_unit_makes_the_quick_gate_red() {
             matches!(action(&plan, step), Action::Red { why } if why.contains("goodfetch-protocol: red in the hosted run")),
             "{step:?}: {:?}",
             action(&plan, step)
-        );
-    }
-}
-
-/// Every crate whose tests nextest's profile names as launching the pinned
-/// browser is one the hosted Pre-merge shards leave out.
-#[test]
-fn each_crate_nextest_names_as_launching_the_browser_is_left_out_of_the_hosted_shards() {
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let profile = std::fs::read_to_string(manifest.join("../.config/nextest.toml")).unwrap();
-
-    // The override of the cells without the pinned build names each test
-    // that launches it or reads which build launches.
-    let (_, browser) = profile
-        .split_once("target_env = \"musl\")))'")
-        .expect("the override of the cells without the pinned build");
-    let (browser, _) = browser.split_once("\"\"\"\n\n").unwrap();
-    let named: BTreeSet<&str> = browser
-        .split("binary_id(")
-        .skip(1)
-        .filter_map(|rest| rest.split([':', ')']).next())
-        .collect();
-
-    assert!(named.contains("goodfetch-collie"), "{named:?}");
-    for name in named {
-        assert!(
-            super::plan::BROWSER_OR_SERVICE_CRATES.contains(&name),
-            "{name} is named by .config/nextest.toml, so its tests may launch a browser"
         );
     }
 }

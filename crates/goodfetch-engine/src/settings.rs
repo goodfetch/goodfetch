@@ -103,7 +103,8 @@ struct Kept {
 
 /// The machine's settings as one read of them found: its Operator policy
 /// and user configuration, and what they resolve to on the engine's
-/// Product before any Run, on the catalog's defaults.
+/// Product before any Run, on the catalog's defaults and those of the
+/// Product version.
 #[derive(Debug)]
 pub struct MachineSettings {
     layers: Result<MachineLayers, SettingsError>,
@@ -479,7 +480,7 @@ impl Settings {
             project = project.with_run_authority();
         }
         let layers = Layers {
-            host,
+            host: machine.defaults_under(host),
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,

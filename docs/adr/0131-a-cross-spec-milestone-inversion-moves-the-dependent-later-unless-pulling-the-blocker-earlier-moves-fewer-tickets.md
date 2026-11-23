@@ -18,6 +18,8 @@ Decided with the owner while reviewing the V1 tickets' cross-area edges on 2026-
 
 > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): no owner test holds back a ticket, so a milestone inversion no longer stalls work. The invariant still holds, as ticket metadata.
 
+> Note (2026-11-23, the owner's decision of that day, [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)'s note): the invariant ends, within one spec and across specs. Milestones order no work, so nothing moves a ticket's milestone for a blocker, and this ADR records how the tickets of areas 4 to 14 were moved.
+
 ## Considered Options
 
 - **ADR 0058's rule everywhere:** rejected. Across specs it moves whole capabilities into an earlier milestone, against ADR 0058's own plan of what each milestone delivers.

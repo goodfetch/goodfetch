@@ -12,6 +12,8 @@ ADR 0037 orders the specs of V1's fourteen areas by the contracts they consume, 
 
 Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they exclude nothing. Decided with the owner while specifying the Engine runtime ([delivery order](https://github.com/goodfetch/goodfetch/issues/213#issuecomment-6145231664)).
 
+> Note (owner's decision, 2026-11-23, recorded in full in [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)'s note of that day, « que ça suive le graphe des tickets, sans bloqueur, sans milestone »): the milestones no longer order the work. Work follows the ticket graph: a ticket waits only for an open native blocked-by link and for a file another run or relay is editing now, and the spec or ticket that unblocks the most open tickets goes first (`docs/agents/rollout-order.md`). What each milestone holds, and its owner test as a checkpoint, stand.
+
 ## Considered Options
 
 - **Delivery in ADR 0037's spec order**: rejected. It gives the owner nothing to test hands-on until the Console, area 12, is built.
@@ -71,10 +73,14 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 - A ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively, so a gate never holds back a ticket that an earlier milestone needs. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
   > Amended by [ADR 0131](0131-a-cross-spec-milestone-inversion-moves-the-dependent-later-unless-pulling-the-blocker-earlier-moves-fewer-tickets.md): this holds within one spec. Across specs, the dependent moves later or is split, unless pulling the blocker earlier changes the milestone of fewer tickets, counted transitively; a tie moves the dependent.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` has no milestone step. The invariant holds, and `docs/agents/issue-tracker.md` states it.
+  >
+  > Note (2026-11-23, the owner's decision of that day, [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)): the invariant ends. A ticket keeps its milestone whatever its blockers carry, and nothing moves one for a blocker; when a ticket waits on a later milestone's ticket, its own milestone's testing issue waits for that one too.
 - A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created with the milestone.
   > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): no rule picks work by the current milestone. A milestone is done when it has no open ticket, and its testing issue is then ready.
 - The tracker's frontier query takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
   > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): each `/implement-spec` run is one whole spec, whatever milestones its tickets carry, and its frontier is the spec's open tickets with no open blocker and no assignee. Milestones neither scope nor order a run.
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.
   > Amended on 2026-11-10, in the grilling of decision G-03 of the consolidated review, under the owner's instruction to build « engine sdk » in the standard order, confirmed as "engine, then SDK, then the rest, nothing removed" (« Yes, that's it »): the order of the Features' specs is the list in `docs/agents/rollout-order.md`, whose lines are the session's choices, accepted by the owner as a batch on 2026-11-10 (grilling of G-06, Q9); the owner changes one by naming it. Every V1 capability stays in V1.
+  >
+  > Note (2026-11-23, the owner's decision of that day, [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)): neither ADR 0037's spec order nor the order of the Features' lines orders the work any more; the ticket graph does (`docs/agents/rollout-order.md`). The lines keep what each holds.
 - This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it, and ADR 0037's rule on area rows does not apply.

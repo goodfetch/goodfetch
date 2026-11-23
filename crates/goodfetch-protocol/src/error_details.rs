@@ -20,6 +20,12 @@ use crate::foxhound::error_code as foxhound;
 pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
     &[ErrorCode::BLOCKED, foxhound::RESPONSE_UNAVAILABLE];
 
+/// The Error codes whose details name `retry_after` as a duration in
+/// milliseconds, how long a Model provider asks to wait (ADR 0101), which
+/// each SDK's class of the code reads as its own `retryAfter` field, a
+/// duration: milliseconds in TypeScript, a `timedelta` in Python.
+pub const RETRY_AFTER_DURATION: &[ErrorCode] = &[ErrorCode::MODEL_UNAVAILABLE];
+
 /// A details type the SDKs read typed: the codes whose details it holds and
 /// its schema.
 pub struct TypedDetails {
@@ -153,6 +159,7 @@ details! {
     crate::hostile_input::HeaderValueInvalidDetails => ErrorCode::HEADER_VALUE_INVALID,
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,
     crate::key_value_store::ValueInvalidDetails => ErrorCode::VALUE_INVALID,
+    crate::model::ModelUnavailableDetails => ErrorCode::MODEL_UNAVAILABLE,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,
     crate::page::BrowserLaunchFailedDetails => ErrorCode::BROWSER_LAUNCH_FAILED,
     crate::page::BrowserNeedsGuiSessionDetails => ErrorCode::BROWSER_NEEDS_GUI_SESSION,

@@ -11542,6 +11542,52 @@
         }
       ]
     },
+    "ModelUnavailableDetails": {
+      "description": "What `model_unavailable` details (ADR 0101).",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/ModelUnavailableReason",
+          "arrived_in": "0.1",
+          "description": "Why the provider could not answer."
+        },
+        "retry_after": {
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "How long the provider asked to wait before the next call, from its\nanswer's `Retry-After` or its own rate-limit reset: a duration, not a\npoint in time, in whole milliseconds on the wire; `null` when it\nasked for no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ModelUnavailableReason": {
+      "description": "Why a Model provider could not answer (ADR 0101), open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "unreachable",
+          "description": "The provider could not be reached, or a call to the program's own\nprovider was dropped unanswered.",
+          "type": "string"
+        },
+        {
+          "const": "server_error",
+          "description": "The provider failed with a 5xx.",
+          "type": "string"
+        },
+        {
+          "const": "rate_limited",
+          "description": "The provider kept rate limiting the calls.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ModelUsage": {
       "description": "The Usage of a Run's model calls (ADR 0101): their counts and price,\nand the same per Model reference.",
       "properties": {

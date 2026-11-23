@@ -56,6 +56,16 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `connection`: Its Connection.
 """
 
+ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
+"""Why a Model provider could not answer (ADR 0101), open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `unreachable`: The provider could not be reached, or a call to the program's own provider was dropped unanswered.
+- `server_error`: The provider failed with a 5xx.
+- `rate_limited`: The provider kept rate limiting the calls.
+"""
+
 ReportedHookStage: TypeAlias = Literal["before_request", "after_response", "before_navigation", "after_navigation", "page_ready", "before_record_commit", "request_ended"] | str
 """The stage a Hook that raised ran at, as `hook_failed` reports it, by
 the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages

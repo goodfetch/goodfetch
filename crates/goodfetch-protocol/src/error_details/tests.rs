@@ -7,10 +7,11 @@ use serde_json::{Value, json};
 use crate::catalog::Product;
 use crate::entries::MODULES;
 use crate::error_code::{ErrorCode, ErrorDetails};
-use crate::error_details::RETRY_AFTER_POINT_IN_TIME;
+use crate::error_details::{RETRY_AFTER_DURATION, RETRY_AFTER_POINT_IN_TIME};
 use crate::foxhound::crawl::ResponseUnavailableDetails;
 use crate::foxhound::error_code as foxhound;
 use crate::hook::HookFailedDetails;
+use crate::model::{ModelUnavailableDetails, ModelUnavailableReason};
 use crate::page::BlockedDetails;
 
 /// `PascalCase` to `snake_case`.
@@ -109,6 +110,44 @@ fn the_codes_with_a_point_in_time_retry_after_are_those_whose_details_declare_on
         ],
         [Some(json!("date-time")), Some(json!("date-time"))]
     );
+}
+
+/// The `type` of `D`'s `retry_after` in its schema.
+fn retry_after_type<D: JsonSchema>() -> Value {
+    let schema = serde_json::to_value(schemars::schema_for!(D)).unwrap();
+    schema["properties"]["retry_after"]["type"].clone()
+}
+
+#[test]
+fn the_codes_with_a_duration_retry_after_are_those_whose_details_declare_one() {
+    assert_eq!(RETRY_AFTER_DURATION, ModelUnavailableDetails::CODES);
+    assert_eq!(
+        (
+            retry_after_type::<ModelUnavailableDetails>(),
+            retry_after_format::<ModelUnavailableDetails>(),
+        ),
+        (json!(["integer", "null"]), Some(json!("uint64")))
+    );
+}
+
+/// A Model provider's wait is a duration in whole milliseconds both ways,
+/// and a provider that asked for none reads as none, left out or `null`.
+#[test]
+fn model_unavailable_details_read_retry_after_as_a_duration_in_milliseconds() {
+    let sent = json!({ "reason": "rate_limited", "retry_after": 1500 });
+    let read: ModelUnavailableDetails = serde_json::from_value(sent.clone()).unwrap();
+    let none: ModelUnavailableDetails =
+        serde_json::from_value(json!({ "reason": "server_error" })).unwrap();
+
+    assert_eq!(
+        read,
+        ModelUnavailableDetails {
+            reason: ModelUnavailableReason::RateLimited,
+            retry_after: Some(Duration::from_millis(1500)),
+        }
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+    assert_eq!(none.retry_after, None);
 }
 
 #[test]

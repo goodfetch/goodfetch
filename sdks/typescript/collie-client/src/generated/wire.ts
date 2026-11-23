@@ -91,6 +91,7 @@ export type CollieWireType =
   | "MissingBrowser"
   | "ModelAllowance"
   | "ModelCounts"
+  | "ModelUnavailableDetails"
   | "ModelUsage"
   | "NameNotResolvedDetails"
   | "Navigated"
@@ -301,6 +302,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "MissingBrowser": { fields: { "looked_in": "lookedIn", "pinned_by": "pinnedBy" } },
     "ModelAllowance": { fields: { "reached_at": ["reachedAt", "time"] } },
     "ModelCounts": { fields: { "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
+    "ModelUnavailableDetails": { fields: { "retry_after": "retryAfter" } },
     "ModelUsage": { fields: { "by_model": ["byModel", { values: { type: "ModelCounts" } }], "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
     "NameNotResolvedDetails": { fields: { "multicast_dns_name": "multicastDnsName" } },
     "Navigated": { fields: { "response": ["response", { type: "PageResponse" }] } },

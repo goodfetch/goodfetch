@@ -1132,6 +1132,19 @@ export type MediaKind = "video" | "audio";
  */
 export type MicrodataValue = string | MicrodataItem;
 /**
+ * Why a Model provider could not answer (ADR 0101), open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `unreachable`: The provider could not be reached, or a call to the program's own provider was dropped unanswered.
+ * - `server_error`: The provider failed with a 5xx.
+ * - `rate_limited`: The provider kept rate limiting the calls.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelUnavailableReason".
+ */
+export type ModelUnavailableReason = "unreachable" | "server_error" | "rate_limited" | (string & {});
+/**
  * Which resolver the engine asked for a name.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5541,6 +5554,25 @@ export interface UsageAmount {
    * The currency, an ISO 4217 code; none for a count.
    */
   currency?: string | null;
+}
+/**
+ * What `model_unavailable` details (ADR 0101).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelUnavailableDetails".
+ */
+export interface ModelUnavailableDetails {
+  /**
+   * Why the provider could not answer.
+   */
+  reason: ModelUnavailableReason;
+  /**
+   * How long the provider asked to wait before the next call, from its
+   * answer's `Retry-After` or its own rate-limit reset: a duration, not a
+   * point in time, in whole milliseconds on the wire; `null` when it
+   * asked for no wait.
+   */
+  retryAfter?: number | null;
 }
 /**
  * The Usage of a Run's model calls (ADR 0101): their counts and price,

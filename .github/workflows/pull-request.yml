@@ -62,7 +62,8 @@ permissions: {}
 
 concurrency:
   group: pull-request-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request cancels its run; a save on `main` ends.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:

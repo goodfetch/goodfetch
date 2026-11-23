@@ -36,7 +36,7 @@ ready)
     fi
     echo "The cached archive holds no $CI_IMAGE; building it from the tree's ci/image/Containerfile."
   else
-    echo "The Actions cache holds no $CI_IMAGE: main has not saved it, as the pull request workflow's ci image job does after a push that changes ci/image/ or when dispatched on main; building it from the tree's ci/image/Containerfile."
+    echo "The Actions cache holds no $CI_IMAGE: main has not saved it yet, or GitHub dropped it unused, and a ci image job saves it on main (the pull request workflow's after a push that changes ci/image/ or when dispatched there, the Release suite's on its runs); building it from the tree's ci/image/Containerfile."
   fi
   build
   ;;

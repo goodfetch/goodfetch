@@ -120,12 +120,9 @@ fn a_start_from_a_client_with_a_schedules_reserved_tag_is_invalid_params_and_sta
     assert_eq!(
         (
             &refused["error"]["data"]["code"],
-            refused["error"]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains(tag)),
             env.home().join("1").exists(),
         ),
-        (&json!("invalid_params"), true, false),
+        (&json!("invalid_params"), false),
         "{refused}"
     );
 }

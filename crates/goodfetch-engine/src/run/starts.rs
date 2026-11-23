@@ -7,7 +7,7 @@
 
 use goodfetch_protocol::run::{
     CATALOG_RUN_START, CatalogRunStartParams, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams,
-    RunStarted, RunTargetUnbuiltDetails, Tags,
+    RunStarted, RunTargetUnbuiltDetails,
 };
 
 use crate::call_error::CallError;
@@ -25,7 +25,7 @@ async fn recipe_start(
     params: RecipeStartParams,
     context: CallContext,
 ) -> Result<RunStarted, CallError> {
-    checked(&params.tags, params.detached, &context)?;
+    super::client_start(&params.tags, params.detached, None, &context)?;
     Err(unbuilt(RECIPE_START.name, "recipe"))
 }
 
@@ -33,19 +33,8 @@ async fn catalog_run_start(
     params: CatalogRunStartParams,
     context: CallContext,
 ) -> Result<RunStarted, CallError> {
-    checked(&params.tags, params.detached, &context)?;
+    super::client_start(&params.tags, params.detached, None, &context)?;
     Err(unbuilt(CATALOG_RUN_START.name, params.target.kind()))
-}
-
-/// Checks what every start from a Client is checked for: its tags, and,
-/// when `detached`, that its Run, with no handler in the program, may
-/// outlive the Connection.
-fn checked(tags: &Tags, detached: bool, context: &CallContext) -> Result<(), CallError> {
-    super::client_tags(tags)?;
-    if detached {
-        super::detachable(None, context)?;
-    }
-    Ok(())
 }
 
 /// `run_target_unbuilt`: `operation` names a `target` this engine does not

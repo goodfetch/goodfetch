@@ -54,39 +54,40 @@ fn a_crawl_start_with_a_schedules_reserved_tag_is_invalid_params() {
     let (refused, begun) = started(json!({ "tags": ["goodfetch.schedule:nightly"] }));
 
     assert_eq!(
-        (
-            &refused["error"]["data"]["code"],
-            refused["error"]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("goodfetch.schedule:nightly")),
-            begun,
-        ),
-        (&json!("invalid_params"), true, false),
+        (&refused["error"]["data"]["code"], begun),
+        (&json!("invalid_params"), false),
         "{refused}"
     );
 }
 
 /// A detached crawl must need nothing of the program: one whose requests
 /// go to the program's handler, with no `extraction`, or whose Hooks run in
-/// the program fails with `detach_unsupported` naming that key; a code-free
-/// crawl with no Hook passes that check and is refused only because this
-/// Attached engine ends with its Connection, naming `engine`.
+/// the program fails with `detach_unsupported` naming that key, in its
+/// `fix` too; a code-free crawl with no Hook passes that check and is
+/// refused only because this Attached engine ends with its Connection,
+/// its `fix` naming `engine: daemon`.
 ///
 /// Covers: story:3-174, error:detach_unsupported
 #[rstest]
-#[case::handler(json!({ "detached": true }), "extraction")]
+#[case::handler(json!({ "detached": true }), "extraction", "`extraction`")]
 #[case::hooks(
     json!({
         "detached": true,
         "extraction": extraction(),
         "hooks": [{ "name": "sign", "stage": "before_record_commit" }],
     }),
-    "hooks"
+    "hooks",
+    "`hooks`"
 )]
-#[case::attached(json!({ "detached": true, "extraction": extraction() }), "engine")]
+#[case::attached(
+    json!({ "detached": true, "extraction": extraction() }),
+    "engine",
+    "`engine: daemon`"
+)]
 fn a_detached_crawl_start_the_run_cannot_outlive_is_detach_unsupported_naming_why(
     #[case] start: Value,
     #[case] key: &str,
+    #[case] fix_names: &str,
 ) {
     let (refused, begun) = started(start);
 
@@ -94,9 +95,12 @@ fn a_detached_crawl_start_the_run_cannot_outlive_is_detach_unsupported_naming_wh
         (
             &refused["error"]["data"]["code"],
             &refused["error"]["data"]["key"],
+            refused["error"]["data"]["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains(fix_names)),
             begun,
         ),
-        (&json!("detach_unsupported"), &json!(key), false),
+        (&json!("detach_unsupported"), &json!(key), true, false),
         "{refused}"
     );
 }

@@ -83,7 +83,7 @@ use crate::settings::{
 mod detached;
 mod starts;
 
-pub use detached::{InProgram, detachable};
+pub use detached::{InProgram, client_start};
 
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
@@ -199,7 +199,7 @@ pub fn run_id(run_id: Option<&str>) -> Result<Option<RunId>, CallError> {
 /// # Errors
 ///
 /// `invalid_params` naming the first such tag.
-pub fn client_tags(tags: &Tags) -> Result<(), CallError> {
+fn client_tags(tags: &Tags) -> Result<(), CallError> {
     match tags.scheduler_reserved() {
         Some(tag) => Err(CallError::protocol(
             ProtocolFailure::InvalidParams,

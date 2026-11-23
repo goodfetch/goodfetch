@@ -41,8 +41,8 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    InProgram, StartLimits, checkpoint_interval, client_tags, detachable, resume_run, run_error,
-    run_id, run_layer, settings_error, start_error,
+    InProgram, StartLimits, checkpoint_interval, client_start, resume_run, run_error, run_id,
+    run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
@@ -210,12 +210,12 @@ fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
     if params.extraction.is_none() {
         return Some(InProgram {
             key: "extraction",
-            fix: "Give the crawl an `extraction`, so the engine handles each request itself, or start it without `detached`.".to_owned(),
+            fix: "Give the crawl an `extraction`, so the engine handles each request itself, or start it without `detached`.",
         });
     }
-    (!params.hooks.is_empty()).then(|| InProgram {
+    (!params.hooks.is_empty()).then_some(InProgram {
         key: "hooks",
-        fix: "Start the crawl without its Hooks in code, or without `detached`.".to_owned(),
+        fix: "Start the crawl without its Hooks in code, `hooks`, or without `detached`.",
     })
 }
 
@@ -236,10 +236,7 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    client_tags(&params.tags)?;
-    if params.detached {
-        detachable(in_program(&params), &context)?;
-    }
+    client_start(&params.tags, params.detached, in_program(&params), &context)?;
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();

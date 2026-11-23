@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 import anyio
 
@@ -108,6 +108,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.handlerless import CatalogTarget
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
+
+_StartedRun = TypeVar("_StartedRun", bound=AsyncRun)
 
 CONNECT_TIMEOUT = 30_000
 """How long opening waits for `hello`'s answer, in milliseconds (ADR 0083).
@@ -685,6 +687,40 @@ class ClientConnection:
         self._runs[run] = None
         return run
 
+    @property
+    def project(self) -> ProjectSettings | None:
+        """The project file the Connection read at its opening, if any.
+
+        A Product's own start operation, such as Foxhound's `crawl.start`,
+        carries it as `run.start` does (ADR 0083).
+        """
+        return self._project
+
+    async def start_run(
+        self,
+        operation: str,
+        start: Callable[[], Awaitable[RunStarted]],
+        make: Callable[[RunStarted], _StartedRun],
+    ) -> _StartedRun:
+        """Opens a Run a Product's own start operation answers (ADR 0102).
+
+        Such as Foxhound's `crawl.start`: `start` sends it, as `start()`
+        sends `run.start`, and `make` builds the Run of its answer, which
+        the Connection then closes with itself.
+
+        Raises:
+            ClosedError: The Connection is closed; nothing is sent.
+        """
+        self._ensure_owner(operation)
+        self.ensure_open(operation)
+        await self._follow_log_level()
+        self.ensure_open(operation)
+        started = await start()
+        _log_start(started)
+        run = make(started)
+        self._runs[run] = None
+        return run
+
     async def open_run(self, run_id: str) -> AsyncRunView:
         """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
 
@@ -734,6 +770,15 @@ class ClientConnection:
         none serves is answered as JSON-RPC's unknown method.
         """
         self._served[method] = served
+
+    async def keep_reading(self) -> None:
+        """Reads the engine's messages until its side ends.
+
+        A call reads only until its own answer comes, so what serves the
+        engine's requests between two calls, such as a crawl's Run, holds
+        this read while it runs, and cancels it to stop.
+        """
+        await self._channel.wait_ended()
 
     def serves(self, request: ServedRequest) -> bool:
         """Hands the engine's `request` to what serves its method, if one does."""

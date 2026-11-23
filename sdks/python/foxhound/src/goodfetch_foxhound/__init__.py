@@ -36,12 +36,15 @@ from goodfetch_foxhound.crawl import (
     CrawlRequest,
     Dataset,
     Label,
+    seed,
 )
+from goodfetch_foxhound.crawl_run import AsyncCrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
 
 __all__ = [
     "AsyncCrawl",
     "AsyncCrawlContext",
+    "AsyncCrawlRun",
     "AsyncFoxhound",
     "Connecting",
     "Crawl",
@@ -51,4 +54,5 @@ __all__ = [
     "ExperimentalWarning",
     "Foxhound",
     "Label",
+    "seed",
 ]

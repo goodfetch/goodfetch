@@ -1,0 +1,149 @@
+{
+  "description": "A Python Client starts a crawl, then the engine leases it a work item of a Run no crawl on the Connection runs, answered `run_not_found`, and one whose response is no document, whose handler reads its page and is answered with that Goodfetch error, `response_not_document`, as raised; the Client then closes, which aborts the Run.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "page": {} },
+          "seeds": [{ "url": "https://shop.test/report.pdf", "label": "page" }],
+          "run_id": "nightly",
+          "tags": ["reports"]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "elsewhere",
+            "crawl_request": {
+              "id": "9",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/b"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-9",
+            "session": { "id": "session-1", "proxy_tier": "none", "revalidate": false },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "error": {
+          "code": -32001,
+          "message": "the crawl request 9 names the Run elsewhere, which no crawl started on this Connection runs",
+          "data": {
+            "run_id": "elsewhere",
+            "code": "run_not_found",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "nightly",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/report.pdf"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "session": { "id": "session-1", "proxy_tier": "none", "revalidate": false },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "error": {
+          "code": -32001,
+          "message": "the crawl request 1's response is not a document, so its handler has no page",
+          "data": {
+            "code": "response_not_document",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": { "run_id": "nightly" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": { "kind": "abort", "by": "client" },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

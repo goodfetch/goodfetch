@@ -6,7 +6,7 @@
 //! refused with `person_required` when stdin is no terminal (ADRs 0041 and
 //! 0069).
 
-use goodfetch_test_support::{TestEnv, cli, pty};
+use goodfetch_test_support::{TestEnv, assert_cli_snapshot, cli, pty};
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, short_idle};
@@ -14,7 +14,10 @@ use crate::engine_choice::{On, daemon_dispatched};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// Covers: story:3-67, story:3-79, command:usage.set, command:usage.list
+/// Under `--json`, `usage list` prints `UsageListResult`; for people, its
+/// fields.
+///
+/// Covers: story:3-67, story:3-79, story:11-212, command:usage.set, command:usage.list
 #[test]
 fn usage_lists_a_limit_set_in_the_ledger_of_the_goodfetch_home() {
     let env = TestEnv::new();
@@ -35,17 +38,24 @@ fn usage_lists_a_limit_set_in_the_ledger_of_the_goodfetch_home() {
 
     let listed = cli(&env, COLLIE)
         .args(["usage", "list", "--json"])
-        .run()
+        .json("UsageListResult")
         .unwrap();
+    let human = cli(&env, COLLIE)
+        .args(["usage", "list"])
+        .run()
+        .unwrap()
+        .without_dispatch_records();
 
-    let limits: Value = serde_json::from_str(&listed.stdout).unwrap();
+    assert_cli_snapshot!("usage_list_human", human);
     assert_eq!(
         (
-            listed.exit,
-            limits,
+            listed.output.exit,
+            human.exit,
+            listed.documents[0].clone(),
             env.home().join("usage-ledger.sqlite").is_file()
         ),
         (
+            Some(0),
             Some(0),
             json!({ "limits": [{
                 "limit": {

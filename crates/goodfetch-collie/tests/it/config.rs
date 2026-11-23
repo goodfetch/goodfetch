@@ -122,7 +122,7 @@ fn validate(output: &Value) {
     assert_eq!(errors, Vec::<String>::new());
 }
 
-/// Covers: story:3-89, story:3-142, story:11-41, command:config.explain
+/// Covers: story:3-89, story:3-142, story:11-41, story:11-212, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]

@@ -2385,6 +2385,22 @@ class RunLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class RunMigrateParams(BaseModel):
+    """What `run.migrate` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str | None = None
+    """
+    Where to write the Checkpoint the Run is resumed from, a path on the
+    engine's machine; by default where the engine keeps the Run's
+    Checkpoints, its own folder.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunMigrating(BaseModel):
     """What `run.migrating` carries."""
 
@@ -5650,6 +5666,9 @@ class RunCheckpointParams(BaseModel):
     """
     Where to write the Checkpoint, a path on the engine's machine; by
     default where the engine keeps the Run's Checkpoints, its own folder.
+    The catalog's caller alone gives it, such as Goodfetch Cloud: an
+    SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    Goodfetch Cloud (ADR 0102).
     """
     run_id: RunId
     """The Run's ID."""

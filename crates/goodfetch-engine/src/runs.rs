@@ -3703,9 +3703,11 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
-    /// Keeps what `source` reads as an Export of the Run `run_id` (ADRs
-    /// 0103, 0116 and 0122): written whole into its folder's `exports/`,
-    /// named by its SHA-256, through a hidden temporary file, synced, then
+    /// Keeps what `source` reads as an Export of the Run `run_id`, written
+    /// from its state under the run epoch `run_epoch` (ADRs 0003, 0103,
+    /// 0116 and 0122): written whole into its folder's
+    /// `exports/<run_epoch>/`, named by its SHA-256, through a hidden
+    /// temporary file, synced, then
     /// renamed, so a failed write leaves no unfinished file. No run state
     /// records it, so a Run that ended keeps one too. While the Run
     /// folder's filesystem is at the `critical` storage level, as read now,
@@ -3720,7 +3722,12 @@ impl Runs {
     ///
     /// Dropping the future may leave a hidden temporary file beside the
     /// Exports, never a partial one.
-    pub async fn keep_export<R>(&self, run_id: RunId, source: R) -> Result<KeptExport, KeepError>
+    pub async fn keep_export<R>(
+        &self,
+        run_id: RunId,
+        run_epoch: u64,
+        source: R,
+    ) -> Result<KeptExport, KeepError>
     where
         R: std::io::Read + Send + 'static,
     {
@@ -3753,7 +3760,7 @@ impl Runs {
         }
         let mut source = source;
         let (sha256, size) = owner
-            .blocking(move || run_files::store_export(&folder, &mut source))
+            .blocking(move || run_files::store_export(&folder, run_epoch, &mut source))
             .await
             .map_err(|error| KeepError::io(&error, "write the Export in the Run's folder"))?;
         Ok(KeptExport { sha256, size })

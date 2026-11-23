@@ -22,8 +22,8 @@ use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
     FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
-    RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
-    WriteSide,
+    RunCheckpointParams, RunMigrateParams, RunResumeParams, SESSION_BOUND_TO_MACHINE,
+    SessionBoundToMachineDetails, WriteSide,
 };
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
@@ -1135,10 +1135,7 @@ async fn pause(params: RunParams, context: CallContext) -> Result<RunReport, Cal
         .map_err(|error| run_error(error, &context))
 }
 
-async fn migrate(
-    params: RunCheckpointParams,
-    context: CallContext,
-) -> Result<RunReport, CallError> {
+async fn migrate(params: RunMigrateParams, context: CallContext) -> Result<RunReport, CallError> {
     context
         .runs()
         .stop(

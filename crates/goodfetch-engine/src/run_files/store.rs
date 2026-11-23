@@ -105,10 +105,17 @@ pub(crate) fn file(folder: &Path, sha256: &str) -> Option<PathBuf> {
     is_digest(sha256).then(|| folder.join(FILES).join(sha256))
 }
 
-/// The Export whose bytes' SHA-256 is `sha256` in the Run folder `folder`,
-/// or `None` when `sha256` is no SHA-256 in lowercase hex.
-pub fn export_file(folder: &Path, sha256: &str) -> Option<PathBuf> {
-    is_digest(sha256).then(|| folder.join(EXPORTS).join(sha256))
+/// The Export written under the run epoch `run_epoch` whose bytes' SHA-256
+/// is `sha256` in the Run folder `folder`, or `None` when `sha256` is no
+/// SHA-256 in lowercase hex.
+pub fn export_file(folder: &Path, run_epoch: u64, sha256: &str) -> Option<PathBuf> {
+    is_digest(sha256).then(|| exports_of(folder, run_epoch).join(sha256))
+}
+
+/// The folder of the Exports written under the run epoch `run_epoch` in
+/// the Run folder `folder`, which its name carries (ADR 0003).
+fn exports_of(folder: &Path, run_epoch: u64) -> PathBuf {
+    folder.join(EXPORTS).join(run_epoch.to_string())
 }
 
 /// Whether `sha256` is a SHA-256 in lowercase hexadecimal.
@@ -180,16 +187,21 @@ pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String,
     stage(folder, source)?.placed()
 }
 
-/// Writes what `source` reads as an Export of the Run folder `folder`,
-/// whole before its name appears, under `exports/`, and answers its
-/// SHA-256 and size. No record names an Export, so nothing forgets it.
+/// Writes what `source` reads as an Export of the Run folder `folder`
+/// written under the run epoch `run_epoch`, whole before its name appears,
+/// under `exports/<run_epoch>/`, and answers its SHA-256 and size. No
+/// record names an Export, so nothing forgets it.
 ///
 /// # Errors
 ///
 /// When `source` cannot be read or the file cannot be written; no partial
 /// file is left under its name.
-pub(crate) fn store_export(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
-    stage_in(&folder.join(EXPORTS), source)?.placed()
+pub(crate) fn store_export(
+    folder: &Path,
+    run_epoch: u64,
+    source: &mut dyn Read,
+) -> io::Result<(String, u64)> {
+    stage_in(&exports_of(folder, run_epoch), source)?.placed()
 }
 
 /// Writes what `source` reads into the folder `files`, through a hidden

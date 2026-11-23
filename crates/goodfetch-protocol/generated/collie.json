@@ -12333,6 +12333,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon's live heap, as `daemon.status`'s `heap` reports it: the bytes its own allocations hold now, as its executable's allocator counts them, without the pages that allocator keeps once they are freed. No series where nothing counts them, as in an engine an SDK links.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.daemon.heap",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
       "instrument": "counter",
       "labels": [

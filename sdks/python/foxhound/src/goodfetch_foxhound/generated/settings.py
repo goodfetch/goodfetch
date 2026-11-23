@@ -1404,6 +1404,151 @@ class ConnectionSessionSettings(TypedDict):
     """
 
 
+class SinksEntryBatch(TypedDict):
+    """Its batch sizing: the destination's preset when left out."""
+
+    max_bytes: NotRequired[int | None]
+    """How many bytes one write holds at most."""
+
+    max_records: NotRequired[int | None]
+    """How many Records one write holds at most."""
+
+
+class SinksEntryEmbedding(TypedDict):
+    """A vector store Sink's embedding."""
+
+    chunk_chars: NotRequired[int | None]
+    """How many characters a chunk holds at most: 2,000 when left out."""
+
+    fields: NotRequired[list[str] | None]
+    """The Record's fields whose text is embedded."""
+
+    model: NotRequired[str | None]
+    """The Model provider's model that embeds the chunks."""
+
+
+class SinksEntryFilesPart(TypedDict):
+    """When a part rolls."""
+
+    max_age: NotRequired[int | None]
+    """How long, in milliseconds, a part stays open at most: 5 minutes
+    when left out.
+    """
+
+    max_bytes: NotRequired[int | None]
+    """How many bytes a part holds at most: 256 MiB when left out."""
+
+    max_records: NotRequired[int | None]
+    """How many Records a part holds at most: 100,000 when left out."""
+
+
+class SinksEntryFiles(TypedDict):
+    """Its Files mode."""
+
+    compression: NotRequired[Literal["none", "gzip", "zstd"] | None]
+    """The parts' compression: Zstandard when left out."""
+
+    format: NotRequired[Literal["json", "jsonl", "csv", "xlsx", "html_table", "markdown", "xml", "parquet", "avro", "arrow_ipc", "rss", "atom"] | None]
+    """The parts' Export format: JSONL when left out."""
+
+    part: NotRequired[SinksEntryFilesPart | None]
+    """When a part rolls."""
+
+
+class SinksEntryRate(TypedDict):
+    """Its token bucket: the destination's preset when left out."""
+
+    burst: NotRequired[int | None]
+    """How many writes may go at once, the bucket's size."""
+
+    per_second: NotRequired[int | None]
+    """How many writes a second."""
+
+
+class SinksEntrySchema(TypedDict):
+    """How its destination's schema follows the Records."""
+
+    contract: NotRequired[Literal["evolve", "freeze", "discard_row", "discard_value"] | None]
+    """Its contract: `evolve` when left out."""
+
+    flatten: NotRequired[bool | None]
+    """Whether nested values are flattened into dotted columns rather than
+    kept in the destination's own JSON type: off when left out.
+    """
+
+
+class SinksEntryWebhook(TypedDict):
+    """A webhook Sink's keys."""
+
+    max_batch_bytes: NotRequired[int | None]
+    """How many bytes of Records one request carries at most: 256 KB when
+    left out.
+    """
+
+    payload: NotRequired[Literal["batch", "thin"] | None]
+    """What a request carries: `batch` when left out."""
+
+    signing_secret: NotRequired[str | None]
+    """The Secret reference of the key each request is signed with."""
+
+
+class SinksEntry(TypedDict):
+    """One Sink, the entry of its name in `sinks` (ADRs 0026, 0103 and 0104):
+    the keys every Sink type shares.
+    """
+
+    batch: NotRequired[SinksEntryBatch | None]
+    """Its batch sizing: the destination's preset when left out."""
+
+    datasets: list[str]
+    """The names of the Datasets it receives."""
+
+    deliver: NotRequired[Literal["records", "files", "both"] | None]
+    """What it delivers: Records for a row or message destination, files
+    for a file destination, when left out. Spec #582 spells it `as`,
+    which Python cannot name a key of a `TypedDict`.
+    """
+
+    destination: NotRequired[str | None]
+    """The Secret reference of its DSN, URL or credentials, never the value
+    itself; required with a `type`.
+    """
+
+    embedding: NotRequired[SinksEntryEmbedding | None]
+    """A vector store Sink's embedding."""
+
+    files: NotRequired[SinksEntryFiles | None]
+    """Its Files mode."""
+
+    image: NotRequired[str | None]
+    """A Bridge Sink's image digest, which an Operator policy must name."""
+
+    key: NotRequired[list[str] | None]
+    """The fields a keyed mode uses: each Dataset's own key when left out."""
+
+    mode: NotRequired[Literal["append", "upsert", "insert_only", "replace", "history"] | None]
+    """How it writes them: `append` when left out ([`Self::write_mode`])."""
+
+    rate: NotRequired[SinksEntryRate | None]
+    """Its token bucket: the destination's preset when left out."""
+
+    schema: NotRequired[SinksEntrySchema | None]
+    """How its destination's schema follows the Records."""
+
+    target: NotRequired[str | None]
+    """Its table, collection, index, topic, queue, sheet or object prefix:
+    the type's own when left out.
+    """
+
+    type: NotRequired[Literal["postgres", "pgvector", "supabase", "mysql", "sqlserver", "sqlite", "mongodb", "elasticsearch", "opensearch", "redis", "snowflake", "bigquery", "redshift", "clickhouse", "databricks", "iceberg", "duckdb", "motherduck", "qdrant", "pinecone", "weaviate", "milvus", "chroma", "lancedb", "s3", "gcs", "azure_blob", "sftp", "ftp", "google_drive", "google_sheets", "dropbox", "onedrive", "box", "airtable", "notion", "kafka", "sqs", "sns", "kinesis", "firehose", "pubsub", "service_bus", "event_hubs", "rabbitmq", "nats", "redis_streams", "smtp", "ses", "resend", "postmark", "sendgrid", "mailgun", "webhook", "airbyte", "singer"] | None]
+    """The catalog destination it delivers to; left out for a program's own
+    Sink handler of the entry's name.
+    """
+
+    webhook: NotRequired[SinksEntryWebhook | None]
+    """A webhook Sink's keys."""
+
+
 class ConnectionSitePreferencesSettings(TypedDict):
     """The `site_preferences` settings of `FoxhoundSettings`."""
 
@@ -1706,6 +1851,12 @@ class FoxhoundSettings(TypedDict):
     security: NotRequired[ConnectionSecuritySettings]
 
     session: NotRequired[ConnectionSessionSettings]
+
+    sinks: NotRequired[Mapping[str, SinksEntry]]
+    """The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.
+
+    `sinks`.
+    """
 
     site_preferences: NotRequired[ConnectionSitePreferencesSettings]
 
@@ -3186,6 +3337,12 @@ class CrawlSettings(TypedDict):
     security: NotRequired[RunSecuritySettings]
 
     session: NotRequired[RunSessionSettings]
+
+    sinks: NotRequired[Mapping[str, SinksEntry]]
+    """The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.
+
+    `sinks`.
+    """
 
     site_preferences: NotRequired[RunSitePreferencesSettings]
 

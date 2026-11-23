@@ -91,18 +91,9 @@ pub struct Batch {
     pub records: Vec<Delivered>,
 }
 
-/// The guarantee class a Sink's probe reports (ADR 0026).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GuaranteeClass {
-    /// A stale run epoch is refused in the same transaction as the write.
-    Fenced,
-    /// A stale run epoch is refused per Record.
-    RecordFenced,
-    /// A Record's delivery ID makes a second write of it a no-op.
-    Keyed,
-    /// A Record may arrive more than once.
-    AtLeastOnce,
-}
+/// The guarantee class a Sink's probe reports (ADR 0026), the protocol's,
+/// which a Run report's Sink carries.
+pub use goodfetch_protocol::foxhound::sink::GuaranteeClass;
 
 /// What a Sink's probe found at its destination.
 #[derive(Clone, Debug, PartialEq, Eq)]

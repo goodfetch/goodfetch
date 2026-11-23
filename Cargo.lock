@@ -3064,6 +3064,7 @@ name = "goodfetch-sink"
 version = "0.0.0"
 dependencies = [
  "goodfetch-dataset",
+ "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "jiff",

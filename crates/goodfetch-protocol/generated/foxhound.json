@@ -24952,6 +24952,7 @@
         ],
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -27725,6 +27726,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {

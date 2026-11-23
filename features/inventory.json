@@ -1795,6 +1795,17 @@
       ]
     },
     {
+      "id": "error:model_unavailable",
+      "kind": "error",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,

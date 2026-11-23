@@ -1582,6 +1582,13 @@ number = 8
 kind = "error"
 prefix = "challenge_unsolved"
 
+# Area 9, AI and agent: a Model provider that cannot answer for now, after
+# the engine's retries (ADR 0101, #3167).
+[[area]]
+number = 9
+kind = "error"
+prefix = "model_unavailable"
+
 # Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
 # answers each seed and a handler's enqueue (#828), and the call on an
 # attempt that ended, which every member of a handler's context answers

@@ -15,6 +15,7 @@ import {
   HookFailedError,
   InternalError,
   isCollieError,
+  ModelUnavailableError,
   PageError,
   PageNavigatedDuringCallError,
   ProgramError,
@@ -221,6 +222,35 @@ describe("errorOfReply", () => {
     expect(error).toBeInstanceOf(BlockedError);
     expect({
       retryAfter: error instanceof BlockedError ? error.retryAfter : "not blocked",
+      sent: error.details["retry_after"],
+    }).toEqual({ retryAfter, sent });
+  });
+
+  // ADRs 0080 and 0101: `model_unavailable`'s `retry_after` is how long the
+  // Model provider asks to wait, a duration in milliseconds, never a point
+  // in time; `null` when it asks for no wait.
+  test.for([
+    { sent: 1500, retryAfter: 1500 },
+    { sent: null, retryAfter: null },
+    { sent: undefined, retryAfter: null },
+  ])("reads model_unavailable's retry_after $sent as a duration", ({ sent, retryAfter }) => {
+    const error = errorOfReply(
+      {
+        code: -32006,
+        message: "model_unavailable",
+        data: {
+          code: "model_unavailable",
+          retryable: true,
+          reason: "rate_limited",
+          retry_after: sent,
+        },
+      },
+      collieErrorClasses,
+    );
+
+    expect(error).toBeInstanceOf(ModelUnavailableError);
+    expect({
+      retryAfter: error instanceof ModelUnavailableError ? error.retryAfter : "not unavailable",
       sent: error.details["retry_after"],
     }).toEqual({ retryAfter, sent });
   });

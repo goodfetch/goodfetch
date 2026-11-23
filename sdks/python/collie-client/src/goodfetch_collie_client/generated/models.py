@@ -13,6 +13,7 @@ from goodfetch_collie_client.generated.open_values import (
     CancelledBy,
     Claim,
     ClosedValue,
+    ModelUnavailableReason,
     ReportedHookStage,
     Verdict,
 )
@@ -1901,6 +1902,24 @@ class MissingBrowser3(BaseModel):
     kind: Literal["path"]
     path: str
     """The path."""
+
+
+class ModelUnavailableDetails(BaseModel):
+    """What `model_unavailable` details (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    reason: ModelUnavailableReason
+    """Why the provider could not answer."""
+    retry_after: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the provider asked to wait before the next call, from its
+    answer's `Retry-After` or its own rate-limit reset: a duration, not a
+    point in time, in whole milliseconds on the wire; `null` when it
+    asked for no wait.
+    """
 
 
 class NameResolver(StrEnum):

@@ -885,6 +885,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Model provider could not answer for now: it could not be reached, it failed with a 5xx, or it kept rate limiting the calls, after the engine's retries. The details name the `reason` and `retry_after`, how long the provider asked to wait before trying again, in milliseconds, or `null` when it asked for no wait. Retry later, or name another model.",
+      "details": {
+        "$ref": "#/$defs/ModelUnavailableDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "model_unavailable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
       "details": {
         "$ref": "#/$defs/NameLookupFailedDetails"

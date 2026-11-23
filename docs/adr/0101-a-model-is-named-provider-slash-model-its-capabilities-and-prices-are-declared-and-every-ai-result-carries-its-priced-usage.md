@@ -61,6 +61,8 @@ The engine classifies by the provider's error type and message, not by the statu
 
 > Amended by [ADR 0127](0127-a-failure-from-a-party-goodfetch-did-not-write-becomes-a-typed-error-in-one-module-per-boundary-and-no-other-code-reads-its-text.md): this classification happens once, in each Model provider adapter, its translation point; the provider's message stays a private field no other code reads.
 
+> Note (agent decision, not read by the owner), 2026-11-23, [#3167](https://github.com/goodfetch/goodfetch/issues/3167): `model_unavailable`'s details are `ModelUnavailableDetails`: `reason`, an open set of `unreachable`, `server_error` and `rate_limited`, and `retry_after`, a duration in whole milliseconds on the wire, `null` when the provider asked for no wait. A duration, not a point in time as `blocked`'s `retry_after` is (ADR 0118): what the program does with it is wait, and a duration needs no clock shared with the engine. Each SDK's `ModelUnavailableError.retryAfter` reads it as its language's duration: milliseconds in TypeScript, a `timedelta` in Python, a `Duration` in Rust's details.
+
 ### A model request's own timeout
 
 - **`timeout.model`, 60 s,** bounds one attempt of one model request, the program's own provider included. An attempt that outlasts it is retried as a transient failure, under ADR 0012's bounded retries; it nests inside the call that made it (ADR 0080), such as an AI verb's `timeout.ai` of 120 s (ADR 0091), so the retries share the enclosing time, and whichever ends first is the one `deadline_exceeded` names. openai-python waits 10 minutes by default and the AI SDK documents no default; ADR 0080 gives every phase a finite default (G6). A slow local model or a long reasoning answer raises both.

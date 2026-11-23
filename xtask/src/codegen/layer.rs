@@ -177,13 +177,31 @@ pub(super) struct ErrorCode {
     pub(super) details: Option<TypeName>,
 }
 
+/// What a code's details name as `retry_after`, which its class reads as
+/// its own field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RetryAfter {
+    /// The time a site's `Retry-After` asks for (ADRs 0092 and 0118).
+    PointInTime,
+    /// How long a Model provider asks to wait, in milliseconds (ADR 0101).
+    Duration,
+}
+
 impl ErrorCode {
-    /// Whether the code's details name `retry_after` as a point in time,
-    /// which its class reads as its own field.
-    pub(super) fn retry_after_is_point_in_time(&self) -> bool {
-        goodfetch_protocol::error_details::RETRY_AFTER_POINT_IN_TIME
-            .iter()
-            .any(|code| code.as_str() == self.name)
+    /// What the code's details name as `retry_after`, if anything its class
+    /// reads.
+    pub(super) fn retry_after(&self) -> Option<RetryAfter> {
+        use goodfetch_protocol::error_details::{RETRY_AFTER_DURATION, RETRY_AFTER_POINT_IN_TIME};
+        let lists = |codes: &[goodfetch_protocol::error_code::ErrorCode]| {
+            codes.iter().any(|code| code.as_str() == self.name)
+        };
+        if lists(RETRY_AFTER_POINT_IN_TIME) {
+            Some(RetryAfter::PointInTime)
+        } else if lists(RETRY_AFTER_DURATION) {
+            Some(RetryAfter::Duration)
+        } else {
+            None
+        }
     }
 
     /// The type its own class reads its details as. A code named like its
@@ -411,12 +429,12 @@ pub(super) struct Layer {
 }
 
 impl Layer {
-    /// Whether any of the layer's Error codes reads `retry_after` as a point
-    /// in time, so its errors module needs the helper that reads it.
-    pub(super) fn reads_retry_after(&self) -> bool {
+    /// Whether any of the layer's Error codes reads `retry_after` as `kind`,
+    /// so its errors module needs the helper that reads it.
+    pub(super) fn reads_retry_after(&self, kind: RetryAfter) -> bool {
         self.error_codes
             .iter()
-            .any(ErrorCode::retry_after_is_point_in_time)
+            .any(|code| code.retry_after() == Some(kind))
     }
 
     /// The layer of `product`'s package: Collie's entries for Collie's client

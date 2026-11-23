@@ -97,6 +97,7 @@ pub fn write_document(
             .push(CaseEntry {
                 mode: entry.mode.clone(),
                 blocking: entry.blocking,
+                unreachable: entry.unreachable.clone(),
                 checks: entry.checks.clone(),
                 evidence: entry.evidence.clone(),
             });

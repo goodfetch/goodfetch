@@ -995,6 +995,13 @@
             "string",
             "null"
           ]
+        },
+        "unreachable": {
+          "description": "What it could not reach while it ran, such as a vendor or the\nonline Proving ground, each as its runner names it. An entry with\nany neither passes nor fails, whatever its checks: an outage is\ninconclusive (ADR 0064).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -1051,6 +1058,13 @@
         "runtime": {
           "description": "The runtime it ran on, such as `node-24` or `cpython-3.14`.",
           "type": "string"
+        },
+        "unreachable": {
+          "description": "What it could not reach while it ran, such as a vendor or the\nonline Proving ground, each as the runner names it; its entry is\nthen inconclusive (ADR 0064).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -1077,7 +1091,7 @@
         },
         {
           "const": "inconclusive",
-          "description": "In gate mode, it failed with Filter-list blocking on and did not\npass with it off, as when a vendor's scoring change moves both: it\nneither passes nor blocks (ADR 0047).",
+          "description": "An entry could not reach something it needed, such as a vendor, and\nno entry that reached everything failed (ADR 0064); or, in gate\nmode, it failed with Filter-list\nblocking on and did not pass with it off, as when a vendor's scoring\nchange moves both (ADR 0047). It neither passes nor blocks.",
           "type": "string"
         },
         {

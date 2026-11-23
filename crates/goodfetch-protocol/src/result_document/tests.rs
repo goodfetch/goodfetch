@@ -108,6 +108,8 @@ struct VectorEntry {
     mode: Option<String>,
     #[serde(default)]
     blocking: Option<Blocking>,
+    #[serde(default)]
+    unreachable: Vec<String>,
     checks: Vec<bool>,
 }
 
@@ -317,6 +319,7 @@ fn conformance_facts(cases: &[VectorCase]) -> CapabilityFacts {
                     .map(|entry| CaseEntry {
                         mode: entry.mode.clone(),
                         blocking: entry.blocking,
+                        unreachable: entry.unreachable.clone(),
                         checks: entry
                             .checks
                             .iter()
@@ -613,6 +616,7 @@ fn the_reader_refuses_a_case_stored_as_passed_beside_a_failed_check() {
                 entries: vec![CaseEntry {
                     mode: None,
                     blocking: None,
+                    unreachable: Vec::new(),
                     checks: vec![CaseCheck {
                         name: "the oracle answers verified".to_owned(),
                         passed: false,

@@ -121,6 +121,7 @@ pub fn run_self_test(
                 capability: capability.name.clone(),
                 mode: None,
                 blocking: None,
+                unreachable: Vec::new(),
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
                 checks: vec![

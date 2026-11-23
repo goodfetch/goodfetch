@@ -55,9 +55,11 @@ class CaseOutcome(StrEnum):
     """
     inconclusive = "inconclusive"
     """
-    In gate mode, it failed with Filter-list blocking on and did not
-    pass with it off, as when a vendor's scoring change moves both: it
-    neither passes nor blocks (ADR 0047).
+    An entry could not reach something it needed, such as a vendor, and
+    no entry that reached everything failed (ADR 0064); or, in gate
+    mode, it failed with Filter-list
+    blocking on and did not pass with it off, as when a vendor's scoring
+    change moves both (ADR 0047). It neither passes nor blocks.
     """
     not_reached = "not_reached"
     """The case log holds no entry for it."""
@@ -457,6 +459,13 @@ class CaseEntry(BaseModel):
     The mode it ran in, such as `attached` or `daemon`, when the case
     runs in several.
     """
+    unreachable: list[str] | None = None
+    """
+    What it could not reach while it ran, such as a vendor or the
+    online Proving ground, each as its runner names it. An entry with
+    any neither passes nor fails, whatever its checks: an outage is
+    inconclusive (ADR 0064).
+    """
 
 
 class CaseLogEntry(BaseModel):
@@ -487,6 +496,12 @@ class CaseLogEntry(BaseModel):
     """Where it ran."""
     runtime: str
     """The runtime it ran on, such as `node-24` or `cpython-3.14`."""
+    unreachable: list[str] | None = None
+    """
+    What it could not reach while it ran, such as a vendor or the
+    online Proving ground, each as the runner names it; its entry is
+    then inconclusive (ADR 0064).
+    """
 
 
 class CaseResult(BaseModel):

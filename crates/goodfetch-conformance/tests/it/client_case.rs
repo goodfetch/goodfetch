@@ -69,6 +69,7 @@ fn each_run_appends_its_case_with_the_lists_capability_and_whether_the_test_pass
                 capability: "logging".to_owned(),
                 mode: Some("linked".to_owned()),
                 blocking: None,
+                unreachable: Vec::new(),
                 platform: this_host(),
                 runtime: "rust".to_owned(),
                 checks: vec![
@@ -87,6 +88,7 @@ fn each_run_appends_its_case_with_the_lists_capability_and_whether_the_test_pass
                 capability: "logging".to_owned(),
                 mode: Some("daemon".to_owned()),
                 blocking: None,
+                unreachable: Vec::new(),
                 platform: this_host(),
                 runtime: "rust".to_owned(),
                 checks: vec![check("the test passed", true)],

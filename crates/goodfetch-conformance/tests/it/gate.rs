@@ -22,13 +22,23 @@ const SHARES_A_SESSION: &str = "pages-open-in-the-runs-default-session";
 /// The check the stand-in breaks.
 const SAME_SESSION: &str = "the second page is in the first page's Session";
 
+/// A case that starts a Run of its own, beside [`SHARES_A_SESSION`].
+const GOTO: &str = "goto-answers-the-documents-response";
+
+/// The file, in `env`'s folder, where the stand-in writes the blocking of
+/// each Run it starts, a line each.
+const RUN_STARTS: &str = "run-starts";
+
 /// A stand-in Collie in `env`'s folder, Attached, which answers every call
 /// with an empty result and opens each page of a Run in a Session of its
 /// own, breaking [`SAME_SESSION`], with blocking on when `breaks_on` and
 /// with blocking off when `breaks_off`. A `run.start` whose settings turn
-/// the `ads` Filter list off is a Run with blocking off.
+/// the `ads` Filter list off is a Run with blocking off; each `run.start`
+/// writes `on` or `off` to [`RUN_STARTS`].
 fn stand_in_target(env: &TestEnv, breaks_on: bool, breaks_off: bool) -> EngineTarget {
     let executable = env.folder().join("stand-in-collie");
+    let run_starts = env.folder().join(RUN_STARTS);
+    let run_starts = run_starts.display();
     let script = format!(
         r#"#!/bin/sh
 breaks={breaks_on}
@@ -42,8 +52,8 @@ while IFS= read -r line; do
       ;;
     run.start)
       case $line in
-        *'"ads":false'*) breaks={breaks_off} ;;
-        *) breaks={breaks_on} ;;
+        *'"ads":false'*) breaks={breaks_off}; echo off >> '{run_starts}' ;;
+        *) breaks={breaks_on}; echo on >> '{run_starts}' ;;
       esac
       printf '{{"jsonrpc":"2.0","id":%s,"result":{{}}}}\n' "$id"
       ;;
@@ -129,4 +139,31 @@ fn a_gate_run_fails_a_case_only_where_blocking_alone_breaks_it(
     assert_eq!(found_outcome, outcome);
     assert!(failed.iter().all(|name| name == SAME_SESSION), "{failed:?}");
     assert_eq!(document.blocks(), blocks);
+}
+
+/// A gate run takes each case with blocking on, then at once with blocking
+/// off, before the next case, so both runs of a page meet the outside world
+/// as it is at that moment: an outage of a vendor's site falls on both, and
+/// the case is inconclusive, far more often than on one run alone.
+///
+/// Covers: story:2-73
+#[test]
+fn a_gate_run_takes_each_case_both_ways_before_the_next() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = stand_in_target(&env, false, false);
+
+    run_protocol_suite_in_gate_mode(
+        &suite("collie", &[SHARES_A_SESSION, GOTO]),
+        &target,
+        &proving_ground,
+    )
+    .unwrap();
+
+    let run_starts = std::fs::read_to_string(env.folder().join(RUN_STARTS)).unwrap();
+    assert_eq!(
+        run_starts.lines().collect::<Vec<_>>(),
+        ["on", "off", "on", "off"]
+    );
 }

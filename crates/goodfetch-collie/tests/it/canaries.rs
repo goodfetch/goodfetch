@@ -88,7 +88,10 @@ fn planting(kind: SecretKind) -> Planting {
         SecretKind::OneTimeCode => Planting::Pending { ticket: 734 },
         SecretKind::HttpAuthenticationPassword => Planting::Pending { ticket: 657 },
         SecretKind::HeaderValue => Planting::Pending { ticket: 656 },
-        SecretKind::CallerAnswer => Planting::Pending { ticket: 652 },
+        SecretKind::CallerAnswer => Planting::By {
+            file: "proxy.rs",
+            test: "a_proxy_password_the_runs_client_answers_reaches_the_proxy_and_no_file",
+        },
         SecretKind::ModelApiKey => Planting::Pending { ticket: 934 },
         SecretKind::WebhookSigningSecret => Planting::Pending { ticket: 666 },
         SecretKind::SinkCredential => Planting::Foxhound,

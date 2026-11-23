@@ -1664,10 +1664,13 @@ impl Subject {
         view(&connection)
     }
 
-    /// The crawl's process crashes as `kind` says at `off`: the file it
-    /// leaves holds the "unclean" mark, or a power cut damaged it, so the
-    /// engine discards it, as its next start does (ADR 0138); the crawl
-    /// starts again from its start's seeds, in a new run file.
+    /// The crawl's process crashes as `kind` says at `off`: the model
+    /// checks that the file it leaves holds the "unclean" mark, or that a
+    /// power cut damaged it, which is what makes the engine's next start
+    /// discard it (ADR 0138), and then does as that start does itself: the
+    /// crawl starts again from its start's seeds, in a new run file. The
+    /// engine's discard is tested in `goodfetch-engine`'s
+    /// `engine::tests::durability`.
     fn discard(&mut self, kind: CrashKind) {
         self.vfs.crash(kind);
         self.close();

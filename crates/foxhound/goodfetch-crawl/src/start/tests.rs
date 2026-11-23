@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod blocking_client;
 mod detached;
 mod finishing;
 mod fixed;

@@ -19,25 +19,22 @@
 //! kind leaves a live Run interrupted, as a clean stop does. `off` is not
 //! drawn here. After the crash VFS crashes, the engine in this process
 //! goes on to its own stop, and it may reopen the run file and end the Run
-//! cleanly, which no crashed process does. So the discard of a run file
-//! that a crash left at `off` (ADR 0138) is the Run state model's to test,
-//! which closes its writer at the crash (`run_state::tests::model`).
+//! cleanly, which no crashed process does. The engine's discard of a run
+//! file that a crash left at `off` (ADR 0138) is tested in
+//! `goodfetch-engine`'s `engine::tests::durability`.
 //!
 //! 16 cases in the Quick suite and 256 in the Pre-merge suite
 //! (`proptest_config`). Each case's folder lies in memory
 //! (`TestEnv::in_memory`).
 
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
-use tokio::runtime::Runtime;
 
-use super::model::attach;
+use super::blocking_client::BlockingClient;
 use super::{as_sent, dependencies, seeds};
 
 /// The Run ID every step names.
@@ -175,9 +172,12 @@ impl ReferenceStateMachine for Model {
             (Transition::Start(_), Run::Interrupted(began)) if state.answered == "resumed" => {
                 Run::Live(began)
             }
-            (Transition::Pause | Transition::Restart, Run::Live(began)) => Run::Interrupted(began),
+            // At `full`, a crash of either kind leaves a live Run interrupted,
+            // as a pause and a clean stop do.
+            (Transition::Pause | Transition::Restart | Transition::Crash(_), Run::Live(began)) => {
+                Run::Interrupted(began)
+            }
             (Transition::Finish, Run::Live(began)) => Run::Finished(began),
-            (Transition::Crash(_), Run::Live(began)) => Run::Interrupted(began),
             (Transition::Damage, _) => Run::Damaged,
             (_, run) => run,
         };
@@ -187,69 +187,44 @@ impl ReferenceStateMachine for Model {
 
 /// The engine under test on the crash VFS, and its Client.
 struct Subject {
-    runtime: Runtime,
+    client: BlockingClient,
     env: TestEnv,
     vfs: CrashVfs,
-    owner: TaskOwner,
-    lines: Lines<BufReader<goodfetch_engine::transport::ConnectionReader>>,
-    writer: goodfetch_engine::transport::ConnectionWriter,
     calls: u64,
 }
 
+/// The run state's options: the run file on `vfs`.
+fn options(vfs: &CrashVfs) -> RunStateOptions {
+    RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        ..RunStateOptions::default()
+    }
+}
+
 impl Subject {
-    fn send(&mut self, message: &Value) {
-        let mut line = serde_json::to_vec(message).unwrap();
-        line.push(b'\n');
-        self.runtime.block_on(self.writer.write_all(&line)).unwrap();
-    }
-
-    fn next(&mut self) -> Value {
-        let line = self
-            .runtime
-            .block_on(self.lines.next_line())
-            .unwrap()
-            .expect("the engine closed early");
-        serde_json::from_str(&line).unwrap()
-    }
-
-    /// Starts an engine in the home on the crash VFS and says `hello`.
-    fn attach(&mut self) {
-        let options = RunStateOptions {
-            vfs: Some(self.vfs.name().to_owned()),
-            ..RunStateOptions::default()
-        };
-        self.owner = TaskOwner::root(BlockingPolicy::Inline);
-        let (env, owner) = (&self.env, &self.owner);
-        let (reader, writer) = self
-            .runtime
-            .block_on(async { attach(owner, dependencies(env, options)).await });
-        self.lines = BufReader::new(reader).lines();
-        self.writer = writer;
-        self.hello();
-    }
-
-    fn hello(&mut self) {
-        self.send(&json!({
-            "jsonrpc": "2.0", "id": "hello", "method": "hello",
-            "params": { "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "1.4.0" },
-        }));
-        assert_eq!(self.next()["result"]["product"], "foxhound");
+    /// Stops the engine and starts another in the same home.
+    fn restart(&mut self) {
+        self.client.stop();
+        let (env, vfs) = (&self.env, &self.vfs);
+        self.client.reattach(|| dependencies(env, options(vfs)));
     }
 
     /// Calls `method` with `params` and returns its reply, answering each
     /// handler request on the way with no Record.
-    fn call(&mut self, method: &str, params: Value) -> Value {
+    fn call(&mut self, method: &str, params: &Value) -> Value {
         self.calls += 1;
         let id = format!("call-{}", self.calls);
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        self.client
+            .send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
         loop {
-            let message = self.next();
+            let message = self.client.next();
             if message["id"] == id.as_str() {
                 return message;
             }
             if message["method"] == "crawl_request.handle" {
                 let request = message["id"].clone();
-                self.send(&json!({ "jsonrpc": "2.0", "id": request, "result": { "records": [] } }));
+                self.client
+                    .send(&json!({ "jsonrpc": "2.0", "id": request, "result": { "records": [] } }));
             }
         }
     }
@@ -270,25 +245,13 @@ impl Subject {
                 "settings": { "crawl": crawl, "run_state": { "durability": "full" } },
             }),
         );
-        let answer = self.call("crawl.start", params);
+        let answer = self.call("crawl.start", &params);
         let outcome = answer["result"]["started_as"]
             .as_str()
             .or_else(|| answer["error"]["data"]["code"].as_str());
         outcome
             .unwrap_or_else(|| panic!("a start answered neither: {answer}"))
             .to_owned()
-    }
-
-    /// Closes the Connection and waits for the engine to stop.
-    fn stop(&mut self) {
-        self.runtime.block_on(self.writer.shutdown()).unwrap();
-        while self
-            .runtime
-            .block_on(self.lines.next_line())
-            .unwrap()
-            .is_some()
-        {}
-        self.runtime.block_on(self.owner.wait());
     }
 
     /// The Run's run file, as the crash VFS names it.
@@ -313,25 +276,15 @@ impl StateMachineTest for Subject {
             .to_string_lossy()
             .replace(' ', "-");
         let vfs = CrashVfs::register(&format!("start-table-{folder}"), env.seed()).unwrap();
-        let runtime = goodfetch_test_support::runtime();
-        let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let options = RunStateOptions {
-            vfs: Some(vfs.name().to_owned()),
-            ..RunStateOptions::default()
-        };
-        let (reader, writer) =
-            runtime.block_on(async { attach(&owner, dependencies(&env, options)).await });
-        let mut subject = Self {
-            runtime,
+        let client = BlockingClient::attach(goodfetch_test_support::runtime(), || {
+            dependencies(&env, options(&vfs))
+        });
+        Self {
+            client,
             env,
             vfs,
-            owner,
-            lines: BufReader::new(reader).lines(),
-            writer,
             calls: 0,
-        };
-        subject.hello();
-        subject
+        }
     }
 
     fn apply(mut subject: Self, model: &Model, transition: Transition) -> Self {
@@ -341,21 +294,17 @@ impl StateMachineTest for Subject {
                 assert_eq!(answer, model.answered, "{transition:?}, to {model:?}");
             }
             Transition::Pause => {
-                let paused = subject.call("run.pause", json!({ "run_id": RUN_ID }));
+                let paused = subject.call("run.pause", &json!({ "run_id": RUN_ID }));
                 assert_eq!(paused["result"]["lifecycle"], "stopped", "{paused}");
             }
             Transition::Finish => {
-                let finished = subject.call("run.finish", json!({ "run_id": RUN_ID }));
+                let finished = subject.call("run.finish", &json!({ "run_id": RUN_ID }));
                 assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
             }
-            Transition::Restart => {
-                subject.stop();
-                subject.attach();
-            }
+            Transition::Restart => subject.restart(),
             Transition::Crash(kind) => {
                 subject.vfs.crash(kind);
-                subject.stop();
-                subject.attach();
+                subject.restart();
             }
             Transition::Damage => {
                 Connection::open_with_flags_and_vfs(
@@ -373,7 +322,7 @@ impl StateMachineTest for Subject {
     fn check_invariants(_: &Self, _: &Model) {}
 
     fn teardown(mut subject: Self, _: Model) {
-        subject.stop();
+        subject.client.stop();
     }
 }
 

@@ -33,11 +33,22 @@
 //! next process opens passes `PRAGMA integrity_check` (in `after_crash`)
 //! and holds the model as one of its writes left it, from the last synced
 //! one on, and the resumed crawl, given every page again, adds each page
-//! it does not hold once. Each case runs at a level it draws: `full`, each
-//! write in the file as it is answered, or `batch` with no threshold, where
-//! a claim, a key, an attempt's enqueue and its end ride the open batch, which a reader
-//! sees only once a barrier, a seal or the writer's end writes it, and
-//! which a crash takes whole; the loop's reads of the work items waiting
+//! it does not hold once. Each case runs at one of the five Durability
+//! levels (`run_state.durability`, ADR 0142), which it draws, so the
+//! attempts a resume counts as `handler_lost` are those the level's
+//! committed state shows in flight (ADR 0093). At `full`, `fast` and
+//! `periodic` each write is in the file as it is answered, so a process
+//! crash counts every attempt in flight; only `full` syncs the writes that
+//! need it, and a power cut at `fast` or `periodic`, which may take even
+//! the start's write, is the engine's own model's (`run_state`'s). At
+//! `batch` and `off`, with no threshold, a claim, a key, an attempt's
+//! enqueue and its end ride the open batch, which a reader sees only once
+//! a barrier, a seal or the writer's end writes it, and which a crash
+//! takes whole, so only the claims a written batch holds count. At `off`
+//! any crash leaves the run file's "unclean" mark, or a file a power cut
+//! damaged: the file is discarded and the crawl starts again from its
+//! start's seeds, in a new file, counting no attempt (ADR 0138); its clean
+//! stop resumes as at `batch`. The loop's reads of the work items waiting
 //! take them as the crawl knows them (ADR 0142's note of #2168): they
 //! leave out those it leased or ended in a batch they do not see and add
 //! those it made pending there, a retry or a page an attempt added. The
@@ -274,6 +285,70 @@ impl Bound {
     }
 }
 
+/// The Durability level a case runs at (`run_state.durability`, ADR
+/// 0142): one of the five presets, `batch` and `off` with no threshold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Level {
+    Full,
+    Fast,
+    Periodic,
+    Batch,
+    Off,
+}
+
+impl Level {
+    const ALL: [Self; 5] = [
+        Self::Full,
+        Self::Fast,
+        Self::Periodic,
+        Self::Batch,
+        Self::Off,
+    ];
+
+    /// Whether a claim, a key, an attempt's enqueue and its end ride the
+    /// open batch: `batch` and `off`.
+    fn batches(self) -> bool {
+        matches!(self, Self::Batch | Self::Off)
+    }
+
+    /// Whether each write that needs a sync is synced as it is answered:
+    /// `full` only. `fast` syncs none, and `periodic` one once its interval
+    /// passed, which no case's lasts.
+    fn syncs(self) -> bool {
+        self == Self::Full
+    }
+
+    /// Whether a power cut may take even the start's write, so it is left
+    /// to the engine's own model: `fast` and `periodic`.
+    fn may_lose_its_start(self) -> bool {
+        matches!(self, Self::Fast | Self::Periodic)
+    }
+
+    /// Whether any crash discards the run file: `off`.
+    fn discards(self) -> bool {
+        self == Self::Off
+    }
+
+    /// The Run state's level: the preset, `batch` and `off` with no
+    /// threshold, so only a barrier, a seal or the writer's end writes the
+    /// open batch.
+    fn durability(self) -> Durability {
+        let unbounded = |preset: Durability| Durability {
+            pages: BatchThreshold::Never,
+            interval: BatchThreshold::Never,
+            bytes: BatchThreshold::Never,
+            ..preset
+        };
+        match self {
+            Self::Full => Durability::FULL,
+            Self::Fast => Durability::FAST,
+            Self::Periodic => Durability::periodic(Duration::from_hours(1)),
+            Self::Batch => unbounded(Durability::BATCH),
+            Self::Off => unbounded(Durability::OFF),
+        }
+    }
+}
+
 /// What a step answered.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum Answer {
@@ -312,9 +387,10 @@ struct Model {
     /// that one's first: what a power cut may leave.
     unsynced: Vec<Vec<Item>>,
     crashed: bool,
-    /// Whether the Run state batches attempts (`batch`), or writes each
-    /// write as it is answered (`full`).
-    batching: bool,
+    level: Level,
+    /// How many seeds the crawl's start gave, the first pages: what a
+    /// crawl discarded at `off` starts again with.
+    seeds: usize,
     /// The Run's memory budget (`run_state.memory.budget`).
     budget: u64,
     bound: Bound,
@@ -417,25 +493,34 @@ impl Model {
         None
     }
 
-    /// A write left the work items as they are now: `synced`, it is the
-    /// oldest a power cut may leave. At `full` it commits as it is
-    /// answered; at `batch` it rides the open batch, which a barrier
+    /// A write left the work items as they are now: `synced`, a write that
+    /// needs a sync, it is the oldest a power cut may leave at `full`. At
+    /// `full`, `fast` and `periodic` it commits as it is answered; at
+    /// `batch` and `off` it rides the open batch, which a barrier
     /// ([`committed`](Self::committed)) commits.
     fn wrote(&mut self, synced: bool) {
-        if self.batching {
+        if self.level.batches() {
             return;
         }
-        if synced {
+        if synced && self.level.syncs() {
             self.unsynced.clear();
         }
         self.unsynced.push(self.items.clone());
         self.written.clone_from(&self.items);
     }
 
-    /// At `batch`, a barrier commits the open batch with its own write,
-    /// synced: the file holds the work items as they are now.
+    /// The process crashed: the OS wrote every commit it was given, so the
+    /// work items as they are now are the oldest a power cut may leave.
+    fn landed(&mut self) {
+        self.unsynced = vec![self.items.clone()];
+        self.written.clone_from(&self.items);
+    }
+
+    /// At `batch` and `off`, a barrier commits the open batch with its own
+    /// write, synced at `batch`: the file holds the work items as they are
+    /// now.
     fn committed(&mut self) {
-        if self.batching {
+        if self.level.batches() {
             self.unsynced = vec![self.items.clone()];
             self.written.clone_from(&self.items);
         }
@@ -624,10 +709,10 @@ impl Model {
     /// every commit, and at `batch` the open batch is lost. The resumed
     /// crawl recovers its leases in a write of its own.
     fn crash(&mut self) {
-        if self.batching {
+        if self.level.batches() {
             self.items.clone_from(&self.written);
         } else {
-            self.wrote(true);
+            self.landed();
         }
         self.items = recovered(std::mem::take(&mut self.items));
         self.wrote(false);
@@ -635,10 +720,15 @@ impl Model {
         self.resume();
     }
 
-    /// The crawl crashes as `kind` says: a process crash resumes it, and a
-    /// power cut ends the case.
+    /// The crawl crashes as `kind` says: at `off` its run file is
+    /// discarded and it starts again from its start's seeds, counting no
+    /// attempt; below it a process crash resumes it, and a power cut ends
+    /// the case.
     fn crashes(&mut self, kind: CrashKind) {
         match kind {
+            _ if self.level.discards() => {
+                *self = Self::started(self.seeds, (self.level, self.budget), self.bound);
+            }
             CrashKind::Process => self.crash(),
             CrashKind::PowerCut => self.crashed = true,
         }
@@ -654,10 +744,9 @@ impl Model {
 }
 
 impl Model {
-    /// A crawl started with the seeds of the first `count` pages, which
-    /// batches attempts or not, within `budget` bytes of memory, under
-    /// `bound`.
-    fn started(count: usize, (batching, budget): (bool, u64), bound: Bound) -> Self {
+    /// A crawl started with the seeds of the first `count` pages, at
+    /// `level`, within `budget` bytes of memory, under `bound`.
+    fn started(count: usize, (level, budget): (Level, u64), bound: Bound) -> Self {
         // The seeds the start wrote, which no gate had keyed.
         let items: Vec<Item> = (0..count)
             .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
@@ -671,7 +760,8 @@ impl Model {
             closed: false,
             answered: Answer::Nothing,
             crashed: false,
-            batching,
+            level,
+            seeds: count,
             budget,
             bound,
         }
@@ -688,8 +778,12 @@ impl ReferenceStateMachine for Model {
             Just(SMALL_BUDGET),
             Just(RunStateOptions::default().memory_budget),
         ];
-        (1_usize..4, any::<bool>(), budget)
-            .prop_flat_map(|(count, batching, budget)| {
+        (
+            1_usize..4,
+            proptest::sample::select(Level::ALL.as_slice()),
+            budget,
+        )
+            .prop_flat_map(|(count, level, budget)| {
                 // Loose, or one bound at fewer pages, down to the seeds.
                 let bound = prop_oneof![
                     Just(Bound::LOOSE),
@@ -702,16 +796,20 @@ impl ReferenceStateMachine for Model {
                         path_budget,
                     }),
                 ];
-                (Just((count, batching, budget)), bound)
+                (Just((count, level, budget)), bound)
             })
-            .prop_map(|((count, batching, budget), bound)| {
-                Self::started(count, (batching, budget), bound)
+            .prop_map(|((count, level, budget), bound)| {
+                Self::started(count, (level, budget), bound)
             })
             .boxed()
     }
 
-    fn transitions(_: &Self) -> BoxedStrategy<Transition> {
-        let crash = prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)];
+    fn transitions(state: &Self) -> BoxedStrategy<Transition> {
+        let crash = if state.level.may_lose_its_start() {
+            Just(CrashKind::Process).boxed()
+        } else {
+            prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].boxed()
+        };
         let how = prop_oneof![
             3 => Just(How::Commit),
             1 => Just(How::Fail),
@@ -827,13 +925,15 @@ struct Subject {
     env: TestEnv,
     vfs: CrashVfs,
     path: PathBuf,
-    /// The Run state's level: `full`, or `batch` with no threshold, so
-    /// only a barrier, a seal or the writer's end writes the open batch.
-    durability: Durability,
+    level: Level,
     /// The Run's memory budget.
     budget: u64,
     /// The bound its start records.
     bound: Bound,
+    /// The pages its start gave as seeds.
+    seeds: Vec<usize>,
+    /// How many run files a crash at `off` discarded.
+    discarded: usize,
     crawl: Option<Crawl>,
     finished: bool,
 }
@@ -841,20 +941,6 @@ struct Subject {
 /// A memory budget that holds a few pending work items, which a case's
 /// crawl outgrows as its pages add more: they spill from memory.
 const SMALL_BUDGET: u64 = 2 << 10;
-
-/// The level of a model that batches attempts or not.
-fn durability(batching: bool) -> Durability {
-    if batching {
-        Durability {
-            pages: BatchThreshold::Never,
-            interval: BatchThreshold::Never,
-            bytes: BatchThreshold::Never,
-            ..Durability::BATCH
-        }
-    } else {
-        Durability::FULL
-    }
-}
 
 /// Bounds the crawl in the run file `connection` holds at as many
 /// requests as `bound` says, its whole and under `/p/*` (#2169).
@@ -990,9 +1076,8 @@ fn counts(tally: &Tally) -> Counts {
 
 impl Subject {
     /// A crawl started with the seeds of `pages` on a run file of its
-    /// own, at the level of a model that batches attempts or not, within
-    /// `budget` bytes of memory, under `bound`.
-    fn new((batching, budget): (bool, u64), bound: Bound, pages: &[usize]) -> Self {
+    /// own, at `level`, within `budget` bytes of memory, under `bound`.
+    fn new((level, budget): (Level, u64), bound: Bound, pages: &[usize]) -> Self {
         let env = TestEnv::new();
         let folder = env
             .folder()
@@ -1007,9 +1092,11 @@ impl Subject {
             env,
             vfs,
             path,
-            durability: durability(batching),
+            level,
             budget,
             bound,
+            seeds: pages.to_vec(),
+            discarded: 0,
             crawl: None,
             finished: false,
         };
@@ -1058,7 +1145,7 @@ impl Subject {
         let (path, seed) = (self.path.clone(), self.env.seed());
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
-            durability: self.durability,
+            durability: self.level.durability(),
             memory_budget: self.budget,
             ..RunStateOptions::default()
         };
@@ -1546,13 +1633,15 @@ impl Subject {
 
     /// The crawl's process ends as `crash` says, cleanly with none, and
     /// the next process resumes it; a power cut ends the case with what
-    /// the resumed crawl holds.
+    /// the resumed crawl holds. At `off`, any crash discards the run file,
+    /// and the crawl starts again.
     fn ends(&mut self, crash: Option<CrashKind>, unsynced: &[Vec<Item>]) {
         match crash {
             None => {
                 self.close();
                 self.open(None);
             }
+            Some(kind) if self.level.discards() => self.discard(kind),
             Some(CrashKind::Process) => {
                 self.crash(CrashKind::Process);
                 self.open(None);
@@ -1573,6 +1662,45 @@ impl Subject {
         self.close();
         let connection = after_crash(&self.vfs, &self.path.to_string_lossy()).unwrap();
         view(&connection)
+    }
+
+    /// The crawl's process crashes as `kind` says at `off`: the file it
+    /// leaves holds the "unclean" mark, or a power cut damaged it, so the
+    /// engine discards it, as its next start does (ADR 0138); the crawl
+    /// starts again from its start's seeds, in a new run file.
+    fn discard(&mut self, kind: CrashKind) {
+        self.vfs.crash(kind);
+        self.close();
+        let marks = Connection::open_with_flags_and_vfs(
+            &self.path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            self.vfs.name(),
+        )
+        .and_then(|connection| {
+            connection.query_row("SELECT count(*) FROM unclean", [], |row| {
+                row.get::<_, i64>(0)
+            })
+        });
+        let damaged = |error: &rusqlite::Error| {
+            matches!(
+                error.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)
+            )
+        };
+        assert!(
+            match &marks {
+                Ok(marks) => *marks > 0,
+                Err(error) => kind == CrashKind::PowerCut && damaged(error),
+            },
+            "the run file a {kind:?} at `off` left: {marks:?}"
+        );
+        self.discarded += 1;
+        self.path = self
+            .env
+            .folder()
+            .join(format!("run-{}.sqlite", self.discarded));
+        let seeds = self.seeds.iter().copied().map(seed).collect();
+        self.open(Some(seeds));
     }
 
     /// The power goes, and the crawl resumes: the file holds the work
@@ -1658,7 +1786,7 @@ impl StateMachineTest for Subject {
 
     fn init_test(model: &Model) -> Self {
         let pages: Vec<usize> = model.items.iter().map(|item| item.page).collect();
-        Self::new((model.batching, model.budget), model.bound, &pages)
+        Self::new((model.level, model.budget), model.bound, &pages)
     }
 
     fn apply(mut subject: Self, model: &Model, transition: Transition) -> Self {
@@ -1711,6 +1839,7 @@ impl StateMachineTest for Subject {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
+    /// Covers: story:3-176
     #[test]
     fn the_run_state_holds_its_models_work_items_and_counts_through_admissions_endings_panics_and_crashes(
         sequential 1..40 => Subject
@@ -1724,7 +1853,7 @@ prop_state_machine! {
 #[test]
 fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
     let mut subject = Subject::new(
-        (true, RunStateOptions::default().memory_budget),
+        (Level::Batch, RunStateOptions::default().memory_budget),
         Bound::LOOSE,
         &[0],
     );
@@ -1798,7 +1927,7 @@ impl Lockstep {
     /// A crawl started with the seeds of the first `count` pages under
     /// `bound`, at `level`, keyed and its work items all leased, an
     /// attempt each, in the order of their pages.
-    fn leased(count: usize, level: (bool, u64), bound: Bound) -> Self {
+    fn leased(count: usize, level: (Level, u64), bound: Bound) -> Self {
         let mut model = Model::started(count, level, bound);
         let pages: Vec<usize> = (0..count).collect();
         let mut subject = Subject::new(level, bound, &pages);
@@ -1856,7 +1985,7 @@ impl Lockstep {
 /// that read returns.
 #[test]
 fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pending() {
-    let mut both = Lockstep::leased(4, (true, 0), Bound::LOOSE);
+    let mut both = Lockstep::leased(4, (Level::Batch, 0), Bound::LOOSE);
     // Page 5, which the open batch holds, is in memory at a budget of 0.
     both.enqueue(3, 5, None);
     both.commits(3, &[5]);
@@ -1904,13 +2033,13 @@ fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pe
 /// work items, less those another commit added since, which count once,
 /// and another attempt's staged pages do not count (#2169).
 #[rstest]
-#[case::writing_each_attempt_with_no_memory((false, 0))]
-#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
-#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
-#[case::batching_with_no_memory((true, 0))]
-#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
-#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
-fn an_attempts_staged_pages_count_against_the_bound_once(#[case] level: (bool, u64)) {
+#[case::writing_each_attempt_with_no_memory((Level::Full, 0))]
+#[case::writing_each_attempt_with_a_small_memory((Level::Full, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((Level::Full, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((Level::Batch, 0))]
+#[case::batching_with_a_small_memory((Level::Batch, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((Level::Batch, RunStateOptions::default().memory_budget))]
+fn an_attempts_staged_pages_count_against_the_bound_once(#[case] level: (Level, u64)) {
     let bound = Bound {
         max_requests: 5,
         path_budget: PAGES,
@@ -1931,13 +2060,13 @@ fn an_attempts_staged_pages_count_against_the_bound_once(#[case] level: (bool, u
 /// path budget the other commits brought nearer, and adds none past it
 /// (#2169).
 #[rstest]
-#[case::writing_each_attempt_with_no_memory((false, 0))]
-#[case::writing_each_attempt_with_a_small_memory((false, SMALL_BUDGET))]
-#[case::writing_each_attempt_with_the_default_memory((false, RunStateOptions::default().memory_budget))]
-#[case::batching_with_no_memory((true, 0))]
-#[case::batching_with_a_small_memory((true, SMALL_BUDGET))]
-#[case::batching_with_the_default_memory((true, RunStateOptions::default().memory_budget))]
-fn a_commit_adds_no_staged_page_past_the_bound(#[case] level: (bool, u64)) {
+#[case::writing_each_attempt_with_no_memory((Level::Full, 0))]
+#[case::writing_each_attempt_with_a_small_memory((Level::Full, SMALL_BUDGET))]
+#[case::writing_each_attempt_with_the_default_memory((Level::Full, RunStateOptions::default().memory_budget))]
+#[case::batching_with_no_memory((Level::Batch, 0))]
+#[case::batching_with_a_small_memory((Level::Batch, SMALL_BUDGET))]
+#[case::batching_with_the_default_memory((Level::Batch, RunStateOptions::default().memory_budget))]
+fn a_commit_adds_no_staged_page_past_the_bound(#[case] level: (Level, u64)) {
     let bound = Bound {
         max_requests: PAGES,
         path_budget: 4,

@@ -1375,3 +1375,11 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 176
+title = "As a developer, I want a resume to count each attempt its committed state shows in flight as `handler_lost` against `crawl.retry.max`, and none that my program's own stop returned to pending, at whichever Durability level the Run uses: every attempt in flight at `full`, `fast` and `periodic`, only those a written batch holds at `batch`, and none at `off`, where a crash discards the run file and the Run starts again, so that a crash costs a request a retry only for an attempt it lost (ADRs 0093, 0102 and 0142)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

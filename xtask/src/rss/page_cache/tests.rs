@@ -57,7 +57,7 @@ fn each_mode_leaves_the_executable_s_pages_where_it_says() {
     );
 
     let written = home.path().join("written");
-    let isolated = isolated_folios();
+    let taken = pages_reclaim_or_compaction_took();
     std::fs::write(&written, vec![0x5a; 256 * 1024]).expect("writing the file");
     PageCache::Dropped
         .prepare(&written)
@@ -71,8 +71,9 @@ fn each_mode_leaves_the_executable_s_pages_where_it_says() {
     // The advice frees every clean page no other task holds. Reclaim may
     // hold one at that moment and evict it just after, or compaction move
     // it (issue 3301: all 64 pages, one folio, cached or evicted right after
-    // the drop), and each takes a page off its list only by counting it.
-    if isolated_folios() == isolated {
+    // the drop). Each counts the pages it takes as it takes them, so while
+    // the count stays the same, neither took one.
+    if pages_reclaim_or_compaction_took() == taken {
         assert_eq!(
             (dropped.cache, dropped.evicted),
             (0, 0),
@@ -82,12 +83,16 @@ fn each_mode_leaves_the_executable_s_pages_where_it_says() {
 }
 
 /// The pages reclaim and compaction have taken off the kernel's page lists
-/// since boot, as `/proc/vmstat` counts them: reclaim counts each in the same
-/// locked section that takes it (`pgscan_*`), compaction once its scan of a
-/// block ends (`compact_isolated`). While the sum stays the same, no task held
-/// a page of the file, so the advice freed every clean one.
+/// since boot, as `/proc/vmstat` counts them. Reclaim counts them in the same
+/// locked section that takes them (`pgscan_*`). Compaction counts them when
+/// its scan of a block stops (`compact_isolated`), which it does as soon as it
+/// holds 32 pages: for the file's one 64-page folio, a few instructions after
+/// taking it, and only a preemption in between could delay the count past the
+/// test's reading. Compaction also holds a page for an instant without taking
+/// it, which the advice outlasts: it tries such a page again after draining
+/// every CPU's batches of pages.
 #[cfg(target_os = "linux")]
-fn isolated_folios() -> u64 {
+fn pages_reclaim_or_compaction_took() -> u64 {
     std::fs::read_to_string("/proc/vmstat")
         .expect("reading the kernel's memory counts")
         .lines()

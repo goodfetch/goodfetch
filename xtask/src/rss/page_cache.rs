@@ -24,7 +24,8 @@ use anyhow::{Context as _, Result};
 pub(crate) enum PageCache {
     /// Dropped from the page cache, so the run pages its executable in by
     /// its own faults, as a first start does; the kernel's advice skips a
-    /// page that reclaim or compaction holds at that moment.
+    /// page that reclaim or compaction holds at that moment, which reclaim
+    /// then evicts and compaction leaves cached.
     #[default]
     Dropped,
     /// Read through once, so the run finds the executable's pages in the page

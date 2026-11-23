@@ -45,6 +45,7 @@ from goodfetch_collie_client.product_connection import (
 )
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import RunView
 
 from goodfetch_foxhound.generated.connection import (
     FOXHOUND_ENGINE_PATH_VARIABLE,
@@ -65,9 +66,14 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.engine_choice import EngineChoice
-    from goodfetch_collie_client.generated.models import SettingsExplanation
+    from goodfetch_collie_client.generated.models import (
+        Recording,
+        SettingsExplanation,
+    )
     from goodfetch_collie_client.generated.settings import RunSettings
+    from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
+    from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
     from goodfetch_foxhound.generated.settings import FoxhoundSettings
@@ -187,6 +193,81 @@ class AsyncFoxhound(AsyncConnection):
         return await self._connection.start(
             run_id=run_id, tags=tags, limits=limits, settings=settings
         )
+
+    async def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a Recipe's run, as `AsyncCollie.start_recipe`.
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        return await self._connection.start_recipe(
+            recipe,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+
+    async def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a code-free catalog run, as `AsyncCollie.start_catalog_run`.
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        return await self._connection.start_catalog_run(
+            target,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of a Run by its ID, as `AsyncCollie.open_run`."""
+        return await self._connection.open_run(run_id)
 
     async def call(
         self,
@@ -343,6 +424,98 @@ class Foxhound(Connection):
         except LoopStopped:
             raise closed_error("run.start") from None
         return Run(self._loop, run)
+
+    def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a Recipe's run, as `Collie.start_recipe`.
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._connection.start_recipe,
+            recipe,
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+        try:
+            run = self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("recipe.start") from None
+        return Run(self._loop, run)
+
+    def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a code-free catalog run, as `Collie.start_catalog_run`.
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._connection.start_catalog_run,
+            target,
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+        try:
+            run = self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("catalog_run.start") from None
+        return Run(self._loop, run)
+
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `Collie.open_run`."""
+        opening = functools.partial(self._connection.open_run, run_id)
+        try:
+            view = self._loop.call(opening)
+        except LoopStopped:
+            raise closed_error("open_run") from None
+        return RunView(view)
 
     def call(
         self,

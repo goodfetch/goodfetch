@@ -8,7 +8,7 @@
 
 use std::future::Future;
 
-use goodfetch_protocol::run::CatalogTarget;
+use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 use crate::call::Query;
@@ -16,6 +16,7 @@ use crate::error::Error;
 use crate::handlerless::HandlerlessStart;
 use crate::raw_call::RawCall;
 use crate::run::Start;
+use crate::run_view::RunView;
 
 /// A Client's open link to one engine, through which a program reaches its
 /// Runs: the members both Products' connections share.
@@ -75,6 +76,15 @@ pub trait Connection {
     /// The start of a code-free catalog run (`catalog_run.start`), which
     /// awaiting sends.
     fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart;
+
+    /// Opens a view of the Run `run_id` names, one another program started
+    /// such as a detached Run, with no round trip (ADR 0102). The view takes
+    /// no writer role, and closing it frees only the view.
+    ///
+    /// # Errors
+    ///
+    /// `closed` once the connection is closed.
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
 
     /// The raw call of `operation` (ADR 0099, G8), the way down to an
     /// operation the SDK does not generate: its params and its result are

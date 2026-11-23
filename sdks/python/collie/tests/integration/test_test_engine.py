@@ -12,17 +12,34 @@ reads and never writes. Rust's `tests/it/sdk/test_engine.rs` is its twin.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio.to_thread
-from goodfetch_collie import AsyncCollie, Settings, testing
-from goodfetch_test_support import Way, three_ways
+import pytest
+from collie_calls import failure, response_on
+from goodfetch_collie import (
+    AsyncCollie,
+    EgressRefusedError,
+    Settings,
+    testing,
+)
+from goodfetch_test_support import ProvingGround, Way, three_ways
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from goodfetch_collie_client import testing as client_testing
+
+PUBLIC_HOST = "public.test"
+"""A host the test's `network.resolve` maps to an address that is not loopback.
+
+TEST-NET-1's, which no Run reaches.
+"""
+
+Entry = tuple[bool, int, int]
+"""An entry of a Browser cache: whether it is a folder, its length and mtime."""
 
 
 async def start(
@@ -50,6 +67,32 @@ def connection_of(
     return way.api(connection, connection)
 
 
+def tree(cache: Path) -> dict[str, Entry]:
+    """Every entry of the Browser cache at `cache`, by its path under `cache`.
+
+    Its kind, length and modification time, symbolic links unfollowed: the
+    cache's own records, and not a build's `files` folder, where no engine
+    writes and the browser it launches keeps its own folders.
+    """
+    entries: dict[str, Entry] = {}
+    for folder, folders, files in os.walk(cache):
+        here = Path(folder)
+        folders[:] = [
+            name
+            for name in folders
+            if not (name == "files" and len(here.relative_to(cache).parts) == 3)
+        ]
+        for name in [*folders, *files]:
+            path = here / name
+            status = path.lstat()
+            entries[path.relative_to(cache).as_posix()] = (
+                path.is_dir() and not path.is_symlink(),
+                status.st_size,
+                status.st_mtime_ns,
+            )
+    return entries
+
+
 @three_ways
 async def test_a_test_runs_its_code_on_the_connection_and_close_removes_its_home(
     way: Way, env: Mapping[str, str]
@@ -71,3 +114,46 @@ async def test_a_test_runs_its_code_on_the_connection_and_close_removes_its_home
         True,
         False,
     ), home
+
+
+@pytest.fixture
+def proving_ground_seed() -> int:
+    """The Proving ground's own seed for these tests."""
+    return 3398
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="the cache is made read-only by its folder's mode"
+)
+@pytest.mark.parametrize("with_browser", [True])
+@three_ways
+async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
+    way: Way, env: Mapping[str, str], proving_ground: ProvingGround
+) -> None:
+    """Live through a loopback `resolve` entry; refused elsewhere; the cache unchanged.
+
+    The caller's Browser cache is read-only here, as a prepared image's is:
+    an engine records a build's use in a cache it can write (ADR 0098).
+    """
+    cache = Path(env["GOODFETCH_HOME"]) / "browsers"
+    resolve = {host: [address] for host, address in proving_ground.resolve.items()}
+    resolve[PUBLIC_HOST] = ["192.0.2.7"]
+    reached = await anyio.to_thread.run_sync(proving_ground.start_url, "statuses/1")
+    before = tree(cache)
+    cache.chmod(0o555)
+    try:
+        engine = await start(way, env, resolve)
+        run = await connection_of(way, engine).start()
+        page = await run.new_page()
+
+        navigated = await page.goto(reached)
+        assert navigated is not None, "a document has a response"
+        status = response_on(way, navigated).status
+        refused = await failure(page.goto(proving_ground.url(PUBLIC_HOST, "/")))
+        await run.finish()
+        await engine.close()
+    finally:
+        cache.chmod(0o755)
+
+    assert (status, type(refused)) == (200, EgressRefusedError)
+    assert tree(cache) == before

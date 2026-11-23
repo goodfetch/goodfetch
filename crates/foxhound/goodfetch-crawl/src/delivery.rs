@@ -1937,6 +1937,7 @@ fn drawing<'a>(run: &'a Run, pooled: &Pooled<'a>) -> Drawing<'a> {
         run_tier: fetching.run_tier,
         http_from: fetching.http_from,
         races: fetching.races,
+        hooks: &fetching.hooks,
         reads_site_files: fetching.http.is_some()
             && pooled
                 .handing

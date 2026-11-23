@@ -40,10 +40,12 @@ use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 use crate::transport::{self, Network};
 
+mod behind;
+
 /// Starts a Collie Run its program drives: `run_id`, bound to this
 /// engine's machine when `machine` is true or to the Browser host
-/// `browser_host`, and recording the Clean-up rules digest
-/// `clean_up_digest`.
+/// `browser_host`, recording the Clean-up rules digest `clean_up_digest`,
+/// and checkpointing every `checkpoint_interval` milliseconds if given.
 const KEEP: Operation = Operation {
     name: "test.keep",
     description: "Starts a Run the tests write notes into.",
@@ -62,7 +64,8 @@ const KEEP: Operation = Operation {
 };
 
 /// Commits the note `value` into the run file of the Run `run_id` that
-/// `test.keep` started on this engine.
+/// `test.keep` started on this engine, or, with `rides`, writes it into
+/// the writer's open Run-state batch, answered before that batch commits.
 const NOTE: Operation = Operation {
     name: "test.note",
     description: "Commits a note into a Run's run file.",
@@ -114,7 +117,9 @@ fn keeping() -> Contribution {
                             weakened: Vec::new(),
                             binding,
                             clean_up_digest: params["clean_up_digest"].as_str().map(str::to_owned),
-                            checkpoint_interval: None,
+                            checkpoint_interval: params["checkpoint_interval"]
+                                .as_u64()
+                                .map(Duration::from_millis),
                             timeout: None,
                             settings: None,
                             detached: false,
@@ -143,14 +148,16 @@ fn keeping() -> Contribution {
                     .upgrade()
                     .expect("the Run is live");
                 let value = params["value"].as_i64().unwrap();
-                run.state()
-                    .write(move |connection| {
-                        connection
-                            .execute("INSERT INTO notes (value) VALUES (?1)", [value])
-                            .map(drop)
-                    })
-                    .await
-                    .unwrap();
+                let note = move |connection: &rusqlite::Connection| {
+                    connection
+                        .execute("INSERT INTO notes (value) VALUES (?1)", [value])
+                        .map(drop)
+                };
+                if params["rides"] == json!(true) {
+                    run.state().write_deferred(note).await.unwrap();
+                } else {
+                    run.state().write(note).await.unwrap();
+                }
                 Ok::<Value, CallError>(json!({ "noted": value }))
             }
         }))
@@ -257,7 +264,7 @@ fn sha256(path: &Path) -> String {
 }
 
 /// The notes of the run file or Checkpoint at `path`.
-fn notes(path: &Path) -> Vec<i64> {
+pub(super) fn notes(path: &Path) -> Vec<i64> {
     let file = Connection::open(path).unwrap();
     let mut statement = file
         .prepare("SELECT value FROM notes ORDER BY rowid")
@@ -452,53 +459,27 @@ fn a_paused_run_survives_a_restart_and_resumes_at_the_next_run_epoch() {
     );
 }
 
-/// A destination that keeps one Checkpoint per Run and compares and sets
-/// its run epoch: one older than the one it holds is refused (ADR 0003).
-#[derive(Default)]
-struct CompareAndSetStore {
-    held: BTreeMap<String, u64>,
-    landed: Vec<(String, u64)>,
-    refused: Vec<(String, u64)>,
-}
-
-impl CompareAndSetStore {
-    fn offer(&mut self, checkpoint: &Value) {
-        let run_id = checkpoint["run_id"].as_str().unwrap().to_owned();
-        let epoch = checkpoint["run_epoch"].as_u64().unwrap();
-        let held = self.held.get(&run_id).copied().unwrap_or_default();
-        if epoch >= held {
-            self.held.insert(run_id.clone(), epoch);
-            self.landed.push((run_id, epoch));
-        } else {
-            self.refused.push((run_id, epoch));
-        }
-    }
-}
-
 /// Two copies of one Run: the first checkpoints, the second resumes from
-/// that Checkpoint in another home and redoes what the first committed
-/// after it, then both write Checkpoints to a compare-and-set store, where
-/// only the current run epoch's land.
-/// Covers: story:3-34, story:3-43, operation:run.resume
+/// that Checkpoint in another home at the next run epoch and redoes what
+/// the first committed after it. The fencing of the first copy's writes
+/// is conformance's two-copies case (`conformance/two-copies/cases.toml`).
+/// Covers: story:3-34, operation:run.resume
 #[test]
-fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fences_the_old_copy() {
+fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint() {
     let (first, second) = (TestEnv::new(), TestEnv::new());
     let moved = first.folder().join("moved.sqlite");
     let location = moved.display().to_string();
 
-    let (store, resumed) = two_machines(&first, &second, |mut old, mut new| async move {
-        let mut store = CompareAndSetStore::default();
+    let resumed = two_machines(&first, &second, |mut old, mut new| async move {
         old.ok(2, "test.keep", json!({ "run_id": "moved" })).await;
         old.ok(3, "test.note", json!({ "run_id": "moved", "value": 1 }))
             .await;
-        let taken = old
-            .ok(
-                4,
-                "run.checkpoint",
-                json!({ "run_id": "moved", "location": location }),
-            )
-            .await;
-        store.offer(&taken);
+        old.ok(
+            4,
+            "run.checkpoint",
+            json!({ "run_id": "moved", "location": location }),
+        )
+        .await;
         old.ok(5, "test.note", json!({ "run_id": "moved", "value": 2 }))
             .await;
         let resumed = new
@@ -508,17 +489,9 @@ fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fen
                 json!({ "run_id": "moved", "checkpoint": location }),
             )
             .await;
-        store.offer(
-            &new.ok(3, "run.checkpoint", json!({ "run_id": "moved" }))
-                .await,
-        );
-        store.offer(
-            &old.ok(6, "run.checkpoint", json!({ "run_id": "moved" }))
-                .await,
-        );
-        new.ok(4, "run.finish", json!({ "run_id": "moved" })).await;
-        old.ok(7, "run.finish", json!({ "run_id": "moved" })).await;
-        (store, resumed)
+        new.ok(3, "run.finish", json!({ "run_id": "moved" })).await;
+        old.ok(6, "run.finish", json!({ "run_id": "moved" })).await;
+        resumed
     });
 
     let resumed_file = run_folder(&second, "moved").join("run.sqlite");
@@ -527,16 +500,8 @@ fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fen
             resumed["started_as"].clone(),
             notes(&resumed_file),
             run_row(&resumed_file)["epoch"].clone(),
-            store.landed,
-            store.refused,
         ),
-        (
-            json!("resumed"),
-            vec![1],
-            json!(2),
-            vec![("moved".to_owned(), 1), ("moved".to_owned(), 2)],
-            vec![("moved".to_owned(), 1)],
-        )
+        (json!("resumed"), vec![1], json!(2))
     );
 }
 
@@ -704,6 +669,108 @@ fn a_run_checkpoints_every_interval_of_the_engines_clock() {
             ],
             true
         )
+    );
+}
+
+/// How a test takes a Run's Checkpoint.
+#[derive(Clone, Copy, Debug)]
+enum Taken {
+    Asked,
+    Migrated,
+    Paused,
+    Periodic,
+}
+
+/// Every Checkpoint first seals and writes the Run-state batch open when
+/// it is asked (ADR 0142): a note that rode the open batch, in no commit
+/// yet, is in the copy, whether `run.checkpoint`, `run.migrate`, a clean
+/// stop or `checkpoint.interval` took it.
+/// Covers: story:3-30, setting:run_state.batch.interval, setting:checkpoint.interval, operation:run.checkpoint, operation:run.migrate, operation:run.pause
+#[rstest::rstest]
+#[case::asked(Taken::Asked)]
+#[case::migrated(Taken::Migrated)]
+#[case::paused(Taken::Paused)]
+#[case::periodic(Taken::Periodic)]
+fn every_checkpoint_first_writes_the_open_run_state_batch(#[case] taken: Taken) {
+    let env = TestEnv::new();
+    super::storage::configure(
+        &env,
+        "run_state.durability = \"batch\"\nrun_state.batch.interval = \"none\"\n",
+    );
+    let file = run_folder(&env, "sealed").join("run.sqlite");
+    let read = file.clone();
+    let location = match taken {
+        Taken::Migrated => env.folder().join("moved.sqlite"),
+        Taken::Asked | Taken::Paused | Taken::Periodic => {
+            run_folder(&env, "sealed").join("checkpoint.sqlite")
+        }
+    };
+    let asked = location.display().to_string();
+    let copy = location.clone();
+
+    let (before, taken_at, copied) = attached_on(&engine(), &env, |client| async move {
+        let mut talk = Talk::open(client).await;
+        let interval = matches!(taken, Taken::Periodic).then_some(60_000);
+        talk.ok(
+            2,
+            "test.keep",
+            json!({ "run_id": "sealed", "checkpoint_interval": interval }),
+        )
+        .await;
+        talk.ok(
+            3,
+            "test.note",
+            json!({ "run_id": "sealed", "value": 1, "rides": true }),
+        )
+        .await;
+        let before = notes(&read);
+        let taken_at = match taken {
+            Taken::Asked => {
+                talk.ok(4, "run.checkpoint", json!({ "run_id": "sealed" }))
+                    .await["run_epoch"]
+                    .clone()
+            }
+            Taken::Migrated => {
+                talk.ok(
+                    4,
+                    "run.migrate",
+                    json!({ "run_id": "sealed", "location": asked }),
+                )
+                .await["checkpoint"]["run_epoch"]
+                    .clone()
+            }
+            Taken::Paused => {
+                talk.ok(4, "run.pause", json!({ "run_id": "sealed" }))
+                    .await["checkpoint"]["run_epoch"]
+                    .clone()
+            }
+            Taken::Periodic => {
+                talk.events_until("run.checkpointing", 1).await;
+                // The event comes first; the copy is whole once renamed
+                // into place, and is read before `run.finish` writes the
+                // batch itself.
+                while !copy.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                talk.events
+                    .iter()
+                    .find(|event| event["event"] == "run.checkpointing")
+                    .map(|event| event["data"]["run_epoch"].clone())
+                    .unwrap()
+            }
+        };
+        let copied = notes(&copy);
+        if matches!(taken, Taken::Asked | Taken::Periodic) {
+            talk.ok(5, "run.finish", json!({ "run_id": "sealed" }))
+                .await;
+        }
+        (before, taken_at, copied)
+    });
+
+    assert_eq!(
+        (before, taken_at, copied),
+        (Vec::<i64>::new(), json!(1), vec![1]),
+        "{taken:?}"
     );
 }
 

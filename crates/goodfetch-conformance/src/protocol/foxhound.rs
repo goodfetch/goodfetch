@@ -17,6 +17,9 @@ pub(crate) const CRAWL_REQUEST_ENQUEUE: &str = listed("crawl_request.enqueue", O
 /// `run.add_seed`.
 pub(crate) const RUN_ADD_SEED: &str = listed("run.add_seed", OPERATIONS);
 
+/// `run.export`.
+pub(crate) const RUN_EXPORT: &str = listed("run.export", OPERATIONS);
+
 /// `run.failed_requests`.
 pub(crate) const RUN_FAILED_REQUESTS: &str = listed("run.failed_requests", OPERATIONS);
 

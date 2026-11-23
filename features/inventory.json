@@ -1260,6 +1260,17 @@
       ]
     },
     {
+      "id": "error:checkpoint_behind",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:client_gone",
       "kind": "error",
       "area": 3,
@@ -1627,6 +1638,16 @@
     },
     {
       "id": "error:hook_ineffective",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:hook_undeclared",
       "kind": "error",
       "area": 7,
       "milestone": null,

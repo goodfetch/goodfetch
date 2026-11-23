@@ -1,6 +1,6 @@
 //! GitHub Actions workflow files, parsed into the parts the checks read:
 //! each workflow's triggers and top-level permissions, and each job's runner,
-//! matrix, reusable workflow and steps.
+//! condition, matrix, reusable workflow and steps.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -46,6 +46,8 @@ pub(crate) enum Permissions {
 
 pub(crate) struct Job {
     pub(crate) id: String,
+    /// The job's own `if:`, as written.
+    pub(crate) condition: Option<String>,
     /// The reusable workflow a calling job runs, such as
     /// `./.github/workflows/<file>` or `<owner>/<repo>/<path>@<ref>`.
     pub(crate) uses: Option<String>,
@@ -130,6 +132,7 @@ fn parse(file: String, document: &Value) -> Result<Workflow> {
         for (id, job) in entries {
             jobs.push(Job {
                 id: id.clone(),
+                condition: job.get("if").map(scalar).transpose()?,
                 uses: job.get("uses").map(scalar).transpose()?,
                 runner: runner(job)?,
                 images: images(job)?,

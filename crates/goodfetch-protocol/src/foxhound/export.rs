@@ -6,7 +6,10 @@
 //! leaves no unfinished file; at the `critical` storage level it fails
 //! before writing. `export.save_as` puts the file at the program's path, as
 //! `download.save_as` puts a Download's, and `export.stream` sends its
-//! bytes. Every text Export is UTF-8: JSON and JSONL carry no BOM, write
+//! bytes. Each carries the run epoch of the Run's state it was written
+//! from, in its answers, its ID and its kept file's name, so a destination
+//! that compares and sets refuses a fenced copy's Export (ADR 0003).
+//! Every text Export is UTF-8: JSON and JSONL carry no BOM, write
 //! characters as themselves and write each Record's value as it was
 //! committed. CSV, XLSX, HTML table, Markdown, Parquet, Avro and Arrow IPC
 //! carry one column per field seen in any Record, in first-seen order, so a
@@ -31,13 +34,16 @@ use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// What separates an Export's Run ID from its file's SHA-256 in its ID; a
-/// SHA-256 is hexadecimal alone, so the last one splits the ID.
+/// What separates an Export's Run ID from its run epoch and its file's
+/// SHA-256 in its ID; those two are digits and hexadecimal alone, so the
+/// last one splits the ID.
 const EXPORT_MARK: &str = ".export-";
 
 /// An Export of a Run, named by the engine when its file is whole:
-/// `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
-/// hexadecimal, so two Exports of the same bytes are one file.
+/// `<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's
+/// state it was written from (ADR 0003) and the SHA-256 of its bytes in
+/// lowercase hexadecimal, so two Exports of the same bytes under one run
+/// epoch are one file.
 #[derive(
     Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
@@ -45,24 +51,26 @@ const EXPORT_MARK: &str = ".export-";
 pub struct ExportId(pub String);
 
 impl ExportId {
-    /// The ID of the Run `run_id`'s Export whose bytes' SHA-256 is
-    /// `sha256`.
-    pub fn of(run_id: &RunId, sha256: &str) -> Self {
-        Self(format!("{run_id}{EXPORT_MARK}{sha256}"))
+    /// The ID of the Run `run_id`'s Export written under the run epoch
+    /// `run_epoch`, whose bytes' SHA-256 is `sha256`.
+    pub fn of(run_id: &RunId, run_epoch: u64, sha256: &str) -> Self {
+        Self(format!("{run_id}{EXPORT_MARK}{run_epoch}-{sha256}"))
     }
 
-    /// Its Run and its file's SHA-256, or `None` for a text no engine names
-    /// an Export with.
-    pub fn split(&self) -> Option<(RunId, &str)> {
-        let (run, sha256) = self.0.rsplit_once(EXPORT_MARK)?;
+    /// Its Run, its run epoch and its file's SHA-256, or `None` for a text
+    /// no engine names an Export with.
+    pub fn split(&self) -> Option<(RunId, u64, &str)> {
+        let (run, named) = self.0.rsplit_once(EXPORT_MARK)?;
+        let (epoch, sha256) = named.split_once('-')?;
+        let run_epoch: u64 = epoch.parse().ok()?;
         let digest = sha256.len() == 64
             && sha256
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-        if !digest {
+        if !digest || run_epoch.to_string() != epoch {
             return None;
         }
-        Some((RunId::parse(run).ok()?, sha256))
+        Some((RunId::parse(run).ok()?, run_epoch, sha256))
     }
 }
 
@@ -205,12 +213,18 @@ pub struct Export {
     /// The SHA-256 of its bytes, in lowercase hexadecimal.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sha256: String,
+    /// The run epoch of the Run's state it was written from, which its ID
+    /// and its kept file's name carry too, so a destination that compares
+    /// and sets refuses the Export of a copy an older run epoch fenced
+    /// (ADR 0003).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
 }
 
 /// `run.export`.
 pub const RUN_EXPORT: Operation = Operation {
     name: "run.export",
-    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -254,12 +268,15 @@ pub struct ExportSaved {
     /// the SDK writes the path.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub written: bool,
+    /// The run epoch the Export was written under (ADR 0003).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
 }
 
 /// `export.save_as`.
 pub const EXPORT_SAVE_AS: Operation = Operation {
     name: "export.save_as",
-    description: "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+    description: "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 and the run epoch the Export was written under. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -292,12 +309,15 @@ pub struct ExportStreamed {
     /// The SHA-256 of its bytes, in lowercase hexadecimal.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sha256: String,
+    /// The run epoch the Export was written under (ADR 0003).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
 }
 
 /// `export.stream`.
 pub const EXPORT_STREAM: Operation = Operation {
     name: "export.stream",
-    description: "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+    description: "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 and the run epoch it was written under once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
     class: OperationClass::Read,
     kind: OperationKind::Sequence,
     reach: Reach::SdkOnly,

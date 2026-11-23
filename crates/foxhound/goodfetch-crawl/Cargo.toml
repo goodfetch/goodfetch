@@ -47,6 +47,9 @@ rstest.workspace = true
 # The staging's tests read the statements an admission runs (trace_v2).
 rusqlite = { workspace = true, features = ["trace"] }
 tokio = { workspace = true, features = ["io-util"] }
+# The drain's test asks a Daemon to drain as `daemon run` does on SIGTERM
+# (src/start/tests/effect_wait.rs).
+tokio-util.workspace = true
 tracing-subscriber.workspace = true
 
 [lints]

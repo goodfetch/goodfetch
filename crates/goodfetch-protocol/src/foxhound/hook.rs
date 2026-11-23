@@ -235,6 +235,29 @@ pub struct HookUnknownDetails {
     pub closest: Option<String>,
 }
 
+/// A reopen with no start of a Run whose crawl declared Hooks in code
+/// (ADR 0104's note of #2912).
+pub const HOOK_UNDECLARED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "hook_undeclared",
+    description: "`run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `hook_undeclared` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HookUndeclaredDetails {
+    /// The Run not reopened.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Hooks in code its run file records, as its crawl declared them:
+    /// their names, stages and scopes, never their code.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hooks: Vec<CrawlHookDeclaration>,
+}
+
 /// The request that runs a crawl's Hook in code, and the Error codes of
 /// those Hooks that only a crawl raises.
 pub const ENTRIES: Entries = Entries {
@@ -242,7 +265,12 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[CRAWL_HOOK_HANDLE],
-    error_codes: &[HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNKNOWN],
+    error_codes: &[
+        HOOK_DUPLICATE,
+        HOOK_INEFFECTIVE,
+        HOOK_UNDECLARED,
+        HOOK_UNKNOWN,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

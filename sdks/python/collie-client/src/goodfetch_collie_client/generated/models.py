@@ -2385,6 +2385,22 @@ class RunLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class RunMigrateParams(BaseModel):
+    """What `run.migrate` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str | None = None
+    """
+    Where to write the Checkpoint the Run is resumed from, a path on the
+    engine's machine; by default where the engine keeps the Run's
+    Checkpoints, its own folder.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunMigrating(BaseModel):
     """What `run.migrating` carries."""
 
@@ -2485,6 +2501,14 @@ class RunResumeParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
+    rollback: bool | None = None
+    """
+    Whether a `checkpoint` behind the Run's run file on this machine, or
+    given where that file cannot be read, replaces it all the same,
+    rolling the Run back to the Checkpoint, as the Audit log records; by
+    default such a Checkpoint is refused, with `checkpoint_behind` or the
+    error the file's read gave. Without `checkpoint` it changes nothing.
+    """
     run_id: RunId
     """The Run's ID."""
     settings: dict[str, Any] | None = None
@@ -5650,6 +5674,9 @@ class RunCheckpointParams(BaseModel):
     """
     Where to write the Checkpoint, a path on the engine's machine; by
     default where the engine keeps the Run's Checkpoints, its own folder.
+    The catalog's caller alone gives it, such as Goodfetch Cloud: an
+    SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    Goodfetch Cloud (ADR 0102).
     """
     run_id: RunId
     """The Run's ID."""

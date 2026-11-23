@@ -476,8 +476,10 @@ export type EnqueuedLink =
 export type ExportCompression = "none" | "gzip" | "zstd";
 /**
  * An Export of a Run, named by the engine when its file is whole:
- * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
- * hexadecimal, so two Exports of the same bytes are one file.
+ * `<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's
+ * state it was written from (ADR 0003) and the SHA-256 of its bytes in
+ * lowercase hexadecimal, so two Exports of the same bytes under one run
+ * epoch are one file.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportId".
@@ -2486,6 +2488,13 @@ export interface Export {
    */
   records: number;
   /**
+   * The run epoch of the Run's state it was written from, which its ID
+   * and its kept file's name carry too, so a destination that compares
+   * and sets refuses the Export of a copy an older run epoch fenced
+   * (ADR 0003).
+   */
+  runEpoch: number;
+  /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */
   sha256: string;
@@ -2520,6 +2529,10 @@ export interface ExportSaveAsParams {
  */
 export interface ExportSaved {
   /**
+   * The run epoch the Export was written under (ADR 0003).
+   */
+  runEpoch: number;
+  /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */
   sha256: string;
@@ -2553,6 +2566,10 @@ export interface ExportStreamParams {
  * via the `definition` "ExportStreamed".
  */
 export interface ExportStreamed {
+  /**
+   * The run epoch the Export was written under (ADR 0003).
+   */
+  runEpoch: number;
   /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */

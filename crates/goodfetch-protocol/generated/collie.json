@@ -7099,7 +7099,8 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "catalog_only": true,
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -7528,6 +7529,33 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    },
+    "RunMigrateParams": {
+      "additionalProperties": false,
+      "description": "What `run.migrate` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
       "type": "object"
     },
     "RunMigrating": {
@@ -7988,6 +8016,11 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "rollback": {
+          "arrived_in": "0.1",
+          "description": "Whether a `checkpoint` behind the Run's run file on this machine, or\ngiven where that file cannot be read, replaces it all the same,\nrolling the Run back to the Checkpoint, as the Audit log records; by\ndefault such a Checkpoint is refused, with `checkpoint_behind` or the\nerror the file's read gave. Without `checkpoint` it changes nothing.",
+          "type": "boolean"
         },
         "run_id": {
           "$ref": "#/$defs/RunId",
@@ -10986,6 +11019,16 @@
       "group": "page",
       "json_rpc_class": -32003,
       "name": "challenge_unsolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "checkpoint_behind",
       "product": "collie",
       "retryable": false
     },
@@ -14281,7 +14324,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
       "events": [
         "run.checkpointing"
       ],
@@ -14368,7 +14411,7 @@
       "kind": "round_trip",
       "name": "run.migrate",
       "params": {
-        "$ref": "#/$defs/RunCheckpointParams"
+        "$ref": "#/$defs/RunMigrateParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -14480,7 +14523,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
       "events": [],
       "kind": "opener",
       "name": "run.resume",
@@ -19116,7 +19159,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "description": "One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.",
       "fixed_for_run": false,
       "name": "timeout.close",
       "product": "collie",
@@ -20095,6 +20138,13 @@
       "name": "run",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
+      "name": "run_rolled_back",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

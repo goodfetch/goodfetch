@@ -42,16 +42,13 @@ class AsyncRun(AsyncHandle):
             params.forwarded = forwarded
         return result_of(models.RunReport, await self._host.call("run.abort", params))
 
-    async def checkpoint(self, *, location: str | None | NotGiven = not_given) -> models.Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    async def checkpoint(self) -> models.Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        params = models.RunCheckpointParams(run_id=self._host.id)
-        if not isinstance(location, NotGiven):
-            params.location = location
-        return result_of(models.Checkpoint, await self._host.call("run.checkpoint", params))
+        return result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
 
     async def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -80,7 +77,7 @@ class AsyncRun(AsyncHandle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.migrate")
-        params = models.RunCheckpointParams(run_id=self._host.id)
+        params = models.RunMigrateParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
         return result_of(models.RunReport, await self._host.call("run.migrate", params))
@@ -625,16 +622,13 @@ class Run(Handle):
             params.forwarded = forwarded
         return result_of(models.RunReport, self._host.call("run.abort", params))
 
-    def checkpoint(self, *, location: str | None | NotGiven = not_given) -> models.Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    def checkpoint(self) -> models.Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        params = models.RunCheckpointParams(run_id=self._host.id)
-        if not isinstance(location, NotGiven):
-            params.location = location
-        return result_of(models.Checkpoint, self._host.call("run.checkpoint", params))
+        return result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
 
     def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -663,7 +657,7 @@ class Run(Handle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.migrate")
-        params = models.RunCheckpointParams(run_id=self._host.id)
+        params = models.RunMigrateParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
         return result_of(models.RunReport, self._host.call("run.migrate", params))

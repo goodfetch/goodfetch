@@ -54,13 +54,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::Instrument as _;
 
-use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
+use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED, RUN_ROLLED_BACK};
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
-    RunCheckpointing, RunMigrating, RunStopping,
+    RunCheckpointing, RunMigrating, RunStatePosition, RunStopping,
 };
-use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::connection::{ProductVersion, StoppedBy, Surface};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -90,6 +90,7 @@ use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
@@ -263,8 +264,18 @@ pub(crate) type ReadAnswer<'a> =
     Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
 
 /// ADR 0106's send window: the engine's declared Effects, which mark the
-/// bodies a Run's command counts for sent before it goes out.
+/// bodies a Run's command counts for sent before it goes out, and which a
+/// Run's safe point waits for.
 pub(crate) trait SendWindow: Send + Sync {
+    /// Waits for each body of `run` whose owner still holds to be judged,
+    /// at most `run`'s `timeout.close` and never past `by`, or until `run`
+    /// stops at once, then judges each body still running as cut short.
+    fn settle<'a>(
+        &'a self,
+        run: &'a Run,
+        by: Option<Instant>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
     /// Marks sent, synced, each body of `run` declared through the attempt
     /// `lease` names, or outside any attempt when it names none or is
     /// `None`, that nothing was sent for yet, before `command` goes out.
@@ -315,7 +326,17 @@ pub struct Driving {
     /// that admission's jobs while the Run goes: a Politeness of the Run's
     /// own is then held by its admission rather than by an actor (#2171).
     pub admits: bool,
+    /// What a reopen of its Run that no start under the Run's ID declared
+    /// again checks, `run.resume`'s or `run.retry_failed`'s, before the
+    /// Run reopens; none when such a reopen needs nothing a start declares.
+    pub reopen_check: Option<ReopenCheck>,
 }
+
+/// A kind's check of a reopen no start under the Run's ID declared again,
+/// run on the run file or Checkpoint the Run `RunId` would reopen from:
+/// the error it answers refuses the reopen, before anything is done (ADR
+/// 0104's note of #2912).
+pub type ReopenCheck = fn(&Connection, &RunId) -> rusqlite::Result<Result<(), CallError>>;
 
 impl Default for Driving {
     fn default() -> Self {
@@ -324,6 +345,7 @@ impl Default for Driving {
             defers_charges: false,
             provenance_log: None,
             admits: false,
+            reopen_check: None,
         }
     }
 }
@@ -374,7 +396,7 @@ pub struct Resume {
     /// The Run's ID.
     pub run_id: RunId,
     /// The Checkpoint it resumes from, or none for its run file.
-    pub checkpoint: Option<PathBuf>,
+    pub checkpoint: Option<FromCheckpoint>,
     /// How often it writes a Checkpoint from now on.
     pub checkpoint_interval: Option<Duration>,
     /// Its `timeout.run` from now on, none when unset, counted from the
@@ -386,6 +408,41 @@ pub struct Resume {
     /// `RetryFailed`, which also returns a `finished` Run to `running`,
     /// rather than a resume (ADR 0102).
     pub retry_failed: bool,
+    /// Whether a start under its ID declared again what its program holds,
+    /// so its kind's [`Driving::reopen_check`] is not run: a start's
+    /// resume, or `run.retry_failed` after one.
+    pub redeclared: bool,
+}
+
+/// The Checkpoint a resume makes the Run's run file here (ADR 0002).
+#[derive(Clone, Debug)]
+pub struct FromCheckpoint {
+    /// Its path on this machine.
+    pub path: PathBuf,
+    /// Who asked to roll back, as the Audit log records them, when the
+    /// Checkpoint may replace a run file here that is past it, or that this
+    /// engine cannot read; none refuses it (ADR 0002's note of #2322).
+    pub rollback: Option<RollbackBy>,
+}
+
+/// A Checkpoint a resume gave, behind the Run's run file here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Behind {
+    /// The Run ID.
+    pub run_id: RunId,
+    /// Where the Checkpoint stands.
+    pub checkpoint: RunStatePosition,
+    /// Where the run file here stands, past it.
+    pub run_file: RunStatePosition,
+}
+
+/// Who asks a resume to roll back the Run's run file here.
+#[derive(Clone, Debug)]
+pub struct RollbackBy {
+    /// The person or process asking.
+    pub actor: Actor,
+    /// The surface they ask through.
+    pub surface: Surface,
 }
 
 impl Resume {
@@ -948,6 +1005,15 @@ pub enum RunError {
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
     BoundToMachine(RunId),
+    /// The Checkpoint a resume gave stands behind the Run's run file here,
+    /// and the resume did not ask to roll back; nothing changed (ADR 0002's
+    /// note of #2322).
+    #[error("the Checkpoint of `{}` is behind its run file here", .0.run_id)]
+    Behind(Behind),
+    /// Its kind's [`Driving::reopen_check`] refused a reopen no start
+    /// under the Run's ID declared again, with the error it carries.
+    #[error("the reopen was refused: {0}")]
+    ReopenRefused(Box<CallError>),
     /// A Checkpoint could not be written (ADR 0116); no file is left.
     #[error("a Checkpoint of `{run_id}` could not be written: {message}")]
     WriteFailed {
@@ -1197,6 +1263,17 @@ enum Cause {
     Panic,
 }
 
+/// Why the engine drains.
+#[derive(Clone, Copy, Debug)]
+enum DrainCause {
+    /// A drain was asked for: each Run waits for its declared Effects'
+    /// bodies whose owners still hold, never past `effects_by`.
+    Asked { effects_by: Instant },
+    /// A part every Run shares panicked (ADR 0148): each Run stops at
+    /// once, its report carrying the warning `engine_panicked`.
+    Panic,
+}
+
 /// What the registry is asked. The channel's blocks hold 32 commands
 /// each, of the largest one's size, so the two that carry a Run's whole
 /// start or report box it: each is sent once per Run. A command that ends
@@ -1274,7 +1351,10 @@ enum Command {
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
-    Drain(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    Drain(
+        DrainCause,
+        oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
+    ),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
     LastResort(LastResort),
@@ -1565,6 +1645,16 @@ impl Run {
         match &self.shared.send_window {
             Some(window) => window.sending(self, lease, command).await,
             None => Ok(()),
+        }
+    }
+
+    /// The safe point's wait for its declared Effects (ADR 0106): waits
+    /// for each body whose owner still holds to be judged, at most its
+    /// `timeout.close` and never past `by`, then judges each body still
+    /// running as cut short.
+    async fn settle_effects(&self, by: Option<Instant>) {
+        if let Some(window) = &self.shared.send_window {
+            window.settle(self, by).await;
         }
     }
 
@@ -2310,16 +2400,23 @@ impl Run {
     }
 
     /// Ends the Run as its driver says, once: its tasks stop, and its Run
-    /// report is written and given to whoever waits for it.
+    /// report is written and given to whoever waits for it. A Run that
+    /// stopped at its safe point first waits, at most its `timeout.close`,
+    /// for each declared Effect's body whose owner still holds to be
+    /// judged (ADR 0106).
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the end was sent still ends the Run.
+    /// Dropping the future during the Effects' wait leaves the Run live;
+    /// dropping it after the end was sent still ends the Run.
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished(reasons) => End::Finished(reasons),
             Ending::Failed(error) => End::Failed(error),
-            Ending::Stopped(reason) => End::Stopped(reason),
+            Ending::Stopped(reason) => {
+                self.settle_effects(None).await;
+                End::Stopped(reason)
+            }
         };
         let _ = self
             .runs
@@ -3565,8 +3662,11 @@ impl Runs {
     /// given, `InUse` when another engine writes it, `Format` for a state
     /// of a version this engine cannot read, `BoundToMachine` for a Run
     /// bound to another machine, `NotInProduct` for a Run that needs a
-    /// Product this engine is not, `WriteFailed` when the Checkpoint cannot
-    /// be made its run file, `Unavailable` when its state cannot be read.
+    /// Product this engine is not, `Behind` for a Checkpoint behind the
+    /// Run's run file here when the resume does not roll back,
+    /// `WriteFailed` when the Checkpoint cannot be made its run file,
+    /// `Unavailable` when its state cannot be read or a roll-back cannot
+    /// be recorded in the Audit log.
     ///
     /// # Cancel safety
     ///
@@ -3653,7 +3753,7 @@ impl Runs {
         self.commands
             .send(Command::StoredKey(
                 resume.run_id.clone(),
-                resume.checkpoint.clone(),
+                resume.checkpoint.as_ref().map(|from| from.path.clone()),
                 answer,
             ))
             .await
@@ -3778,9 +3878,11 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
-    /// Keeps what `source` reads as an Export of the Run `run_id` (ADRs
-    /// 0103, 0116 and 0122): written whole into its folder's `exports/`,
-    /// named by its SHA-256, through a hidden temporary file, synced, then
+    /// Keeps what `source` reads as an Export of the Run `run_id`, written
+    /// from its state under the run epoch `run_epoch` (ADRs 0003, 0103,
+    /// 0116 and 0122): written whole into its folder's
+    /// `exports/<run_epoch>/`, named by its SHA-256, through a hidden
+    /// temporary file, synced, then
     /// renamed, so a failed write leaves no unfinished file. No run state
     /// records it, so a Run that ended keeps one too. While the Run
     /// folder's filesystem is at the `critical` storage level, as read now,
@@ -3795,7 +3897,12 @@ impl Runs {
     ///
     /// Dropping the future may leave a hidden temporary file beside the
     /// Exports, never a partial one.
-    pub async fn keep_export<R>(&self, run_id: RunId, source: R) -> Result<KeptExport, KeepError>
+    pub async fn keep_export<R>(
+        &self,
+        run_id: RunId,
+        run_epoch: u64,
+        source: R,
+    ) -> Result<KeptExport, KeepError>
     where
         R: std::io::Read + Send + 'static,
     {
@@ -3828,7 +3935,7 @@ impl Runs {
         }
         let mut source = source;
         let (sha256, size) = owner
-            .blocking(move || run_files::store_export(&folder, &mut source))
+            .blocking(move || run_files::store_export(&folder, run_epoch, &mut source))
             .await
             .map_err(|error| KeepError::io(&error, "write the Export in the Run's folder"))?;
         Ok(KeptExport { sha256, size })
@@ -4180,28 +4287,32 @@ impl Runs {
     /// or resuming, and each live Run stops at its next safe point with a
     /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
     /// engine takes no Run, with the [`Draining`] Runs, whose ends
-    /// [`Draining::ended`] waits for.
+    /// [`Draining::ended`] waits for. Each Run first waits for its declared
+    /// Effects' bodies whose owners still hold, at most its `timeout.close`
+    /// and never past `effects_by` (ADR 0106), on a task of its own, so the
+    /// registry answers meanwhile.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent still drains: the Runs stop,
     /// and only the answer is lost.
-    pub(crate) async fn drain(&self) -> Draining {
-        self.drain_for(Cause::Asked).await
+    pub(crate) async fn drain(&self, effects_by: Instant) -> Draining {
+        self.drain_for(DrainCause::Asked { effects_by }).await
     }
 
     /// Drains the engine as [`Runs::drain`] does, because a part every Run
     /// shares panicked (ADR 0148): each Run's report carries the warning
-    /// `engine_panicked`.
+    /// `engine_panicked`, and each Run stops at once, its declared
+    /// Effects' bodies still running cut short.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::drain`]'s.
     pub(crate) async fn drain_on_panic(&self) -> Draining {
-        self.drain_for(Cause::Panic).await
+        self.drain_for(DrainCause::Panic).await
     }
 
-    async fn drain_for(&self, cause: Cause) -> Draining {
+    async fn drain_for(&self, cause: DrainCause) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -5022,16 +5133,38 @@ impl Registry {
 
     /// Takes no Run from now on, stops each live Run for the drain with a
     /// Checkpoint, warned first when `cause` is a panic, and answers the
-    /// waits for their reports.
-    async fn drain(&mut self, cause: Cause) -> Vec<watch::Receiver<Option<Ended>>> {
+    /// waits for their reports. Asked to drain, each Run is first asked to
+    /// stop at its next safe point, so it admits nothing new, and waits on
+    /// a task of its own for its declared Effects' bodies whose owners
+    /// still hold, never past `effects_by`, then asks its end.
+    async fn drain(&mut self, cause: DrainCause) -> Vec<watch::Receiver<Option<Ended>>> {
         self.draining = true;
         let ids: Vec<RunId> = self.live.keys().cloned().collect();
         let mut reports = Vec::new();
         for run_id in ids {
-            if cause == Cause::Panic {
-                self.warn_engine_panicked(&run_id).await;
-            }
-            if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
+            let effects_by = match cause {
+                DrainCause::Asked { effects_by } => Some(effects_by),
+                DrainCause::Panic => {
+                    self.warn_engine_panicked(&run_id).await;
+                    None
+                }
+            };
+            let waiting = effects_by.and_then(|by| {
+                let live = self.live.get(&run_id)?;
+                Some((live.run.clone()?, live.report.subscribe(), by))
+            });
+            if let Some((run, report, by)) = waiting {
+                let registry = self.runs.clone();
+                run.stop(StopReason::Drain);
+                self.for_one_run.spawn(async move {
+                    run.settle_effects(Some(by)).await;
+                    if let Some(registry) = registry.upgrade() {
+                        let end = End::Stopped(StopReason::Drain);
+                        let _ = registry.send(Command::End(run_id, end)).await;
+                    }
+                });
+                reports.push(report);
+            } else if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
                 reports.push(report);
             }
         }
@@ -6512,10 +6645,12 @@ impl Registry {
     async fn held_with_key(
         &self,
         run_id: &RunId,
-        checkpoint: Option<&Path>,
+        checkpoint: Option<&FromCheckpoint>,
         stored: Option<StoredKey>,
     ) -> Result<checkpoint::Held, RunError> {
-        let held = self.held(run_id, checkpoint).await?;
+        let held = self
+            .held(run_id, checkpoint.map(|from| from.path.as_path()))
+            .await?;
         if held.key != stored {
             return Err(RunError::Unavailable {
                 run_id: run_id.clone(),
@@ -6561,6 +6696,7 @@ impl Registry {
             timeout,
             settings,
             retry_failed,
+            redeclared,
         } = resume;
         // Fixed keys the resume gives keep their values, in any state (ADR 0102).
         let fixed = FixedSettings::of(settings.as_ref(), &self.setup.masks);
@@ -6571,7 +6707,7 @@ impl Registry {
         // is then not found, and starts again (ADR 0138).
         self.discard_unclean(&run_id, settings.as_ref()).await?;
         let held = self
-            .held_with_key(&run_id, checkpoint.as_deref(), stored)
+            .held_with_key(&run_id, checkpoint.as_ref(), stored)
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
@@ -6581,9 +6717,8 @@ impl Registry {
             Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
-        let options = self.opened_with(settings.as_ref());
         let (lock, writer, state) = self
-            .reopen(&run_id, held.lifecycle, checkpoint, &options)
+            .reopen(&run_id, &held, checkpoint, settings.as_ref(), redeclared)
             .await?;
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.forget(&run_id);
@@ -6671,6 +6806,40 @@ impl Registry {
             .ok_or_else(|| RunError::NotFound(run_id.clone()))
     }
 
+    /// Runs the check of a reopen of `run_id`, `held` as its state says,
+    /// its kind gives, unless a start under its ID `redeclared` what the
+    /// check reads, on the Checkpoint `checkpoint`, or else its run file
+    /// here: the reopen it refuses is refused before anything is done (ADR
+    /// 0104's note of #2912).
+    async fn may_reopen(
+        &self,
+        run_id: &RunId,
+        held: &checkpoint::Held,
+        checkpoint: Option<&Path>,
+        redeclared: bool,
+    ) -> Result<(), RunError> {
+        let Some(check) = self.driving(held.kind).reopen_check.filter(|_| !redeclared) else {
+            return Ok(());
+        };
+        let folder = self.folder(run_id);
+        let (path, vfs) = match checkpoint {
+            Some(checkpoint) => (checkpoint.to_owned(), None),
+            None => (folder.join(RUN_FILE), self.setup.run_state.vfs.clone()),
+        };
+        let checked_id = run_id.clone();
+        self.owner
+            .blocking(move || {
+                let connection = run_state::open_reader(&path, vfs.as_deref())?;
+                check(&connection, &checked_id).map_err(|error| RunStateError::Sqlite {
+                    path,
+                    message: error.to_string(),
+                })
+            })
+            .await
+            .map_err(|error| RunError::of_state(run_id, &folder, error))?
+            .map_err(|refused| RunError::ReopenRefused(Box::new(refused)))
+    }
+
     /// What the Checkpoint `checkpoint`, or else the run file of `run_id`
     /// here, holds of the Run, refusing a version this engine cannot read.
     async fn held(
@@ -6714,18 +6883,23 @@ impl Registry {
         Ok(held)
     }
 
-    /// Takes the writer role of `run_id`, `held` as its state says: its
-    /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
-    /// given, then the next run epoch, under which its writer opens and
-    /// marks it running again.
+    /// Takes the writer role of `run_id`, `held` as its state, or the
+    /// Checkpoint `checkpoint` when given, says: its lock, which another
+    /// writer's holding refuses as the Run's table says (`WriterFound`),
+    /// then, once its kind's check of the reopen passed
+    /// ([`Self::may_reopen`], unless a start `redeclared` what it reads),
+    /// the Checkpoint made its run file unless the run file here is past it,
+    /// then the next run epoch, under which its writer opens, with
+    /// `settings`, and marks it running again.
     async fn reopen(
         &mut self,
         run_id: &RunId,
-        held: Lifecycle,
-        checkpoint: Option<PathBuf>,
-        options: &RunStateOptions,
+        held: &checkpoint::Held,
+        checkpoint: Option<FromCheckpoint>,
+        settings: Option<&RunSettings>,
+        redeclared: bool,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
+        let options = self.opened_with(settings);
         let folder = self.folder(run_id);
         let file = folder.join(RUN_FILE);
         let lock = self
@@ -6733,7 +6907,7 @@ impl Registry {
             .await
             .map_err(|error| match error {
                 StartError::InUse { run_id, folder } => {
-                    match lifecycle::apply(held, RunEvent::WriterFound) {
+                    match lifecycle::apply(held.lifecycle, RunEvent::WriterFound) {
                         Err(refused) => RunError::refused(&run_id, &folder, refused),
                         Ok(_) => RunError::InUse { run_id, folder },
                     }
@@ -6777,21 +6951,17 @@ impl Registry {
                 | StartError::FilesystemUnsupported(..)
                 | StartError::Stopped => RunError::Stopped,
             })?;
-        let mut after = 0;
-        if let Some(checkpoint) = checkpoint {
-            // The run epoch of a run file of this Run already here, which the
-            // Checkpoint replaces: the resume's goes past it too.
-            if let Ok(Some(_)) = self.existing(run_id).await
-                && let Ok(here) = self.held(run_id, None).await
-            {
-                after = here.run_epoch;
-            }
-            let (into, vfs) = (file.clone(), self.setup.run_state.vfs.clone());
-            self.owner
-                .blocking(move || checkpoint::install(&checkpoint, &into, vfs.as_deref()))
-                .await
-                .map_err(|error| RunError::of_write(run_id, &folder, error))?;
-        }
+        self.may_reopen(
+            run_id,
+            held,
+            checkpoint.as_ref().map(|from| from.path.as_path()),
+            redeclared,
+        )
+        .await?;
+        let after = match checkpoint {
+            Some(from) => self.install_checkpoint(run_id, held, from).await?,
+            None => 0,
+        };
         let (taking, tables, next) = (options.clone(), self.setup.tables.clone(), file.clone());
         let epoch = self
             .owner
@@ -6806,7 +6976,7 @@ impl Registry {
             "took the Run's writer role to resume it"
         );
         let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
+        let state = RunState::open(file, &options, self.setup.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         state
@@ -6822,6 +6992,91 @@ impl Registry {
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         Ok((lock, writer, state))
+    }
+
+    /// Makes the Checkpoint `from`, `held` as it says, the run file of
+    /// `run_id` here, unless that file is past it or cannot be read and the
+    /// resume did not ask to roll back: the run epoch of the file it
+    /// replaced, which the resume's goes past too, or 0 with none.
+    async fn install_checkpoint(
+        &self,
+        run_id: &RunId,
+        held: &checkpoint::Held,
+        from: FromCheckpoint,
+    ) -> Result<u64, RunError> {
+        let folder = self.folder(run_id);
+        let here = match self.existing(run_id).await {
+            Ok(None) => None,
+            Ok(Some(_)) => Some(self.held(run_id, None).await),
+            Err(error) => Some(Err(RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+                error: error.to_string(),
+            })),
+        };
+        let after = match here {
+            None => 0,
+            Some(Ok(here)) if here.position <= held.position => here.position.run_epoch,
+            Some(here) => {
+                let here = here.map(|here| here.position);
+                let after = here.as_ref().map_or(0, |here| here.run_epoch);
+                self.roll_back(run_id, &from, held.position, here).await?;
+                after
+            }
+        };
+        let FromCheckpoint { path, .. } = from;
+        let (into, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
+        self.owner
+            .blocking(move || checkpoint::install(&path, &into, vfs.as_deref()))
+            .await
+            .map_err(|error| RunError::of_write(run_id, &folder, error))?;
+        Ok(after)
+    }
+
+    /// Lets the Checkpoint `from`, at `checkpoint`, replace the run file of
+    /// `run_id` here, past it at `run_file` or unread for the error it
+    /// gives, only when the resume asked to roll back, as the Audit log
+    /// records before anything is replaced (ADR 0002's note of #2322).
+    async fn roll_back(
+        &self,
+        run_id: &RunId,
+        from: &FromCheckpoint,
+        checkpoint: RunStatePosition,
+        run_file: Result<RunStatePosition, RunError>,
+    ) -> Result<(), RunError> {
+        let Some(by) = &from.rollback else {
+            return Err(match run_file {
+                Ok(run_file) => RunError::Behind(Behind {
+                    run_id: run_id.clone(),
+                    checkpoint,
+                    run_file,
+                }),
+                Err(unread) => unread,
+            });
+        };
+        let origin = Origin {
+            actor: by.actor.clone(),
+            surface: Some(by.surface),
+            layer: None,
+            run_id: Some(run_id.clone()),
+        };
+        let run_file = run_file.ok();
+        self.setup
+            .engine
+            .audit()
+            .record(
+                &origin,
+                &RUN_ROLLED_BACK,
+                json!({ "checkpoint": checkpoint, "run_file": run_file }),
+                self.setup.engine.clock().timestamp(),
+            )
+            .await
+            .map(drop)
+            .map_err(|error| RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: format!("the Audit log cannot record its roll-back: {error}"),
+            })
     }
 
     async fn uses(&mut self, run_id: &RunId, product: Product) {
@@ -7268,7 +7523,8 @@ struct Closing {
 }
 
 impl Closing {
-    /// Stops the Run's tasks, gives back its Slices, writes its end into
+    /// Stops the Run's tasks, judges each declared Effect's body still
+    /// running as cut short, gives back its Slices, writes its end into
     /// run state with its report, assembled there (ADR 0102), as its
     /// writer's last write, a stop's Checkpoint after it, waits for its
     /// writer and frees its lock. An end whose commit meets a full disk or
@@ -7299,6 +7555,9 @@ impl Closing {
             run.stopped_at_once(reason.clone());
         }
         run.owner.stop().await;
+        // Each declared Effect's body still running is cut short now, its
+        // judgement in the report (ADR 0106).
+        run.settle_effects(Some(clock.now())).await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),
             End::Failed(error) => (None, Some(error), Vec::new()),

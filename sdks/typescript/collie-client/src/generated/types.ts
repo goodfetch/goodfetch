@@ -6040,6 +6040,9 @@ export interface RunCheckpointParams {
   /**
    * Where to write the Checkpoint, a path on the engine's machine; by
    * default where the engine keeps the Run's Checkpoints, its own folder.
+   * The catalog's caller alone gives it, such as Goodfetch Cloud: an
+   * SDK's `checkpoint()` takes no path, which would break on a Daemon or
+   * Goodfetch Cloud (ADR 0102).
    */
   location?: string | null;
   /**
@@ -6272,6 +6275,24 @@ export interface TimeRange {
    * The point it ends before, excluded.
    */
   until?: PointInTime | null;
+}
+/**
+ * What `run.migrate` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunMigrateParams".
+ */
+export interface RunMigrateParams {
+  /**
+   * Where to write the Checkpoint the Run is resumed from, a path on the
+   * engine's machine; by default where the engine keeps the Run's
+   * Checkpoints, its own folder.
+   */
+  location?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
 }
 /**
  * What `run.migrating` carries.
@@ -6637,6 +6658,14 @@ export interface RunResumeParams {
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
+  /**
+   * Whether a `checkpoint` behind the Run's run file on this machine, or
+   * given where that file cannot be read, replaces it all the same,
+   * rolling the Run back to the Checkpoint, as the Audit log records; by
+   * default such a Checkpoint is refused, with `checkpoint_behind` or the
+   * error the file's read gave. Without `checkpoint` it changes nothing.
+   */
+  rollback?: boolean;
   /**
    * The Run's ID.
    */

@@ -112,6 +112,7 @@ use goodfetch_protocol::foxhound::crawl::{
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::hook::CrawlHookStage;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::provenance::{
@@ -144,6 +145,7 @@ use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
 mod decoy;
+mod hook_call;
 mod learning;
 mod race;
 mod record_stage;
@@ -545,6 +547,17 @@ pub(super) struct Attempt {
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
 /// not be built: its `what` was not fetched, retried as a failed
 /// navigation.
+/// The Record stage runs once, on the answer that counts: a handled,
+/// unskipped one, when the Run has Record-stage Hooks.
+async fn record_stage_once(on: &On<'_>, answer: Answer) -> Answer {
+    match answer {
+        Answer::Handled(handled) if handled.skipped.is_none() && on.hooks.at_record_stage() => {
+            record_stage::passed(on, handled).await
+        }
+        answer => answer,
+    }
+}
+
 fn without_http_tier(what: &str) -> Answer {
     Answer::failed(AttemptFailure::named(
         NAVIGATION_FAILED.name,
@@ -606,6 +619,7 @@ pub(super) async fn attempt(
         lease: &lease,
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
+        hooks: &hooks,
         in_flight: &in_flight,
         lessons,
         watch: &watch,
@@ -648,16 +662,7 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            // The Record stage runs once, on the answer that counts.
-            let answer = match answer {
-                Answer::Handled(handled)
-                    if handled.skipped.is_none() && hooks.at_record_stage() =>
-                {
-                    record_stage::passed(&on, &hooks, handled).await
-                }
-                answer => answer,
-            };
-            (answer, sampled, raced)
+            (record_stage_once(&on, answer).await, sampled, raced)
         }))
         .await;
     let (answer, sampled, (raced, transport_answered), ran) = match ran {
@@ -820,6 +825,8 @@ struct On<'a> {
     /// What a code-free crawl handles its requests with, in place of the
     /// program's handler; none when the program handles them.
     code_free: Option<&'a CodeFree>,
+    /// The Run's Hooks in code, each stage's chain.
+    hooks: &'a Hooks,
     in_flight: &'a SharedInFlight,
     /// Where its page notes what it teaches the Frontier.
     lessons: &'a Lessons,
@@ -923,6 +930,34 @@ impl On<'_> {
             page_id,
             response,
         }
+    }
+
+    /// The attempt through the Hooks in code of each of `stages` in turn
+    /// ([`hook_call::ended_in_stage`]): `None` once every call returned,
+    /// else how the first that did not ended the attempt.
+    async fn ended_in(&self, stages: &[CrawlHookStage]) -> Option<Answer> {
+        for stage in stages {
+            if let Some(ended) = hook_call::ended_in_stage(self, stage).await {
+                return Some(ended);
+            }
+        }
+        None
+    }
+
+    /// The attempt's handler request `params`, once its page-ready Hooks
+    /// returned ([`handled`]); else how the first that did not ended it.
+    async fn page_ready(&self, params: &CrawlRequestHandleParams) -> Answer {
+        if let Some(ended) = self.ended_in(&[CrawlHookStage::PageReady]).await {
+            return ended;
+        }
+        handled(
+            self.run,
+            self.context,
+            self.code_free,
+            (params, self.sent_at),
+            self.lease,
+        )
+        .await
     }
 
     /// The attempt on the `http` tier: its run there ([`On::on_http`]),
@@ -1306,8 +1341,12 @@ impl On<'_> {
     /// sample's, and the handler given a page
     /// served from it, closed once it answered. A page failing its expected
     /// page under `auto` escalates at `session.page_check` without its
-    /// handler running. Answers the run or, when the attempt ended before
-    /// its handler ran, its answer.
+    /// handler running. Its Hooks in code run around it (ADR 0104): before
+    /// request, and before navigation on `light_browser`, before the fetch;
+    /// after response, and after navigation on `light_browser`, before
+    /// anything judges the page; and page ready just before the handler.
+    /// Answers the run or, when the attempt ended before its handler ran,
+    /// its answer.
     async fn on_http(
         &self,
         tiering: &Tiering,
@@ -1315,10 +1354,16 @@ impl On<'_> {
         (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
     ) -> Result<HttpRun, Answer> {
-        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let (run, leased) = (self.run, self.leased);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
         let http = &self.client(tiers, http);
+        // Lightpanda navigates to the request's URL; the other tiers fetch
+        // it (ADR 0104).
+        let navigates = choice.tier == FetchTier::LightBrowser;
+        if let Some(ended) = self.ended_in(before_fetch(navigates)).await {
+            return Err(ended);
+        }
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
@@ -1335,6 +1380,12 @@ impl On<'_> {
         // Run.
         let page_id = served.page_id().clone();
         *self.document.lock().await = facts.response.clone();
+        // Its after-response Hooks see the response before anything judges
+        // it; an attempt they end closes its page as `served` drops.
+        let after = after_fetch(facts.response.is_some(), navigates);
+        if let Some(ended) = self.ended_in(after).await {
+            return Err(ended);
+        }
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
@@ -1371,14 +1422,7 @@ impl On<'_> {
         let url = response.as_ref().map(|response| response.url.clone());
         let params = self.params(Some(choice.tier), Some(page_id.clone()), response);
         let handed_over = tiers.hand_over(Arc::clone(hand_over));
-        let answer = handled(
-            run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            lease,
-        )
-        .await;
+        let answer = self.page_ready(&params).await;
         drop(handed_over);
         let escalated = self.escalated(served.close());
         Ok(HttpRun {
@@ -1590,7 +1634,9 @@ impl On<'_> {
 
     /// The handler request of the attempt on `tier`, given the page
     /// `page_id`, whose request's own document answered `response`,
-    /// bounded by its lease.
+    /// bounded by its lease, once the attempt went through its page-ready
+    /// Hooks. It serves a race's winner (`race`), whose Label no
+    /// navigation or after-response Hook reaches ([`Hooks::lets_race`]).
     async fn handle(
         &self,
         page_id: &PageId,
@@ -1603,21 +1649,17 @@ impl On<'_> {
             InFlightPhase::Handling,
         );
         let params = self.params(Some(tier), Some(page_id.clone()), response);
-        handled(
-            self.run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            self.lease,
-        )
-        .await
+        self.page_ready(&params).await
     }
 
     /// The attempt on the `browser` tier: the Run's pages handed over,
     /// Collie's page opened and navigated to the request's URL through the
     /// gate under the lease, and the handler given it, closed once it
-    /// answered. `how` says how the request came here: as chosen, as a
-    /// sample's run, or by an escalation from a cheaper tier.
+    /// answered. Its Hooks in code run around it (ADR 0104): before request
+    /// first, before navigation before the page opens, after response, when
+    /// a response came, and after navigation once it landed, and page ready
+    /// just before the handler. `how` says how the request came here: as
+    /// chosen, as a sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
         self.browser_run(tiers, choice, how, None).await.answer
     }
@@ -1638,6 +1680,9 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeRequest]).await {
+            return ended(answer);
+        }
         // The address check judges the request's URL before the browser
         // opens anything, as on the HTTP tier (spec #565).
         if let Some(http) = self.http {
@@ -1659,6 +1704,9 @@ impl On<'_> {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeNavigation]).await {
+            return ended(answer);
+        }
         let hand_over = match capture {
             Some(capture) => Arc::new(self.hand_over.capturing(capture.clone())),
             None => Arc::clone(self.hand_over),
@@ -1677,6 +1725,11 @@ impl On<'_> {
         };
         if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
             return ended(refused);
+        }
+        let after = after_fetch(navigated.response.is_some(), true);
+        if let Some(answer) = self.ended_in(after).await {
+            tiers.close_browser(&page_id).await;
+            return ended(answer);
         }
         let browser = TierChoice {
             tier: FetchTier::Browser,
@@ -1708,14 +1761,7 @@ impl On<'_> {
             Some(page_id.clone()),
             navigated.response,
         );
-        let answer = handled(
-            run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            lease,
-        )
-        .await;
+        let answer = self.page_ready(&params).await;
         drop(handed_over);
         let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
@@ -1758,6 +1804,33 @@ pub(super) fn read_by_browser(
         page_id,
         response.and_then(|response| response.encoding.as_deref()),
     )
+}
+
+/// The request stages before a fetch, the navigation's too when it
+/// `navigates` (ADR 0104).
+fn before_fetch(navigates: bool) -> &'static [CrawlHookStage] {
+    if navigates {
+        &[
+            CrawlHookStage::BeforeRequest,
+            CrawlHookStage::BeforeNavigation,
+        ]
+    } else {
+        &[CrawlHookStage::BeforeRequest]
+    }
+}
+
+/// The stages after a fetch: after response when it `responded`, after
+/// navigation when it `navigated` (ADR 0104).
+fn after_fetch(responded: bool, navigated: bool) -> &'static [CrawlHookStage] {
+    match (responded, navigated) {
+        (true, true) => &[
+            CrawlHookStage::AfterResponse,
+            CrawlHookStage::AfterNavigation,
+        ],
+        (true, false) => &[CrawlHookStage::AfterResponse],
+        (false, true) => &[CrawlHookStage::AfterNavigation],
+        (false, false) => &[],
+    }
 }
 
 /// Whether the cheaper run `run`, which staged `staged`, staged what the

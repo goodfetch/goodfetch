@@ -143,15 +143,18 @@ async def test_crawls_two_page_types_into_a_dataset() -> None:
     listing = crawl.label("listing")
     product = crawl.label("product")
     products = crawl.dataset("products", key=["id"])
+    sessions: list[object] = []
 
     @crawl.handle(listing)
     async def read_listing(context: AsyncCrawlContext[None]) -> None:
+        sessions.append(context.page.session)
         read = await context.page.read(LISTING_FIELDS)
         for href in cast("list[str]", read.values["products"]):
             await context.enqueue(href, product)
 
     @crawl.handle(product)
     async def read_product(context: AsyncCrawlContext[None]) -> None:
+        sessions.append(context.page.session)
         read = await context.page.read(PRODUCT_FIELDS)
         record: JSONObject = {field: _text(read, field) for field in PRODUCT_FIELDS}
         await context.push(products, record)
@@ -174,6 +177,9 @@ async def test_crawls_two_page_types_into_a_dataset() -> None:
 
     assert (report.lifecycle, report.verdict) == ("finished", "verified")
     assert [record.value for record in records] == EXPECTED_RECORDS
+    # Both requests name the serving Session `session-1`, which the Run keeps.
+    assert len(sessions) == 2
+    assert sessions[0] is sessions[1]
     assert played.done() == Finished()
 
 
@@ -185,10 +191,12 @@ def test_runs_a_sync_crawls_handlers_on_the_connections_thread_pool() -> None:
     product = crawl.label("product")
     products = crawl.dataset("products", key=["id"])
     threads: set[str] = set()
+    sessions: list[object] = []
 
     @crawl.handle(listing)
     def read_listing(context: CrawlContext[None]) -> None:
         threads.add(threading.current_thread().name)
+        sessions.append(context.page.session)
         read = context.page.read(LISTING_FIELDS)
         for href in cast("list[str]", read.values["products"]):
             context.enqueue(href, product)
@@ -196,6 +204,7 @@ def test_runs_a_sync_crawls_handlers_on_the_connections_thread_pool() -> None:
     @crawl.handle(product)
     def read_product(context: CrawlContext[None]) -> None:
         threads.add(threading.current_thread().name)
+        sessions.append(context.page.session)
         read = context.page.read(PRODUCT_FIELDS)
         record: JSONObject = {field: _text(read, field) for field in PRODUCT_FIELDS}
         context.push(products, record)
@@ -215,6 +224,9 @@ def test_runs_a_sync_crawls_handlers_on_the_connections_thread_pool() -> None:
     # Neither the program's thread nor the loop's, which reads every answer.
     assert threads
     assert threads.isdisjoint({threading.current_thread().name, THREAD_NAME})
+    # Both requests name the serving Session `session-1`, which the Run keeps.
+    assert len(sessions) == 2
+    assert sessions[0] is sessions[1]
     assert played.done() == Finished()
 
 

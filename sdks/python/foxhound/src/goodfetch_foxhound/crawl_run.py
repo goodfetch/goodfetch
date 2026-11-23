@@ -27,7 +27,7 @@ import anyio.to_thread
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.connection import closed_error
 from goodfetch_collie_client.generated.errors import ClosedError, RunNotFoundError
-from goodfetch_collie_client.generated.handles import AsyncPage, Page
+from goodfetch_collie_client.generated.handles import AsyncPage, Page, Session
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.listeners import spawner
 from goodfetch_collie_client.markers import warn_entry
@@ -64,7 +64,12 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from goodfetch_collie_client.connection import ClientConnection
-    from goodfetch_collie_client.generated.models import RunId, RunStarted
+    from goodfetch_collie_client.generated.models import (
+        PageId,
+        RunId,
+        RunStarted,
+        SessionId,
+    )
     from goodfetch_collie_client.handle import HandleHost
     from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
@@ -244,20 +249,24 @@ class AsyncCrawlRun(AsyncRun):
         lease = self._lease_of(request)
         page_id = request.page_id
         if not isinstance(self._crawl, Crawl):
-            page = None if page_id is None else AsyncPage(self._host.child(page_id))
+            page = (
+                None if page_id is None else self._page_of(page_id, request.session.id)
+            )
             operations = AsyncFoxhoundOperations(self._host)
             context = AsyncCrawlContext(crawl_request, lease, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
             )
             return
-        host = _threaded.get(self)
-        if host is None:
+        threaded = _threaded.get(self)
+        if threaded is None:
             message = "invariant: a sync crawl's Run has its `CrawlRun`"
             raise RuntimeError(message)
-        sync_page = None if page_id is None else Page(host.child(page_id))
+        sync_page = (
+            None if page_id is None else threaded.page_of(page_id, request.session.id)
+        )
         sync_context = CrawlContext(
-            crawl_request, lease, FoxhoundOperations(host), sync_page
+            crawl_request, lease, FoxhoundOperations(threaded.host), sync_page
         )
         # The thread's calls run on the loop outside the attempt's scope,
         # which waits for the thread, so closing the Run cancels them apart.
@@ -266,6 +275,15 @@ class AsyncCrawlRun(AsyncRun):
             await anyio.to_thread.run_sync(
                 cast("Callable[[CrawlContext[Any]], None]", handler), sync_context
             )
+
+    def _page_of(self, page_id: PageId, session_id: SessionId) -> AsyncPage:
+        """The page of ID `page_id` the engine lends a handler, in its serving Session.
+
+        That Session, of ID `session_id`, is the one the Run keeps of that ID,
+        which its other pages there share (ADR 0092).
+        """
+        host, session = self._kept_session(session_id)
+        return AsyncPage(host.child(page_id), session)
 
     def _request_of(self, request: CrawlRequestHandleParams) -> CrawlRequest[Any]:
         """The crawl request the handler reads, its Payload typed by its Label."""
@@ -315,7 +333,7 @@ class CrawlRun(Run):
         """
         super().__init__(loop, run)
         self._crawl_run = run
-        _threaded[run] = self._host
+        _threaded[run] = _Threaded(self._host, self._sessions)
 
     def records(self, dataset: Dataset[Any]) -> Sequence[DatasetRecord]:
         """The committed Records of `dataset`, read with `for`, as the async Run's.
@@ -362,10 +380,38 @@ class CrawlRun(Run):
         return Sequence(self._loop, sequence, lambda: closed_error("run.records"))
 
 
-_threaded: weakref.WeakKeyDictionary[AsyncCrawlRun, HandleHost[RunId]] = (
+@dataclass(frozen=True)
+class _Threaded:
+    """What a sync crawl's handlers reach its Run through, from the loop.
+
+    It holds the `CrawlRun`'s host and the Sessions it keeps by ID, not the
+    `CrawlRun`, which holds the async Run that keys it in `_threaded`.
+    """
+
+    host: HandleHost[RunId]
+    """The sync host its handlers call through."""
+    sessions: dict[str, tuple[HandleHost[SessionId], Session]]
+    """The Sessions the `CrawlRun` keeps by ID, which its pages share."""
+
+    def page_of(self, page_id: PageId, session_id: SessionId) -> Page:
+        """The page of ID `page_id` the engine lends a handler, in its serving Session.
+
+        That Session, of ID `session_id`, is the one the `CrawlRun` keeps of
+        that ID, which its other pages there share (ADR 0092).
+        """
+        kept = self.sessions.get(session_id.root)
+        if kept is None:
+            host = self.host.child(session_id)
+            kept = (host, Session(host))
+            self.sessions[session_id.root] = kept
+        host, session = kept
+        return Page(host.child(page_id), session)
+
+
+_threaded: weakref.WeakKeyDictionary[AsyncCrawlRun, _Threaded] = (
     weakref.WeakKeyDictionary()
 )
-"""The sync host of each Run a `CrawlRun` drives, which its handlers call through."""
+"""What the handlers of each Run a `CrawlRun` drives reach it through."""
 
 
 class CrawlRuns:

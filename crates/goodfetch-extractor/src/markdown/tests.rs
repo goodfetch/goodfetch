@@ -1,6 +1,11 @@
 //! The Markdown writer's bound on depth: a page nested deeper than a
-//! thread's stack holds is written on the engine's stack, and a page nested
-//! up to the bound is written as it stands.
+//! thread's stack holds is written on the engine's stack, a page nested up
+//! to the bound is written as it stands, and what lies past it is written
+//! flattened, its text kept.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use goodfetch_counted_work::{CountedWork, Row};
 
@@ -61,15 +66,35 @@ fn a_page_nested_deeper_than_a_stack_holds_is_written_on_the_engines_stack() {
 #[test]
 fn a_page_nested_to_the_bound_is_written_as_it_stands_and_one_level_past_it_flattened() {
     // The `<p>` and the `<em>` take two levels and the emphasized text a
-    // third, so at `MAX_DEPTH - 3` the text sits at the bound.
+    // third: at `MAX_DEPTH - 2` the `<em>` sits at the bound and holds its
+    // text, and one level deeper the `<p>` does, the `<em>` emptied beside it.
     let line = "<p>A line with <em>stress</em>.</p>";
 
     assert_eq!(
-        written(&nested(MAX_DEPTH - 3, line)),
-        written(&nested(0, line))
+        written(&nested(MAX_DEPTH - 2, line)),
+        "A line with *stress*.\n"
     );
     assert_eq!(
-        written(&nested(MAX_DEPTH - 2, line)),
+        written(&nested(MAX_DEPTH - 1, line)),
         "A line with stress.\n"
+    );
+}
+
+/// Covers: story:6-1
+#[test]
+fn a_table_cut_by_the_bound_keeps_its_cells_text() {
+    // The table, its row group, its row and its cells take four levels: at
+    // `MAX_DEPTH - 4` a cell sits at the bound and holds its text, and one
+    // level deeper the row does, which writes only cells, so what lies below
+    // it is written after the table.
+    let table = "<table><tr><th>Power</th><td>8 W</td></tr></table><p>After the table.</p>";
+
+    assert_eq!(
+        written(&nested(MAX_DEPTH - 4, table)),
+        "| Power | 8 W |\n| --- | --- |\n\nAfter the table.\n"
+    );
+    assert_eq!(
+        written(&nested(MAX_DEPTH - 3, table)),
+        "Power\n\n8 W\n\nAfter the table.\n"
     );
 }

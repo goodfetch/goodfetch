@@ -85,8 +85,8 @@ use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::params::Arrived;
 use crate::composition::{
-    Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
+    Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, Closing,
+    ConnectionContext, DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -479,6 +479,7 @@ async fn serve_carried(
     });
     let (client, requests) = Client::new();
     let daemon = access.daemon();
+    let closing = daemon.as_ref().map(|daemon| daemon.closing().clone());
     let log = dispatch
         .log_events
         .as_ref()
@@ -526,6 +527,7 @@ async fn serve_carried(
         access,
         listener,
         opening,
+        closing,
     };
     let ended = session.run(&mut reading).await;
     logging.cancel();
@@ -704,6 +706,9 @@ struct Session<'owner> {
     listener: Listener,
     /// The bounds of its opening, on a guarded listener.
     opening: Option<Opening>,
+    /// On a Daemon, how the Daemon closes it while its calls are in
+    /// flight: they are cancelled with the close's error.
+    closing: Option<Closing>,
 }
 
 /// A handler request the engine sent, waiting for its reply.
@@ -721,6 +726,14 @@ impl Session<'_> {
         let mut pending = Vec::new();
         let mut ended = false;
         let mut lost = false;
+        let closing = self.closing.clone();
+        let closed = async {
+            match &closing {
+                Some(closing) => closing.closed().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::pin!(closed);
         loop {
             for frame in std::mem::take(&mut pending) {
                 if let Flow::Close = self.handle(frame).await {
@@ -786,6 +799,10 @@ impl Session<'_> {
                     let _ = self.rejected();
                     return ended;
                 }
+                // The Daemon closed it: its calls in flight are then
+                // cancelled with the close's error and answered before it
+                // ends (ADR 0113).
+                () = &mut closed => return ended,
             }
         }
     }
@@ -1286,6 +1303,7 @@ impl Session<'_> {
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        let closing = self.closing.clone().filter(|_| operation.cancellable);
         let form = self.form();
         // Each call keeps its own task (the audit's E1-4, kept by #1898):
         // the Connection goes on reading while a handler waits, a
@@ -1296,7 +1314,12 @@ impl Session<'_> {
                 tokio::select! {
                     biased;
                     answered = answer => answered,
-                    () = token.cancelled() => Err(cancelled_by_client()),
+                    // Cancelled by its Client's `$/cancel` or end, or by
+                    // the Daemon's close of its Connection.
+                    () = token.cancelled() => Err(closing
+                        .as_ref()
+                        .and_then(Closing::error)
+                        .unwrap_or_else(cancelled_by_client)),
                 }
             } else {
                 answer.await

@@ -28,32 +28,78 @@ fn an_existing_file_is_dropped() {
 #[test]
 fn each_mode_leaves_the_executable_s_pages_where_it_says() {
     let home = tempfile::tempdir().expect("a temporary folder");
-    let file = home.path().join("executable");
-    std::fs::write(&file, vec![0x5a; 256 * 1024]).expect("writing the file");
-    PageCache::Dropped
-        .prepare(&file)
-        .expect("the file is dropped");
-    let (dropped, pages) = cache_stat(&file);
+
+    // A file none of whose pages has been in the page cache: its length is
+    // set, nothing is written or read. It stays open, so the kernel keeps its
+    // inode, and with it the shadow entries of its evicted pages.
+    let never_read = home.path().join("never-read");
+    let held = std::fs::File::create(&never_read).expect("creating the file");
+    held.set_len(256 * 1024).expect("sizing the file");
+    let (before, pages) = cache_stat(&held);
     assert_eq!(
-        (dropped.cache, dropped.evicted),
+        (before.cache, before.evicted),
         (0, 0),
-        "dropped: none of its {pages} pages is in the page cache, nor was evicted from it"
+        "no page of a file never read is cached or evicted: {before:?}"
     );
     PageCache::Cached
-        .prepare(&file)
+        .prepare(&never_read)
         .expect("the file is read through");
-    // The kernel may evict clean pages under memory pressure as soon as they
-    // are read (issue 3301), and it leaves a shadow entry for each such page,
-    // which the drop above cleared: a page cached or evicted since was read in.
-    // Only a shrinker of shadow entries could hide one, and it frees a node
-    // of them only once every page of it is evicted and the memory group
-    // holds more shadow entries than its pages allow.
-    let (read, pages) = cache_stat(&file);
+    // Memory pressure may evict a page as soon as it is read (issue 3301),
+    // and the kernel leaves a shadow entry for each page it evicts: a page
+    // cached or evicted now was read in. Only the shrinker of shadow entries
+    // could hide one, and it frees the oldest nodes of them first, once the
+    // memory group holds more than its pages allow.
+    let (read, _) = cache_stat(&held);
     assert_eq!(
         read.cache + read.evicted,
         pages,
         "cached: every page was read into the page cache: {read:?}"
     );
+
+    let written = home.path().join("written");
+    let taken = pages_reclaim_or_compaction_took();
+    std::fs::write(&written, vec![0x5a; 256 * 1024]).expect("writing the file");
+    PageCache::Dropped
+        .prepare(&written)
+        .expect("the file is dropped");
+    let (dropped, pages) = cache_stat(&std::fs::File::open(&written).expect("opening the file"));
+    assert_eq!(
+        (dropped.dirty, dropped.writeback),
+        (0, 0),
+        "dropped: every page was written back: {dropped:?}"
+    );
+    // The advice frees every clean page no other task holds. Reclaim may
+    // hold one at that moment and evict it just after, or compaction move
+    // it (issue 3301: all 64 pages, one folio, cached or evicted right after
+    // the drop). Each counts the pages it takes as it takes them, so while
+    // the count stays the same, neither took one.
+    if pages_reclaim_or_compaction_took() == taken {
+        assert_eq!(
+            (dropped.cache, dropped.evicted),
+            (0, 0),
+            "dropped: none of its {pages} pages is in the page cache, nor was evicted from it"
+        );
+    }
+}
+
+/// The pages reclaim and compaction have taken off the kernel's page lists
+/// since boot, as `/proc/vmstat` counts them. Reclaim counts them in the same
+/// locked section that takes them (`pgscan_*`). Compaction counts them when
+/// its scan of a block stops (`compact_isolated`), which it does as soon as it
+/// holds 32 pages: for the file's one 64-page folio, a few instructions after
+/// taking it, and only a preemption in between could delay the count past the
+/// test's reading. Compaction also holds a page for an instant without taking
+/// it, which the advice outlasts: it tries such a page again after draining
+/// every CPU's batches of pages.
+#[cfg(target_os = "linux")]
+fn pages_reclaim_or_compaction_took() -> u64 {
+    std::fs::read_to_string("/proc/vmstat")
+        .expect("reading the kernel's memory counts")
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .filter(|(name, _)| name.starts_with("pgscan") || *name == "compact_isolated")
+        .map(|(_, count)| count.parse::<u64>().expect("a count"))
+        .sum()
 }
 
 /// `cachestat`'s number in the table the architectures share from 424 on,
@@ -84,16 +130,15 @@ struct CacheStat {
     recently_evicted: u64,
 }
 
-/// What `cachestat` counts of `path`'s pages, and how many pages it has.
+/// What `cachestat` counts of `file`'s pages, and how many pages it has.
 #[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "the page cache's counts go through the OS's C interface: sysconf and cachestat"
 )]
-fn cache_stat(path: &Path) -> (CacheStat, u64) {
+fn cache_stat(file: &std::fs::File) -> (CacheStat, u64) {
     use std::os::fd::AsRawFd as _;
 
-    let file = std::fs::File::open(path).expect("opening the file");
     let length = file.metadata().expect("its size").len();
     // SAFETY: sysconf reads a constant of the OS.
     let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).expect("a page size");

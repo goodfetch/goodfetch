@@ -799,7 +799,7 @@ describe("Collie.connect()", () => {
 
   test(
     "reads only Collie's engine-path variable, never Foxhound's",
-    { tags: ["story:11-2"] },
+    { tags: ["story:11-2", "story:11-299"] },
     async () => {
       const error = await failure(
         // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.

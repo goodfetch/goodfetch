@@ -23573,6 +23573,16 @@
       ]
     },
     {
+      "id": "story:6-285",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-29",
       "kind": "story",
       "area": 6,

@@ -1,0 +1,5 @@
+# Which of goodfetch-sink's top-level modules may import which (ADR 0126).
+[modules]
+contract = []
+driver = ["contract"]
+sqlite = ["contract"]

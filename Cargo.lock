@@ -3059,6 +3059,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-sink"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-dataset",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "jiff",
+ "rstest",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "goodfetch-sql-tab"
 version = "0.0.0"
 dependencies = [

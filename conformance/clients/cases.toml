@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "61"
+version = "62"
 
 [[capability]]
 name = "lifecycle"
@@ -245,6 +245,21 @@ modes = ["attached", "linked"]
 # client crate reaches.
 [[capability.case]]
 id = "sessions-open-from-their-source"
+covers = ["story:11-92"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# A page reaches its Session without a call (ADRs 0092 and 0078; issue
+# 3585): `page.session()` (a property in Python) answers the Session that
+# opened the page, the two pages `run.newPage()` opens sharing the Run's
+# default Session. Closing it through one page closes the other, whose
+# later call raises `closed` without a message, and a later
+# `run.newPage()` raises the engine's `closed`, while a page of a Session of
+# the program's own opens a page through its Session still. In Rust,
+# dropping a page's Session sends no `session.close`. Played as
+# `sessions-open-from-their-source` is.
+[[capability.case]]
+id = "a-page-reaches-its-session"
 covers = ["story:11-92"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }

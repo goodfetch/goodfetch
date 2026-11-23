@@ -104,6 +104,7 @@ impl sealed::SessionEvent for Page {
             ::serde_json::from_value(data).map_err(crate::Error::shape)?;
         Ok(crate::Page {
             host: handle.host.reached(payload.page_id),
+            session: handle.clone(),
         })
     }
 

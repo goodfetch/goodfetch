@@ -25,12 +25,24 @@ export class Run extends Handle {
 
   readonly #host: HandleHost<types.RunId, CollieOperationTypes>;
   readonly #opened: types.RunStarted;
+  readonly #sessions = new Map<types.SessionId, readonly [HandleHost<types.SessionId, CollieOperationTypes>, Session]>();
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.RunId, CollieOperationTypes>, opened: types.RunStarted) {
     super(host, "run", "run_id", { type: "RunId" });
     this.#host = host;
     this.#opened = opened;
+  }
+
+  /** The `session` of ID `id`, with its host: built the first time an answer names it, shared after. */
+  #keptSession(id: types.SessionId): readonly [HandleHost<types.SessionId, CollieOperationTypes>, Session] {
+    let kept = this.#sessions.get(id);
+    if (kept === undefined) {
+      const host = this.#host.child(id);
+      kept = [host, new Session(host)];
+      this.#sessions.set(id, kept);
+    }
+    return kept;
   }
 
   /**
@@ -91,7 +103,8 @@ export class Run extends Handle {
   async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
     warnExperimental("run.new_page");
     const opened = await this.#host.call("run.new_page", defined({ runId: this.#host.id, settings: settingsOnWire(options.settings) }), {});
-    return new Page(this.#host.child(opened.pageId));
+    const [host, session] = this.#keptSession(opened.sessionId);
+    return new Page(host.child(opened.pageId), session);
   }
 
   /**
@@ -184,11 +197,11 @@ const SESSION_EVENTS = {
   page: "page",
 } as const satisfies { readonly [Name in keyof SessionEvents]: types.SessionOnParams["event"] };
 
-/** What builds each of `SessionEvents` from its payload, with the host of the `session` that listens. */
+/** What builds each of `SessionEvents` from its payload, with the `session` that listens and its host. */
 const SESSION_EVENTS_VALUES: {
-  readonly [Name in keyof SessionEvents]: (host: HandleHost<types.SessionId, CollieOperationTypes>, payload: SessionPayloads[Name]) => SessionEvents[Name];
+  readonly [Name in keyof SessionEvents]: (handle: Session, host: HandleHost<types.SessionId, CollieOperationTypes>, payload: SessionPayloads[Name]) => SessionEvents[Name];
 } = {
-  page: (host, payload) => new Page(host.child(payload.pageId)),
+  page: (handle, host, payload) => new Page(host.child(payload.pageId), handle),
 };
 
 let idInSession: (handle: Session) => types.SessionId;
@@ -230,7 +243,7 @@ export class Session extends Handle implements AsyncDisposable {
   async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
     warnExperimental("session.new_page");
     const opened = await this.#host.call("session.new_page", defined({ sessionId: this.#host.id, settings: settingsOnWire(options.settings) }), {});
-    return new Page(this.#host.child(opened.pageId));
+    return new Page(this.#host.child(opened.pageId), this);
   }
 
   /**
@@ -253,7 +266,7 @@ export class Session extends Handle implements AsyncDisposable {
     const listened = SESSION_EVENTS[event];
     warnEntry(collieEvents, `session.${listened}`);
     const build = SESSION_EVENTS_VALUES[event];
-    return this.#host.listenPublished("session.on", { sessionId: this.#host.id, event: listened }, `session.${listened}`, "session_id", (payload: SessionPayloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));
+    return this.#host.listenPublished("session.on", { sessionId: this.#host.id, event: listened }, `session.${listened}`, "session_id", (payload: SessionPayloads[Name], dropped: number) => listener(build(this, this.#host, payload), dropped));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -402,11 +415,18 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
+  readonly #session: Session;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
-  constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+  constructor(host: HandleHost<types.PageId, CollieOperationTypes>, session: Session) {
     super(host, "page", "page_id", { type: "PageId" });
     this.#host = host;
+    this.#session = session;
+  }
+
+  /** Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092). */
+  session(): Session {
+    return this.#session;
   }
 
   /**

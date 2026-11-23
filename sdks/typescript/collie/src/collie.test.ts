@@ -397,7 +397,7 @@ describe("a Connection whose engine caps its calls in flight", () => {
       });
       const run = await starting;
       const holding = collie.call("run.list", {});
-      const page = pageOf(run, "page-1", new AbortController().signal);
+      const page = pageOf(run, "page-1", "session-1", new AbortController().signal);
 
       const error = await failure(page.goto("https://example.com/", { timeout: 5 }));
       await answerCall(engine, 1, { runs: [] });
@@ -428,7 +428,7 @@ describe("a Connection whose engine caps its calls in flight", () => {
       });
       const run = await starting;
       const holding = collie.call("run.list", {});
-      const page = pageOf(run, "page-1", new AbortController().signal);
+      const page = pageOf(run, "page-1", "session-1", new AbortController().signal);
 
       const error = await failure(page.goto("https://example.com/"));
       await answerCall(engine, 1, { runs: [] });

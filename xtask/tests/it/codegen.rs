@@ -1113,7 +1113,7 @@ fn workspace_with_the_forms_catalog() -> Workspace {
         "const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];",
         "const MODULES: [&Entries; 3] = [&sample::ENTRIES, &crate::forms::ENTRIES, &foxhound::ENTRIES];",
     );
-    for prefix in ["run.", "page.", "locator."] {
+    for prefix in ["run.", "session.", "page.", "locator."] {
         workspace.append(
             "features/areas.toml",
             &format!("[[area]]\nnumber = 1\nkind = \"operation\"\nprefix = \"{prefix}\"\n"),
@@ -1131,7 +1131,8 @@ fn workspace_with_the_forms_catalog() -> Workspace {
 /// `timeout` names the setting it sets (ADR 0080), and a deprecated
 /// parameter or value leaves a call free of it (ADR 0099), and a read
 /// takes nothing but its handle and answers a value of the answer that
-/// opened it (issue 2798): `xtask codegen` refuses a catalog that says
+/// opened it (issue 2798), and no member is named as the handle its handle
+/// holds (ADR 0078): `xtask codegen` refuses a catalog that says
 /// otherwise, naming the operation, in place of writing a member whose
 /// name, options or result lie.
 ///
@@ -1241,6 +1242,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "    Loaded,\n}",
     "    Loaded(u64),\n}",
     "operation `page.wait_for_ready`: its parameter `state` takes a deprecated variant that is no string"
+)]
+#[case::a_member_named_as_the_handle_a_page_holds(
+    "\"page.goto\"",
+    "\"page.session\"",
+    "a `page` answers its `session` without a call, by a member of that name"
 )]
 #[case::a_required_parameter_marked_catalog_only(
     "    /// The URL to navigate to.\n",

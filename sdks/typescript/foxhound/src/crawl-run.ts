@@ -219,7 +219,8 @@ export class CrawlRun extends Run {
     const crawl = this.#crawl;
     const options: CallOptions = { signal };
     const pageId = request.pageId ?? undefined;
-    const page = pageId === undefined ? undefined : pageOf(this, pageId, signal);
+    const page =
+      pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
       get page(): Page {
         if (page === undefined) {

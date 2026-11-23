@@ -29,15 +29,26 @@ class AsyncRun(AsyncHandle):
         """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
         self._opened = opened
+        self._sessions: dict[str, tuple[AsyncHandleHost[models.SessionId], AsyncSession]] = {}
         super().__init__(host, "run", "run_id")
 
+    def _kept_session(self, session_id: models.SessionId) -> tuple[AsyncHandleHost[models.SessionId], AsyncSession]:
+        """The `session` of ID `session_id`, with its host: built the first time an answer names it, shared after."""
+        kept = self._sessions.get(session_id.root)
+        if kept is None:
+            host = self._host.child(session_id)
+            kept = (host, AsyncSession(host))
+            self._sessions[session_id.root] = kept
+        return kept
+
     async def new_page(self, *, viewport: str | None | NotGiven = not_given) -> AsyncPage:
-        """Opens a page in the Run."""
+        """Opens a page in the Run's default Session."""
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(viewport, NotGiven):
             params.viewport = viewport
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
-        return AsyncPage(self._host.child(opened.page_id))
+        host, session = self._kept_session(opened.session_id)
+        return AsyncPage(host.child(opened.page_id), session)
 
     def is_resumed(self) -> bool:
         """Whether the start resumed a Run, from the start's answer."""
@@ -47,6 +58,20 @@ class AsyncRun(AsyncHandle):
     def label(self) -> str:
         """The Run's label, from the start's answer."""
         return self._opened.label
+
+
+class AsyncSession(AsyncHandle):
+    """A `session` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.SessionId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "session", "session_id")
+
+    async def new_page(self) -> AsyncPage:
+        """Opens a page in the Session."""
+        opened = result_of(models.PageOpened, await self._host.call("session.new_page", models.SessionParams(session_id=self._host.id)))
+        return AsyncPage(self._host.child(opened.page_id), self)
 
 
 class AsyncPageKeyboard:
@@ -72,9 +97,10 @@ class AsyncPageKeyboard:
 class AsyncPage(AsyncHandle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: AsyncHandleHost[models.PageId], session: AsyncSession) -> None:
+        """Takes what it reaches its engine through and the `session` it holds; a program never constructs one."""
         self._host = host
+        self._session = session
         super().__init__(host, "page", "page_id")
         self._keyboard = AsyncPageKeyboard(host)
 
@@ -82,6 +108,11 @@ class AsyncPage(AsyncHandle):
     def keyboard(self) -> AsyncPageKeyboard:
         """Its `keyboard`."""
         return self._keyboard
+
+    @property
+    def session(self) -> AsyncSession:
+        """Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092)."""
+        return self._session
 
     async def close(self) -> None:
         """Closes the page."""
@@ -175,15 +206,26 @@ class Run(Handle):
         """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
         self._opened = opened
+        self._sessions: dict[str, tuple[HandleHost[models.SessionId], Session]] = {}
         super().__init__(host, "run", "run_id")
 
+    def _kept_session(self, session_id: models.SessionId) -> tuple[HandleHost[models.SessionId], Session]:
+        """The `session` of ID `session_id`, with its host: built the first time an answer names it, shared after."""
+        kept = self._sessions.get(session_id.root)
+        if kept is None:
+            host = self._host.child(session_id)
+            kept = (host, Session(host))
+            self._sessions[session_id.root] = kept
+        return kept
+
     def new_page(self, *, viewport: str | None | NotGiven = not_given) -> Page:
-        """Opens a page in the Run."""
+        """Opens a page in the Run's default Session."""
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(viewport, NotGiven):
             params.viewport = viewport
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
-        return Page(self._host.child(opened.page_id))
+        host, session = self._kept_session(opened.session_id)
+        return Page(host.child(opened.page_id), session)
 
     def is_resumed(self) -> bool:
         """Whether the start resumed a Run, from the start's answer."""
@@ -193,6 +235,20 @@ class Run(Handle):
     def label(self) -> str:
         """The Run's label, from the start's answer."""
         return self._opened.label
+
+
+class Session(Handle):
+    """A `session` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.SessionId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "session", "session_id")
+
+    def new_page(self) -> Page:
+        """Opens a page in the Session."""
+        opened = result_of(models.PageOpened, self._host.call("session.new_page", models.SessionParams(session_id=self._host.id)))
+        return Page(self._host.child(opened.page_id), self)
 
 
 class PageKeyboard:
@@ -218,9 +274,10 @@ class PageKeyboard:
 class Page(Handle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: HandleHost[models.PageId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: HandleHost[models.PageId], session: Session) -> None:
+        """Takes what it reaches its engine through and the `session` it holds; a program never constructs one."""
         self._host = host
+        self._session = session
         super().__init__(host, "page", "page_id")
         self._keyboard = PageKeyboard(host)
 
@@ -228,6 +285,11 @@ class Page(Handle):
     def keyboard(self) -> PageKeyboard:
         """Its `keyboard`."""
         return self._keyboard
+
+    @property
+    def session(self) -> Session:
+        """Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092)."""
+        return self._session
 
     def close(self) -> None:
         """Closes the page."""

@@ -34,9 +34,10 @@
 //!
 //! Size: one concern, the handles' Rust text: the models a namespace's
 //! handle, members and builders are read into, and the `Module` that
-//! writes both twins from them; the index, listeners, raw call and
-//! settings live in modules of their own.
+//! writes both twins from them; the index, listeners, raw call, settings
+//! and the handles a handle holds live in modules of their own.
 
+mod holders;
 mod index;
 mod listeners;
 mod raw_call;
@@ -49,6 +50,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 
+use self::holders::{HeldModel, Holder};
 use self::index::{Field, Index};
 use self::listeners::ListenerModel;
 use self::reads::ReadsModel;
@@ -298,9 +300,13 @@ impl Responds {
 enum Answers {
     /// The result itself.
     Result,
-    /// For an opener: the handle it opens, and the result field of its ID
-    /// that the handle carries.
-    Opened { handle: String, carried: String },
+    /// For an opener: the handle it opens, the result field of its ID that
+    /// the handle carries, and how it gets the handle it holds, if any.
+    Opened {
+        handle: String,
+        carried: String,
+        holder: Option<Holder>,
+    },
     /// For a result of one property (issue 2517): that field's type and
     /// ident, its value answered in place of the result.
     Field { ty: String, ident: String },
@@ -374,6 +380,10 @@ struct HandleModel {
     listener: Option<ListenerModel>,
     /// Its reads, when it has any.
     reads: Option<ReadsModel>,
+    /// The handle it holds, when it holds one (ADR 0078).
+    holds: Option<HeldModel>,
+    /// The handles its openers keep.
+    keeps: Vec<HeldModel>,
     /// The setters each builder of each params type gains.
     setters: BTreeMap<(Builds, String), BTreeMap<String, Setter>>,
 }
@@ -381,6 +391,7 @@ struct HandleModel {
 impl HandleModel {
     fn new(index: &Index, layer: &Layer, handle: &Handle<'_>) -> Result<Self> {
         let type_name = type_name(handle.namespace)?;
+        let owner = format!("the `{}` handle", handle.namespace);
         let id = index.type_path(&handle.id.type_name)?;
         let mut setters = BTreeMap::new();
         let mut members = Vec::new();
@@ -428,6 +439,16 @@ impl HandleModel {
             sub_objects,
             listener: ListenerModel::new(index, handle)?,
             reads: ReadsModel::new(index, handle)?,
+            holds: handle
+                .holds
+                .as_ref()
+                .map(|holds| HeldModel::new(index, holds, &owner))
+                .transpose()?,
+            keeps: handle
+                .keeps
+                .iter()
+                .map(|kept| HeldModel::new(index, kept, &owner))
+                .collect::<Result<_>>()?,
             setters,
         })
     }
@@ -664,6 +685,11 @@ fn member_model(
             Answers::Opened {
                 handle: type_name(opened)?,
                 carried: carried.ident.clone(),
+                holder: member
+                    .holding
+                    .as_ref()
+                    .map(|holding| Holder::of(holding, index, &operation.result.0, &owner))
+                    .transpose()?,
             }
         }
         (_, Some(unwrapped)) => {
@@ -819,16 +845,18 @@ impl Module {
         text
     }
 
-    /// The struct of a handle or sub-object, whose ID is `id`, with the
-    /// field of its reads' answer if any, and the head of its `impl`.
-    fn open(&mut self, doc: &str, type_name: &str, id: &str, reads: Option<&ReadsModel>) {
+    /// The struct of a handle or sub-object, whose ID is `id`, with its
+    /// own `fields`, such as its reads' answer's, and the head of its
+    /// `impl`.
+    fn open(&mut self, doc: &str, type_name: &str, id: &str, fields: &[String]) {
         let held = match self.twin {
             Twin::Async => format!("host: crate::host::Host<{id}>"),
             Twin::Blocking => format!("inner: crate::generated::handles::{type_name}"),
         };
-        let opened = reads
-            .and_then(|reads| reads.field(self.twin))
-            .map_or_else(String::new, |field| format!("    {field},\n"));
+        let opened = fields.iter().fold(String::new(), |mut opened, field| {
+            let _ = writeln!(opened, "    {field},");
+            opened
+        });
         let _ = write!(
             self.body,
             "\n{doc}#[derive(Clone, Debug)]\npub struct {type_name} {{\n    pub(crate) {held},\n{opened}}}\n\nimpl {type_name} {{\n"
@@ -863,7 +891,7 @@ impl Module {
                 )),
                 &sub_object.type_name,
                 &model.id,
-                None,
+                &[],
             );
             for member in &sub_object.members {
                 self.member(member);
@@ -877,7 +905,13 @@ impl Module {
             )),
             &model.type_name,
             &model.id,
-            model.reads.as_ref(),
+            &model
+                .reads
+                .iter()
+                .filter_map(|reads| reads.field(self.twin))
+                .chain(model.holds.iter().filter_map(|held| held.held(self.twin)))
+                .chain(model.keeps.iter().filter_map(|kept| kept.kept(self.twin)))
+                .collect::<Vec<_>>(),
         );
         let id = match self.twin {
             Twin::Async => "self.host.id()",
@@ -900,6 +934,9 @@ impl Module {
                 "\n    /// Its `{}`.\n    #[must_use]\n    pub fn {}(&self) -> {} {{\n        {} {{ {held} }}\n    }}\n",
                 sub_object.ident, sub_object.ident, sub_object.type_name, sub_object.type_name
             );
+        }
+        if let Some(held) = &model.holds {
+            self.body.push_str(&held.member(self.twin, model.namespace));
         }
         for member in &model.members {
             self.member(member);
@@ -950,9 +987,21 @@ impl Module {
                         member.result, member.params
                     ),
                     (Form::Query, _) => format!("self.host.query({sent})"),
-                    (_, Answers::Opened { handle, carried }) => format!(
-                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {handle} {{ host: host.child(opened.{carried}) }})",
-                        member.result, member.params
+                    (
+                        _,
+                        Answers::Opened {
+                            handle,
+                            carried,
+                            holder,
+                        },
+                    ) => Holder::opened(
+                        holder.as_ref(),
+                        &format!(
+                            "let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}",
+                            member.result, member.params
+                        ),
+                        handle,
+                        carried,
                     ),
                     (_, Answers::Field { ident, .. }) if member.responds != Responds::No => {
                         format!(

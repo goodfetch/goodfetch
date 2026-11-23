@@ -81,4 +81,51 @@ describe("A Collie Run's Sessions", () => {
       );
     },
   );
+
+  test(
+    "are reached from their pages without a call, the default one shared by the Run's pages",
+    { tags: ["client_case/a-page-reaches-its-session", "attached", "story:11-92"] },
+    async ({ testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "run/a-page-reaches-its-session.json");
+      const { logger, warned } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const run = await collie.start();
+      const first = await run.newPage();
+      const second = await run.newPage();
+      const own = await run.newSession({ source: null });
+      const ownPage = await own.newPage();
+
+      const defaultSession = first.session();
+      await defaultSession.close();
+      const afterClose = await failure(second.goto(SHOP_URL));
+      const reopened = await failure(run.newPage());
+      await ownPage.session().newPage();
+      await run.finish();
+      await collie.close();
+
+      await clientCase.check(
+        "the Run's two pages reach one default Session, and a page of the program's Session reaches that Session",
+        () => {
+          expect(second.session()).toBe(defaultSession);
+          expect(ownPage.session()).toBe(own);
+        },
+      );
+      await clientCase.check(
+        "closing the default Session through a page closes the other page, and a later run.newPage() raises ClosedError",
+        () => {
+          expect(afterClose).toBeInstanceOf(ClosedError);
+          expect(reopened).toBeInstanceOf(ClosedError);
+          expect([afterClose, reopened]).toMatchObject([
+            { code: "closed", group: "program" },
+            { code: "closed", group: "program" },
+          ]);
+        },
+      );
+      await clientCase.check(
+        "no call reached a page's Session but those the program made, as the script holds them",
+        () => expect(warned).toEqual([]),
+      );
+    },
+  );
 });

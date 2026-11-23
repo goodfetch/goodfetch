@@ -598,6 +598,17 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub max_calls_in_flight: Option<NonZeroU64>,
+    /// Each `timeout.*` setting the engine's Product honours, as it
+    /// resolved at the Connection's layers (the engine's, beneath the
+    /// `hello`'s own `settings`), in milliseconds: a call the Client queues
+    /// past `max_calls_in_flight` with no timeout of its own fails at its
+    /// setting's value with `deadline_exceeded`, `waited_for`
+    /// `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
+    /// setting that resolves no timeout is left out; empty from an engine
+    /// that resolves none, such as the Scripted engine.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeouts: Vec<SettingLimit>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR

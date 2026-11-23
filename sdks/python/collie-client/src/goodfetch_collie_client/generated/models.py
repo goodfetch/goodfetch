@@ -4516,40 +4516,6 @@ class HelloParams(BaseModel):
     """The Daemon's token; an Attached engine needs none."""
 
 
-class HelloResult(BaseModel):
-    """What an engine answers to a `hello` it accepts."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    engine_instance: EngineInstance
-    """
-    The engine process, new each time an engine starts: the positions
-    of its events count within it, so a Client that meets a new one
-    resyncs (ADR 0031).
-    """
-    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many calls the engine keeps in flight on this Connection: one
-    more is refused with `too_many_calls`, so a Client sends at most
-    this many at once and queues the rest in the order they were made
-    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
-    as the Scripted engine.
-    """
-    private_endpoint: PrivateEndpoint | None = None
-    """
-    An Attached engine's private endpoint, reported to the Client of its
-    stdio alone: where that Client's `workers=N` handler processes, and a
-    Daemon forwarding a live action, connect (ADRs 0024 and 0031).
-    """
-    product: Product
-    """The engine's Product."""
-    product_version: ProductVersion
-    """The engine's Product version."""
-    protocol_version: ProtocolVersion
-    """The protocol version the engine speaks."""
-
-
 class HtmlFormat(RootModel[Asked | HtmlOptions]):
     root: Asked | HtmlOptions
     """The `html` format of a request: `true`, or its options."""
@@ -6387,6 +6353,51 @@ class FormatsRequest(BaseModel):
     """The page's tables, as rows of cells."""
     text: Asked | None = None
     """The text of the page's main content, a paragraph per block."""
+
+
+class HelloResult(BaseModel):
+    """What an engine answers to a `hello` it accepts."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    engine_instance: EngineInstance
+    """
+    The engine process, new each time an engine starts: the positions
+    of its events count within it, so a Client that meets a new one
+    resyncs (ADR 0031).
+    """
+    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many calls the engine keeps in flight on this Connection: one
+    more is refused with `too_many_calls`, so a Client sends at most
+    this many at once and queues the rest in the order they were made
+    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+    as the Scripted engine.
+    """
+    private_endpoint: PrivateEndpoint | None = None
+    """
+    An Attached engine's private endpoint, reported to the Client of its
+    stdio alone: where that Client's `workers=N` handler processes, and a
+    Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+    """
+    product: Product
+    """The engine's Product."""
+    product_version: ProductVersion
+    """The engine's Product version."""
+    protocol_version: ProtocolVersion
+    """The protocol version the engine speaks."""
+    timeouts: list[SettingLimit] | None = None
+    """
+    Each `timeout.*` setting the engine's Product honours, as it
+    resolved at the Connection's layers (the engine's, beneath the
+    `hello`'s own `settings`), in milliseconds: a call the Client queues
+    past `max_calls_in_flight` with no timeout of its own fails at its
+    setting's value with `deadline_exceeded`, `waited_for`
+    `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
+    setting that resolves no timeout is left out; empty from an engine
+    that resolves none, such as the Scripted engine.
+    """
 
 
 class Limit(BaseModel):

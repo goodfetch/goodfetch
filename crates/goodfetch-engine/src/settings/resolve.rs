@@ -236,6 +236,29 @@ impl Resolved {
         self.settings.get(setting.name)
     }
 
+    /// Each `timeout.*` Duration setting the Product honours that resolves a
+    /// timeout, with its value and the layer that set it, in the catalog's
+    /// order: what `hello`'s result reports, so a Client bounds a call it
+    /// queues with no timeout of its own (issue 3193).
+    pub fn timeouts(&self) -> Vec<SettingLimit> {
+        keys::all()
+            .map(|key| key.setting)
+            .filter(|setting| {
+                setting.kind == ValueKind::Duration && setting.name.starts_with("timeout.")
+            })
+            .filter_map(|setting| {
+                let effective = self.settings.get(setting.name)?;
+                effective.value.as_u64()?;
+                Some(SettingLimit {
+                    key: setting.name.to_owned(),
+                    value: effective.value.clone(),
+                    layer: effective.layer,
+                    origin: effective.origin,
+                })
+            })
+            .collect()
+    }
+
     /// `setting`'s value as it is written, its catalog default where the
     /// Run's Product does not honour it.
     pub fn value(&self, setting: &Setting) -> &Value {

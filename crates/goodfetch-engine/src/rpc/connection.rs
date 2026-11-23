@@ -63,7 +63,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
-use goodfetch_protocol::settings::RunOrigin;
+use goodfetch_protocol::settings::{RunOrigin, SettingLimit};
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
@@ -99,7 +99,8 @@ use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
 use crate::settings::{
-    Opening as SettingsOpening, SettingsError, check_client_bounds, check_scope, get_or_default,
+    Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds, check_scope,
+    get_or_default,
 };
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
@@ -1039,7 +1040,11 @@ impl Session<'_> {
             Ok((accepted, surface, form, log_level, settings)) => self
                 .checked_settings(&settings, surface, accepted.behind_gateway)
                 .await
-                .map(|()| (accepted, surface, form, log_level, settings))
+                .map(|timeouts| {
+                    let mut accepted = accepted;
+                    accepted.result.timeouts = timeouts;
+                    (accepted, surface, form, log_level, settings)
+                })
                 // A refused setting reads in the form the `hello` declares.
                 .map_err(|error| (error, form)),
             Err(refusal) => {
@@ -1102,23 +1107,29 @@ impl Session<'_> {
     /// Client's own bounds against what `surface`'s Client applies, then every
     /// layer resolved over them as beneath a Run it starts, so a locked or
     /// capped key is refused at the `hello` rather than at each start (ADR
-    /// 0083).
+    /// 0083). Answers the `timeout.*` values they resolve, which `hello`'s
+    /// result reports (issue 3193). A `hello` with no settings of its own
+    /// reads them from the engine's snapshot of the machine's layers, so it
+    /// reads no file (ADR 0140): none when those fail to resolve, which the
+    /// first Run then refuses.
     async fn checked_settings(
         &self,
         own: &Map<String, Value>,
         surface: Surface,
         behind_gateway: bool,
-    ) -> Result<(), CallError> {
+    ) -> Result<Vec<SettingLimit>, CallError> {
+        let settings = self.connection.engine.settings();
         if own.is_empty() {
-            return Ok(());
+            let machine = settings.snapshot().await;
+            return Ok(machine
+                .resolved()
+                .map_or_else(|_| Vec::new(), Resolved::timeouts));
         }
         let identity = &self.dispatch.identity;
         let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
         check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
         check_client_bounds(own, surface, identity.product).map_err(refused)?;
-        self.connection
-            .engine
-            .settings()
+        settings
             .open(SettingsOpening {
                 run: None,
                 project: None,
@@ -1129,7 +1140,7 @@ impl Session<'_> {
                 exposed: self.connection.exposed,
             })
             .await
-            .map(drop)
+            .map(|(settings, _)| settings.resolved().timeouts())
             .map_err(refused)
     }
 

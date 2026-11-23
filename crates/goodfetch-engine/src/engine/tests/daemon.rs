@@ -287,9 +287,10 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
     );
     let mut answer = answer.unwrap();
     let named = super::takes_engine_instance(&mut answer);
+    let timed = super::takes_timeouts(&mut answer);
 
     assert_eq!(
-        (answer, named),
+        (answer, named, timed),
         (
             json!({
                 "jsonrpc": "2.0", "id": 0,
@@ -298,6 +299,7 @@ fn a_daemon_answers_a_hello_that_carries_its_token() {
                     "max_calls_in_flight": super::IN_FLIGHT_CAP,
                 },
             }),
+            true,
             true
         )
     );

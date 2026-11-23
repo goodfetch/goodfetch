@@ -212,6 +212,17 @@ fn settled(connection: &Connection, row: &Row) -> rusqlite::Result<EffectState> 
     }
 }
 
+/// Judges each of `entries`, whose bodies the engine cut short at its Run's
+/// end, as [`settled`] judges one no engine runs.
+pub(super) fn interrupted(connection: &Connection, entries: &[i64]) -> rusqlite::Result<()> {
+    for &entry in entries {
+        if let Some(found) = row(connection, entry)? {
+            settled(connection, &found)?;
+        }
+    }
+    Ok(())
+}
+
 /// Declares `key` in `namespace`: judges an entry left by a body no engine
 /// runs, then writes the entry, or answers the journal's answer.
 pub(super) fn declare(

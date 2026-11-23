@@ -496,7 +496,10 @@ class ExportFormat(StrEnum):
     """An Export's format, named, never inferred from a file name (ADR 0103)."""
 
     json = "json"
-    """One JSON array of the Records' values."""
+    """
+    One JSON array of the Records' values, indented as
+    `export.json.indent` says.
+    """
     jsonl = "jsonl"
     """One Record's value per line, each line ended by a line feed."""
     csv = "csv"
@@ -521,30 +524,54 @@ class ExportFormat(StrEnum):
     """
     xml = "xml"
     """
-    One XML document: a root element holding one element per Record,
-    each field an element of its name.
+    One XML document: a root element named by `export.xml.root` holding
+    one element per Record named by `export.xml.record`, each field an
+    element of its name (`field` with a `name` attribute where its name
+    is no XML name), an object's fields as elements, an array's values
+    as `item` elements, and `null` an empty element with
+    `xsi:nil="true"`.
     """
     parquet = "parquet"
-    """One Apache Parquet file of one column per field seen, typed."""
+    """
+    One Apache Parquet file of one column per field seen, typed: a
+    column whose values are all `true` or `false` is boolean, all whole
+    numbers a 64-bit integer, all numbers a 64-bit float, and any other
+    a string holding each cell's text, every column nullable.
+    """
     avro = "avro"
     """
     One Apache Avro object container file of one record per Record,
-    with one field per field seen, typed.
+    with one field per field seen, typed as Parquet's columns are, each
+    field's name made a valid Avro name with the field's own in its
+    `doc`.
     """
     arrow_ipc = "arrow_ipc"
-    """One Apache Arrow IPC file of one column per field seen, typed."""
+    """
+    One Apache Arrow IPC file of one column per field seen, typed as
+    Parquet's columns are.
+    """
     rss = "rss"
-    """One RSS 2.0 feed of one item per Record."""
+    """
+    One RSS 2.0 feed named after the Dataset, of one item per Record,
+    its title, link, date and summary taken from the fields the
+    `export.feed.*` settings name.
+    """
     atom = "atom"
-    """One Atom feed of one entry per Record."""
+    """
+    One Atom feed named after the Dataset, of one entry per Record, its
+    title, link, date and summary taken from the fields the
+    `export.feed.*` settings name.
+    """
 
 
 class ExportId(RootModel[str]):
     root: str
     """
     An Export of a Run, named by the engine when its file is whole:
-    `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
-    hexadecimal, so two Exports of the same bytes are one file.
+    `<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's
+    state it was written from (ADR 0003) and the SHA-256 of its bytes in
+    lowercase hexadecimal, so two Exports of the same bytes under one run
+    epoch are one file.
     """
 
 
@@ -570,6 +597,8 @@ class ExportSaved(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch the Export was written under (ADR 0003)."""
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
@@ -598,6 +627,8 @@ class ExportStreamed(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch the Export was written under (ADR 0003)."""
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
@@ -684,6 +715,28 @@ class ForcedBy(StrEnum):
     """The Run's setting."""
     label = "label"
     """The setting of the request's Label."""
+
+
+class GuaranteeClass(StrEnum):
+    """
+    What a Sink's probe proves of its destination (ADR 0026), from the
+    strongest.
+    """
+
+    fenced = "fenced"
+    """A stale run epoch is refused in the same transaction as the write."""
+    record_fenced = "record_fenced"
+    """A stale run epoch cannot overwrite a Record, but can add one."""
+    keyed = "keyed"
+    """
+    A retry lands on the same key, sometimes only within a
+    deduplication window.
+    """
+    at_least_once = "at_least_once"
+    """
+    A Record may arrive more than once; the receiver deduplicates on its
+    delivery ID.
+    """
 
 
 class HandlerSkip(BaseModel):
@@ -2211,6 +2264,13 @@ class Export(BaseModel):
     """The number of the last Record it holds, 0 when it holds none."""
     records: Annotated[int, Field(ge=0)]
     """How many Records it holds."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """
+    The run epoch of the Run's state it was written from, which its ID
+    and its kept file's name carry too, so a destination that compares
+    and sets refuses the Export of a copy an older run epoch fenced
+    (ADR 0003).
+    """
     sha256: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
@@ -2350,7 +2410,7 @@ class SinkReport(BaseModel):
     )
     dead_letters: Annotated[int, Field(ge=0)]
     """How many deliveries are dead letters."""
-    guarantee_class: str
+    guarantee_class: GuaranteeClass
     """Its Guarantee class."""
     name: str
     """Its name."""
@@ -2594,6 +2654,13 @@ class CrawlStartParams(BaseModel):
     `dataset_duplicate`, and a key on a field the schema does not
     require with `dataset_key_invalid`. Its handlers push Records only
     into these.
+    """
+    detached: bool | None = None
+    """
+    Whether the Run outlives the Connection that started it (ADR 0102),
+    as a Recipe's run does: only a code-free crawl with no Hook, started
+    on a Daemon, detaches, and any other such start fails with
+    `detach_unsupported`.
     """
     extraction: CrawlExtraction | None = None
     """

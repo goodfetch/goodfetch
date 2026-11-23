@@ -626,6 +626,9 @@ export class Run extends RunMembers implements AsyncDisposable {
   }
 
   /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint.
+   * `finish()` ends it.
+   *
    * Closes the Run's value; idempotent. A Run still running is stopped
    * first, `stopped` and `incomplete` as an abort by its Client, and can be
    * resumed by starting its Run ID again; a Run started `detached` is not

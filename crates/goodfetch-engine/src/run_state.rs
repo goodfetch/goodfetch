@@ -70,6 +70,7 @@ use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 mod batch;
 mod batch_end;
+mod filesystem;
 pub mod install;
 mod open_batch;
 mod readers;
@@ -78,6 +79,7 @@ mod wal_checkpointer;
 
 pub use batch::{BatchRows, BatchStatement, BatchWriter, SealedBatch};
 pub use batch_end::BatchEnd;
+pub use filesystem::UnsupportedFolder;
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
@@ -120,6 +122,7 @@ const SCHEMA: &[&str] = &[
         binding TEXT,
         clean_up_digest TEXT,
         fixed_settings TEXT NOT NULL DEFAULT '{}',
+        setting_digests TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,
@@ -577,6 +580,14 @@ pub enum RunStateError {
     /// The writer has stopped.
     #[error("the run file's writer has stopped")]
     Closed,
+    /// The file's folder is on a filesystem whose locking SQLite cannot
+    /// rely on (ADR 0049), so it was not opened.
+    #[error(
+        "run state in `{}` is on {}, which the engine keeps no run state on",
+        .0.folder.display(),
+        .0.found
+    )]
+    FilesystemUnsupported(UnsupportedFolder),
 }
 
 impl RunStateError {
@@ -821,8 +832,10 @@ impl RunState {
     ///
     /// # Errors
     ///
-    /// `Sqlite` when the file cannot be opened or its tables created,
-    /// `Format` when it is of a format this engine cannot read.
+    /// `FilesystemUnsupported` when its folder is on a network filesystem
+    /// or a FUSE mount of object storage (ADR 0049), `Sqlite` when the
+    /// file cannot be opened or its tables created, `Format` when it is of
+    /// a format this engine cannot read.
     ///
     /// # Cancel safety
     ///
@@ -837,7 +850,10 @@ impl RunState {
         let opened = options.clone();
         let opened_path = path.clone();
         let (connection, deferring, declared, checkpointing) = owner
-            .blocking(move || open_connections(&opened_path, &opened, &tables))
+            .blocking(move || {
+                filesystem::check(&opened_path)?;
+                open_connections(&opened_path, &opened, &tables)
+            })
             .await?;
         let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
             .map_err(|error| sqlite_error(&path, &error))?;

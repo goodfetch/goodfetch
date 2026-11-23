@@ -12,64 +12,17 @@
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
 use goodfetch_protocol::catalog::ErrorGroup;
-use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
-use goodfetch_protocol::log::LogLevel;
+use goodfetch_protocol::connection::DaemonEndpoint;
 use goodfetch_protocol::run::{
     ReachedLimit, RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags,
 };
-use goodfetch_test_support::{
-    RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, logged, reported_address,
-    tools,
-};
-use serde_json::{Value, json};
+use goodfetch_test_support::{TestEnv, logged};
+use serde_json::json;
 
-use crate::connection::hello;
+use crate::scripted_daemon::{assert_start_lines, scripted_daemon_hearing, traced_daemon_hello};
 
 /// The corpus's script of the case.
 const SCRIPT: &str = "run/start-reaches-its-run.json";
-
-/// This crate's `hello` to a Daemon, carrying the Scripted engine's token
-/// and the `trace` that `logged` records, so a start tells the engine no
-/// other level.
-fn daemon_hello() -> HelloParams {
-    HelloParams {
-        token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
-        log_level: Some(LogLevel::Trace),
-        ..hello()
-    }
-}
-
-/// Starts the Scripted engine as the Daemon of `env`'s home, playing the
-/// case's script with this crate's `hello` in place of the TypeScript
-/// SDK's, and returns it with where it listens.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script and reads its runtime file before any async worker runs"
-)]
-fn daemon(env: &TestEnv) -> (goodfetch_test_support::Process, DaemonEndpoint) {
-    let mut script: Value =
-        serde_json::from_slice(&std::fs::read(engine_script(SCRIPT)).unwrap()).unwrap();
-    script["steps"][0]["expect"]["params"] = serde_json::to_value(daemon_hello()).unwrap();
-    let path = env.folder().join("start-reaches-its-run.json");
-    std::fs::write(&path, serde_json::to_vec(&script).unwrap()).unwrap();
-    let scripted = tools()
-        .unwrap()
-        .path(Tool::ScriptedEngine)
-        .unwrap()
-        .to_owned();
-    let mut command = env.process_command(scripted);
-    command
-        .arg("--script")
-        .arg(&path)
-        .args(["--mode", "socket"])
-        .stderr(std::process::Stdio::null());
-    let process = env.spawn(&mut command).unwrap();
-    let reported = reported_address(&mut process.child()).unwrap();
-    let runtime_file = reported.line["runtime_file"].as_str().unwrap();
-    let found = RuntimeFile::read(runtime_file.as_ref()).unwrap();
-    let endpoint = serde_json::from_value(serde_json::to_value(found.endpoint).unwrap()).unwrap();
-    (process, endpoint)
-}
 
 /// The failure `result` holds.
 pub(crate) fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
@@ -101,7 +54,7 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
         ConnectionRuntime::driven(tokio::runtime::Handle::current()),
         &Network::Os,
         &Endpoint::Daemon(endpoint),
-        daemon_hello(),
+        traced_daemon_hello(),
     )
     .await
     .unwrap();
@@ -134,31 +87,10 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
     }
 }
 
-/// Checks that `log` holds the resume at info and the ended Run at warning,
-/// with their fields, on the start's target, and nothing else there.
-fn assert_start_lines(log: &str) {
-    let start_lines: Vec<&str> = log
-        .lines()
-        .filter(|line| line.contains("goodfetch::client::run"))
-        .collect();
-    assert_eq!(start_lines.len(), 2, "{log}");
-    for (line, (level, started_as)) in start_lines
-        .iter()
-        .zip([("INFO", "resumed"), ("WARN", "ended")])
-    {
-        assert!(
-            line.contains(level)
-                && line.contains("run_id=nightly")
-                && line.contains(&format!("started_as=\"{started_as}\"")),
-            "{log}"
-        );
-    }
-}
-
 #[test]
 fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_each_refusal() {
     let env = TestEnv::new();
-    let (process, endpoint) = daemon(&env);
+    let (process, endpoint) = scripted_daemon_hearing(&env, SCRIPT, &traced_daemon_hello());
     let id = |text: &str| RunId::parse(text).unwrap();
     let runtime = goodfetch_test_support::real_time_runtime();
     let (played, log) = logged(|| runtime.block_on(play(endpoint)));
@@ -178,7 +110,7 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
             "nightly"
         )
     );
-    assert_start_lines(&String::from_utf8(log).unwrap());
+    assert_start_lines(&String::from_utf8(log).unwrap(), "nightly", "nightly");
     assert_eq!(
         (
             no_work.code(),

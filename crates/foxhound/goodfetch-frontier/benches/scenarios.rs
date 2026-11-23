@@ -19,12 +19,14 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
+use goodfetch_engine::settings::catalog_default;
 use goodfetch_frontier::{
     Admitting, BOUNDS_TABLES, Bounds, Candidate, Declared, DomainKeys, DomainQueues, Invariants,
     Narrowing, SCOPE_TABLES, Scope, SharedBudget, Staged, Url, VISITED_TABLES, admit, admit_in,
     url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
+use goodfetch_protocol::foxhound::settings::POLITENESS_BACKOFF_ENABLED;
 use rusqlite::Connection;
 use tokio::time::Instant;
 
@@ -43,6 +45,16 @@ pub(crate) fn requests(heavy: usize, small: usize) -> Vec<(String, i64)> {
         })
     });
     heavy.chain(small).collect()
+}
+
+/// The [`requests`] of the admission scenario, once the process holds the
+/// settings catalog's defaults, which it builds once on its first read.
+/// A Run's settings resolve against them before its Frontier exists, so
+/// that build is the process's, not admission's, which the queues' catalog
+/// waits would otherwise count (#3488).
+pub(crate) fn admission(heavy: usize, small: usize) -> Vec<(String, i64)> {
+    catalog_default::<bool>(&POLITENESS_BACKOFF_ENABLED);
+    requests(heavy, small)
 }
 
 /// Enqueues `requests` in order, each into its domain's queue while it has

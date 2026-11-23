@@ -13,7 +13,8 @@ use crate::variables::{Suite, Variables, current_test};
 ///
 /// # Panics
 ///
-/// If Tokio cannot build it.
+/// If Tokio cannot build it, and under `just test` if the test's exercise
+/// record cannot be opened.
 pub fn runtime() -> tokio::runtime::Runtime {
     started(&mut paused_current_thread())
 }
@@ -23,7 +24,8 @@ pub fn runtime() -> tokio::runtime::Runtime {
 ///
 /// # Panics
 ///
-/// If Tokio cannot build it.
+/// If Tokio cannot build it, and under `just test` if the test's exercise
+/// record cannot be opened.
 pub fn runtime_with_one_blocking_thread() -> tokio::runtime::Runtime {
     started(paused_current_thread().max_blocking_threads(1))
 }
@@ -33,7 +35,8 @@ pub fn runtime_with_one_blocking_thread() -> tokio::runtime::Runtime {
 ///
 /// # Panics
 ///
-/// If Tokio cannot build it.
+/// If Tokio cannot build it, and under `just test` if the test's exercise
+/// record cannot be opened.
 pub fn real_time_runtime() -> tokio::runtime::Runtime {
     started(goodfetch_runtime::current_thread().enable_all())
 }
@@ -45,8 +48,10 @@ fn paused_current_thread() -> tokio::runtime::Builder {
     builder
 }
 
-/// The runtime `builder` builds.
+/// The runtime `builder` builds, the process's exercise record subscriber
+/// installed first (`trace::install_exercise_subscriber`).
 fn started(builder: &mut tokio::runtime::Builder) -> tokio::runtime::Runtime {
+    crate::trace::install_exercise_subscriber();
     builder
         .build()
         .unwrap_or_else(|error| panic!("the test runtime cannot start: {error}"))

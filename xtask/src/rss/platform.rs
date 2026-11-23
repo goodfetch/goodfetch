@@ -17,7 +17,7 @@ pub(crate) enum Platform {
 
 impl Platform {
     /// The platform `xtask` runs on, which is the one the executables it
-    /// measures run on: macOS x64 under Rosetta 2 runs x64 tools.
+    /// measures run on.
     pub(crate) fn current() -> Result<Self> {
         Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
             ("linux", "x86_64") => Self::LinuxX64,

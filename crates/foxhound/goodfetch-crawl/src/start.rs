@@ -28,7 +28,11 @@
 //! Records is refused with `dataset_unknown`, and one that changes its key
 //! with `dataset_key_invalid` (ADR 0103); its declarations, its Labels and
 //! a code-free crawl's extraction among them, are recorded when the Run
-//! resumes.
+//! resumes. A tag only the Daemon's scheduler sets is refused with
+//! `invalid_params`, and a `detached` start of a crawl the program serves,
+//! by its handler or a Hook, or on an engine that is no Daemon, with
+//! `detach_unsupported`, before the Run begins; a code-free crawl started
+//! detached on a Daemon outlives its Connection.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -37,8 +41,8 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    StartLimits, checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error,
-    start_error,
+    InProgram, StartLimits, checkpoint_interval, client_start, resume_run, run_error, run_id,
+    run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
@@ -49,6 +53,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_SERVE, CRAWL_START, CrawlExtraction, CrawlStartParams, LabelDeclaration, Seed,
 };
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
+use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
 };
@@ -95,7 +100,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let resuming = crawls.clone();
     let staging = crawls.clone();
     let redeclared = Redeclared::default();
-    let redeclaring = redeclared.clone();
+    let (redeclaring, redeclared_retry) = (redeclared.clone(), redeclared.clone());
     let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
@@ -129,11 +134,12 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
-        .with_handler(retry::handler(retrying))
+        .with_handler(retry::handler(retrying, redeclared_retry))
         .with_handler(crate::dataset_list::handler())
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
         .with_run_state_tables(code_free::TABLES)
+        .with_run_state_tables(hooks::TABLES)
         .with_run_state_tables(tier_choice::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
@@ -168,12 +174,14 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
 /// (ADR 0138's note of #1926), so its start declares their bound (#2117),
 /// `provenance.log` says whether it keeps a Provenance log, and its delivery
 /// opens and serves its admission, which holds a Politeness of the Run's own
-/// (#2171).
+/// (#2171), and a reopen no start declared its Hooks in code again for is
+/// refused when it has any (ADR 0104's note of #2912).
 const DRIVING: Driving = Driving {
     ended_by: EndedBy::Driver,
     defers_charges: true,
     provenance_log: Some(&PROVENANCE_LOG),
     admits: true,
+    reopen_check: Some(hooks::undeclared),
 };
 
 /// Joins the calling Connection's handler to the live crawl the params
@@ -203,6 +211,22 @@ async fn serve(
         .map_err(|error| run_error(error, &context))
 }
 
+/// What gives the crawl `params` start a handler in the program, if
+/// anything does: its program's crawl handler when it has no `extraction`,
+/// else its Hooks in code (ADRs 0102 and 0104).
+fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
+    if params.extraction.is_none() {
+        return Some(InProgram {
+            key: "extraction",
+            fix: "Give the crawl an `extraction`, so the engine handles each request itself, or start it without `detached`.",
+        });
+    }
+    (!params.hooks.is_empty()).then_some(InProgram {
+        key: "hooks",
+        fix: "Start the crawl without its Hooks in code, `hooks`, or without `detached`.",
+    })
+}
+
 /// A start's inputs: its `seeds`.
 fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
     BTreeMap::from([(
@@ -220,12 +244,12 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    client_start(&params.tags, params.detached, in_program(&params), &context)?;
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();
     let pages = code_free::declare(&mut params, &pages, &work).await?;
     let settings = opened_settings(&mut params, &context).await?;
-    hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
@@ -263,7 +287,7 @@ async fn start(
             ended_by: DRIVING.ended_by,
             initialize: Some(initialize(
                 invariants,
-                (declared.clone(), datasets, recording),
+                (declared.clone(), datasets, recording, hooks.clone()),
                 keys,
                 seeding,
                 admitted,
@@ -275,6 +299,7 @@ async fn start(
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
+            detached: params.detached,
         })
         .await
         .map_err(start_error)?;
@@ -308,8 +333,10 @@ async fn start(
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
             let kept = (opening, declared, serving.payloads().clone(), extraction);
-            redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let resumed = resume_run(&context, run_id, None, settings).await?;
+            // A crawl still ending the Run keeps nothing: the reopen is then
+            // checked as no start's (ADR 0104's note of #2912).
+            let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
+            let resumed = resume_run(&context, run_id, None, settings, kept).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }
@@ -337,6 +364,7 @@ async fn opened_settings(
             recipe: None,
             settings: run_layer(&params.settings, context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
@@ -345,15 +373,17 @@ async fn opened_settings(
     Ok(settings)
 }
 
-/// A new crawl's first rows: its `invariants`, declared Labels, Datasets
-/// and code-free extraction, then its `admitted` seeds, keyed with `keys`
-/// when its gates key work items and under the `seeding` egress policy.
+/// A new crawl's first rows: its `invariants`, declared Labels, Datasets,
+/// code-free extraction and Hooks in code, then its `admitted` seeds,
+/// keyed with `keys` when its gates key work items and under the `seeding`
+/// egress policy.
 fn initialize(
     invariants: Invariants,
-    (declared, datasets, recording): (
+    (declared, datasets, recording, hooks): (
         BTreeMap<String, LabelDeclaration>,
         Datasets,
         Option<CrawlExtraction>,
+        Vec<CrawlHookDeclaration>,
     ),
     keys: Option<Keys>,
     seeding: Policy,
@@ -364,6 +394,7 @@ fn initialize(
         labels::record(connection, &declared)?;
         datasets.record(connection)?;
         code_free::record(connection, recording.as_ref())?;
+        hooks::record(connection, &hooks)?;
         let mut positions = match keys {
             Some(keys) => work_items::Positions::keying(connection, keys)?,
             None => work_items::Positions::of(connection)?,

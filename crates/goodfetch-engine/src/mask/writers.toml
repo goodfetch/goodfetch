@@ -13,6 +13,11 @@ count = 1
 how = "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, as the program gave them"
 
 [[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/hooks.rs"
+count = 1
+how = "holds no value: the Hooks in code a crawl's latest start declared, in order, as the program gave them (names, stages and scopes, never their code)"
+
+[[writer]]
 path = "crates/foxhound/goodfetch-crawl/src/labels.rs"
 count = 2
 how = "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments"
@@ -93,6 +98,11 @@ count = 3
 how = "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference"
 
 [[writer]]
+path = "crates/foxhound/goodfetch-sink/src/sqlite.rs"
+count = 2
+how = "masked: the SQLite Sink's target table holds the Records the run file holds, masked as `Scope::Kept` when the crawl committed them (`goodfetch-dataset`'s `records.rs`, #972), with their Run's ID, run epoch, Dataset, number and commit time; its delivery log `_goodfetch_deliveries` holds only target and Dataset names, a Run's ID, its run epoch and a number"
+
+[[writer]]
 path = "crates/goodfetch-collie/src/executable/logs.rs"
 count = 5
 how = "masked: every log writer is `Masked`, `Scope::KeptOutput`"
@@ -106,6 +116,11 @@ how = "masked: the CLI prints what the engine's replies hold, masked by the RPC 
 path = "crates/goodfetch-collie/src/executable/service.rs"
 count = 1
 how = "holds no value: the service manager's definitions and the Daemon's token record, no Run's value"
+
+[[writer]]
+path = "crates/goodfetch-collie/src/executable/skills.rs"
+count = 1
+how = "holds no value: `skill install` writes the skill files the executable embeds and their digest marker, no Run's value"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/age_notice.rs"

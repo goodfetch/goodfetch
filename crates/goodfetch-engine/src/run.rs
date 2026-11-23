@@ -17,20 +17,23 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
-    CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
-    FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
-    RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
-    WriteSide,
+    CHECKPOINT_BEHIND, CHECKPOINT_INTERVAL, CheckpointBehindDetails, FILE_WRITE_FAILED,
+    FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails, FormatVersionUnsupportedDetails,
+    RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME, RunCheckpointParams, RunMigrateParams,
+    RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails, WriteSide,
 };
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
+use goodfetch_protocol::run::{RESERVED_TAG_PREFIX, Tags};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
@@ -42,6 +45,9 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
     RunListParams, RunProgressParams,
+};
+use goodfetch_protocol::run::{
+    RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
@@ -70,15 +76,19 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    self, EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
-    StartError, Started, StorageExhausted,
+    self, Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError,
+    Resume, Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
+    UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
+mod detached;
 mod starts;
+
+pub use detached::{InProgram, client_start};
 
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
@@ -186,6 +196,27 @@ pub fn run_id(run_id: Option<&str>) -> Result<Option<RunId>, CallError> {
         .transpose()
 }
 
+/// Checks the tags a start from a Client gives its Run: the reserved tags
+/// of a Schedule's run, [`goodfetch_protocol::run::SCHEDULER_TAGS`], are
+/// the Daemon's scheduler's alone (ADR 0036), which starts its Runs
+/// without a Client.
+///
+/// # Errors
+///
+/// `invalid_params` naming the first such tag.
+fn client_tags(tags: &Tags) -> Result<(), CallError> {
+    match tags.scheduler_reserved() {
+        Some(tag) => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "The tag `{tag}` is reserved for the Daemon's scheduler; tag the Run without the prefix `{RESERVED_TAG_PREFIX}`.",
+                tag = tag.as_str()
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The Limits a start gives its Run (ADRs 0041, 0080 and 0102), which every
 /// Product's start, `run.start` and Foxhound's `crawl.start`, applies alike:
 /// checked before the Run starts, then given to it once it started.
@@ -246,15 +277,11 @@ pub fn start_error(error: StartError) -> CallError {
                 differences,
             },
         ),
-        StartError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        StartError::InUse { run_id, folder } => in_use(run_id, &folder),
         StartError::Live { run_id, folder } => running_here(run_id, &folder),
+        StartError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         StartError::Unavailable {
             run_id,
             folder,
@@ -669,6 +696,39 @@ fn stopped() -> CallError {
     )
 }
 
+/// `session_bound_to_machine` for the Run `run_id` (ADR 0056).
+fn bound_to_machine(run_id: RunId) -> CallError {
+    CallError::new(
+        &SESSION_BOUND_TO_MACHINE,
+        format!(
+            "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
+        ),
+        &SessionBoundToMachineDetails { run_id },
+    )
+}
+
+/// `checkpoint_behind` for a Checkpoint behind the run file here (ADR
+/// 0002's note of #2322).
+fn checkpoint_behind(behind: Behind) -> CallError {
+    let Behind {
+        run_id,
+        checkpoint,
+        run_file,
+    } = behind;
+    CallError::new(
+        &CHECKPOINT_BEHIND,
+        format!(
+            "The Checkpoint given stands behind the run file of the Run `{run_id}` on this machine, so resuming from it would lose the work done since; nothing was changed."
+        ),
+        &CheckpointBehindDetails {
+            run_id,
+            checkpoint,
+            run_file,
+            fix: "Resume without `checkpoint` to go on from the run file here, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.".to_owned(),
+        },
+    )
+}
+
 /// The Error code a Run's failure answers `context`'s call with.
 pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
@@ -700,14 +760,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             );
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
-        RunError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        RunError::InUse { run_id, folder } => in_use(run_id, &folder),
         RunError::Format {
             format,
             found,
@@ -725,13 +778,9 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 None => format_refusal(format, &found, compatibility),
             }
         }
-        RunError::BoundToMachine(run_id) => CallError::new(
-            &SESSION_BOUND_TO_MACHINE,
-            format!(
-                "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
-            ),
-            &SessionBoundToMachineDetails { run_id },
-        ),
+        RunError::ReopenRefused(refused) => *refused,
+        RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
+        RunError::Behind(behind) => checkpoint_behind(behind),
         RunError::WriteFailed {
             run_id,
             folder,
@@ -750,6 +799,9 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 side: WriteSide::Engine,
             },
         ),
+        RunError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         RunError::Unavailable {
             run_id,
             folder,
@@ -782,6 +834,39 @@ pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -
         &RunDetails {
             run_id,
             path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_in_use`: another engine writes the Run `run_id` in `folder`.
+fn in_use(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!("Another engine writes the Run `{run_id}`."),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_state_filesystem_unsupported`: the folder of `run_id` is on a
+/// filesystem the engine keeps no run state on (ADR 0049).
+fn filesystem_unsupported(run_id: RunId, refused: &UnsupportedFolder) -> CallError {
+    CallError::new(
+        &RUN_STATE_FILESYSTEM_UNSUPPORTED,
+        format!(
+            "The folder of the Run `{run_id}` is on {}, whose locking SQLite cannot rely on, so the engine keeps no run state there.",
+            refused.found
+        ),
+        &RunStateFilesystemUnsupportedDetails {
+            run_id,
+            path: refused.folder.display().to_string(),
+            filesystem: refused.filesystem,
+            fix: format!(
+                "Set `{}` to a folder on a local disk or a block volume, such as EBS, a Persistent Disk or an Azure managed disk.",
+                RUN_STATE_LOCATION.name
+            ),
         },
     )
 }
@@ -962,6 +1047,7 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    client_tags(&params.tags)?;
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
         .engine()
@@ -972,6 +1058,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
@@ -994,6 +1081,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
+            detached: false,
         })
         .await
         .map_err(start_error)?;
@@ -1004,7 +1092,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
         },
-        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
+        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings, true).await?,
         Started::Ended(ended) => ended,
     };
     limits.give(&started, &context).await?;
@@ -1137,10 +1225,7 @@ async fn pause(params: RunParams, context: CallContext) -> Result<RunReport, Cal
         .map_err(|error| run_error(error, &context))
 }
 
-async fn migrate(
-    params: RunCheckpointParams,
-    context: CallContext,
-) -> Result<RunReport, CallError> {
+async fn migrate(params: RunMigrateParams, context: CallContext) -> Result<RunReport, CallError> {
     context
         .runs()
         .stop(
@@ -1162,25 +1247,34 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    resume_run(
-        &context,
-        params.run_id,
-        params.checkpoint.map(PathBuf::from),
-        settings,
-    )
-    .await
+    // A roll-back is recorded as the caller's (ADR 0002's note of #2322).
+    let rollback = params.rollback.then(|| RollbackBy {
+        actor: Actor::Person {
+            name: context.person(),
+        },
+        surface: context.surface(),
+    });
+    let checkpoint = params.checkpoint.map(|path| FromCheckpoint {
+        path: PathBuf::from(path),
+        rollback,
+    });
+    resume_run(&context, params.run_id, checkpoint, settings, false).await
 }
 
 /// Resumes the Run `run_id` from its run file, or the Checkpoint at
 /// `checkpoint`, under `settings`, and starts its kind's driver, as
 /// `run.resume` does and a start under the ID of an interrupted Run does
-/// (ADR 0102): a Run this engine runs already raises `run_in_use`, and a
-/// finished one is answered as it ended.
+/// (ADR 0102), `redeclared` for a start's, which declared again what its
+/// program holds: a Run this engine runs already raises `run_in_use`, a
+/// finished one is answered as it ended, and one its kind's
+/// [`Driving::reopen_check`](crate::runs::Driving::reopen_check) refuses
+/// when no start `redeclared` stays as it is.
 ///
 /// # Errors
 ///
@@ -1188,8 +1282,9 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
 pub async fn resume_run(
     context: &CallContext,
     run_id: RunId,
-    checkpoint: Option<PathBuf>,
+    checkpoint: Option<FromCheckpoint>,
     settings: RunSettings,
+    redeclared: bool,
 ) -> Result<RunStarted, CallError> {
     let resumed = context
         .runs()
@@ -1200,6 +1295,7 @@ pub async fn resume_run(
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
+            redeclared,
         })
         .await
         .map_err(|error| run_error(error, context))?;
@@ -1240,9 +1336,16 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
     } else {
         Forwarded::No
     };
+    // A person's Client aborts as the person it acts for (ADRs 0031 and
+    // 0113), whom the calls the abort cancels name.
+    let by = if context.surface().is_a_person() {
+        Aborter::person(context.person())
+    } else {
+        Aborter::by(StoppedBy::Client)
+    };
     context
         .runs()
-        .abort(params.run_id, StoppedBy::Client, forwarded)
+        .abort(params.run_id, by, forwarded)
         .await
         .map_err(|error| run_error(error, &context))
 }

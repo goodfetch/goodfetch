@@ -32,7 +32,7 @@ mod cache;
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 pub use goodfetch_protocol::dns::IpFamily;
@@ -166,9 +166,60 @@ impl ResolverConfiguration {
 }
 
 /// The system's resolver configuration could not be read.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 #[error("the system's resolver configuration cannot be read: {0}")]
 pub struct ConfigurationUnreadable(String);
+
+/// Where a resolver's configuration comes from: the system's, read the first
+/// time a route the engine's own resolver answers needs it and kept for
+/// every clone, or one given.
+///
+/// Off Linux, a direct route asks the system's resolver, so it never reads
+/// the system's configuration: a system that cannot give it still serves
+/// direct connections.
+#[derive(Clone, Debug)]
+pub struct ResolverSource(Source);
+
+#[derive(Clone, Debug)]
+enum Source {
+    System(Arc<OnceLock<Result<ResolverConfiguration, ConfigurationUnreadable>>>),
+    Given(Arc<ResolverConfiguration>),
+}
+
+impl ResolverSource {
+    /// The system's configuration, read once, on the first route that needs
+    /// it.
+    pub fn system() -> Self {
+        Self(Source::System(Arc::default()))
+    }
+
+    /// The configuration the engine's resolver uses on `route`. On a route
+    /// it never asks, which is what [`Dns::lookup`] decides, the
+    /// configuration has no name server and is never read.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigurationUnreadable`] when `route` needs the system's
+    /// configuration and it cannot be read.
+    pub fn for_route(
+        &self,
+        route: Route,
+    ) -> Result<ResolverConfiguration, ConfigurationUnreadable> {
+        match &self.0 {
+            Source::Given(configuration) => Ok(ResolverConfiguration::clone(configuration)),
+            Source::System(_) if !asks_the_engine(route) => {
+                Ok(ResolverConfiguration::name_servers([]))
+            }
+            Source::System(read) => read.get_or_init(ResolverConfiguration::system).clone(),
+        }
+    }
+}
+
+impl From<ResolverConfiguration> for ResolverSource {
+    fn from(configuration: ResolverConfiguration) -> Self {
+        Self(Source::Given(Arc::new(configuration)))
+    }
+}
 
 /// How a Session's connections leave the machine, which decides who
 /// resolves its host names.

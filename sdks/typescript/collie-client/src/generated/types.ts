@@ -1147,7 +1147,7 @@ export type RouteId = string;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StoppedBy".
  */
-export type StoppedBy = "client" | "program" | "browser";
+export type StoppedBy = "person" | "client" | "program" | "browser";
 /**
  * What kind of Run it is: a Collie Run its program drives, or a crawl
  * (ADR 0102), which its start's inputs name.
@@ -1182,6 +1182,11 @@ export type StopReason =
        */
       by: StoppedBy;
       kind: "abort";
+      /**
+       * Whom the aborting Client acts for (ADR 0031), set when `by` is
+       * `person`.
+       */
+      person?: string | null;
     }
   | {
       kind: "pause";
@@ -1932,7 +1937,9 @@ export interface ClickParams {
 /**
  * A locator (ADR 0085): what an action looks for on a page, resolved
  * again at each use, never a handle on an element. This tracer's locators
- * are CSS selectors.
+ * are CSS selectors. Whether it reaches inside a closed shadow root
+ * depends on the browser (ADR 0121): a CSS selector reaches open roots
+ * only today.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Locator".
@@ -3382,6 +3389,17 @@ export interface HelloParams {
    */
   form?: Form | null;
   /**
+   * The program's SDK handlers, their names by Plugin kind, as
+   * `connect()` registers them (ADR 0104). The only handler of a kind
+   * that one setting chooses becomes that setting's value at the
+   * connection scope, with the origin `registered`, beneath every
+   * other run-layer value. A kind the engine's Product lacks refuses
+   * the `hello`.
+   */
+  handlers?: {
+    [k: string]: string[];
+  };
+  /**
    * On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
    * Connection as a Client that keeps it alive, holding off its idle
    * stop and a handover to its major's pick as every other surface's
@@ -3465,6 +3483,17 @@ export interface HelloResult {
    * The protocol version the engine speaks.
    */
   protocolVersion: ProtocolVersion;
+  /**
+   * Each `timeout.*` setting the engine's Product honours, as it
+   * resolved at the Connection's layers (the engine's, beneath the
+   * `hello`'s own `settings`), in milliseconds: a call the Client queues
+   * past `max_calls_in_flight` with no timeout of its own fails at its
+   * setting's value with `deadline_exceeded`, `waited_for`
+   * `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
+   * setting that resolves no timeout is left out; empty from an engine
+   * that resolves none, such as the Scripted engine.
+   */
+  timeouts?: SettingLimit[];
 }
 /**
  * An Attached engine's private endpoint (ADRs 0024 and 0031): where it
@@ -6022,6 +6051,9 @@ export interface RunCheckpointParams {
   /**
    * Where to write the Checkpoint, a path on the engine's machine; by
    * default where the engine keeps the Run's Checkpoints, its own folder.
+   * The catalog's caller alone gives it, such as Goodfetch Cloud: an
+   * SDK's `checkpoint()` takes no path, which would break on a Daemon or
+   * Goodfetch Cloud (ADR 0102).
    */
   location?: string | null;
   /**
@@ -6254,6 +6286,24 @@ export interface TimeRange {
    * The point it ends before, excluded.
    */
   until?: PointInTime | null;
+}
+/**
+ * What `run.migrate` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunMigrateParams".
+ */
+export interface RunMigrateParams {
+  /**
+   * Where to write the Checkpoint the Run is resumed from, a path on the
+   * engine's machine; by default where the engine keeps the Run's
+   * Checkpoints, its own folder.
+   */
+  location?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
 }
 /**
  * What `run.migrating` carries.
@@ -6619,6 +6669,14 @@ export interface RunResumeParams {
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
+  /**
+   * Whether a `checkpoint` behind the Run's run file on this machine, or
+   * given where that file cannot be read, replaces it all the same,
+   * rolling the Run back to the Checkpoint, as the Audit log records; by
+   * default such a Checkpoint is refused, with `checkpoint_behind` or the
+   * error the file's read gave. Without `checkpoint` it changes nothing.
+   */
+  rollback?: boolean;
   /**
    * The Run's ID.
    */

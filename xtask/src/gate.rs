@@ -21,8 +21,9 @@
 //!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`,
 //!   `reuse`, `covered` for the Quick suite and the codegen tests, whose
 //!   tests the Pre-merge suite's units hold, `left` for a step a hosted job
-//!   leaves to the layer that owns it, or `red` for one a hosted run went red
-//!   on on this tree), `<step>.members` and `<step>.why` lines, which
+//!   leaves to the layer that owns it, or the Release cell to its own steps,
+//!   or `red` for one a hosted run went red on on this tree), `<step>.members`
+//!   and `<step>.why` lines, which
 //!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
 //!   the same in words on stderr for the run's log, with the evidence that
 //!   reaches a member the selection misses; and writes the plan and the
@@ -46,14 +47,12 @@
 //! - **duplicates**: from every run in the records, each unit a run ran, not
 //!   reused, on a tree where an earlier run had recorded it green, naming both
 //!   layers (`duplicates`): nothing runs twice on one tree.
+//! - **shards**: whether a hosted run's Pre-merge shards ran the gate's own
+//!   selection of the plan's members, each test once (`shards`), before the
+//!   run records their units.
 //! - **quick**: whether `just quick` already passed with a key, and a run's
 //!   result, for the implementer's `just quick` and the pre-push hook
 //!   (`quick_runs`).
-//!
-//! Size: one concern, the `xtask gate` command: each subcommand's entry,
-//! and the plan's run, which reads the records (`Reader`), renders the plan
-//! and writes the carried results; each subcommand's own rules live in the
-//! modules below.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -68,7 +67,10 @@ mod host;
 mod lint;
 mod plan;
 mod quick_runs;
+mod record;
+mod release;
 mod runs;
+mod shards;
 mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,13 +84,12 @@ use anyhow::{Context as _, Result, bail};
 use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, github, metadata, output};
-use attribution::{Evidence, Judged, StressEvidence};
 use earlier::{Previous, StressBase};
 use evidence::RustInputs;
 use plan::{
-    Action, GateRun, Head, Layer, LintReads, Outcome, Pin, Planned, Step, Touched, UNOWNED, short,
-    unit,
+    Action, GateRun, Head, Layer, LintReads, Outcome, Pin, Planned, Touched, UNOWNED, short, unit,
 };
+use steps::Step;
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
@@ -116,46 +117,8 @@ pub(crate) enum Command {
     /// into `records`.
     Plan(PlanArguments),
     /// Appends a step's result to the record of the run on HEAD, for the
-    /// units the plan ran; nothing without a plan for HEAD.
-    Record {
-        #[arg(long)]
-        records: std::path::PathBuf,
-        /// The head the plan was made for: HEAD must still be it.
-        #[arg(long)]
-        head: String,
-        /// The layer that ran the step, which its result names.
-        #[arg(long, value_enum)]
-        by: Layer,
-        /// Now, in seconds since the Unix epoch.
-        #[arg(long)]
-        now: u64,
-        /// The step, by its name in the plan.
-        #[arg(long)]
-        step: String,
-        #[arg(long, value_enum)]
-        status: Status,
-        /// A failed step run per member's nextest JUnit file, or a folder
-        /// of its `nextest*.xml` files, repeatable: each crate that passed
-        /// in full by them records green, its other members red
-        /// (`attribution`). Without it every member of a failed step is red.
-        #[arg(long)]
-        junit: Vec<std::path::PathBuf>,
-        /// The stress run's selection, its `<count>\t<runner>\t<test ID>`
-        /// lines: a crate passed in full when each of its selected nextest
-        /// tests passed its count of times in the `--junit` files.
-        #[arg(long, requires_all = ["red_commands", "started"])]
-        selection: Option<std::path::PathBuf>,
-        /// The stress run's `<runner>\t<status>` lines, one a command that
-        /// went red; with `--selection`. A red run the `--junit` files do not
-        /// account for leaves no earned passes.
-        #[arg(long, requires = "selection")]
-        red_commands: Option<std::path::PathBuf>,
-        /// When the stress run began, in seconds since the Unix epoch; with
-        /// `--selection`. The passes it gives age from here, which is no later
-        /// than the first of them.
-        #[arg(long, requires = "selection")]
-        started: Option<u64>,
-    },
+    /// units the plan ran; nothing without a plan for HEAD (`record`).
+    Record(record::Arguments),
     /// Prints, as a JSON array, each result an incremental run on the full
     /// run's tree reused and the full run on `full` did not find green, with
     /// its kind (`miss`, `suspect`, `unchecked`), unit, step and member; each
@@ -184,7 +147,15 @@ pub(crate) enum Command {
         /// The folder of the gate's records.
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The folder of the hosted runs' records that `ci/hosted-records.sh`
+        /// downloaded for `just merge`, whose units count as run there.
+        #[arg(long)]
+        hosted_records: Option<std::path::PathBuf>,
     },
+    /// Fails when a hosted run's Pre-merge shards did not run the archive's
+    /// listing of the plan's members, each test once, or left a snapshot of
+    /// theirs unread (`shards`).
+    Shards(shards::Arguments),
     /// `just quick`'s runs in the gate's records (`quick_runs`).
     Quick {
         #[command(subcommand)]
@@ -262,67 +233,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     match command {
         Command::Steps { form } => output::line(steps::render(form).trim_end()),
         Command::Plan(arguments) => plan_run(environment, &arguments)?,
-        Command::Record {
-            records,
-            head,
-            by,
-            now,
-            step,
-            status,
-            junit,
-            selection,
-            red_commands,
-            started,
-        } => {
-            let Some(step) = Step::from_name(&step) else {
-                bail!("no gate step is named {step}");
-            };
-            // The step's crates are read only for a result they can change.
-            let evidence = if status == Status::Fail
-                && step.per_member()
-                && (!junit.is_empty() || selection.is_some())
-            {
-                let members = WorkspaceMembers::read(&environment.cargo, root)?;
-                let crates = members
-                    .all()
-                    .filter(|(_, kind)| *kind == affected::Kind::Crate)
-                    .map(|(name, _)| name)
-                    .collect();
-                // The Pre-merge suite judges unreferenced insta snapshots,
-                // which cargo-insta does only once every test passed.
-                let unjudged = if step == Step::PreMerge {
-                    snapshot_holders(root, &members)?
-                } else {
-                    BTreeSet::new()
-                };
-                Some(Evidence {
-                    junit: junit.iter().map(|path| environment.path(path)).collect(),
-                    stress: selection
-                        .zip(red_commands)
-                        .map(|(selection, red_commands)| StressEvidence {
-                            selection: environment.path(&selection),
-                            red_commands: environment.path(&red_commands),
-                        }),
-                    started,
-                    crates,
-                    unjudged,
-                })
-            } else {
-                None
-            };
-            record_run(
-                root,
-                &environment.path(&records),
-                &Recorded {
-                    head,
-                    by,
-                    now,
-                    step,
-                    status,
-                    evidence,
-                },
-            )?;
-        }
+        Command::Record(arguments) => record::run(arguments, environment)?,
         Command::Compare {
             records,
             runs,
@@ -333,9 +244,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return compare::compare(root, &records, &runs, &full, since.as_deref());
         }
-        Command::Duplicates { records } => {
-            return duplicates::check(&environment.path(&records));
+        Command::Duplicates {
+            records,
+            hosted_records,
+        } => {
+            let hosted = hosted_records.map(|folder| environment.path(&folder));
+            return duplicates::check(&environment.path(&records), hosted.as_deref());
         }
+        Command::Shards(arguments) => return shards::run(&arguments, environment),
         Command::Quick { command } => return quick_runs::run(command, environment),
     }
     Ok(ExitCode::SUCCESS)
@@ -352,16 +268,14 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         return plan_dirty(&plan_file, options.form);
     }
 
-    let base = git::commit(
-        root,
-        &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
-    )?;
+    let base = plan_base(root, options.layer, &head)?;
     let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
     let image = host::ci_image(root, &tree).unwrap_or_default();
     let host = plan_host(environment, options, &image);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
+    let release_differs = release::differing(options.layer, root, &members_read, &shuffled)?;
     let lint = lint::Reads {
         root,
         now: options.now,
@@ -384,6 +298,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
             image: &image,
             repository: &options.head_repository,
         },
+        release_differs: &release_differs,
     };
     let hosted = match &options.hosted_records {
         Some(folder) if !options.full => earlier::hosted(root, &environment.path(folder), &head)?,
@@ -409,7 +324,11 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         head: &head,
         target: &target,
     };
-    let (touched, beyond) = reader.touched_by_origin(previous.into_iter().chain(&hosted))?;
+    // The Release suite reads a result of its own tree alone, whose change
+    // since its head is none; the other heads may not even be fetched.
+    let of_tree = (options.layer == Layer::Release).then_some(tree.as_str());
+    let (touched, beyond) =
+        reader.touched_by_origin(previous.into_iter().chain(&hosted), of_tree)?;
     let planned = plan::plan(
         &gated,
         &plan::Earlier {
@@ -442,6 +361,18 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         return Ok(());
     }
     write(records, &carried(head, base, host, &planned), &machine)
+}
+
+/// The commit the head's change starts from: its merge base with `main`, or
+/// on the layer `release` the head itself, since the Release suite tests a
+/// commit of `main` on its own, with no change to compare and no
+/// `origin/main` in its checkout.
+fn plan_base(root: &Path, layer: Layer, head: &str) -> Result<String> {
+    if layer == Layer::Release {
+        return Ok(head.to_owned());
+    }
+    let base = git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?;
+    Ok(git::commit(root, &base)?)
 }
 
 /// The fingerprint the plan's records carry: the hosted one on the hosted
@@ -613,15 +544,23 @@ impl Reader<'_> {
     fn touched_by_origin<'r>(
         &self,
         runs: impl IntoIterator<Item = &'r GateRun>,
+        of_tree: Option<&str>,
     ) -> Result<(BTreeMap<String, Touched>, Vec<String>)> {
         let origins: BTreeSet<&String> = runs
             .into_iter()
             .flat_map(|run| {
                 run.units
                     .values()
-                    .filter(|outcome| outcome.green)
+                    .filter(|outcome| {
+                        outcome.green && of_tree.is_none_or(|tree| outcome.tree == tree)
+                    })
                     .map(|outcome| &outcome.origin)
-                    .chain(run.earned.values().map(|earned| &earned.origin))
+                    .chain(
+                        run.earned
+                            .values()
+                            .filter(|_| of_tree.is_none())
+                            .map(|earned| &earned.origin),
+                    )
             })
             .collect();
         let mut rust = None;
@@ -858,7 +797,7 @@ fn render(
                 format!("green on {}", origins(carried)),
             ),
             Action::Covered { by } => ("covered", "-".to_owned(), plan::covered_why(*by)),
-            Action::Left { owner } => ("left", "-".to_owned(), plan::left_why(*owner)),
+            Action::Left { owner, by } => ("left", "-".to_owned(), plan::left_why(*owner, *by)),
             Action::Red { why } => ("red", "-".to_owned(), why.clone()),
         };
         if step.counts_passes() {
@@ -932,7 +871,7 @@ fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
                 previous.map_or("-", |(previous, _)| short(previous))
             ),
             Action::Covered { by } => format!("not run: {}", plan::covered_why(*by)),
-            Action::Left { owner } => format!("not run: {}", plan::left_why(*owner)),
+            Action::Left { owner, by } => format!("not run: {}", plan::left_why(*owner, *by)),
             Action::Red { why } => {
                 format!("red, not run again here: {why}, so the gate is red (ADR 0064)")
             }
@@ -958,129 +897,6 @@ fn origins(carried: &BTreeMap<String, Outcome>) -> String {
         .map(|outcome| format!("{} by {}", short(&outcome.origin), outcome.by.name()))
         .collect();
     origins.into_iter().collect::<Vec<_>>().join(", ")
-}
-
-/// A step's result, for the head its plan was made for.
-struct Recorded {
-    head: String,
-    by: Layer,
-    now: u64,
-    step: Step,
-    status: Status,
-    /// What a failed step run per member's crates are judged by.
-    evidence: Option<Evidence>,
-}
-
-/// The crates whose folders hold a committed insta snapshot (`.snap`).
-fn snapshot_holders(root: &Path, members: &WorkspaceMembers) -> Result<BTreeSet<String>> {
-    let crates: BTreeSet<String> = members
-        .all()
-        .filter(|(_, kind)| *kind == affected::Kind::Crate)
-        .map(|(name, _)| name)
-        .collect();
-    Ok(git::line(root, &["ls-files", "--", "*.snap"])?
-        .lines()
-        .filter_map(|path| members.owner(path))
-        .filter(|owner| crates.contains(owner))
-        .collect())
-}
-
-/// Appends a step's result to the record of the run on the planned head,
-/// for the units its plan ran. HEAD must still be that head and the tree
-/// clean, else the result holds for another tree: the plan is dropped, so
-/// nothing more is recorded, and the step fails.
-fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
-    let Recorded {
-        head,
-        by,
-        now,
-        step,
-        status,
-        evidence,
-    } = recorded;
-    let plan_file = runs::plan_file(records, head);
-    let Ok(plan) = std::fs::read_to_string(&plan_file) else {
-        output::error(&format!(
-            "Gate: no plan for {head}, so {} is not recorded",
-            step.name()
-        ));
-        return Ok(());
-    };
-    let checked_out = git::commit(root, "HEAD")?;
-    let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
-    if &checked_out != head || dirty {
-        std::fs::remove_file(&plan_file)
-            .with_context(|| format!("removing {}", plan_file.display()))?;
-        bail!(
-            "the gate planned {head} on a clean tree, but HEAD is {checked_out}{}: {} is not recorded, and nothing more of this run is",
-            if dirty {
-                " with uncommitted changes"
-            } else {
-                ""
-            },
-            step.name()
-        );
-    }
-    let value = |key: &str| {
-        plan_value(&plan, key).with_context(|| format!("reading {}", plan_file.display()))
-    };
-    let action = value(&format!("{}.action", step.name()))?;
-    let members = if step.per_member() {
-        match action {
-            "run" => plan_list(value("members")?),
-            "part" => plan_list(value(&format!("{}.members", step.name()))?),
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    let judged = match evidence {
-        Some(evidence) if *status == Status::Fail => evidence.judge(*step, &members),
-        _ => Judged::default(),
-    };
-    let earned = if step.counts_passes() {
-        let kept = plan_list(value(&format!("{}.earned", step.name()))?);
-        runs::earned_the_plan_kept(records, head, &kept)
-            .with_context(|| format!("{} is not recorded", step.name()))?
-    } else {
-        BTreeMap::new()
-    };
-    let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
-    let outcome = |member: Option<&str>, green: bool| {
-        // A green result that counted earlier passes is as old as they are.
-        let counted = member
-            .and_then(|member| earned.get(member))
-            .filter(|_| green);
-        Outcome {
-            green,
-            origin: head.clone(),
-            tree: tree.clone(),
-            at: counted.map_or(*now, |passes| passes.at),
-            by: *by,
-            earned_on: counted.map(|passes| passes.origin.clone()),
-        }
-    };
-    let text: String = if step.per_member() {
-        members
-            .iter()
-            .map(|member| {
-                let green = *status == Status::Pass || judged.passed.contains(member);
-                runs::line(
-                    &unit(*step, Some(member)),
-                    &outcome(Some(member.as_str()), green),
-                )
-            })
-            .collect()
-    } else {
-        runs::line(&unit(*step, None), &outcome(None, *status == Status::Pass))
-    };
-    output::append(&runs::file(records, head), &text)?;
-    if step.counts_passes() {
-        let started = evidence.as_ref().and_then(|evidence| evidence.started);
-        let kept = runs::add_earned(&earned, judged.clean, head, started.unwrap_or(*now));
-        runs::write_earned(records, head, &kept)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

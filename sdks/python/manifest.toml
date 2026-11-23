@@ -69,7 +69,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -78,7 +77,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -88,7 +86,6 @@ receiver = "Collie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -159,7 +156,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -168,7 +164,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -178,7 +173,6 @@ receiver = "AsyncCollie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -250,7 +244,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -259,7 +252,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -269,7 +261,6 @@ receiver = "Connection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -331,7 +322,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -340,7 +330,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -350,7 +339,6 @@ receiver = "AsyncConnection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -517,7 +505,6 @@ receiver = "AsyncRunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -527,7 +514,6 @@ receiver = "AsyncRunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -537,7 +523,6 @@ receiver = "RunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -547,7 +532,6 @@ receiver = "RunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -1289,6 +1273,98 @@ words = ["async", "connect", "over"]
 form = "opener"
 
 [[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "AsyncTestEngine"
+entry = "none"
+reason = "A real Collie engine for a test in the async API (ADR 0105), an Attached engine in a temporary Goodfetch home with a cleared environment, `egress.offline` on and short durations, its browsers from the caller's Browser cache."
+only = "Python's async twin (ADR 0081): TypeScript's and Rust's `TestEngine` are async."
+words = ["async", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "start"
+entry = "none"
+reason = "Starts the test engine with the client package's `TestEngineOptions`, answering a `StartingTestEngine` to await or open with `async with`."
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "connection"
+entry = "none"
+reason = "The `AsyncCollie` connected to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "StartingTestEngine"
+entry = "none"
+reason = "An `AsyncTestEngine` being started, which `AsyncTestEngine.start()` answers: awaited, or opened with `async with`."
+only = "Python's opening of its async twin (ADR 0081), as `Connecting` is; TypeScript's and Rust's `start()` answer the started engine."
+words = ["starting", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "A real Collie engine for a test in the sync API (ADR 0105), as `AsyncTestEngine` is in the async one."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "start"
+entry = "none"
+reason = "Starts the test engine with the client package's `TestEngineOptions` and answers it, open."
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The `Collie` connected to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "The client package's `TestEngineOptions`, re-exported: what a test engine starts with (ADR 0105)."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
 package = "goodfetch_foxhound"
 receiver = "(module)"
 member = "ExperimentalWarning"
@@ -1338,7 +1414,6 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1347,8 +1422,15 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "start_crawl"
+entry = "crawl.start"
+words = ["start", "crawl"]
 form = "opener"
 
 [[member]]
@@ -1357,7 +1439,6 @@ receiver = "Foxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -1428,7 +1509,6 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1437,8 +1517,15 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "start_crawl"
+entry = "crawl.start"
+words = ["start", "crawl"]
 form = "opener"
 
 [[member]]
@@ -1447,7 +1534,6 @@ receiver = "AsyncFoxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `AsyncCollie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -1485,6 +1571,275 @@ entry = "none"
 reason = "An `AsyncFoxhound` being opened, which `AsyncFoxhound.connect()` answers: awaited, or opened with `async with`."
 only = "Python's opening of its async twin (ADR 0081); TypeScript's and Rust's `connect()` answer the open Connection."
 words = ["connecting"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Crawl"
+entry = "none"
+reason = "A crawl's declaration whose handlers are plain functions (ADRs 0081 and 0093), which the program holds with no connection and `crawl.start` sends."
+words = ["crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "label"
+entry = "none"
+reason = "Declares a Label, with no Payload, a Pydantic model's or a JSON Schema's, which `crawl.start` sends with the crawl's declaration (ADR 0093)."
+words = ["label"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "handle"
+entry = "none"
+reason = "A decorator that attaches a Label's handler and returns it unchanged; the program runs it for each `crawl_request.handle` the engine sends (ADR 0093)."
+words = ["handle"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Crawl"
+member = "dataset"
+entry = "none"
+reason = "Declares a Dataset, which `crawl.start` sends with the crawl's declaration (ADR 0103)."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawl"
+entry = "none"
+reason = "A crawl's declaration whose handlers are `async def` functions, run as tasks of the Run's task group (ADRs 0081 and 0093)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "label"
+entry = "none"
+reason = "`Crawl.label` in the async API."
+words = ["label"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "handle"
+entry = "none"
+reason = "`Crawl.handle` in the async API, for an `async def` handler."
+words = ["handle"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawl"
+member = "dataset"
+entry = "none"
+reason = "`Crawl.dataset` in the async API."
+words = ["dataset"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Label"
+entry = "none"
+reason = "A kind of page a crawl handles, with its Payload's type (ADR 0093)."
+words = ["label"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Label"
+member = "name"
+entry = "none"
+reason = "The name the Label was declared with, read without a round trip."
+words = ["name"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Dataset"
+entry = "none"
+reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."
+words = ["dataset"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Dataset"
+member = "name"
+entry = "none"
+reason = "The name the Dataset was declared with, read without a round trip."
+words = ["name"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlContext"
+entry = "none"
+reason = "What a plain-function handler is given for one attempt of a request of its Label (ADR 0093)."
+words = ["crawl", "context"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "request"
+entry = "none"
+reason = "The attempt's request from `crawl_request.handle`, its Payload typed by its Label, read without a round trip."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "page"
+entry = "none"
+reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
+words = ["page"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "enqueue"
+entry = "crawl_request.enqueue"
+words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
+member = "push"
+entry = "crawl_request.push"
+words = ["push"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawlContext"
+entry = "none"
+reason = "What an `async def` handler is given for one attempt of a request of its Label (ADRs 0081 and 0093)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "crawl", "context"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "request"
+entry = "none"
+reason = "`CrawlContext.request` in the async API."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "page"
+entry = "none"
+reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `AsyncPage` (ADR 0093)."
+words = ["page"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "enqueue"
+entry = "crawl_request.enqueue"
+words = ["enqueue"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "enqueue_links"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "push"
+entry = "crawl_request.push"
+words = ["push"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "seed"
+entry = "none"
+reason = "Builds one of the seeds `crawl.start` carries (ADR 0093), with no round trip."
+only = "Rust builds a seed with `Seed::new` (ADR 0099)."
+words = ["seed"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawlRun"
+entry = "none"
+reason = "A crawl's Run, which `AsyncFoxhound.start_crawl` opens (ADR 0102)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "crawl", "run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlRun"
+entry = "none"
+reason = "A crawl's Run, which `Foxhound.start_crawl` opens (ADR 0102)."
+words = ["crawl", "run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlRequest"
+entry = "none"
+reason = "The request a handler's attempt serves, from `crawl_request.handle`: its id, URL, Label, method and typed Payload."
+only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
+words = ["crawl", "request"]
 form = "type"
 
 [[member]]
@@ -1662,6 +2017,51 @@ member = "notified"
 entry = "none"
 reason = "Takes each notification the engine sends outside a call, logging its `$/log` events under `goodfetch.engine` (ADR 0078)."
 words = ["notified"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "serve"
+entry = "none"
+reason = "Answers the engine's requests of one method, such as Foxhound's `crawl_request.handle` (ADR 0093)."
+words = ["serve"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "keep_reading"
+entry = "none"
+reason = "Reads the engine's messages until its side ends, which a crawl's Run holds so that the engine's requests are served between two calls (ADR 0093)."
+words = ["keep", "reading"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "project"
+entry = "none"
+reason = "The project file the Connection read at its opening, which a Product's own start, such as Foxhound's `crawl.start`, carries (ADR 0083)."
+words = ["project"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "start_run"
+entry = "none"
+reason = "Opens a Run a Product's own start operation answers, such as Foxhound's `crawl.start`, which the Connection then closes with itself (ADR 0102)."
+words = ["start", "run"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "serves"
+entry = "none"
+reason = "Hands each request the engine sends to what serves its method, or says none does, which the channel answers `-32601`."
+words = ["serves"]
 form = "runtime"
 
 [[member]]
@@ -2054,6 +2454,42 @@ form = "type"
 [[member]]
 package = "goodfetch_collie_client.portal"
 receiver = "(module)"
+member = "CallGroup"
+entry = "none"
+reason = "The calls a thread makes through a private loop, which one cancel stops, such as a sync crawl handler's, which closing its Run cancels (ADR 0093)."
+words = ["call", "group"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "CallGroup"
+member = "bound"
+entry = "none"
+reason = "Joins the calls made in its block, and on the threads started there, to the group, which a sync crawl handler runs in."
+words = ["bound"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "CallGroup"
+member = "cancel"
+entry = "none"
+reason = "Cancels each of the group's calls in flight and fails each later one, which closing a crawl's Run does."
+words = ["cancel"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "CallGroup"
+member = "run"
+entry = "none"
+reason = "Runs one call of the group on the loop, which `PrivateLoop.call` does for a call made in `bound()`."
+words = ["run"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.portal"
+receiver = "(module)"
 member = "LoopStopped"
 entry = "none"
 reason = "Raised by a sync call once the private loop has stopped, its Connection closed (ADR 0090)."
@@ -2135,6 +2571,15 @@ form = "type"
 [[member]]
 package = "goodfetch_collie_client.raw_call"
 receiver = "(module)"
+member = "carried_id"
+entry = "none"
+reason = "The ID a handle's calls carry, which a Product's package whose own calls name a handle sends, such as Foxhound's `enqueue_links` its locator's (ADR 0093)."
+words = ["carried", "id"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.raw_call"
+receiver = "(module)"
 member = "raw_params"
 entry = "none"
 reason = "The params a raw call is sent with, its `timeout` and raw mark among them (ADRs 0099 and 0132), which a Product's Connection's `call` sends."
@@ -2194,6 +2639,70 @@ entry = "none"
 reason = "Settings as the wire takes them, by segment with durations in milliseconds (ADR 0083), which a Product's generated handles send."
 words = ["settings", "on", "wire"]
 form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "What a Product's test engine starts with (ADR 0105): the connection's settings over the kit's, the environment map it reads the caller's browsers and engine from, and the project file it reads."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "AsyncTestEngine"
+entry = "none"
+reason = "What every Product's test engine is in the async API (ADR 0105): its Product's connection, and a close that removes its temporary Goodfetch home."
+only = "Python's async twin (ADR 0081): TypeScript's and Rust's `TestEngine` are async."
+words = ["async", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "AsyncTestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "AsyncTestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "What every Product's test engine is in the sync API, as `AsyncTestEngine` is in the async one."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
 
 [[member]]
 package = "goodfetch_collie_client.unknown_member"
@@ -2272,16 +2781,12 @@ entries = [
 reason = "The Python Key-value store has only `keys` so far; issue 1284 covers the Run's Key-value store."
 
 [[unreached]]
-entries = [
-  "crawl.start",
-  "crawl.serve",
-  "crawl_request.enqueue",
-  "crawl_request.enqueue_links",
-  "crawl_request.links",
-  "crawl_request.push",
-  "run.records",
-]
-reason = "The Python SDK has no crawl yet; issue 1468 adds `AsyncCrawl` and `Crawl` with their handlers."
+entries = ["crawl.serve"]
+reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
+
+[[unreached]]
+entries = ["crawl_request.links"]
+reason = "What `enqueue_links`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query"]

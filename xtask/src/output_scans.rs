@@ -5,15 +5,22 @@
 //! - an earlier step that runs `ci/leaks.sh` over each path the upload takes,
 //!   or over a folder holding it, with no step between them but other
 //!   uploads and scans, since any other step may write what uploads;
-//! - that the scan runs whatever happened before it (`if: always()`), since
-//!   a job's JUnit files upload pass or fail (TESTING.md);
+//! - that the scan runs after a failed step (`if: always()` or
+//!   `if: "!cancelled()"`), since a job's JUnit files upload pass or fail
+//!   (TESTING.md), and after a cancel too (`always()`) when the upload does;
 //! - that the upload's `if:` requires the scan's success
-//!   (`always() && steps.<id>.outcome == 'success'`, a conjunction with no
-//!   `||`), so a found secret never uploads.
+//!   (`always() && steps.<id>.outcome == 'success'`, or the same after
+//!   `!cancelled()`, a conjunction with no `||`), so a found secret never
+//!   uploads.
 //!
 //! A job that uploads nothing has nothing to scan. Its log, which GitHub
 //! receives while each step runs, cannot be scanned before it uploads; the
 //! Secret canary searches of the tests that write it stand there (ADR 0067).
+//!
+//! It also refuses a job whose own `if:` holds `always()`: such a job still
+//! starts after its run is cancelled, and holds the workflow's concurrency
+//! group while it does (#3526). A job that must run after a failure uses
+//! `!cancelled()`.
 
 use std::path::Path;
 
@@ -32,6 +39,17 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     for workflow in workflow::read_all(root)? {
         for job in &workflow.jobs {
             let subject = format!("{}#{}", workflow.file, job.id);
+            if job
+                .condition
+                .as_deref()
+                .is_some_and(|condition| condition.contains("always()"))
+            {
+                findings.push(Finding::new(
+                    "job-runs-when-cancelled",
+                    &subject,
+                    "the job's `if:` holds `always()`, so it starts after its run is cancelled and holds the concurrency group: use `!cancelled()`",
+                ));
+            }
             for (index, step) in job.steps.iter().enumerate() {
                 if !is_upload(step) {
                     continue;
@@ -102,12 +120,24 @@ fn upload(before: &[Step], step: &Step, subject: &str) -> Option<Finding> {
         })
         .map(|(scan, _)| *scan)
         .collect();
-    if let Some(scan) = guarding.iter().find(|scan| !runs_always(scan)) {
+    if let Some(scan) = guarding.iter().find(|scan| !runs_after_a_failure(scan)) {
         return Some(Finding::new(
             "scan-skipped-on-failure",
             subject,
             format!(
-                "\"{}\" runs `{SCAN}` without `if: always()`, so a failed step skips it and \"{name}\" never uploads",
+                "\"{}\" runs `{SCAN}` without `if: always()` or `if: \"!cancelled()\"`, so a failed step skips it and \"{name}\" never uploads",
+                scan.name.as_deref().unwrap_or(SCAN)
+            ),
+        ));
+    }
+    if runs_after_a_cancel(step)
+        && let Some(scan) = guarding.iter().find(|scan| !runs_after_a_cancel(scan))
+    {
+        return Some(Finding::new(
+            "scan-skipped-on-cancel",
+            subject,
+            format!(
+                "\"{name}\" runs after a cancel, but \"{}\" runs `{SCAN}` without `if: always()`, so after a cancel it never uploads",
                 scan.name.as_deref().unwrap_or(SCAN)
             ),
         ));
@@ -159,7 +189,15 @@ fn covers(folder: &str, path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
-fn runs_always(step: &Step) -> bool {
+fn runs_after_a_failure(step: &Step) -> bool {
+    runs_after_a_cancel(step)
+        || step
+            .condition
+            .as_deref()
+            .is_some_and(|condition| condition.contains("!cancelled()"))
+}
+
+fn runs_after_a_cancel(step: &Step) -> bool {
     step.condition
         .as_deref()
         .is_some_and(|condition| condition.contains("always()"))

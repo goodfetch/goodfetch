@@ -51,6 +51,7 @@ mod commands;
 mod config;
 mod daemon;
 mod daemon_commands;
+mod daemon_kills;
 mod daemon_log;
 mod daemon_run;
 mod doctor;
@@ -72,6 +73,7 @@ mod huge_pages;
 mod human_output;
 #[cfg(unix)]
 mod identified;
+mod install_docs;
 mod invalid_calls;
 mod journeys;
 #[cfg(unix)]
@@ -96,6 +98,7 @@ mod page;
 mod page_ends;
 mod page_events;
 mod parent_death;
+mod plugin;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;
@@ -114,6 +117,10 @@ mod settings_flags;
 #[cfg(unix)]
 mod shedding;
 mod signing_key;
+mod skill_examples;
+mod skill_install;
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+mod source_build;
 #[cfg(target_os = "linux")]
 mod storage;
 #[cfg(target_os = "linux")]

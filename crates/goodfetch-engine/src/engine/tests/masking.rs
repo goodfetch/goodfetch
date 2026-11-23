@@ -392,6 +392,7 @@ async fn start_tagged(params: Value, context: CallContext) -> Result<Value, Call
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await;
     Ok(match started {

@@ -56,6 +56,15 @@ form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "SKILLS"
+entry = "none"
+reason = "The agent skills Foxhound's executable embeds, which its `main` passes to Collie's executable entry for `skill install`, behind the `executable` feature."
+words = ["skills"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
@@ -79,6 +88,31 @@ receiver = "Foxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -121,7 +155,6 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
-only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -151,7 +184,6 @@ receiver = "(crate)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which the program holds with no connection and `crawl.start` sends."
-only = "Python's crawl declaration joins with #1468."
 words = ["crawl"]
 form = "type"
 
@@ -208,7 +240,6 @@ receiver = "(crate)"
 member = "Label"
 entry = "none"
 reason = "A kind of page a crawl handles, with its Payload's type (ADR 0093)."
-only = "Python's crawl declaration joins with #1468."
 words = ["label"]
 form = "type"
 
@@ -227,7 +258,6 @@ receiver = "(crate)"
 member = "Dataset"
 entry = "none"
 reason = "A Dataset a crawl's handlers push Records to, with its Records' type (ADR 0103)."
-only = "Python's crawl declaration joins with #1468."
 words = ["dataset"]
 form = "type"
 
@@ -306,7 +336,6 @@ receiver = "(crate)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound::start_crawl` opens and `Crawl::serve` serves."
-only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 
@@ -384,7 +413,6 @@ receiver = "(crate)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a handler is given for one attempt of a request of its Label (ADR 0093)."
-only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "context"]
 form = "type"
 
@@ -394,7 +422,7 @@ receiver = "CrawlContext"
 member = "payload"
 entry = "none"
 reason = "The request's Payload, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["payload"]
 form = "read"
 
@@ -404,7 +432,7 @@ receiver = "CrawlContext"
 member = "url"
 entry = "none"
 reason = "The request's URL, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["url"]
 form = "read"
 
@@ -414,7 +442,7 @@ receiver = "CrawlContext"
 member = "id"
 entry = "none"
 reason = "The crawl request's ID within its Run, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["id"]
 form = "read"
 
@@ -424,7 +452,7 @@ receiver = "CrawlContext"
 member = "label"
 entry = "none"
 reason = "The request's Label, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["label"]
 form = "read"
 
@@ -434,7 +462,7 @@ receiver = "CrawlContext"
 member = "attempt"
 entry = "none"
 reason = "The attempt's number, 1 for the first, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["attempt"]
 form = "read"
 
@@ -444,7 +472,7 @@ receiver = "CrawlContext"
 member = "run_id"
 entry = "none"
 reason = "The Run's ID, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["run", "id"]
 form = "read"
 
@@ -454,7 +482,7 @@ receiver = "CrawlContext"
 member = "skip"
 entry = "none"
 reason = "Ends the attempt `skipped` with the reason `handler`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["skip"]
 form = "read"
 
@@ -464,7 +492,7 @@ receiver = "CrawlContext"
 member = "retry"
 entry = "none"
 reason = "Ends the attempt with `retry_requested`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["retry"]
 form = "read"
 
@@ -530,6 +558,31 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -567,7 +620,6 @@ crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
 member = "start_crawl"
 entry = "crawl.start"
-only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -709,7 +761,7 @@ receiver = "blocking::CrawlContext"
 member = "payload"
 entry = "none"
 reason = "The request's Payload, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["payload"]
 form = "read"
 
@@ -719,7 +771,7 @@ receiver = "blocking::CrawlContext"
 member = "url"
 entry = "none"
 reason = "The request's URL, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["url"]
 form = "read"
 
@@ -729,7 +781,7 @@ receiver = "blocking::CrawlContext"
 member = "id"
 entry = "none"
 reason = "The crawl request's ID within its Run, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["id"]
 form = "read"
 
@@ -739,7 +791,7 @@ receiver = "blocking::CrawlContext"
 member = "label"
 entry = "none"
 reason = "The request's Label, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["label"]
 form = "read"
 
@@ -749,7 +801,7 @@ receiver = "blocking::CrawlContext"
 member = "attempt"
 entry = "none"
 reason = "The attempt's number, 1 for the first, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["attempt"]
 form = "read"
 
@@ -759,7 +811,7 @@ receiver = "blocking::CrawlContext"
 member = "run_id"
 entry = "none"
 reason = "The Run's ID, from `crawl_request.handle`, read without a round trip."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["run", "id"]
 form = "read"
 
@@ -769,7 +821,7 @@ receiver = "blocking::CrawlContext"
 member = "skip"
 entry = "none"
 reason = "Ends the attempt `skipped` with the reason `handler`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["skip"]
 form = "read"
 
@@ -779,7 +831,7 @@ receiver = "blocking::CrawlContext"
 member = "retry"
 entry = "none"
 reason = "Ends the attempt with `retry_requested`, answered with `crawl_request.handle`'s reply (ADRs 0093 and 0109)."
-only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends."
+only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["retry"]
 form = "read"
 

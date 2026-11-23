@@ -1,0 +1,10 @@
+{"amount":200,"limit":1,"transition":"set_limit"}
+{"epoch":1,"limit":1,"run_id":"ended","size":2,"slice":1,"transition":"take_slice"}
+{"amount":1,"epoch":1,"run_id":"ended","transition":"charge","usage_kind":"requests"}
+{"epoch":1,"limit":1,"run_id":"ended","size":2,"slice":2,"transition":"take_slice"}
+{"amount":2,"epoch":1,"run_id":"ended","transition":"charge","usage_kind":"requests"}
+{"slice":1,"transition":"give_back","used":2}
+{"slice":2,"transition":"give_back","used":1}
+{"epoch":1,"limit":1,"run_id":"dead","size":3,"slice":3,"transition":"take_slice"}
+{"amount":3,"epoch":1,"run_id":"dead","transition":"charge","usage_kind":"requests"}
+{"charged":3,"epoch":1,"run_id":"dead","slice":3,"transition":"mark_for_review"}

@@ -19,7 +19,6 @@ use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde::de::DeserializeOwned;
 
 use crate::call::{Call, Reply};
-use crate::error::Error;
 use crate::host::Host;
 
 /// The response a page's request got: a navigation's document, or what
@@ -182,7 +181,7 @@ impl Response {
         let url = self.response.url.clone();
         Box::pin(async move {
             let body = body.await?;
-            decoding::json(&body).map_err(|source| Error::response_not_json(url, source))
+            decoding::json(&body, url)
         })
     }
 }

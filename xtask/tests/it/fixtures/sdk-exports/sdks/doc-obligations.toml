@@ -1,0 +1,25 @@
+# The test's obligations, each held by the fixture's texts.
+
+[[obligation]]
+text = "Starts a Run"
+opens = true
+members = [{ entry = "run.start" }]
+
+[[obligation]]
+text = "Aborts the Run."
+operations = ["run.abort"]
+
+[[obligation]]
+text = "resolved again at each use"
+schemas = ["Locator"]
+
+[[obligation]]
+text = "close the Run on `SIGINT` and `SIGTERM`"
+pages = ["docs/runs.md"]
+
+[[obligation]]
+text = "Needs a model"
+opens = true
+operations = ["page.act"]
+settings = ["cache.mode"]
+pending = "The test's catalog has no AI verb and no Response cache yet."

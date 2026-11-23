@@ -11,7 +11,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::plan::{GateRun, Head, Layer, Step, unit};
+use super::plan::{GateRun, Head, Layer, unit};
+use super::steps::Step;
 use super::{plan_list, plan_value, runs};
 use crate::affected::{self, Range, WorkspaceMembers};
 use crate::git;
@@ -115,6 +116,36 @@ pub(super) fn previous(
 /// it first. Each job records the units it ran beside those its plan carried,
 /// so no record is merged with another.
 pub(super) fn hosted(root: &Path, folder: &Path, tip: &str) -> Result<Vec<GateRun>> {
+    let mut runs = Vec::new();
+    for (head, path) in hosted_files(folder)? {
+        let Some(distance) = distance(root, &head, tip)? else {
+            continue;
+        };
+        runs.push((distance, hosted_run(&head, &path)?));
+    }
+    runs.sort_by_key(|(distance, _)| *distance);
+    Ok(runs.into_iter().map(|(_, run)| run).collect())
+}
+
+/// Every hosted run's record under `folder`, whatever its head, for the
+/// duplicate-run check.
+pub(super) fn every_hosted(folder: &Path) -> Result<Vec<GateRun>> {
+    hosted_files(folder)?
+        .iter()
+        .map(|(head, path)| hosted_run(head, path))
+        .collect()
+}
+
+/// The hosted run on `head` its record at `path` holds.
+fn hosted_run(head: &str, path: &Path) -> Result<GateRun> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    runs::parse(head, &text).with_context(|| format!("reading {}", path.display()))
+}
+
+/// Each `<head>.tsv` under `folder` and its subfolders, with its head, in
+/// order.
+fn hosted_files(folder: &Path) -> Result<Vec<(String, std::path::PathBuf)>> {
     let mut files = Vec::new();
     let mut folders = vec![folder.to_path_buf()];
     while let Some(folder) = folders.pop() {
@@ -137,19 +168,7 @@ pub(super) fn hosted(root: &Path, folder: &Path, tip: &str) -> Result<Vec<GateRu
         }
     }
     files.sort();
-    let mut runs = Vec::new();
-    for (head, path) in files {
-        let Some(distance) = distance(root, &head, tip)? else {
-            continue;
-        };
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let run =
-            runs::parse(&head, &text).with_context(|| format!("reading {}", path.display()))?;
-        runs.push((distance, run));
-    }
-    runs.sort_by_key(|(distance, _)| *distance);
-    Ok(runs.into_iter().map(|(_, run)| run).collect())
+    Ok(files)
 }
 
 /// How many commits `tip` is from `candidate`, when `candidate` is `tip` or

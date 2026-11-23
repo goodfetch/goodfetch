@@ -60,6 +60,7 @@ use delegation::FileBackend;
 mod delegation;
 mod live;
 mod memory;
+pub mod store;
 
 pub use live::{
     OnStorageFailures, RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,

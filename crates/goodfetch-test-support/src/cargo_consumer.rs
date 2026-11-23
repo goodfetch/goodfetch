@@ -12,7 +12,9 @@
 //! (`PATH`, Cargo's and rustup's homes, the toolchain the test was built
 //! with), each build into a target folder of its own under the test's
 //! folder. The consumer's build is returned, success or not, for the test
-//! to judge; only a step before it that fails is an error.
+//! to judge; only a step before it that fails is an error. `cargo_install`
+//! installs packaged crates into one root, as `cargo install --root` does,
+//! so a test holds both Products' executables in one environment.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support runs Cargo and reads and writes files outside any async worker (ADR 0062)"
@@ -152,24 +154,7 @@ pub fn cargo_consumer(
 ) -> Result<Consumer, ConsumerError> {
     let variables = Variables::from_process();
     let work = env.folder().join("cargo consumer");
-    std::fs::create_dir_all(&work)?;
-
-    let package_target = work.join("package target");
-    let packaged = cargo(env, &variables)
-        .arg("package")
-        .arg("--manifest-path")
-        .arg(package.join("Cargo.toml"))
-        .args(["--offline", "--no-verify", "--allow-dirty", "--target-dir"])
-        .arg(&package_target)
-        .output()?;
-    if !packaged.status.success() {
-        return Err(ConsumerError::Package {
-            package: package.to_path_buf(),
-            stderr: lossy(packaged.stderr),
-        });
-    }
-    let crate_file = only_crate_file(&package_target.join("package"))?;
-    let unpacked = unpack(&crate_file, &work.join("unpacked"))?;
+    let unpacked = packed(env, &variables, package, &work)?;
     let name = package_name(&unpacked.join("Cargo.toml"))?;
 
     let folder = work.join("consumer");
@@ -190,6 +175,69 @@ pub fn cargo_consumer(
         build: CargoRun::of(build),
         executable,
     })
+}
+
+/// Packages the crate in `package` with `cargo package` and installs it,
+/// from the packaged files, into `root` with `cargo install --path`,
+/// offline, as `cargo install --root` installs a crate crates.io serves:
+/// its executables land in `root`'s `bin` folder. Installing a second
+/// crate into the same `root` is how one environment holds both: Cargo
+/// refuses a crate whose executable another crate installed there.
+///
+/// Each crate is packed and built in a folder of the test's named by
+/// `package`'s last component, so two crates installed in one test have
+/// folders of different names.
+///
+/// # Errors
+///
+/// [`ConsumerError`] when packaging or unpacking fails, or Cargo cannot
+/// start. An install that fails is no error: the returned run says so.
+pub fn cargo_install(
+    env: &TestEnv,
+    package: &Path,
+    root: &Path,
+) -> Result<CargoRun, ConsumerError> {
+    let variables = Variables::from_process();
+    let named = package.file_name().unwrap_or(package.as_os_str());
+    let work = env.folder().join("cargo install").join(named);
+    let unpacked = packed(env, &variables, package, &work)?;
+    let installed = cargo(env, &variables)
+        .arg("install")
+        .arg("--path")
+        .arg(&unpacked)
+        .arg("--root")
+        .arg(root)
+        .args(["--offline", "--debug", "--target-dir"])
+        .arg(work.join("target"))
+        .output()?;
+    Ok(CargoRun::of(installed))
+}
+
+/// Packs the crate in `package` offline into `work` and unpacks its
+/// `.crate` file there, returning the unpacked crate's folder.
+fn packed(
+    env: &TestEnv,
+    variables: &Variables,
+    package: &Path,
+    work: &Path,
+) -> Result<PathBuf, ConsumerError> {
+    std::fs::create_dir_all(work)?;
+    let package_target = work.join("package target");
+    let packaged = cargo(env, variables)
+        .arg("package")
+        .arg("--manifest-path")
+        .arg(package.join("Cargo.toml"))
+        .args(["--offline", "--no-verify", "--allow-dirty", "--target-dir"])
+        .arg(&package_target)
+        .output()?;
+    if !packaged.status.success() {
+        return Err(ConsumerError::Package {
+            package: package.to_path_buf(),
+            stderr: lossy(packaged.stderr),
+        });
+    }
+    let crate_file = only_crate_file(&package_target.join("package"))?;
+    unpack(&crate_file, &work.join("unpacked"))
 }
 
 /// `cargo` with the test's map and what Cargo needs to find its toolchain:

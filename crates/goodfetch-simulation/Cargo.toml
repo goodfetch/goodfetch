@@ -1,0 +1,30 @@
+[package]
+name = "goodfetch-simulation"
+description = "turmoil's network adapter of the engine's transport and the Simulation harness (ADRs 0060, 0087 and 0125); built only under `--cfg tokio_unstable`, only ever a dev-dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The Simulation builds with `--cfg tokio_unstable`, so turmoil seeds each
+# host's runtime randomness; every other build takes none of this crate's
+# code nor its dependencies (ADR 0060).
+[target.'cfg(tokio_unstable)'.dependencies]
+goodfetch-engine.workspace = true
+tokio = { workspace = true, features = ["io-util", "rt"] }
+turmoil.workspace = true
+
+[dependencies]
+goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(tokio_unstable)'.dev-dependencies]
+goodfetch-test-support.workspace = true
+proptest.workspace = true
+proptest-state-machine.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

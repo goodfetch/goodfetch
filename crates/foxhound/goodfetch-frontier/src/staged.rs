@@ -52,16 +52,54 @@ pub struct Staged {
     overtaken: Option<Counts>,
 }
 
-/// A request an attempt's staged admission added.
+/// A request an attempt's staged admission added: as small as its crawl
+/// request's name alone, what a learned rule or a path budget adds to it
+/// held apart, so the visited set's nodes stay as small (#3488).
 #[derive(Clone, Debug)]
 struct Added {
     /// Its crawl request.
-    crawl_request: String,
+    crawl_request: Box<str>,
+    /// What a learned rule or a path budget noted of it, when either did.
+    noted: Option<Box<Noted>>,
+}
+
+/// What a learned rule or a path budget noted of a request an attempt's
+/// staged admission added.
+#[derive(Clone, Debug)]
+struct Noted {
     /// Its learned identity, with the rule that took its last parameter
     /// away, when the learned rules changed it.
     learned: Option<(String, i64)>,
     /// The pattern of the path budget that counted it.
     budget: Option<String>,
+}
+
+impl Added {
+    /// The request `crawl_request` added, with its learned identity and
+    /// rule `learned` and its path budget's pattern `budget`.
+    fn new(crawl_request: &str, learned: Option<(&str, i64)>, budget: Option<&str>) -> Self {
+        let noted = (learned.is_some() || budget.is_some()).then(|| {
+            Box::new(Noted {
+                learned: learned.map(|(learned, rule)| (learned.to_owned(), rule)),
+                budget: budget.map(str::to_owned),
+            })
+        });
+        Self {
+            crawl_request: Box::from(crawl_request),
+            noted,
+        }
+    }
+
+    /// Its learned identity and rule, when the learned rules changed it.
+    fn learned(&self) -> Option<(&str, i64)> {
+        let (learned, rule) = self.noted.as_ref()?.learned.as_ref()?;
+        Some((learned.as_str(), *rule))
+    }
+
+    /// The pattern of the path budget that counted it.
+    fn budget(&self) -> Option<&str> {
+        self.noted.as_ref()?.budget.as_deref()
+    }
 }
 
 impl Staged {
@@ -88,7 +126,7 @@ impl Staged {
     pub(crate) fn visitor(&self, identity: &str) -> Option<&str> {
         self.visited
             .get(identity)
-            .map(|added| added.crawl_request.as_str())
+            .map(|added| &*added.crawl_request)
     }
 
     /// The rule and crawl request of the learned identity `identity`.
@@ -242,12 +280,8 @@ impl Admitting {
         if now.overtaken.is_none() {
             let mut overtaken = Counts::default();
             for (identity, added) in &earlier.visited {
-                let learned = added
-                    .learned
-                    .as_ref()
-                    .map(|(learned, rule)| (learned.as_str(), *rule));
-                if taken(identity, learned)? {
-                    overtaken.count(added.budget.as_deref());
+                if taken(identity, added.learned())? {
+                    overtaken.count(added.budget());
                 }
             }
             now.overtaken = Some(overtaken);
@@ -274,11 +308,7 @@ impl Admitting {
         if let Self::Staging { now, .. } = self {
             now.visited
                 .entry(identity.to_owned())
-                .or_insert_with(|| Added {
-                    crawl_request: crawl_request.to_owned(),
-                    learned: learned.map(|(learned, rule)| (learned.to_owned(), rule)),
-                    budget: budget.map(str::to_owned),
-                });
+                .or_insert_with(|| Added::new(crawl_request, learned, budget));
             if let Some((learned, rule)) = learned {
                 now.learned
                     .entry(learned.to_owned())

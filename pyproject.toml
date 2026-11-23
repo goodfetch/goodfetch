@@ -12,7 +12,9 @@ requires-python = ">=3.11"
 [dependency-groups]
 # No rerun plugin and no mocking library (ADRs 0062 and 0064); `xtask
 # mocking-lockfile` checks uv.lock. datamodel-code-generator is pinned
-# exactly: `xtask codegen`'s committed output depends on its version.
+# exactly: `xtask codegen`'s committed output depends on its version, and
+# Griffe too: `xtask sdk-api`'s verdicts depend on its breakage rules. It is
+# taken as `griffelib`, its library alone, which installs nothing more.
 dev = [
   "anyio>=4.15.1",
   "connection-library",
@@ -21,8 +23,12 @@ dev = [
   "goodfetch-collie-client",
   "goodfetch-foxhound",
   "goodfetch-test-support",
+  "griffelib==2.4.1",
   "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
+  # LangChain's own agent loop, which drives Python LangChain tools in tests
+  # (ADR 0070); its scripted model is test support's `BindToolsChatModel`.
+  "langchain>=1.5.2",
   "mutmut>=3.8.1",
   "mypy>=2.4.0",
   "opentelemetry-api>=1.45.2",
@@ -71,6 +77,10 @@ strict_markers = true
 # Vitest's (ADR 0069); its paths are the workspace's.
 addopts = [
   "--import-mode=importlib",
+  # LangSmith, which langchain-core requires, registers a pytest plugin that
+  # adds about 0.7 s of imports to every pytest process; no test uses it.
+  "-p",
+  "no:langsmith_plugin",
   "--junitxml=target/junit/pytest.xml",
   "--case-log=target/case-logs/pytest.jsonl",
   "--case-list=conformance/clients/cases.toml",
@@ -98,13 +108,16 @@ ignore = ["D206", "D300"]
 
 # ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
 # gives every SDK call that takes one: the operation's own timeout, sent for
-# the engine to apply, as the generated calls take it.
+# the engine to apply, as the generated calls take it. F821 reports an
+# undefined name, which a crawl's type test writes on purpose: a misspelled
+# Label handle is a type error, and its `# type: ignore[name-defined]` says so.
 [tool.ruff.lint.per-file-ignores]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
 "sdks/python/foxhound/src/goodfetch_foxhound/foxhound.py" = ["ASYNC109"]
+"sdks/python/foxhound/tests/types/crawl_types.py" = ["F821"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

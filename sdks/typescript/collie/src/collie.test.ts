@@ -282,9 +282,13 @@ describe("connect() over a transport whose writes the engine's side rejects", ()
 
 /**
  * An engine played by hand whose `hello` result caps its calls in flight
- * at `cap`: each later request it reads waits in `calls` for `answer`.
+ * at `cap` and resolves `timeouts`: each later request it reads waits in
+ * `calls` for `answer`.
  */
-function cappingEngine(cap: number): {
+function cappingEngine(
+  cap: number,
+  timeouts: readonly unknown[] = [],
+): {
   transport: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
   calls: { readonly id: unknown; readonly method: unknown }[];
   answer(id: unknown, result: unknown): void;
@@ -316,6 +320,7 @@ function cappingEngine(cap: number): {
             product_version: "0.0.0",
             engine_instance: "0123456789abcdef",
             max_calls_in_flight: cap,
+            timeouts,
           });
         } else {
           calls.push({ id: message.id, method });
@@ -401,6 +406,37 @@ describe("a Connection whose engine caps its calls in flight", () => {
       expect(error).toMatchObject({
         code: "deadline_exceeded",
         limit: { key: "timeout.navigation", value: 5 },
+        details: { waited_for: "calls_in_flight" },
+      });
+      expect(engine.calls.map((call) => call.method)).toEqual(["run.start", "run.list"]);
+    },
+  );
+
+  test(
+    "fails a handler's page call with no timeout of its own at the setting's value hello resolved, never sent",
+    { tags: ["error:deadline_exceeded"] },
+    async () => {
+      const navigation = { key: "timeout.navigation", value: 5, layer: "user_configuration" };
+      const engine = cappingEngine(1, [navigation]);
+      const collie = await connectOver(engine.transport);
+      const starting = collie.start();
+      await answerCall(engine, 0, {
+        run_id: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+        lifecycle: "running",
+        needs: "collie",
+        started_as: "new",
+      });
+      const run = await starting;
+      const holding = collie.call("run.list", {});
+      const page = pageOf(run, "page-1", new AbortController().signal);
+
+      const error = await failure(page.goto("https://example.com/"));
+      await answerCall(engine, 1, { runs: [] });
+      await holding;
+
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        limit: navigation,
         details: { waited_for: "calls_in_flight" },
       });
       expect(engine.calls.map((call) => call.method)).toEqual(["run.start", "run.list"]);
@@ -799,7 +835,7 @@ describe("Collie.connect()", () => {
 
   test(
     "reads only Collie's engine-path variable, never Foxhound's",
-    { tags: ["story:11-2"] },
+    { tags: ["story:11-2", "story:11-299"] },
     async () => {
       const error = await failure(
         // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.

@@ -3674,7 +3674,7 @@
     },
     "Locator": {
       "additionalProperties": false,
-      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors. Whether it reaches inside a closed shadow root\ndepends on the browser (ADR 0121): a CSS selector reaches open roots\nonly today.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",
@@ -7099,7 +7099,8 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.",
+          "catalog_only": true,
+          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -7528,6 +7529,33 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    },
+    "RunMigrateParams": {
+      "additionalProperties": false,
+      "description": "What `run.migrate` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
       "type": "object"
     },
     "RunMigrating": {
@@ -7988,6 +8016,11 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "rollback": {
+          "arrived_in": "0.1",
+          "description": "Whether a `checkpoint` behind the Run's run file on this machine, or\ngiven where that file cannot be read, replaces it all the same,\nrolling the Run back to the Checkpoint, as the Audit log records; by\ndefault such a Checkpoint is refused, with `checkpoint_behind` or the\nerror the file's read gave. Without `checkpoint` it changes nothing.",
+          "type": "boolean"
         },
         "run_id": {
           "$ref": "#/$defs/RunId",
@@ -9424,6 +9457,14 @@
             "kind": {
               "const": "abort",
               "type": "string"
+            },
+            "person": {
+              "arrived_in": "0.1",
+              "description": "Whom the aborting Client acts for (ADR 0031), set when `by` is\n`person`.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -9571,6 +9612,11 @@
     "StoppedBy": {
       "description": "Who stopped a Run as an abort, the `by` of its `abort` stop reason; a\ncall the stop cancels names it as its `by` (ADR 0113).",
       "oneOf": [
+        {
+          "const": "person",
+          "description": "A person, through `run.abort` from a Client that acts for them\n(ADR 0031).",
+          "type": "string"
+        },
         {
           "const": "client",
           "description": "A Client, through `run.abort`.",
@@ -10978,6 +11024,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "checkpoint_behind",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.",
       "exit_code": null,
       "group": "program",
@@ -11055,6 +11111,16 @@
       "name": "deadline_exceeded",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "detach_unsupported",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -11163,6 +11229,16 @@
       "group": "internal",
       "json_rpc_class": -32007,
       "name": "engine_panicked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "event_loop_mismatch",
       "product": "collie",
       "retryable": false
     },
@@ -11426,6 +11502,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "page_memory_exceeded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "page_navigated_during_call",
       "product": "collie",
       "retryable": true
     },
@@ -11701,6 +11787,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_filesystem_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
       "exit_code": null,
       "group": "unavailable",
@@ -11751,7 +11847,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -11826,6 +11922,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "site_preferences_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "skill_install_refused",
       "product": "collie",
       "retryable": false
     },
@@ -12652,6 +12758,16 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon's live heap, as `daemon.status`'s `heap` reports it: the bytes its own allocations hold now, as its executable's allocator counts them, without the pages that allocator keeps once they are freed. No series where nothing counts them, as in an engine an SDK links.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.daemon.heap",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
     },
     {
       "arrived_in": "0.1",
@@ -13762,7 +13878,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).",
       "events": [],
       "kind": "round_trip",
       "name": "page.go_back",
@@ -13781,7 +13897,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).",
       "events": [],
       "kind": "round_trip",
       "name": "page.go_forward",
@@ -13933,7 +14049,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.",
+      "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`. A request a site's service worker answers from its own cache never reaches the route. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
       "events": [],
       "kind": "sequence",
       "name": "page.route",
@@ -14218,7 +14334,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
       "events": [
         "run.checkpointing"
       ],
@@ -14305,7 +14421,7 @@
       "kind": "round_trip",
       "name": "run.migrate",
       "params": {
-        "$ref": "#/$defs/RunCheckpointParams"
+        "$ref": "#/$defs/RunMigrateParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -14417,7 +14533,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
       "events": [],
       "kind": "opener",
       "name": "run.resume",
@@ -14637,7 +14753,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.",
+      "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
       "events": [],
       "kind": "sequence",
       "name": "session.route",
@@ -15098,6 +15214,29 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
+      "fixed_for_run": false,
+      "name": "browser_cache.read_only",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -16959,6 +17098,141 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. A Sentinel's primary is reached over TLS whenever a `password` is set, and a `cluster`'s nodes are all `rediss://` or all on loopback. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
+      "fixed_for_run": false,
+      "name": "politeness.store",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "additionalProperties": false,
+        "description": "`politeness.store`'s value: the Politeness store and the namespace this\nengine shares Politeness under (ADR 0053).",
+        "properties": {
+          "addressing": {
+            "arrived_in": "0.1",
+            "description": "How the store's servers are reached.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "description": "One server.",
+                "properties": {
+                  "kind": {
+                    "const": "server",
+                    "type": "string"
+                  },
+                  "url": {
+                    "arrived_in": "0.1",
+                    "description": "Its address.",
+                    "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "The primary that Sentinel elects for a service, asked of the\nsentinels when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "sentinel",
+                    "type": "string"
+                  },
+                  "sentinels": {
+                    "arrived_in": "0.1",
+                    "description": "The sentinels' addresses, at least one; the primary is reached\nover TLS when they are, or when a `password` is set, so that the\npassword never travels in clear.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "service": {
+                    "arrived_in": "0.1",
+                    "description": "The service whose primary the sentinels name.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "service",
+                  "sentinels"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A Cluster, discovered from these nodes, at least one, all over TLS\nor all on loopback, and none a Unix socket; the nodes it finds are\nreached as these are, and a Cluster on loopback that announces a\nnode off loopback is refused when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "cluster",
+                    "type": "string"
+                  },
+                  "nodes": {
+                    "arrived_in": "0.1",
+                    "description": "The nodes' addresses.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "nodes"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "namespace": {
+            "arrived_in": "0.1",
+            "description": "The namespace: every engine that names it shares Politeness, and\nshares nothing with another namespace on the same store.",
+            "pattern": "^[^{}]+$",
+            "type": "string"
+          },
+          "password": {
+            "arrived_in": "0.1",
+            "description": "The Secret reference of the user's password, resolved when the\nengine connects; none for a store without one.",
+            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "arrived_in": "0.1",
+            "description": "The user the store's access list names; its default user when left\nout.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "namespace",
+          "addressing"
+        ],
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
@@ -17713,7 +17987,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed, or `failure: \"no_code\"` when Bitwarden makes none from it), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.bw.command",
       "product": "collie",
@@ -19030,7 +19304,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "description": "One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.",
       "fixed_for_run": false,
       "name": "timeout.close",
       "product": "collie",
@@ -20009,6 +20283,13 @@
       "name": "run",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
+      "name": "run_rolled_back",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

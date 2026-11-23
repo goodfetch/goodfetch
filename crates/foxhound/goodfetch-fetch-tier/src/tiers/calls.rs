@@ -602,6 +602,11 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         };
         // The wait for the permit may outlast the lease.
         leased(hand_over, PAGE_REQUEST.name)?;
+        // Each hop marks the attempt's send window before it goes out
+        // (ADR 0106).
+        runs::send_window(&run)
+            .sending(Some(hand_over.lease.as_ref()), PAGE_REQUEST.name)
+            .await?;
         let fetched = fetch(
             page.http.transport.as_ref(),
             &hop,

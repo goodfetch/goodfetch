@@ -5,7 +5,9 @@
 //! lock; a build with the wrong digest is refused and removed; a missing one
 //! is downloaded on first use through `pinned_download` with its progress
 //! reported, unless `egress.offline` refuses it or the engine cannot write
-//! the cache. `browser install`
+//! the cache. Under `browser_cache.read_only` ([`CacheMode::ReadOnly`]), a
+//! launch writes nothing in it: no use recorded, no build removed or
+//! downloaded. `browser install`
 //! prepares every pin ahead of time, and the clean-up deletes only what
 //! nothing installed pins, nothing used for `browser_cache.max_unused_age`
 //! and nothing holds.
@@ -31,7 +33,7 @@ use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
     ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED,
     BrowserCacheEntry, BrowserNotInstalledDetails, DownloadFailure, DownloadProgress,
-    InstallOutcome, MissingBrowser, PinnedBy,
+    InstallOutcome, MissingBrowser, PinnedBy, READ_ONLY,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
@@ -196,7 +198,8 @@ fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
 /// Why a missing build cannot be put in the cache.
 #[derive(Clone, Copy)]
 enum Unreachable {
-    /// The engine cannot write the cache.
+    /// The engine cannot write the cache, or does not in
+    /// [`CacheMode::ReadOnly`].
     ReadOnly,
     /// Its pin names no archive digest, so no download could be checked.
     NoArchiveDigest,
@@ -213,21 +216,58 @@ enum Present {
     Refused,
 }
 
+/// How an engine uses the Browser cache, which `browser_cache.read_only`
+/// chooses for a Run's launches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CacheMode {
+    /// Reads it, and writes it where it can: a launch records its build's
+    /// use, removes a build of the wrong digest and downloads a missing
+    /// one.
+    #[default]
+    ReadWrite,
+    /// Only reads it, as each Product's testing kit asks: a launch records
+    /// no use, removes nothing, downloads nothing and leaves no file of its
+    /// own, its write check's included. The browser it launches still
+    /// writes in its build's files, as Chrome creates
+    /// `chrome-linux64/extensions` at its first launch.
+    ReadOnly,
+}
+
+impl CacheMode {
+    /// The mode `browser_cache.read_only`'s value `read_only` names.
+    pub fn of(read_only: bool) -> Self {
+        if read_only {
+            Self::ReadOnly
+        } else {
+            Self::ReadWrite
+        }
+    }
+}
+
 /// The Browser cache at one location.
 #[derive(Clone, Debug)]
 pub struct BrowserCache {
     root: PathBuf,
     blocking: BlockingThreads,
+    mode: CacheMode,
 }
 
 impl BrowserCache {
     /// The cache at `location`, whose hashing, unpacking and other file
-    /// work runs on `blocking`; nothing is read until it is used.
+    /// work runs on `blocking`, in [`CacheMode::ReadWrite`]; nothing is
+    /// read until it is used.
     pub fn new(location: &CacheLocation, blocking: BlockingThreads) -> Self {
         Self {
             root: location.root().to_owned(),
             blocking,
+            mode: CacheMode::ReadWrite,
         }
+    }
+
+    /// The same cache, used in `mode`.
+    #[must_use]
+    pub fn in_mode(self, mode: CacheMode) -> Self {
+        Self { mode, ..self }
     }
 
     /// Its root folder.
@@ -235,14 +275,21 @@ impl BrowserCache {
         &self.root
     }
 
-    /// Whether this engine can write it.
+    /// Whether this engine writes it: never in [`CacheMode::ReadOnly`],
+    /// which checks nothing, otherwise when it can.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses nothing.
     pub async fn writable(&self) -> bool {
-        let root = self.root.clone();
-        self.blocking.run(move || store::writable(&root)).await
+        let cache = self.clone();
+        self.blocking.run(move || cache.writes()).await
+    }
+
+    /// [`BrowserCache::writable`], on the calling thread: in
+    /// [`CacheMode::ReadWrite`], it creates the root where it can.
+    fn writes(&self) -> bool {
+        self.mode == CacheMode::ReadWrite && store::writable(&self.root)
     }
 
     /// The build `artifact`, which `pinned_by` pins, held for a launch: the
@@ -433,7 +480,7 @@ impl BrowserCache {
         };
         if digest == Some(artifact.digest) {
             if let Some(mut entry) = entry
-                && store::writable(&self.root)
+                && self.writes()
             {
                 entry.used_at = SystemTime::from(now);
                 // A launch still runs when its use cannot be recorded; the
@@ -453,7 +500,7 @@ impl BrowserCache {
             }));
         }
         drop(lock);
-        if entry.is_none() || !store::writable(&self.root) {
+        if entry.is_none() || !self.writes() {
             tracing::warn!(
                 folder = %folder.display(),
                 "a build in the Browser cache does not have its pinned digest, and cannot be removed",
@@ -650,15 +697,31 @@ impl BrowserCache {
         why: Unreachable,
     ) -> CacheError {
         let cache = self.root.display().to_string();
+        let install = install_command(pinned_by.product, &artifact.id);
+        let read_only_mode =
+            matches!(why, Unreachable::ReadOnly) && self.mode == CacheMode::ReadOnly;
         let message = format!(
             "{} is not in the Browser cache at {cache}, {}",
             describe(&artifact.id, pinned_by),
             match why {
-                Unreachable::ReadOnly => "which this engine cannot write",
+                Unreachable::ReadOnly if read_only_mode => {
+                    format!("which `{}` keeps this engine from writing", READ_ONLY.name)
+                }
+                Unreachable::ReadOnly => "which this engine cannot write".to_owned(),
                 Unreachable::NoArchiveDigest =>
-                    "and its pin names no archive digest yet, so it is never downloaded",
+                    "and its pin names no archive digest yet, so it is never downloaded".to_owned(),
             },
         );
+        let fix = if read_only_mode {
+            format!(
+                "Run `{install}` beforehand, or lift `{}` where it was set",
+                READ_ONLY.name
+            )
+        } else {
+            format!(
+                "Run `{install}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
+            )
+        };
         CacheError::BrowserNotInstalled {
             message,
             details: Box::new(BrowserNotInstalledDetails {
@@ -667,10 +730,7 @@ impl BrowserCache {
                     pinned_by: pinned_by.clone(),
                     cache,
                 },
-                fix: format!(
-                    "Run `{}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
-                    install_command(pinned_by.product, &artifact.id),
-                ),
+                fix,
             }),
         }
     }

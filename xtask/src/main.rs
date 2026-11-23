@@ -13,6 +13,8 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
+mod api_baseline;
+mod api_check;
 mod base_console;
 mod browser_releases;
 mod budgets;
@@ -61,6 +63,7 @@ mod notices;
 mod os_services;
 mod output;
 mod output_scans;
+mod owners;
 mod package_dependencies;
 mod perf;
 mod pgo;
@@ -79,8 +82,9 @@ mod runners;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_api;
 mod sdk_manifests;
-mod self_hosted;
+mod semver_checks;
 mod size;
 mod static_pie;
 mod stress;
@@ -94,6 +98,7 @@ mod tree;
 mod watchlist;
 mod wording;
 mod workflow;
+mod workflow_policy;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -124,6 +129,10 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The API breakage check (ADR 0030): fails on a break of a stable
+    /// catalog entry or `--json` output type since the previous release's
+    /// commit that `compat/api.toml` names, unless the file announces it.
+    ApiCheck,
     /// Writes the release table the version check grades browser builds
     /// against, from Chromium Dash's milestone schedule and Mozilla's release
     /// calendar (ADR 0035).
@@ -376,10 +385,23 @@ enum Command {
     /// naming a member the generator writes, and a member another SDK lacks
     /// on a receiver both list unless its line says why (ADR 0099).
     SdkManifests,
+    /// The TypeScript and Python SDK packages' API breakage check (ADRs
+    /// 0030, 0069): API Extractor on each TypeScript package's entry points
+    /// and Griffe on each Python package's modules, testing ones included,
+    /// against the previous release's commit `compat/api.toml` names; fails
+    /// on a break the file does not announce as `typescript <entry> <name>`
+    /// or `python <module> <name>`.
+    SdkApi,
     /// Fails on a public hand-written member an SDK exports that its
     /// manifest does not list, and on a line naming no hand-written member
     /// the SDK exports (ADRs 0069, 0099).
     SdkExports,
+    /// The Rust crates' API breakage check (ADRs 0030, 0069, 0095):
+    /// cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie`
+    /// and `goodfetch-foxhound`, their testing kits included, against the
+    /// previous release's commit `compat/api.toml` names; fails on a break
+    /// the file does not announce as `rust <crate> <lint>`.
+    SemverChecks,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -390,11 +412,6 @@ enum Command {
     /// it in, or when a job step names no set of it or installs none of its
     /// runtimes.
     Runtimes,
-    /// The self-hosted allowlist (ADRs 0108 and 0135).
-    SelfHosted {
-        #[command(subcommand)]
-        command: self_hosted::Command,
-    },
     /// Each Product's Size budget (ADRs 0057 and 0087): measures built files
     /// and writes one table of their sizes.
     Size {
@@ -457,6 +474,11 @@ enum Command {
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
+    /// Fails on a job off GitHub's standard hosted runners, on
+    /// `pull_request_target` or a `workflow_run` job that checks out a pull
+    /// request's code, on a workflow whose top-level `permissions:` is not
+    /// `{}`, and on a `uses:` not pinned by commit or digest (ADR 0108).
+    WorkflowPolicy,
 }
 
 #[derive(Subcommand)]
@@ -491,6 +513,14 @@ enum ResultsCommand {
         /// The job summary, `$GITHUB_STEP_SUMMARY`.
         #[arg(long)]
         summary: Option<PathBuf>,
+        /// The repository, and GitHub's API, whose visibility decides which
+        /// minutes bill.
+        #[command(flatten)]
+        github: github::Arguments,
+        /// The asking run, `$GITHUB_RUN_ID`, on which GitHub gives the
+        /// repository's visibility.
+        #[arg(long)]
+        run_id: u64,
     },
     /// Prints the tests that failed in a run attempt, for its diagnostic
     /// runs (ADR 0064): `matrix=<JSON>`, one entry each, at most 20, and
@@ -587,6 +617,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::ApiCheck => api_check::run(root),
         Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
@@ -647,11 +678,12 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
+        Command::SdkApi => sdk_api::run(root),
         Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
         Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
+        Command::SemverChecks => semver_checks::run(root, cargo),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
-        Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::StaticPie { target, files } => {
             Ok(check::report(&static_pie::check(root, &files, &target)?))
@@ -664,6 +696,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
+        Command::WorkflowPolicy => Ok(check::report(&workflow_policy::check(root)?)),
     }
 }
 
@@ -681,9 +714,23 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
             jobs,
             today,
             summary,
+            github,
+            run_id,
         } => {
             let summary = summary.as_ref().map(path);
-            ceiling::check(&path(&store), run, jobs, today, summary.as_deref())?;
+            let visibility = release_suite::visibility(
+                github.api(environment.token()),
+                &github.repository,
+                run_id,
+            )?;
+            ceiling::check(
+                &path(&store),
+                run,
+                jobs,
+                today,
+                visibility,
+                summary.as_deref(),
+            )?;
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Failed { attempt, os, arch } => {

@@ -261,6 +261,11 @@ fn selection_for(path: &str) -> (String, String) {
     "fencing"
 )]
 #[case::the_pinned_tools("test-support/models/tools.toml", r#"["tlc"]"#, "fencing sample")]
+#[case::the_trace_validation_template(
+    "test-support/models/trace-validation/TraceValidation.tla",
+    r#"["tlc"]"#,
+    "fencing sample"
+)]
 fn change_selects_the_models_it_reaches(
     #[case] path: &str,
     #[case] jobs: &str,

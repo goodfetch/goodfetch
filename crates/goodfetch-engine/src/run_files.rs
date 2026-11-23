@@ -13,10 +13,11 @@
 //! once no record of the Run names it, as when a key whose bytes it holds
 //! is deleted or replaced.
 //!
-//! An Export is kept the same way, under the Run folder's `exports/`, but
-//! recorded in no table: it is written from the Run's committed state, a
-//! Run that ended having no writer, so its ID names its file by its
-//! SHA-256. It is deleted with its Run, and a Checkpoint does not carry it.
+//! An Export is kept the same way, under the Run folder's `exports/`, in a
+//! folder named by the run epoch of the state it was written from (ADR
+//! 0003), but recorded in no table: it is written from the Run's committed
+//! state, a Run that ended having no writer, so its ID names its file by
+//! that run epoch and its SHA-256. It is deleted with its Run, and a Checkpoint does not carry it.
 //!
 //! A kept file reaches the program's path through [`save`], under ADR
 //! 0116's rule: a hidden temporary file beside the path,

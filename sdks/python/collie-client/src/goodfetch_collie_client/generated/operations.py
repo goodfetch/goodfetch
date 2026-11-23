@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -295,7 +295,7 @@ class AsyncCollieOperations:
         return result_of(PageFormats, await self._caller.call("page.formats", params))
 
     async def page_go_back(self, params: PageParams) -> Navigated:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -303,7 +303,7 @@ class AsyncCollieOperations:
         return result_of(Navigated, await self._caller.call("page.go_back", params))
 
     async def page_go_forward(self, params: PageParams) -> Navigated:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -359,7 +359,7 @@ class AsyncCollieOperations:
         return result_of(PageResponse, await self._caller.call("page.request", params))
 
     async def page_route(self, params: PageRouteParams) -> RouteEnded:
-        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.
+        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`. A request a site's service worker answers from its own cache never reaches the route. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -480,7 +480,7 @@ class AsyncCollieOperations:
         return result_of(RunReport, await self._caller.call("run.abort", params))
 
     async def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -511,7 +511,7 @@ class AsyncCollieOperations:
         warn_experimental("run.list")
         return result_of(RunList, await self._caller.call("run.list", params))
 
-    async def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+    async def run_migrate(self, params: RunMigrateParams) -> RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -562,7 +562,7 @@ class AsyncCollieOperations:
         return result_of(RunReport, await self._caller.call("run.report", params))
 
     async def run_resume(self, params: RunResumeParams) -> RunStarted:
-        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -649,7 +649,7 @@ class AsyncCollieOperations:
         return result_of(SessionPages, await self._caller.call("session.pages", params))
 
     async def session_route(self, params: SessionRouteParams) -> RouteEnded:
-        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
+        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -967,7 +967,7 @@ class CollieOperations:
         return result_of(PageFormats, self._caller.call("page.formats", params))
 
     def page_go_back(self, params: PageParams) -> Navigated:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -975,7 +975,7 @@ class CollieOperations:
         return result_of(Navigated, self._caller.call("page.go_back", params))
 
     def page_go_forward(self, params: PageParams) -> Navigated:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1031,7 +1031,7 @@ class CollieOperations:
         return result_of(PageResponse, self._caller.call("page.request", params))
 
     def page_route(self, params: PageRouteParams) -> RouteEnded:
-        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.
+        """Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`. A request a site's service worker answers from its own cache never reaches the route. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1152,7 +1152,7 @@ class CollieOperations:
         return result_of(RunReport, self._caller.call("run.abort", params))
 
     def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1183,7 +1183,7 @@ class CollieOperations:
         warn_experimental("run.list")
         return result_of(RunList, self._caller.call("run.list", params))
 
-    def run_migrate(self, params: RunCheckpointParams) -> RunReport:
+    def run_migrate(self, params: RunMigrateParams) -> RunReport:
         """Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -1234,7 +1234,7 @@ class CollieOperations:
         return result_of(RunReport, self._caller.call("run.report", params))
 
     def run_resume(self, params: RunResumeParams) -> RunStarted:
-        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1321,7 +1321,7 @@ class CollieOperations:
         return result_of(SessionPages, self._caller.call("session.pages", params))
 
     def session_route(self, params: SessionRouteParams) -> RouteEnded:
-        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.
+        """Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

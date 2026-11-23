@@ -606,11 +606,18 @@ impl Stream {
                 if let Some(fold) = fold {
                     self.snapshot.fold(fold);
                 }
-                self.retained.push_back(envelope.clone());
-                while self.retained.len() > self.options.retained {
-                    if let Some(gone) = self.retained.pop_front() {
-                        self.floor = gone.position.0;
-                    }
+                // The oldest goes before the newest is kept, so the window
+                // never holds one event more than it keeps, and its buffer
+                // never doubles past it (#1782).
+                while self.retained.len() >= self.options.retained
+                    && let Some(gone) = self.retained.pop_front()
+                {
+                    self.floor = gone.position.0;
+                }
+                if self.options.retained == 0 {
+                    self.floor = envelope.position.0;
+                } else {
+                    self.retained.push_back(envelope.clone());
                 }
                 for (id, queue) in &mut self.subscriptions {
                     if queue.behind {

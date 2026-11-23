@@ -267,6 +267,26 @@ pub(super) fn scope_settings(member: &Member<'_>) -> Result<Option<&'static str>
     opened_scope(member).map(scope_type).transpose()
 }
 
+/// The classes of the settings module that `setting`'s value is one of,
+/// without its null, for a member's parameter that takes that value as the
+/// setting does, such as `run.new_session`'s `source`, which is
+/// `session.source` for one Session. Fails when an arm of the value is no
+/// class of the module, which a parameter could not import.
+pub(super) fn value_classes(setting: &Setting) -> Result<Vec<String>> {
+    let mut module = Module::default();
+    let owner = pascal(&setting.name);
+    let arms = module.arms(&setting.value, &owner, &owner)?;
+    arms.into_iter()
+        .map(|arm| match arm {
+            Arm::Type(name) if module.defined.contains_key(&name) => Ok(name),
+            Arm::Type(name) | Arm::Literal(name) => bail!(
+                "`{}`'s value has the arm `{name}`, which is no class of the settings module",
+                setting.name
+            ),
+        })
+        .collect()
+}
+
 /// One member of a union: a literal value, which joins the union's one
 /// `Literal`, or a type.
 enum Arm {

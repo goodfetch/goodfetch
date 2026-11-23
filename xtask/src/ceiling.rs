@@ -1,10 +1,14 @@
-//! The minute ceiling of test health while the repository is private (ADR
-//! 0064, amended by ADRs 0072, 0108 and 0135; TESTING.md, After merge). The
-//! test-health jobs, the diagnostic runs and the coverage job share 1,000 of
-//! the account's included minutes a month, counted from the job durations
-//! the store records: each job's minutes rounded up, times its runner's
-//! rate (`crate::rate`), and nothing for the owner's machine, where the
-//! in-diff mutation job runs (ADR 0135). Before a run starts, its kind is
+//! The minute ceiling of test health (ADR 0064, amended by ADRs 0072, 0108
+//! and 0135; TESTING.md, After merge). The test-health jobs, the diagnostic
+//! runs and the coverage job share 1,000 of the account's included minutes
+//! a month, counted from the job durations the store records: each job's
+//! minutes rounded up, times its runner's rate (`crate::rate`), and nothing
+//! for the owner's machine, where the in-diff mutation job runs (ADR 0135),
+//! nor for a standard runner of a public repository, which bills nothing
+//! (ADR 0064's note of 2026-11-23). The repository's visibility is what
+//! GitHub gives the asking run, read now, so a month's jobs all count by
+//! today's visibility, as the Release ceiling counts its own (ADR 0108's
+//! note of 2026-11-23). Before a run starts, its kind is
 //! admitted only while the month leaves room for all its hosted jobs, so
 //! the constrained runs stop first, then the diagnostic runs; the coverage
 //! job stops once the month reaches 550. The daily test-health job is never
@@ -18,7 +22,7 @@ use jiff::civil::Date;
 use jiff::tz::TimeZone;
 
 use crate::output;
-use crate::rate::Rate;
+use crate::rate::{Hosted, Visibility};
 use crate::results::{self, JobRun};
 
 /// The included minutes these jobs share each month (ADR 0064).
@@ -68,13 +72,14 @@ impl fmt::Display for Run {
 }
 
 /// Prints `minutes=<used>` and `admitted=<true|false>` for a run of `jobs`
-/// hosted jobs in the month of `today`, and appends a skip to `summary` when
-/// there is one.
+/// hosted jobs in the month of `today`, in a repository of `visibility`, and
+/// appends a skip to `summary` when there is one.
 pub(crate) fn check(
     store: &Path,
     run: Run,
     jobs: u64,
     today: Date,
+    visibility: Visibility,
     summary: Option<&Path>,
 ) -> Result<()> {
     let attempts = results::read_month_and_previous(store, today)?;
@@ -88,7 +93,7 @@ pub(crate) fn check(
                 (day.year(), day.month()) == (today.year(), today.month())
             })
         })
-        .map(linux_minutes)
+        .map(|job| linux_minutes(job, visibility))
         .sum();
     let admitted = run.admits(used, jobs);
     output::line(&format!("minutes={used}"));
@@ -116,11 +121,12 @@ pub(crate) fn check(
 }
 
 /// A job's Linux-equivalent minutes (ADR 0108): its minutes rounded up,
-/// times its runner's rate, and none on the owner's machine.
-fn linux_minutes(job: &JobRun) -> u64 {
-    match Rate::of_labels(&job.labels) {
-        Some(rate) if !job.self_hosted => {
-            job.duration_seconds.div_ceil(60) * u64::from(rate.multiplier())
+/// times its runner's rate, and none on the owner's machine or when its
+/// runner does not bill in a repository of `visibility`.
+fn linux_minutes(job: &JobRun, visibility: Visibility) -> u64 {
+    match Hosted::of_labels(&job.labels) {
+        Some(runner) if !job.self_hosted && runner.bills_in(visibility) => {
+            job.duration_seconds.div_ceil(60) * u64::from(runner.rate.multiplier())
         }
         _ => 0,
     }

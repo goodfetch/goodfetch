@@ -119,6 +119,7 @@ pub const ENTRIES: Entries = Entries {
             params: schema_of::<SampleStorePutParams>,
             result: schema_of::<SampleStorePutResult>,
         }],
+        chosen_by: None,
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

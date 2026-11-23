@@ -2,14 +2,16 @@
 //! registry's loop to end it as its driver says, with the signal that
 //! `run.finish` let it finish and the mark that its end is decided. The
 //! driver that ends a Run is the one that waits to be let finish, and the
-//! registry alone sets the signal and the mark.
+//! registry alone sets the signal and the mark. A Run that stopped at its
+//! safe point first waits for its declared Effects through its send window
+//! (ADR 0106).
 
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{mpsc, watch};
 
-use super::{Command, End, Ending};
+use super::{Command, End, Ending, RunSendWindow};
 
 /// The end of a live Run, which a function takes in place of the Run's
 /// handle to end it, to wait until it is let finish or to learn whether
@@ -23,6 +25,8 @@ pub struct RunEnd {
     /// Whether its end is decided, which only the registry sets, in the
     /// step of its loop that takes the Run's handle from its live Runs.
     decided: Arc<OnceLock<()>>,
+    /// Its send window, whose declared Effects a stop waits for.
+    send_window: RunSendWindow,
 }
 
 impl std::fmt::Debug for RunEnd {
@@ -36,17 +40,20 @@ impl std::fmt::Debug for RunEnd {
 
 impl RunEnd {
     /// The end of the Run `run_id`, sent to the registry through
-    /// `commands`, let finish once `finish` says so.
+    /// `commands`, let finish once `finish` says so, whose stop waits for
+    /// the declared Effects of `send_window`.
     pub(super) fn new(
         run_id: RunId,
         commands: mpsc::Sender<Command>,
         finish: watch::Receiver<bool>,
+        send_window: RunSendWindow,
     ) -> Self {
         Self {
             run_id,
             commands,
             finish,
             decided: Arc::default(),
+            send_window,
         }
     }
 
@@ -84,16 +91,23 @@ impl RunEnd {
     }
 
     /// Ends the Run as its driver says, once: its tasks stop, and its Run
-    /// report is written and given to whoever waits for it.
+    /// report is written and given to whoever waits for it. A Run that
+    /// stopped at its safe point first waits, at most its `timeout.close`,
+    /// for each declared Effect's body whose owner still holds to be
+    /// judged (ADR 0106).
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the end was sent still ends the Run.
+    /// Dropping the future during the Effects' wait leaves the Run live;
+    /// dropping it after the end was sent still ends the Run.
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished(reasons) => End::Finished(reasons),
             Ending::Failed(error) => End::Failed(error),
-            Ending::Stopped(reason) => End::Stopped(reason),
+            Ending::Stopped(reason) => {
+                self.send_window.settle(None).await;
+                End::Stopped(reason)
+            }
         };
         let _ = self
             .commands

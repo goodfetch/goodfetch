@@ -22,7 +22,9 @@ use std::time::SystemTime;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
-use goodfetch_protocol::formats::{Compatibility, INSTALLED_EXECUTABLES};
+use goodfetch_protocol::formats::{
+    Compatibility, Format, INSTALLED_EXECUTABLES, OPERATOR_POLICY, RUN_INDEX, USER_CONFIGURATION,
+};
 use serde_json::{Map, Value};
 
 use crate::browser_cache::{self, MaxUnusedAge};
@@ -314,34 +316,61 @@ pub fn pick<'a>(
         })
 }
 
-/// The lowest Product version (major and minor) that can use every shared
-/// store of the major of `version` in `home` that records one above the
-/// major's first minor (ADR 0098), which the Daemon's pick must meet; none
-/// when every store any minor can use, and during `0.y` previews, whose
-/// line has the minor 0 alone. A store that cannot be read counts as
-/// marked for every minor: its engine reports it when it opens it.
-/// Blocking.
-pub fn stores_floor(home: &Home, version: &ProductVersion) -> Option<ProtocolVersion> {
+/// The floor the Daemon's pick must meet (ADR 0098): the shared store of
+/// its major whose lowest minor is the highest.
+#[derive(Clone, Copy)]
+pub struct Floor {
+    /// The lowest Product version (major and minor) that can use the
+    /// store, and so every shared store of the major.
+    pub version: ProtocolVersion,
+    /// The store's format.
+    pub format: &'static Format,
+    /// The store's format version, the newest of the engines that wrote it.
+    pub found: ProtocolVersion,
+}
+
+/// The floor of the shared stores of the major of `version` in `home`: the
+/// store that records the highest lowest minor above the major's first
+/// (ADR 0098); none when every store any minor can use, and during `0.y`
+/// previews, whose line has the minor 0 alone. A store that cannot be
+/// read counts as marked for every minor: its engine reports it when it
+/// opens it. Blocking.
+pub fn stores_floor(home: &Home, version: &ProductVersion) -> Option<Floor> {
     if version.line().is_preview() {
         return None;
     }
     let engine = version.major_minor();
     let files = SettingsFiles::of(home, version);
-    let settings = [files.operator_policy(), files.user_configuration()]
-        .into_iter()
-        .filter_map(|path| {
-            let text = std::fs::read_to_string(path).ok()?;
-            let document: toml_edit::DocumentMut = text.parse().ok()?;
-            document
-                .get(LOWEST_MINOR_KEY)?
-                .as_integer()
-                .and_then(|minor| u16::try_from(minor).ok())
-        });
-    let run_index = run_index::lowest_minor(&home.run_index(version));
-    let lowest = settings.chain(run_index).max()?;
-    (lowest > 0).then_some(ProtocolVersion {
-        major: engine.major,
-        minor: lowest,
+    let settings = [
+        (files.operator_policy(), &OPERATOR_POLICY),
+        (files.user_configuration(), &USER_CONFIGURATION),
+    ]
+    .into_iter()
+    .filter_map(|(path, format)| {
+        let text = std::fs::read_to_string(path).ok()?;
+        let document: toml_edit::DocumentMut = text.parse().ok()?;
+        let lowest_minor = document
+            .get(LOWEST_MINOR_KEY)?
+            .as_integer()
+            .and_then(|minor| u16::try_from(minor).ok())?;
+        let found = document
+            .get("version")
+            .and_then(|found| found.as_str()?.parse().ok())
+            .unwrap_or(format.version);
+        Some((format, found, lowest_minor))
+    });
+    let run_index = run_index::marker(&home.run_index(version))
+        .map(|(found, lowest_minor)| (&RUN_INDEX, found, lowest_minor));
+    let (format, found, lowest_minor) = settings
+        .chain(run_index)
+        .max_by_key(|&(_, _, lowest_minor)| lowest_minor)?;
+    (lowest_minor > 0).then_some(Floor {
+        version: ProtocolVersion {
+            major: engine.major,
+            minor: lowest_minor,
+        },
+        format,
+        found,
     })
 }
 

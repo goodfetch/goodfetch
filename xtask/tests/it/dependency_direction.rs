@@ -3,7 +3,8 @@
 //! `goodfetch-test-client` depends on no Goodfetch crate but
 //! `goodfetch-protocol` and `goodfetch-test-support`, is only ever a
 //! dev-dependency and is never taken by `goodfetch-protocol` (ADR 0062's
-//! note of 2026-11-07); the Proving
+//! note of 2026-11-07); `goodfetch-simulation` is only ever a
+//! dev-dependency (ADR 0060); the Proving
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
 //! `goodfetch-protocol` (ADR 0032, STYLE.md); `xtask` builds no Goodfetch
@@ -149,6 +150,25 @@ fn test_client_outside_dev_dependencies_fails(#[case] manifest: &str) {
     assert_eq!(
         outcome.findings(),
         vec![finding("test-client-not-dev-only", "goodfetch-engine")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::normal_dependency("engine-normal-depends-on-simulation.toml")]
+#[case::build_dependency("engine-build-depends-on-simulation.toml")]
+fn simulation_outside_dev_dependencies_fails(#[case] manifest: &str) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        &format!("dependency-direction-cases/{manifest}"),
+        "crates/goodfetch-engine/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("simulation-not-dev-only", "goodfetch-engine")]
     );
     assert_eq!(outcome.code, 1);
 }

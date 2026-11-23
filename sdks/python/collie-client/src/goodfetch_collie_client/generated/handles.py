@@ -19,7 +19,7 @@ from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
 from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS
-from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings
+from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings, SessionSourceCDPURL, SessionSourceCookieHeader, SessionSourceInstalledBrowser, SessionSourceProfileDirectory, SessionSourceRunningBrowser, SessionSourceSavedIdentity, SessionSourceStateFile
 
 
 class AsyncRun(AsyncHandle):
@@ -42,16 +42,13 @@ class AsyncRun(AsyncHandle):
             params.forwarded = forwarded
         return result_of(models.RunReport, await self._host.call("run.abort", params))
 
-    async def checkpoint(self, *, location: str | None | NotGiven = not_given) -> models.Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    async def checkpoint(self) -> models.Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        params = models.RunCheckpointParams(run_id=self._host.id)
-        if not isinstance(location, NotGiven):
-            params.location = location
-        return result_of(models.Checkpoint, await self._host.call("run.checkpoint", params))
+        return result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
 
     async def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -80,7 +77,7 @@ class AsyncRun(AsyncHandle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.migrate")
-        params = models.RunCheckpointParams(run_id=self._host.id)
+        params = models.RunMigrateParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
         return result_of(models.RunReport, await self._host.call("run.migrate", params))
@@ -98,7 +95,7 @@ class AsyncRun(AsyncHandle):
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
 
-    async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> AsyncSession:
+    async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> AsyncSession:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -109,7 +106,7 @@ class AsyncRun(AsyncHandle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
-            params.source = source
+            params.source = None if source is None else models.SessionSource.model_validate(source)
         opened = result_of(models.SessionOpened, await self._host.call("run.new_session", params))
         return AsyncSession(self._host.child(opened.session_id))
 
@@ -285,7 +282,7 @@ class AsyncPage(AsyncHandle):
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     async def go_back(self) -> AsyncResponse | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -294,7 +291,7 @@ class AsyncPage(AsyncHandle):
         return None if response is None else AsyncResponse(self._host, response)
 
     async def go_forward(self) -> AsyncResponse | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -495,7 +492,9 @@ class AsyncPage(AsyncHandle):
     def locator(self, selector: str) -> AsyncLocator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
         again at each use, never a handle on an element. This tracer's locators
-        are CSS selectors.
+        are CSS selectors. Whether it reaches inside a closed shadow root
+        depends on the browser (ADR 0121): a CSS selector reaches open roots
+        only today.
 
         Built without a call (ADR 0099).
         """
@@ -623,16 +622,13 @@ class Run(Handle):
             params.forwarded = forwarded
         return result_of(models.RunReport, self._host.call("run.abort", params))
 
-    def checkpoint(self, *, location: str | None | NotGiven = not_given) -> models.Checkpoint:
-        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    def checkpoint(self) -> models.Checkpoint:
+        """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        params = models.RunCheckpointParams(run_id=self._host.id)
-        if not isinstance(location, NotGiven):
-            params.location = location
-        return result_of(models.Checkpoint, self._host.call("run.checkpoint", params))
+        return result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
 
     def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -661,7 +657,7 @@ class Run(Handle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.migrate")
-        params = models.RunCheckpointParams(run_id=self._host.id)
+        params = models.RunMigrateParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
         return result_of(models.RunReport, self._host.call("run.migrate", params))
@@ -679,7 +675,7 @@ class Run(Handle):
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
 
-    def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> Session:
+    def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> Session:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -690,7 +686,7 @@ class Run(Handle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
-            params.source = source
+            params.source = None if source is None else models.SessionSource.model_validate(source)
         opened = result_of(models.SessionOpened, self._host.call("run.new_session", params))
         return Session(self._host.child(opened.session_id))
 
@@ -849,7 +845,7 @@ class Page(Handle):
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     def go_back(self) -> Response | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -858,7 +854,7 @@ class Page(Handle):
         return None if response is None else Response(self._host, response)
 
     def go_forward(self) -> Response | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1059,7 +1055,9 @@ class Page(Handle):
     def locator(self, selector: str) -> Locator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
         again at each use, never a handle on an element. This tracer's locators
-        are CSS selectors.
+        are CSS selectors. Whether it reaches inside a closed shadow root
+        depends on the browser (ADR 0121): a CSS selector reaches open roots
+        only today.
 
         Built without a call (ADR 0099).
         """

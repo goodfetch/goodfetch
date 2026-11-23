@@ -1,7 +1,7 @@
 //! A crawl's work-item metrics through the engine's public interface over
 //! the in-memory network (spec #213's Seam 3), on the paused clock (ADR
-//! 0050): each work item its domain queues hold counts in
-//! `goodfetch.work_item.queued`, each attempt in `goodfetch.work_item.leased` while it
+//! 0050): each work item that waits to be leased, in its domain's queue or
+//! past it, counts in `goodfetch.work_item.queued`, each attempt in `goodfetch.work_item.leased` while it
 //! runs, and each retry in `goodfetch.work_item.retried`, on the meter the
 //! engine is given, which the Prometheus exporter the executables use
 //! renders.
@@ -61,8 +61,8 @@ fn metered() -> (
     )
 }
 
-/// Each work item waiting in its domain's queue counts in
-/// `goodfetch.work_item.queued` until it is leased: three pages of one
+/// Each work item waiting to be leased counts in
+/// `goodfetch.work_item.queued` until it is: three pages of one
 /// domain, admitted one at a time to a handler of concurrency 1, leave two,
 /// then one, then none queued, and the crawl that ended counts none.
 ///
@@ -98,6 +98,42 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
         (during, value_of(&registry, "goodfetch_work_item_queued")),
         (vec![Some(2.0), Some(1.0), Some(0.0)], Some(0.0))
     );
+}
+
+/// `goodfetch.work_item.queued` counts the Frontier's whole depth, not
+/// what its domain's queue holds, at most 64 (ADR 0050's note of
+/// 2026-11-23): a hundred pages of one domain, admitted one at a time,
+/// leave 99 queued as the first is handled and 98 as the second is.
+///
+/// Covers: story:3-103
+#[test]
+fn a_crawl_counts_every_work_item_its_frontier_holds_past_its_domain_queue() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut during = Vec::new();
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "deep", "seeds": seeds(100), "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                during.push(value_of(&registry, "goodfetch_work_item_queued"));
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "deep" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(during.get(..2), Some(&[Some(99.0), Some(98.0)][..]));
 }
 
 /// Covers: story:3-103
@@ -168,10 +204,11 @@ fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Op
         .map(|metric| metric.get_counter().get_value())
 }
 
-/// Crawls from `seeds`, handling three pages at a time, and returns how many
-/// pages the handler saw and how many round trips to the actor that owns the
-/// Run state the crawl counted as `F3.actor_round_trips`.
-fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
+/// Crawls from `seeds` with the Hooks in code `hooks`, handling three pages
+/// at a time, and returns how many pages the handler saw and how many round
+/// trips to the actor that owns the Run state the crawl counted as
+/// `F3.actor_round_trips`.
+fn pages_and_round_trips(seeds: &Value, hooks: &Value) -> (usize, Option<f64>) {
     let env = TestEnv::new();
     let (engine, registry, _provider) = metered();
     let mut pages = 0;
@@ -183,11 +220,15 @@ fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} } }),
+                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} }, "hooks": hooks }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
-            let mut handler = |_: &Value| {
+            let mut handler = |params: &Value| {
+                // A Hook's call changes nothing; a handler request is a page.
+                if params.get("hook").is_some() {
+                    return Reply::Records(Vec::new());
+                }
                 pages += 1;
                 Reply::Records(vec![json!({ "handled": true })])
             };
@@ -275,7 +316,7 @@ fn at_a_memory_budget_of_0_each_lease_reads_the_run_file_at_most_once() {
 /// Covers: story:3-25
 #[test]
 fn each_attempt_costs_the_run_states_actor_one_round_trip() {
-    assert_eq!(pages_and_round_trips(&seeds(5)), (5, Some(5.0)));
+    assert_eq!(pages_and_round_trips(&seeds(5), &json!([])), (5, Some(5.0)));
 }
 
 /// A sitemap's attempt ends in one message to the actor as a page's does:
@@ -285,12 +326,36 @@ fn each_attempt_costs_the_run_states_actor_one_round_trip() {
 /// Covers: story:3-25
 #[test]
 fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
-    let seeds = json!([{
+    assert_eq!(
+        pages_and_round_trips(&sitemap_seed(), &json!([])),
+        (3, Some(4.0))
+    );
+}
+
+/// A sitemap seed whose sitemap lists three pages.
+fn sitemap_seed() -> Value {
+    json!([{
         "sitemap": format!("https://shop.test{SITEMAP}"),
         "rules": [{ "pattern": "**", "label": "page" }],
-    }]);
+    }])
+}
 
-    assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
+/// A crawl with a before-request Hook takes each request's Permit once its
+/// Hooks returned, in a second round trip to the actor (#2905; the
+/// owner's decision of 2026-11-07 on #1546): each attempt costs two, a
+/// sitemap's too, though it runs no Hook.
+///
+/// Covers: story:3-168, setting:politeness.domain.concurrency
+#[rstest]
+#[case::pages(seeds(5), (5, Some(10.0)))]
+#[case::sitemap(sitemap_seed(), (3, Some(8.0)))]
+fn a_before_request_hook_costs_each_attempt_a_second_round_trip_for_its_permit(
+    #[case] seeds: Value,
+    #[case] expected: (usize, Option<f64>),
+) {
+    let hooks = json!([{ "name": "sign", "stage": "before_request" }]);
+
+    assert_eq!(pages_and_round_trips(&seeds, &hooks), expected);
 }
 
 /// Every admission keys the work items it adds, in the write that adds

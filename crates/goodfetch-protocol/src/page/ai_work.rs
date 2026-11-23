@@ -1,7 +1,9 @@
-//! AI work that can claim success (ADRs 0079, 0100 and 0117): what its
-//! model claimed, kept apart from how it ended and its Verdict, and
-//! `not_verified`, which an SDK raises itself when a program asks for an
-//! output its Verdict does not prove.
+//! How AI work ends on the wire: what its model claimed, kept apart from
+//! how it ended and its Verdict (ADRs 0079, 0100 and 0117), and the Error
+//! codes it alone fails with: `not_verified`, which an SDK raises itself
+//! when a program asks for an output its Verdict does not prove, and
+//! `page_navigated_during_call`, when a navigation the AI verb did not
+//! start replaces the document it read (ADR 0114).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -71,3 +73,25 @@ pub const NOT_VERIFIED: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// An AI verb whose document a navigation it did not start replaced
+/// (ADR 0114).
+pub const PAGE_NAVIGATED_DURING_CALL: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "page_navigated_during_call",
+    description: "The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.",
+    group: ErrorGroup::Page,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `page_navigated_during_call` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageNavigatedDuringCallDetails {
+    /// The document the call read.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The document that replaced it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub navigated_to: String,
+}

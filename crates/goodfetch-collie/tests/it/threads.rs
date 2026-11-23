@@ -241,7 +241,8 @@ fn either_setting_at_0_is_setting_invalid(#[case] key: &str) {
     let opened = engine.open(&Hello::needing(Product::Collie));
     let called = engine.ask(1, "config.explain", &json!({ "keys": [key] }));
     let workers = workers_once(engine.pid(), 2);
-    engine.finish();
+    // Refusing its configuration, the engine writes no JSON log.
+    engine.finish_unlogged();
 
     assert_eq!(
         (

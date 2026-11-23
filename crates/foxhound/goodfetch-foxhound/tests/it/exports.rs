@@ -7,7 +7,7 @@
 //! round-trips byte for byte; it answers an Export only once its file is
 //! whole, which `export.save_as` writes at the program's path and
 //! `export.stream` sends, and which outlives the engine killed during the
-//! next call. On a tmpfs of its own, a write the full filesystem refuses
+//! next call. On Linux, on a tmpfs of its own, a write the full filesystem refuses
 //! fails with `file_write_failed`, side `engine`, leaving no unfinished
 //! file, and one at the `critical` storage level fails before writing.
 //! Exports and Records read under `TZ=Pacific/Chatham` and
@@ -29,12 +29,15 @@ use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, unicode_record};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
+#[cfg(target_os = "linux")]
 use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 use crate::attached;
+#[cfg(target_os = "linux")]
 use crate::attached_spawned;
 use crate::site::Site;
 
+#[cfg(target_os = "linux")]
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// The shared Unicode record as one Record's value: each field's text
@@ -393,7 +396,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
     let mut later = attached(&env);
     let saved_to = env.home().join("books.json");
     let saved = save_as(&mut later, &held["result"]["export_id"], &saved_to);
-    let exports = run_folder(&env, "killed").join("exports");
+    let exports = run_folder(&env, "killed").join("exports").join("1");
     let visible_whole: Vec<bool> = names_in(&exports)
         .into_iter()
         .filter(|name| !name.starts_with('.'))
@@ -418,6 +421,59 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
             200,
             true,
             &held["result"]["sha256"]
+        )
+    );
+}
+
+/// An Export carries the run epoch of the Run's state it was written from:
+/// a crawl resumed after its engine was killed writes under run epoch 2,
+/// which its answer, its ID and its kept file's folder carry, and which
+/// `export.save_as` and `export.stream` answer too, so a destination that
+/// compares and sets can refuse a fenced copy's Export (ADR 0003).
+///
+/// Covers: story:3-43, operation:run.export, operation:export.save_as, operation:export.stream
+#[test]
+fn an_export_carries_the_run_epoch_of_the_state_it_was_written_from() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut killed = site.engine(&env);
+    crawl((&mut killed, &site), "resumed", 2);
+    killed.kill();
+    let mut engine = site.engine(&env);
+    let resumed = engine.call(
+        "resume",
+        "run.resume",
+        &json!({ "run_id": "resumed" }),
+        &mut |_| None,
+    );
+    finish(&mut engine, "resumed", book);
+    let exported = export(&mut engine, "resumed", "jsonl");
+    let saved = save_as(
+        &mut engine,
+        &exported["result"]["export_id"],
+        &env.home().join("books.jsonl"),
+    );
+    let (_, sent) = streamed(&mut engine, &exported["result"]["export_id"]);
+    assert!(engine.finished());
+
+    let sha256 = exported["result"]["sha256"].as_str().unwrap().to_owned();
+    let exports = run_folder(&env, "resumed").join("exports");
+    assert_eq!(
+        (
+            &resumed["result"]["started_as"],
+            &exported["result"]["records"],
+            &exported["result"]["run_epoch"],
+            &exported["result"]["export_id"],
+            (&saved["result"]["run_epoch"], &sent["result"]["run_epoch"]),
+            (names_in(&exports), names_in(&exports.join("2"))),
+        ),
+        (
+            &json!("resumed"),
+            &json!(2),
+            &json!(2),
+            &json!(format!("resumed.export-2-{sha256}")),
+            (&json!(2), &json!(2)),
+            (vec!["2".to_owned()], vec![sha256]),
         )
     );
 }
@@ -478,7 +534,7 @@ fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown(
         &json!({ "run_id": "declared", "dataset": "pages", "format": "json" }),
         &mut |_| None,
     );
-    let named = format!("declared.export-{}", "0".repeat(64));
+    let named = format!("declared.export-1-{}", "0".repeat(64));
     let no_export = save_as(&mut engine, &json!(named), &env.home().join("x.json"));
     assert!(engine.finished());
 
@@ -541,14 +597,18 @@ fn exports_and_records_under_another_time_zone_and_locale_are_byte_identical() {
     assert_eq!(on_elsewhere, on_host);
 }
 
+#[cfg(target_os = "linux")]
 const MIB: u64 = 1 << 20;
 
 /// The tmpfs's size over the home.
+#[cfg(target_os = "linux")]
 const SIZE: u64 = 64 * MIB;
 
 /// An Attached engine on a tmpfs of its own over the test's home, whose
 /// user configuration holds `settings`, with a finished crawl `run_id` of
-/// 40 Records of about 50 kB each in `books`.
+/// 40 Records of about 50 kB each in `books`. The tmpfs is Linux's: its
+/// mount runs through `unshare`.
+#[cfg(target_os = "linux")]
 fn crawled_on_a_tmpfs((env, site): (&TestEnv, &Site), settings: &str, run_id: &str) -> Attached {
     env.user_configuration(settings);
     let mut command = tmpfs_mounted_home(env, SIZE, FOXHOUND);
@@ -570,6 +630,7 @@ fn crawled_on_a_tmpfs((env, site): (&TestEnv, &Site), settings: &str, run_id: &s
 /// space is freed the same call writes the Export.
 ///
 /// Covers: story:6-280, operation:run.export, error:file_write_failed
+#[cfg(target_os = "linux")]
 #[test]
 fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_no_file() {
     let env = TestEnv::new();
@@ -583,10 +644,11 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
     let folder = run_folder(&env, "full");
     let filler = fill_filesystem(pid, env.home(), 512 * 1024);
     let failed = export(&mut engine, "full", "json");
-    let left = names_in(&inside_mount(pid, &folder.join("exports")));
+    let exports = folder.join("exports").join("1");
+    let left = names_in(&inside_mount(pid, &exports));
     free_filesystem(&filler);
     let written = export(&mut engine, "full", "json");
-    let kept = names_in(&inside_mount(pid, &folder.join("exports")));
+    let kept = names_in(&inside_mount(pid, &exports));
     assert!(engine.finished());
 
     let data = &failed["error"]["data"];
@@ -625,6 +687,7 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
 /// Exports folder at all (ADR 0122).
 ///
 /// Covers: story:6-280, operation:run.export, error:file_write_failed, setting:storage.critical_free
+#[cfg(target_os = "linux")]
 #[test]
 fn an_export_at_the_critical_storage_level_fails_before_writing() {
     let env = TestEnv::new();

@@ -61,22 +61,30 @@
 # calls in flight are sent again, a stream's after the last item read, as
 # the catalog classes them (ADR 0079); `connection` sets it up and `rpc`
 # applies it.
+# `handlerless` builds the starts that take no handler, `start_recipe` and
+# `start_catalog_run`, and the Run it leaves, detached when asked (issue
+# 3396), through `call`'s builder. `run_view` is the view `open_run` opens of
+# a Run another program started, by its Run ID, with no round trip (ADR 0102).
+# `testing` is the testing kit's shared part (ADR 0105): the options a
+# Product's test engine starts with, the settings it isolates it with, and
+# what every Product's test engine is.
 [modules]
 ai_work = ["error"]
 answer = []
-blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
+blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "handlerless", "limits", "raw_call", "response", "run", "run_view", "settings"]
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
 connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
-connection_type = ["call", "error", "raw_call", "run"]
+connection_type = ["call", "error", "handlerless", "raw_call", "run", "run_view"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
 handler = ["error", "line", "opening_process", "sync", "write_queue"]
-host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
+handlerless = ["call", "connection", "error", "generated", "limits", "markers", "settings"]
+host =["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
 line = []
 listener_queue = ["error"]
@@ -89,9 +97,11 @@ relink = ["logging", "sync", "transport"]
 response = ["call", "connection", "error", "host"]
 rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "relink", "trace_context", "transport", "write_queue"]
 run = ["answer", "call", "connection", "error", "event_stream", "generated", "host", "limits", "logging", "markers", "settings", "sync"]
+run_view = ["connection", "error"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []
+testing = ["error", "settings"]
 trace_context = []
 transport = []
 write_queue = ["sync"]

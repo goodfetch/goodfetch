@@ -13,10 +13,12 @@
 //! file.
 
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 use goodfetch_engine::run::{run_error, settings_error};
 use goodfetch_engine::run_files::export_file;
 use goodfetch_engine::run_files_operations::{keep_error, kept_size, save_kept, send_kept};
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -105,8 +107,14 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset.clone();
-    let through = reader
-        .read(move |connection| records::last_number(connection, &dataset))
+    let (through, run_epoch) = reader
+        .read(move |connection| {
+            let read = connection.unchecked_transaction()?;
+            Ok((
+                records::last_number(&read, &dataset)?,
+                run_row::epoch(&read)?,
+            ))
+        })
         .await
         .map_err(failed)?;
     let (send, receiver) = mpsc::channel(QUEUED);
@@ -130,7 +138,9 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     }
     let pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
     let (kept, written) = tokio::join!(
-        context.runs().keep_export(params.run_id.clone(), source),
+        context
+            .runs()
+            .keep_export(params.run_id.clone(), run_epoch, source),
         encode(&mut reader, pages, pipeline.encoding(), send),
     );
     let (records, last_number) = written.map_err(failed)?;
@@ -146,13 +156,14 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         }
     };
     Ok(Export {
-        export_id: ExportId::of(&params.run_id, &kept.sha256),
+        export_id: ExportId::of(&params.run_id, run_epoch, &kept.sha256),
         format: params.format,
         compression,
         records,
         last_number,
         size: kept.size,
         sha256: kept.sha256,
+        run_epoch,
     })
 }
 
@@ -198,6 +209,9 @@ async fn options(
             recipe: None,
             settings: params.settings.clone(),
             origin: Some(RunOrigin::Settings),
+            // An export takes the call's own settings, never the
+            // Connection's, and so none of its `registered` values.
+            registered: serde_json::Map::new(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
@@ -294,13 +308,18 @@ fn no_export(export_id: &ExportId) -> CallError {
     )
 }
 
-/// The Run folder and the file of the Export `export_id`, with its size,
-/// once its Run is found.
-async fn kept_export(
-    export_id: &ExportId,
-    context: &CallContext,
-) -> Result<(std::path::PathBuf, std::path::PathBuf, u64, String), CallError> {
-    let Some((run_id, sha256)) = export_id.split() else {
+/// An Export's file found in its Run's folder.
+struct KeptFile {
+    folder: PathBuf,
+    file: PathBuf,
+    size: u64,
+    sha256: String,
+    run_epoch: u64,
+}
+
+/// The file of the Export `export_id`, once its Run is found.
+async fn kept_export(export_id: &ExportId, context: &CallContext) -> Result<KeptFile, CallError> {
+    let Some((run_id, run_epoch, sha256)) = export_id.split() else {
         return Err(no_export(export_id));
     };
     let failed = |error: RunError| run_error(error, context);
@@ -310,23 +329,30 @@ async fn kept_export(
         .folder(RunId::clone(&run_id))
         .await
         .map_err(failed)?;
-    let file = export_file(&folder, sha256).ok_or_else(|| no_export(export_id))?;
+    let file = export_file(&folder, run_epoch, sha256).ok_or_else(|| no_export(export_id))?;
     let size = kept_size(context, &file)
         .await
         .map_err(|_| no_export(export_id))?;
-    Ok((folder, file, size, sha256.to_owned()))
+    Ok(KeptFile {
+        folder,
+        file,
+        size,
+        sha256: sha256.to_owned(),
+        run_epoch,
+    })
 }
 
 async fn save_as(
     params: ExportSaveAsParams,
     context: CallContext,
 ) -> Result<ExportSaved, CallError> {
-    let (folder, file, size, sha256) = kept_export(&params.export_id, &context).await?;
-    let written = save_kept(&context, &folder, file, params.path).await?;
+    let kept = kept_export(&params.export_id, &context).await?;
+    let written = save_kept(&context, &kept.folder, kept.file, params.path).await?;
     Ok(ExportSaved {
-        size,
-        sha256,
+        size: kept.size,
+        sha256: kept.sha256,
         written,
+        run_epoch: kept.run_epoch,
     })
 }
 
@@ -334,7 +360,11 @@ async fn stream(
     params: ExportStreamParams,
     context: CallContext,
 ) -> Result<ExportStreamed, CallError> {
-    let (folder, file, size, sha256) = kept_export(&params.export_id, &context).await?;
-    send_kept(&context, &folder, &file).await?;
-    Ok(ExportStreamed { size, sha256 })
+    let kept = kept_export(&params.export_id, &context).await?;
+    send_kept(&context, &kept.folder, &kept.file).await?;
+    Ok(ExportStreamed {
+        size: kept.size,
+        sha256: kept.sha256,
+        run_epoch: kept.run_epoch,
+    })
 }

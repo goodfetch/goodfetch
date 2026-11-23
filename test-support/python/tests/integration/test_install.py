@@ -3,7 +3,9 @@
 Fixture wheels of the Collie client and both Products install with uv and
 pip, offline from a folder of the wheels alone, on the host (glibc on Linux)
 and in the pinned Alpine image (musl), and a Product's `tests/integration`
-runs there unchanged. The Release suite alone collects these tests
+runs there unchanged. A fixture adapter runs at the lowest version of the
+framework it declares, as ADR 0070's lowest-version runs do. The Release
+suite alone collects these tests
 (`conftest.py`), as it alone runs every installed-package run (TESTING.md,
 Installed packages).
 """
@@ -23,6 +25,7 @@ from goodfetch_test_support.install import (
     CommandOutput,
     Installer,
     System,
+    install_lowest_direct,
     install_wheel,
 )
 
@@ -158,3 +161,69 @@ def test_a_pinned_wheel_missing_from_the_folder_fails_the_install(
     assert "goodfetch-collie-client" in environment.install.stdout + (
         environment.install.stderr
     )
+
+
+ADAPTER_TESTS = FIXTURES / "adapter" / "tests" / "integration"
+"""The fixture adapter's tests, the same for both of its builds."""
+
+
+def _frameworks(build_wheel: BuildWheel) -> list[Path]:
+    """The fixture framework's 1.0.0, without `shout`, and its 1.1.0, with it."""
+    return [build_wheel("framework-1.0", None), build_wheel("framework-1.1", None)]
+
+
+@on_every_system
+def test_an_adapter_s_tests_pass_at_the_lowest_version_it_declares(
+    test_env: TestEnv, build_wheel: BuildWheel, system: System
+) -> None:
+    """The framework installs at 1.0.0, and the adapter's tests pass on it."""
+    adapter = build_wheel("adapter", None)
+
+    environment = install_lowest_direct(
+        test_env, adapter, _frameworks(build_wheel), system=system
+    )
+
+    assert environment.folder.name == f"uv lowest-direct {system} café"
+    assert environment.install.exit == 0, environment.install.stderr
+    assert environment.run(
+        "python",
+        "-c",
+        "from importlib.metadata import version; print(version('fixture-framework'))",
+    ) == CommandOutput(0, "1.0.0\n", "")
+    tests = environment.run_tests(ADAPTER_TESTS)
+    assert tests.exit == 0, tests.stdout + tests.stderr
+    assert "1 passed" in tests.stdout
+
+
+@on_every_system
+def test_an_adapter_calling_an_api_newer_than_its_lowest_version_fails_there(
+    test_env: TestEnv, build_wheel: BuildWheel, system: System
+) -> None:
+    """`shout` is 1.1.0's: the adapter's tests fail on the 1.0.0 it declares."""
+    adapter = build_wheel("adapter-newer-api", None)
+
+    environment = install_lowest_direct(
+        test_env, adapter, _frameworks(build_wheel), system=system
+    )
+
+    assert environment.install.exit == 0, environment.install.stderr
+    tests = environment.run_tests(ADAPTER_TESTS)
+    assert tests.exit != 0
+    assert "cannot import name 'shout' from 'fixture_framework'" in tests.stdout
+
+
+@on_every_system
+def test_the_same_adapter_passes_at_the_highest_version(
+    test_env: TestEnv, build_wheel: BuildWheel, system: System
+) -> None:
+    """Only the lowest-version run sees the newer call: 1.1.0 has `shout`."""
+    wheels = [
+        build_wheel("adapter-newer-api", None),
+        build_wheel("framework-1.1", None),
+    ]
+
+    environment = install_wheel(test_env, wheels, installer=Installer.UV, system=system)
+
+    assert environment.install.exit == 0, environment.install.stderr
+    tests = environment.run_tests(ADAPTER_TESTS)
+    assert tests.exit == 0, tests.stdout + tests.stderr

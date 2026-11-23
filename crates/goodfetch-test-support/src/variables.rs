@@ -24,6 +24,11 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 
+/// The Fault plan file a scenario's generator replays in place of
+/// generating plans, which `just simulate <scenario> --plan <file>` sets
+/// (ADR 0060).
+pub const FAULT_PLAN_VARIABLE: &str = "GOODFETCH_FAULT_PLAN";
+
 /// The path of the pinned LazyFS build, which `just lazyfs-test` sets
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
@@ -54,6 +59,10 @@ pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 /// or `sudo`, so a silent fallback to the other fails (ADR 0067); unset, it
 /// tries the first, then the second.
 pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
+
+/// The folder `ci/toxiproxy-fetch.sh` downloads the tests' copy of Toxiproxy
+/// into, `~/.cache/goodfetch/toxiproxy` when unset.
+pub const TOXIPROXY_DOWNLOADS_VARIABLE: &str = "GOODFETCH_TOXIPROXY_DOWNLOADS";
 
 /// The most Callgrind children a counts benchmark runs at once, below its
 /// own bound of half the cores, at most eight: `xtask counts
@@ -120,6 +129,7 @@ impl Variables {
             SEED_VARIABLE,
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
+            FAULT_PLAN_VARIABLE,
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
@@ -133,6 +143,7 @@ impl Variables {
             CALLGRIND_AT_ONCE_VARIABLE,
             PLAYWRIGHT_BROWSERS_VARIABLE,
             NO_GUI_SESSION_VARIABLE,
+            TOXIPROXY_DOWNLOADS_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)

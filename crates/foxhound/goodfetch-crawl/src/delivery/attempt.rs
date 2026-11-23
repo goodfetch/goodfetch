@@ -93,6 +93,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::retry_after::RetryAfter;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::outcome::record_outcome;
@@ -106,12 +107,14 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
+use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::hook::CrawlHookStage;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::provenance::{
@@ -130,6 +133,7 @@ use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
 use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
+use super::document_answer;
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
@@ -144,13 +148,16 @@ use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
 mod decoy;
+mod hook_call;
 mod learning;
+mod permit;
 mod race;
 mod record_stage;
 mod site_preferences;
 mod sitemap_fetch;
 
 pub(super) use learning::{Lessons, learns};
+use permit::Permitting;
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -255,6 +262,10 @@ pub(super) struct Tiering {
     /// Where an escalation draws the Session it runs again in, when the
     /// attempt's Session sends from its own transport (#2416).
     escalating: Option<Escalating>,
+    /// Where the attempt asks for its request's Permit once its
+    /// before-request Hooks returned, when its crawl takes each Permit
+    /// then (#2905); none when it was taken as the request was leased.
+    permit: Option<Permitting>,
 }
 
 /// What an attempt whose Session sends from its own transport asks the
@@ -300,7 +311,15 @@ impl Tiering {
             transport: None,
             site_files: None,
             escalating: None,
+            permit: None,
         }
+    }
+
+    /// The same, asking through `permit` for its request's Permit once its
+    /// before-request Hooks returned, when given (#2905).
+    pub(super) fn permitting(mut self, permit: Option<Asking>) -> Self {
+        self.permit = permit.map(Permitting::through);
+        self
     }
 
     /// The same, its Session sending from `sends_from`, and a sample's
@@ -490,6 +509,10 @@ impl LeaseCheck for HandlerLease {
     fn enclosing(&self) -> Option<Enclosing> {
         self.lease.enclosing()
     }
+
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        self.lease.effect_attempt()
+    }
 }
 
 pub(super) struct Attempt {
@@ -543,6 +566,17 @@ pub(super) struct Attempt {
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
 /// not be built: its `what` was not fetched, retried as a failed
 /// navigation.
+/// The Record stage runs once, on the answer that counts: a handled,
+/// unskipped one, when the Run has Record-stage Hooks.
+async fn record_stage_once(on: &On<'_>, answer: Answer) -> Answer {
+    match answer {
+        Answer::Handled(handled) if handled.skipped.is_none() && on.hooks.at_record_stage() => {
+            record_stage::passed(on, handled).await
+        }
+        answer => answer,
+    }
+}
+
 fn without_http_tier(what: &str) -> Answer {
     Answer::failed(AttemptFailure::named(
         NAVIGATION_FAILED.name,
@@ -589,6 +623,7 @@ pub(super) async fn attempt(
     let (moved, refused) = (OnceLock::new(), OnceLock::new());
     let escalated = OnceLock::new();
     let on = On {
+        permit: tiering.permit.as_ref(),
         document: &document,
         escalated_to: &escalated,
         sent_at: &sent_at,
@@ -604,6 +639,7 @@ pub(super) async fn attempt(
         lease: &lease,
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
+        hooks: &hooks,
         in_flight: &in_flight,
         lessons,
         watch: &watch,
@@ -646,16 +682,7 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            // The Record stage runs once, on the answer that counts.
-            let answer = match answer {
-                Answer::Handled(handled)
-                    if handled.skipped.is_none() && hooks.at_record_stage() =>
-                {
-                    record_stage::passed(&on, &hooks, handled).await
-                }
-                answer => answer,
-            };
-            (answer, sampled, raced)
+            (record_stage_once(&on, answer).await, sampled, raced)
         }))
         .await;
     let (answer, sampled, (raced, transport_answered), ran) = match ran {
@@ -669,8 +696,10 @@ pub(super) async fn attempt(
             false,
         ),
     };
+    let document = document.into_inner().filter(|_| ran);
+    note_unparsable_retry_after(&run.identity, &hand_over, document.as_ref()).await;
     Attempt {
-        document: document.into_inner().filter(|_| ran),
+        document,
         handed_at: sent_at.into_inner().filter(|_| ran),
         moved: ran && moved.into_inner().is_some(),
         refused: ran && refused.into_inner().is_some(),
@@ -686,6 +715,32 @@ pub(super) async fn attempt(
         answer,
         sampled,
         raced,
+    }
+}
+
+/// Notes in `run`'s Run trace, through the attempt's `hand_over`, the
+/// `Retry-After` of `document`, the answer to its crawl request's own
+/// document when the engine fetched one, when it does not parse and the
+/// engine reads it: on a 429, 502, 503 or 504 of the site's, never on one
+/// the Run's proxy gave itself (ADR 0118). Once per such response, which
+/// adds no wait.
+async fn note_unparsable_retry_after(
+    run: &RunIdentity,
+    hand_over: &HandOver,
+    document: Option<&PageResponse>,
+) {
+    let Some(response) = document.filter(|response| response.headers.contains_key("retry-after"))
+    else {
+        return;
+    };
+    let proxied = run
+        .settings()
+        .is_some_and(|settings| super::proxied(settings.resolved()));
+    let asked = document_answer::asked(response, proxied, run.clock().wall());
+    if let Some((value, RetryAfter::Unparsable)) = asked.retry_after {
+        hand_over
+            .unparsable_retry_after(&response.url, response.status, value)
+            .await;
     }
 }
 
@@ -790,6 +845,8 @@ struct On<'a> {
     /// What a code-free crawl handles its requests with, in place of the
     /// program's handler; none when the program handles them.
     code_free: Option<&'a CodeFree>,
+    /// The Run's Hooks in code, each stage's chain.
+    hooks: &'a Hooks,
     in_flight: &'a SharedInFlight,
     /// Where its page notes what it teaches the Frontier.
     lessons: &'a Lessons,
@@ -813,6 +870,9 @@ struct On<'a> {
     /// in, as that Session runs in the browser, set once its attempt
     /// escalated from a Session's own transport (#2416).
     escalated_to: &'a OnceLock<(ServingSession, PooledSession)>,
+    /// Where it asks for its request's Permit once its before-request
+    /// Hooks returned, when its crawl takes each Permit then (#2905).
+    permit: Option<&'a Permitting>,
 }
 
 impl On<'_> {
@@ -893,6 +953,39 @@ impl On<'_> {
             page_id,
             response,
         }
+    }
+
+    /// The attempt through the Hooks in code of each of `stages` in turn
+    /// ([`hook_call::ended_in_stage`]): `None` once every call returned,
+    /// else how the first that did not ended the attempt. Stages before a
+    /// request then take its Permit, in a crawl that takes it after them
+    /// ([`On::permitted`]).
+    async fn ended_in(&self, stages: &[CrawlHookStage]) -> Option<Answer> {
+        for stage in stages {
+            if let Some(ended) = hook_call::ended_in_stage(self, stage).await {
+                return Some(ended);
+            }
+        }
+        if stages.contains(&CrawlHookStage::BeforeRequest) {
+            return self.permitted().await;
+        }
+        None
+    }
+
+    /// The attempt's handler request `params`, once its page-ready Hooks
+    /// returned ([`handled`]); else how the first that did not ended it.
+    async fn page_ready(&self, params: &CrawlRequestHandleParams) -> Answer {
+        if let Some(ended) = self.ended_in(&[CrawlHookStage::PageReady]).await {
+            return ended;
+        }
+        handled(
+            self.run,
+            self.context,
+            self.code_free,
+            (params, self.sent_at),
+            self.lease,
+        )
+        .await
     }
 
     /// The attempt on the `http` tier: its run there ([`On::on_http`]),
@@ -1276,8 +1369,12 @@ impl On<'_> {
     /// sample's, and the handler given a page
     /// served from it, closed once it answered. A page failing its expected
     /// page under `auto` escalates at `session.page_check` without its
-    /// handler running. Answers the run or, when the attempt ended before
-    /// its handler ran, its answer.
+    /// handler running. Its Hooks in code run around it (ADR 0104): before
+    /// request, and before navigation on `light_browser`, before the fetch;
+    /// after response, and after navigation on `light_browser`, before
+    /// anything judges the page; and page ready just before the handler.
+    /// Answers the run or, when the attempt ended before its handler ran,
+    /// its answer.
     async fn on_http(
         &self,
         tiering: &Tiering,
@@ -1285,10 +1382,16 @@ impl On<'_> {
         (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
     ) -> Result<HttpRun, Answer> {
-        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let (run, leased) = (self.run, self.leased);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
         let http = &self.client(tiers, http);
+        // Lightpanda navigates to the request's URL; the other tiers fetch
+        // it (ADR 0104).
+        let navigates = choice.tier == FetchTier::LightBrowser;
+        if let Some(ended) = self.ended_in(before_fetch(navigates)).await {
+            return Err(ended);
+        }
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
@@ -1305,6 +1408,12 @@ impl On<'_> {
         // Run.
         let page_id = served.page_id().clone();
         *self.document.lock().await = facts.response.clone();
+        // Its after-response Hooks see the response before anything judges
+        // it; an attempt they end closes its page as `served` drops.
+        let after = after_fetch(facts.response.is_some(), navigates);
+        if let Some(ended) = self.ended_in(after).await {
+            return Err(ended);
+        }
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
@@ -1341,14 +1450,7 @@ impl On<'_> {
         let url = response.as_ref().map(|response| response.url.clone());
         let params = self.params(Some(choice.tier), Some(page_id.clone()), response);
         let handed_over = tiers.hand_over(Arc::clone(hand_over));
-        let answer = handled(
-            run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            lease,
-        )
-        .await;
+        let answer = self.page_ready(&params).await;
         drop(handed_over);
         let escalated = self.escalated(served.close());
         Ok(HttpRun {
@@ -1485,10 +1587,10 @@ impl On<'_> {
             label: &leased.crawl_request.label,
             domain_key: &leased.waiting.key,
             second_copies: &tiering.second_copies,
-            // No work item declares an Effect before area 9's Effect
-            // journal (ADR 0106), and no crawl request is a Paid fetch
-            // before ADR 0045's.
-            declares_effect: false,
+            // A work item that declared an Effect is never hedged or
+            // coalesced from then on (ADR 0106); no crawl request is a
+            // Paid fetch before ADR 0045's.
+            declares_effect: lease.declares_effect(),
             paid: false,
         };
         let tiers = &tiering.tiers;
@@ -1560,7 +1662,9 @@ impl On<'_> {
 
     /// The handler request of the attempt on `tier`, given the page
     /// `page_id`, whose request's own document answered `response`,
-    /// bounded by its lease.
+    /// bounded by its lease, once the attempt went through its page-ready
+    /// Hooks. It serves a race's winner (`race`), whose Label no
+    /// navigation or after-response Hook reaches ([`Hooks::lets_race`]).
     async fn handle(
         &self,
         page_id: &PageId,
@@ -1573,21 +1677,17 @@ impl On<'_> {
             InFlightPhase::Handling,
         );
         let params = self.params(Some(tier), Some(page_id.clone()), response);
-        handled(
-            self.run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            self.lease,
-        )
-        .await
+        self.page_ready(&params).await
     }
 
     /// The attempt on the `browser` tier: the Run's pages handed over,
     /// Collie's page opened and navigated to the request's URL through the
     /// gate under the lease, and the handler given it, closed once it
-    /// answered. `how` says how the request came here: as chosen, as a
-    /// sample's run, or by an escalation from a cheaper tier.
+    /// answered. Its Hooks in code run around it (ADR 0104): before request
+    /// first, before navigation before the page opens, after response, when
+    /// a response came, and after navigation once it landed, and page ready
+    /// just before the handler. `how` says how the request came here: as
+    /// chosen, as a sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
         self.browser_run(tiers, choice, how, None).await.answer
     }
@@ -1608,6 +1708,9 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeRequest]).await {
+            return ended(answer);
+        }
         // The address check judges the request's URL before the browser
         // opens anything, as on the HTTP tier (spec #565).
         if let Some(http) = self.http {
@@ -1629,6 +1732,9 @@ impl On<'_> {
             tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeNavigation]).await {
+            return ended(answer);
+        }
         let hand_over = match capture {
             Some(capture) => Arc::new(self.hand_over.capturing(capture.clone())),
             None => Arc::clone(self.hand_over),
@@ -1647,6 +1753,11 @@ impl On<'_> {
         };
         if let Some(refused) = refused_type(tiers, &page_id, &run.identity, leased).await {
             return ended(refused);
+        }
+        let after = after_fetch(navigated.response.is_some(), true);
+        if let Some(answer) = self.ended_in(after).await {
+            tiers.close_browser(&page_id).await;
+            return ended(answer);
         }
         let browser = TierChoice {
             tier: FetchTier::Browser,
@@ -1678,14 +1789,7 @@ impl On<'_> {
             Some(page_id.clone()),
             navigated.response,
         );
-        let answer = handled(
-            run,
-            self.context,
-            self.code_free,
-            (&params, self.sent_at),
-            lease,
-        )
-        .await;
+        let answer = self.page_ready(&params).await;
         drop(handed_over);
         let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
@@ -1728,6 +1832,33 @@ pub(super) fn read_by_browser(
         page_id,
         response.and_then(|response| response.encoding.as_deref()),
     )
+}
+
+/// The request stages before a fetch, the navigation's too when it
+/// `navigates` (ADR 0104).
+fn before_fetch(navigates: bool) -> &'static [CrawlHookStage] {
+    if navigates {
+        &[
+            CrawlHookStage::BeforeRequest,
+            CrawlHookStage::BeforeNavigation,
+        ]
+    } else {
+        &[CrawlHookStage::BeforeRequest]
+    }
+}
+
+/// The stages after a fetch: after response when it `responded`, after
+/// navigation when it `navigated` (ADR 0104).
+fn after_fetch(responded: bool, navigated: bool) -> &'static [CrawlHookStage] {
+    match (responded, navigated) {
+        (true, true) => &[
+            CrawlHookStage::AfterResponse,
+            CrawlHookStage::AfterNavigation,
+        ],
+        (true, false) => &[CrawlHookStage::AfterResponse],
+        (false, true) => &[CrawlHookStage::AfterNavigation],
+        (false, false) => &[],
+    }
 }
 
 /// Whether the cheaper run `run`, which staged `staged`, staged what the

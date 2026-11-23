@@ -71,17 +71,22 @@ fn release_suite_run(
 /// GitHub with `release` as the latest release, at `RELEASE_COMMIT`, and no
 /// `needs-triage` issue yet.
 fn github(release: Option<&str>) -> GitHub {
+    github_with(release, Vec::new())
+}
+
+/// As [`github`], with `more` routes: those of a benchmark's owner.
+fn github_with(release: Option<&str>, more: Vec<(String, String)>) -> GitHub {
     let mut routes: Vec<(String, String)> = vec![
         (
             format!("{ISSUES}?labels=needs-triage&state=all&per_page=100&page=1"),
             "[]".to_owned(),
         ),
         (
-            "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1".to_owned(),
-            r#"[ { "number": 1, "open_issues": 3, "due_on": null } ]"#.to_owned(),
+            format!("POST {ISSUES}"),
+            r#"{ "number": 41, "id": 9001 }"#.to_owned(),
         ),
-        (format!("POST {ISSUES}"), r#"{ "number": 41 }"#.to_owned()),
     ];
+    routes.extend(more);
     if let Some(tag) = release {
         routes.push((
             "/repos/goodfetch/goodfetch/releases/latest".to_owned(),
@@ -99,7 +104,10 @@ fn github(release: Option<&str>) -> GitHub {
     GitHub::serving(&routes)
 }
 
+/// Runs the check in `workspace`, committed first: the check reads its
+/// history for the commit that added a benchmark.
 fn drift(workspace: &Workspace, github: &GitHub) -> Outcome {
+    workspace.commit_all();
     workspace.xtask(&[
         "perf",
         "drift",
@@ -167,6 +175,86 @@ fn figure_up_more_than_10_percent_since_the_last_release_opens_one_issue() {
         vec![format!(
             "<!-- goodfetch-results: needs-triage perf-drift linux-x64 {FRONTIER} instructions -->"
         )]
+    );
+}
+
+/// The benchmark `FRONTIER` names is the function `push` of the frontier
+/// package's `benches/instructions.rs`, added by ticket 1490 of spec 130,
+/// in milestone 3 (ADR 0136).
+#[test]
+fn drift_issue_of_a_benchmark_a_ticket_added_is_a_sub_issue_of_its_spec_in_its_milestone() {
+    let workspace = Workspace::from_fixture("empty");
+    write_store(
+        &workspace,
+        &[
+            release_suite_run(
+                1,
+                "2026-10-01T08:00:00Z",
+                RELEASE_COMMIT,
+                instructions(FRONTIER, 1_000_000),
+            ),
+            release_suite_run(
+                2,
+                "2026-10-10T08:00:00Z",
+                MAIN_COMMIT,
+                instructions(FRONTIER, 1_200_000),
+            ),
+        ],
+    );
+    workspace.write(
+        "crates/foxhound/goodfetch-frontier/benches/instructions.rs",
+        b"#[library_benchmark]\nfn push() {}\n",
+    );
+    let commit = workspace.commit_all();
+    let github = github_with(
+        Some("v0.1.0"),
+        vec![
+            (
+                format!("/repos/goodfetch/goodfetch/commits/{commit}/pulls"),
+                r#"[{ "number": 1500, "merged_at": "2026-09-30T08:00:00Z", "body": "Closes #1490\n" }]"#
+                    .to_owned(),
+            ),
+            (
+                format!("{ISSUES}/1490"),
+                r#"{ "number": 1490, "milestone": { "number": 3 }, "parent_issue_url": "https://api.github.com/repos/goodfetch/goodfetch/issues/130" }"#
+                    .to_owned(),
+            ),
+            (
+                format!("POST {ISSUES}/130/sub_issues"),
+                r#"{ "number": 130 }"#.to_owned(),
+            ),
+        ],
+    );
+
+    let outcome = drift(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let writes: Vec<(String, String, Value)> = github
+        .writes()
+        .iter()
+        .map(|write| {
+            let mut fields: Value = serde_json::from_str(&write.body).unwrap();
+            if let Some(fields) = fields.as_object_mut() {
+                fields.remove("body");
+                fields.remove("title");
+            }
+            (write.method.clone(), write.path.clone(), fields)
+        })
+        .collect();
+    assert_eq!(
+        writes,
+        vec![
+            (
+                "POST".to_owned(),
+                ISSUES.to_owned(),
+                json!({ "labels": ["needs-triage"], "milestone": 3 })
+            ),
+            (
+                "POST".to_owned(),
+                format!("{ISSUES}/130/sub_issues"),
+                json!({ "sub_issue_id": 9001 })
+            ),
+        ]
     );
 }
 

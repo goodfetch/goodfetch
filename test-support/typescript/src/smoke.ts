@@ -5,9 +5,17 @@
 // writes one entry per script, runtime and mode.
 //
 // A script declares its cases on a `// cases: <id>, <id>` line. It runs with
-// the test's environment map (`env`), with `GOODFETCH_SMOKE_MODE` set to
-// `attached` or `daemon`; in the `daemon` mode the test has started its
-// Product's Daemon in the test's home first.
+// the test's environment map (`env`), with `SMOKE_MODE` set to `attached` or
+// `daemon`; in the `daemon` mode the test has started its Product's Daemon in
+// the test's home first. The mode's variable is outside the `GOODFETCH_`
+// prefix, whose unknown names an SDK refuses (ADR 0083).
+//
+// A script that reaches a remote Daemon over WebSocket declares it on a
+// `// remote daemon: <corpus script> <token>` line, and runs in the `daemon`
+// mode only: the test starts the Scripted engine as an Exposed Daemon playing
+// that script of the shared corpus, gives the script `GOODFETCH_URL` and
+// `GOODFETCH_TOKEN` naming it, and checks that the Daemon played its script
+// through once the script exited.
 //
 // The runtimes are the job's set of `ci/runtimes.toml`, named by
 // `GOODFETCH_RUNTIME_SET` (host-tools sets it; `pre-merge` otherwise): the
@@ -22,8 +30,17 @@ import { describe, expect } from "vitest";
 import { CLIENT_CASE_TAG, hostRuntime } from "./case-log.ts";
 import { TestSupportError } from "./errors.ts";
 import { test } from "./fixtures.ts";
-import type { ProcessRecord } from "./process-record.ts";
+import type { Exit, ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
+import { startScriptedDaemon } from "./scripted-daemon.ts";
+
+/** The remote Daemon a smoke script reaches: the Scripted engine playing a corpus script. */
+export interface SmokeRemoteDaemon {
+  /** The corpus script it plays, such as `connect/remote-drop-resends-a-read.json`. */
+  readonly script: string;
+  /** The token the script's Client presents, which the corpus script's hello holds. */
+  readonly token: string;
+}
 
 /** A smoke script and the Client conformance cases it declares. */
 export interface SmokeScript {
@@ -32,18 +49,27 @@ export interface SmokeScript {
   readonly path: string;
   /** The IDs of its `// cases:` line, in their order. */
   readonly cases: readonly string[];
+  /** The remote Daemon of its `// remote daemon:` line; a script without one runs attached and against a local Daemon. */
+  readonly remoteDaemon: SmokeRemoteDaemon | undefined;
 }
 
 const CASES_LINE = /^\/\/ cases:(.*)$/m;
+const REMOTE_DAEMON_LINE = /^\/\/ remote daemon:(.*)$/m;
 
-/** The `*.mjs` scripts of `folder`, by name; `smoke_cases_missing` for one with no `// cases:` line naming a case. */
+/**
+ * The `*.mjs` scripts of `folder`, by name; `smoke_cases_missing` for one
+ * with no `// cases:` line naming a case, and `smoke_remote_daemon_invalid`
+ * for a `// remote daemon:` line that names other than a corpus script and a
+ * token.
+ */
 export function readSmokeScripts(folder: string): SmokeScript[] {
   return readdirSync(folder)
     .filter((name) => name.endsWith(".mjs"))
     .toSorted()
     .map((name) => {
       const path = join(folder, name);
-      const cases = (CASES_LINE.exec(readFileSync(path, "utf8"))?.[1] ?? "")
+      const text = readFileSync(path, "utf8");
+      const cases = (CASES_LINE.exec(text)?.[1] ?? "")
         .split(",")
         .map((id) => id.trim())
         .filter((id) => id !== "");
@@ -53,8 +79,25 @@ export function readSmokeScripts(folder: string): SmokeScript[] {
           `the smoke script ${path} declares no Client conformance case: add a line \`// cases: <id>, <id>\``,
         );
       }
-      return { name, path, cases };
+      return { name, path, cases, remoteDaemon: remoteDaemonOf(path, text) };
     });
+}
+
+/** The remote Daemon `text`'s `// remote daemon:` line names, if it has one. */
+function remoteDaemonOf(path: string, text: string): SmokeRemoteDaemon | undefined {
+  const line = REMOTE_DAEMON_LINE.exec(text)?.[1];
+  if (line === undefined) {
+    return undefined;
+  }
+  const words = line.trim().split(/\s+/);
+  const [script, token] = words;
+  if (words.length !== 2 || script === undefined || token === undefined) {
+    throw new TestSupportError(
+      "smoke_remote_daemon_invalid",
+      `the smoke script ${path} has a remote-Daemon line that names other than a corpus script and a token: write \`// remote daemon: <corpus script> <token>\``,
+    );
+  }
+  return { script, token };
 }
 
 /** A runtime a smoke script runs on: its ID in the case log, and the program that runs a script. */
@@ -159,10 +202,17 @@ export interface SmokeTestOptions {
 /** The modes a smoke script runs in. */
 type SmokeMode = "attached" | "daemon";
 
+/** How long a remote-Daemon script's Daemon may take to end its play once the script exited. */
+const DAEMON_EXIT_DEADLINE_MS = 5_000;
+
 /**
  * Declares one test per script of `options.folder`, runtime of the job's set
  * and mode, tagged with the script's cases and the mode. Each test spawns
- * its script and checks that it exits 0.
+ * its script and checks that it exits 0, and for a remote-Daemon script,
+ * which runs in the `daemon` mode only, that its Daemon played its script
+ * through. A test file calls it inside a `describe` of its own: Vitest's
+ * listing parses a test file without running it, and fails one that
+ * declares no suite or test itself.
  */
 export function smokeTests(options: SmokeTestOptions): void {
   const scripts = readSmokeScripts(options.folder);
@@ -171,10 +221,11 @@ export function smokeTests(options: SmokeTestOptions): void {
     path: process.env["PATH"],
   });
   const product = options.product ?? "collie";
-  for (const mode of ["attached", "daemon"] as const) {
+  const local = scripts.filter(({ remoteDaemon }) => remoteDaemon === undefined);
+  for (const mode of local.length > 0 ? (["attached", "daemon"] as const) : []) {
     describe(`smoke scripts, ${mode}`, () => {
       test.override({ product, withDaemon: mode === "daemon" });
-      for (const script of scripts) {
+      for (const script of local) {
         for (const runtime of runtimes) {
           const tags = [...script.cases.map((id) => `${CLIENT_CASE_TAG}${id}`), mode];
           const name = `${script.name} on ${runtime.id}`;
@@ -198,6 +249,64 @@ export function smokeTests(options: SmokeTestOptions): void {
       }
     });
   }
+  const remotes = scripts.flatMap((script) =>
+    script.remoteDaemon === undefined ? [] : [{ script, remote: script.remoteDaemon }],
+  );
+  if (remotes.length === 0) {
+    return;
+  }
+  describe("smoke scripts, remote daemon", () => {
+    test.override({ product, withDaemon: false });
+    for (const { script, remote } of remotes) {
+      for (const runtime of runtimes) {
+        const tags = [...script.cases.map((id) => `${CLIENT_CASE_TAG}${id}`), "daemon"];
+        test(
+          `${script.name} on ${runtime.id}`,
+          { tags },
+          async ({ task, processes, testEnv, env, clientCase }) => {
+            task.meta.runtime = runtime.id;
+            const daemon = await startScriptedDaemon(
+              testEnv,
+              processes,
+              remote.script,
+              "websocket",
+            );
+            try {
+              const reaching = {
+                ...env,
+                GOODFETCH_URL: `ws://${daemon.address}`,
+                GOODFETCH_TOKEN: remote.token,
+              };
+              await clientCase.check(`the script exits 0 on ${runtime.id}`, async () => {
+                await expectExitZero(processes, runtime, script, reaching, "daemon");
+              });
+              const exit = await exitWithin(daemon.exit, DAEMON_EXIT_DEADLINE_MS);
+              await clientCase.check("the Scripted Daemon played its script through", () => {
+                expect(exit, `the Scripted Daemon playing ${remote.script}`).toMatchObject({
+                  code: 0,
+                });
+              });
+            } finally {
+              await daemon.kill();
+            }
+          },
+        );
+      }
+    }
+  });
+}
+
+/** How `exit` settled within `deadline` milliseconds, or `still running` when it had not. */
+async function exitWithin(exit: Promise<Exit>, deadline: number): Promise<Exit | "still running"> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<"still running">((resolve) => {
+    timer = setTimeout(() => resolve("still running"), deadline);
+  });
+  try {
+    return await Promise.race([exit, late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Spawns `script` on `runtime` with the test's map and the mode, and fails, with its output, unless it exits 0. */
@@ -209,7 +318,7 @@ async function expectExitZero(
   mode: SmokeMode,
 ): Promise<void> {
   const run = processes.spawn(runtime.command, [...runtime.args, script.path], {
-    env: { ...env, GOODFETCH_SMOKE_MODE: mode, DENO_NO_UPDATE_CHECK: "1", NO_COLOR: "1" },
+    env: { ...env, SMOKE_MODE: mode, DENO_NO_UPDATE_CHECK: "1", NO_COLOR: "1" },
   });
   run.child.stdin.end();
   let output = "";

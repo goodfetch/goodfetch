@@ -119,6 +119,7 @@ async fn started(params: &Value, context: &CallContext) -> Result<crate::runs::R
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .map_err(crate::run::start_error)?;

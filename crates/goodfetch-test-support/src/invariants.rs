@@ -1,10 +1,13 @@
 //! The invariant checkers (ADR 0060): functions over an Observation log,
 //! each returning the first violation with the records that show it, which
-//! the Simulation, real-process tests and conformance suites share. Here:
-//! fencing, judged by Guarantee class, and Limits.
+//! the Simulation, real-process tests and conformance suites share: fencing,
+//! judged by Guarantee class, one lead, Limits, Partitions, the Audit log's
+//! chain, checked by the product's verifier passed in as a value, and
+//! bounded liveness.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::ops::Bound;
 
 use serde::Serialize;
 
@@ -41,6 +44,28 @@ pub enum ViolationKind {
     LimitExceeded,
     /// A settle returned more Usage than its scope had reserved.
     OverSettled,
+    /// Two hosts acted as Lead Daemon under one lead epoch.
+    TwoLeads,
+    /// A host acted as Lead Daemon under a lead epoch below one another
+    /// host had already acted under.
+    StaleLead,
+    /// A Schedule fired twice for one occurrence.
+    ScheduleFiredTwice,
+    /// A URL joined a Partition's Frontier while another Partition's held
+    /// it.
+    UrlInTwoFrontiers,
+    /// A discovered URL is in no Partition's Frontier at the log's end.
+    UrlLost,
+    /// A Partition admitted a request to a domain another Partition held.
+    DomainHeldTwice,
+    /// An Audit log entry does not verify from the chain's start: the
+    /// verifier refuses it, or it chains to, or merges, no entry of the log.
+    AuditChainBroken,
+    /// The Audit log has more than one head: a branch no merge entry
+    /// carries.
+    AuditBranchUnmerged,
+    /// A run neither finished nor became resumable within its bound.
+    ProgressMissing,
 }
 
 /// The first violation a checker found, with the records that show it, in
@@ -315,6 +340,248 @@ pub fn limits<R: Serialize + Clone>(
             positions.push(limit_position);
             return Err(violation(records, ViolationKind::LimitExceeded, positions));
         }
+    }
+    Ok(())
+}
+
+/// Judges a log's leads (ADR 0055): no two hosts act as Lead Daemon under
+/// one lead epoch, none acts under an epoch below one another host already
+/// acted under, and a Schedule fires once for each occurrence.
+pub fn one_lead<R: Serialize + Clone>(log: &ObservationLog<R>) -> Result<(), Violation<R>> {
+    let records = log.records();
+    let violation = |kind, positions| Err(violation(records, kind, positions));
+    // The first record of each lead epoch, and of each Schedule occurrence.
+    let mut leads: BTreeMap<Epoch, usize> = BTreeMap::new();
+    let mut fired: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for (position, record) in records.iter().enumerate() {
+        match &record.operation {
+            Operation::Lead { epoch } => {
+                let first = *leads.entry(*epoch).or_insert(position);
+                if records[first].host != record.host {
+                    return violation(ViolationKind::TwoLeads, vec![first, position]);
+                }
+                let newest = leads
+                    .range((Bound::Excluded(*epoch), Bound::Unbounded))
+                    .next_back();
+                if let Some((_, &newest)) = newest
+                    && records[newest].host != record.host
+                {
+                    return violation(ViolationKind::StaleLead, vec![newest, position]);
+                }
+            }
+            Operation::Fired {
+                schedule,
+                occurrence,
+            } => {
+                let first = *fired.entry((schedule, occurrence)).or_insert(position);
+                if first != position {
+                    return violation(ViolationKind::ScheduleFiredTwice, vec![first, position]);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Judges a Partitioned crawl's logs (ADR 0054): a URL is in one
+/// Partition's Frontier at a time and every discovered URL is in one at the
+/// log's end, and a domain a Partition admitted is held by it alone until it
+/// hands it off, its URLs leaving its Frontier with it.
+pub fn partitions<R: Serialize + Clone>(log: &ObservationLog<R>) -> Result<(), Violation<R>> {
+    let records = log.records();
+    let violation = |kind, positions| Err(violation(records, kind, positions));
+    // Each URL's first discovery, in log order.
+    let mut discovered: Vec<(usize, &str)> = Vec::new();
+    // The Frontier each URL is in: the record that put it there, its
+    // Partition and its domain.
+    let mut frontiers: BTreeMap<&str, (usize, &str, &str)> = BTreeMap::new();
+    // The Partition holding each domain, and the admission it began with.
+    let mut held: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+    for (position, record) in records.iter().enumerate() {
+        match &record.operation {
+            Operation::Discovered { url } => {
+                if discovered.iter().all(|(_, known)| known != url) {
+                    discovered.push((position, url));
+                }
+            }
+            Operation::Frontier {
+                partition,
+                domain,
+                url,
+            } => {
+                let (first, holder, _) = *frontiers
+                    .entry(url)
+                    .or_insert((position, partition, domain));
+                if holder != partition {
+                    return violation(ViolationKind::UrlInTwoFrontiers, vec![first, position]);
+                }
+            }
+            Operation::Admitted { partition, domain } => {
+                let (first, holder) = *held.entry(domain).or_insert((position, partition));
+                if holder != partition {
+                    return violation(ViolationKind::DomainHeldTwice, vec![first, position]);
+                }
+            }
+            Operation::HandedOff { partition, domain } => {
+                if held
+                    .get(domain.as_str())
+                    .is_some_and(|(_, holder)| holder == partition)
+                {
+                    held.remove(domain.as_str());
+                }
+                frontiers.retain(|_, (_, holder, of)| !(holder == partition && of == domain));
+            }
+            _ => {}
+        }
+    }
+    match discovered
+        .into_iter()
+        .find(|(_, url)| !frontiers.contains_key(url))
+    {
+        Some((position, _)) => violation(ViolationKind::UrlLost, vec![position]),
+        None => Ok(()),
+    }
+}
+
+/// Judges the Audit log's chain (ADRs 0016 and 0055): every entry stays
+/// verifiable from the chain's start. The entries form a tree, each chained
+/// to an earlier one by its hash, a Group member's branch forking from the
+/// last lead hash it saw; `verify`, the product's chain verifier passed in
+/// as a value, must accept the entries of each path from the first entry to
+/// a head, and every head but one must be merged by a merge entry. On a
+/// path it refuses, the entry its shortest refused start ends with is shown,
+/// with the one it chains to.
+pub fn audit_chain<R: Serialize + Clone>(
+    log: &ObservationLog<R>,
+    verify: impl Fn(&[&str]) -> bool,
+) -> Result<(), Violation<R>> {
+    let records = log.records();
+    let violation = |kind, positions| Err(violation(records, kind, positions));
+    let mut links: Vec<Link<'_>> = Vec::new();
+    // The link of each hash.
+    let mut by_hash: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut merged: BTreeSet<usize> = BTreeSet::new();
+    for (position, record) in records.iter().enumerate() {
+        let Operation::Audit {
+            hash,
+            previous,
+            entry,
+            merges,
+        } = &record.operation
+        else {
+            continue;
+        };
+        let parent = by_hash.get(previous.as_str()).copied();
+        if parent.is_none() && !links.is_empty() {
+            return violation(ViolationKind::AuditChainBroken, vec![position]);
+        }
+        if let Some(head) = merges {
+            let Some(&head) = by_hash.get(head.as_str()) else {
+                return violation(ViolationKind::AuditChainBroken, vec![position]);
+            };
+            merged.insert(head);
+        }
+        by_hash.insert(hash, links.len());
+        links.push(Link {
+            position,
+            parent,
+            entry,
+        });
+    }
+    let mut chained_to: BTreeSet<usize> = BTreeSet::new();
+    chained_to.extend(links.iter().filter_map(|link| link.parent));
+    let heads: Vec<usize> = (0..links.len())
+        .filter(|link| !chained_to.contains(link))
+        .collect();
+    for &head in &heads {
+        let mut path = vec![head];
+        while let Some(parent) = links[path[path.len() - 1]].parent {
+            path.push(parent);
+        }
+        path.reverse();
+        let entries: Vec<&str> = path.iter().map(|&link| links[link].entry).collect();
+        if verify(&entries) {
+            continue;
+        }
+        // The shortest start of the path the verifier refuses: every
+        // start of a chain it accepts verifies too.
+        let (mut accepted, mut refused) = (0, entries.len());
+        while refused - accepted > 1 {
+            let middle = accepted + (refused - accepted) / 2;
+            if verify(&entries[..middle]) {
+                accepted = middle;
+            } else {
+                refused = middle;
+            }
+        }
+        let shown = path[refused.saturating_sub(2)..refused]
+            .iter()
+            .map(|&link| links[link].position)
+            .collect();
+        return violation(ViolationKind::AuditChainBroken, shown);
+    }
+    let unmerged: Vec<usize> = heads
+        .into_iter()
+        .filter(|head| !merged.contains(head))
+        .map(|head| links[head].position)
+        .collect();
+    if unmerged.len() > 1 {
+        return violation(ViolationKind::AuditBranchUnmerged, unmerged);
+    }
+    Ok(())
+}
+
+/// An Audit log entry of the log: its position, the link it chains to and
+/// its text.
+struct Link<'a> {
+    position: usize,
+    parent: Option<usize>,
+    entry: &'a str,
+}
+
+/// Judges bounded liveness (ADR 0060): once faults stop at the simulated
+/// millisecond `after`, every run finishes or becomes resumable within
+/// `within` of `after`, or of its last start when that is later. A run
+/// still unsettled at the log's end fails. A record with no simulated time,
+/// as a real-process test's, counts as in time: such a test bounds its own
+/// wait.
+pub fn liveness<R: Serialize + Clone>(
+    log: &ObservationLog<R>,
+    after: u64,
+    within: u64,
+) -> Result<(), Violation<R>> {
+    let records = log.records();
+    // Each run's last start, and the first finish or checkpoint after it.
+    let mut runs: BTreeMap<&str, (usize, Option<usize>)> = BTreeMap::new();
+    for (position, record) in records.iter().enumerate() {
+        match &record.operation {
+            Operation::Started { run } => {
+                runs.insert(run, (position, None));
+            }
+            Operation::Finished { run } | Operation::Resumable { run } => {
+                if let Some((_, settled @ None)) = runs.get_mut(run.as_str()) {
+                    *settled = Some(position);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut runs: Vec<(usize, Option<usize>)> = runs.into_values().collect();
+    runs.sort_unstable();
+    for (start, settled) in runs {
+        let bound = records[start]
+            .at
+            .map_or(after, |at| at.max(after))
+            .saturating_add(within);
+        let shown = match settled {
+            None => vec![start],
+            Some(settled) if records[settled].at.is_some_and(|at| at > bound) => {
+                vec![start, settled]
+            }
+            Some(_) => continue,
+        };
+        return Err(violation(records, ViolationKind::ProgressMissing, shown));
     }
     Ok(())
 }

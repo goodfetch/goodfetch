@@ -21,6 +21,12 @@
 //! paces nothing ([`SharedRule::paces`]) has the Run consult no Politeness
 //! store at all: its gate backs its keys off itself (ADR 0138).
 //!
+//! A Run whose requests go through before-request Hooks takes each Permit
+//! later, once the request's Hooks returned, in a second ask
+//! ([`Admission::permit_after_hooks`], #2905): it admits a request, with
+//! no Permit, only while its key is free as the Run sees it, so its Hooks
+//! run while the Permit is still free for every other Run.
+//!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
 //! here is a pure function of a monotonic reading the caller gives
@@ -32,6 +38,11 @@
 //! share of the rate cap, so a key that admits one request at a time never
 //! sends one, and one whose delay has not passed holds it until it has. A
 //! live Run's opens through [`of_run`] (ADR 0145).
+//!
+//! Size: one concern, which waiting request a Run admits next and what
+//! holds the rest: its gate, its rate cap and the Permits of the
+//! Politeness it shares, read together because each admission takes all
+//! three in one step and each Permit's take and give-back pass one state.
 #![expect(
     clippy::disallowed_types,
     reason = "the rate cap is read and changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
@@ -155,6 +166,15 @@ pub struct QueuedGroup {
     pub sample: Vec<(String, Option<Instant>)>,
 }
 
+/// A Run's rate cap, `admission.max_requests_per_minute`, holding the
+/// requests its gate would admit, as [`Admission::rate_held`] answers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RateHeld {
+    /// When the cap next admits; `None` for a cap of 0, which admits
+    /// nothing.
+    pub until: Option<Instant>,
+}
+
 /// How a gate keys its requests' URLs, apart from the gate, so a write of
 /// the run state that adds work items keys each as it adds it, as the gate
 /// would key it ([`Gate::keys`]).
@@ -236,8 +256,7 @@ pub trait Gate: Send {
     }
 
     /// How many requests wait in it, of every key, those of a key at its
-    /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
-    /// 0050), kept as they come and go. None by default.
+    /// concurrency included, kept as they come and go. None by default.
     fn waiting(&self) -> usize {
         0
     }
@@ -327,6 +346,11 @@ struct Shared {
     rule: SharedRule,
     clock: Clock,
     permits: BTreeMap<String, Permit>,
+    /// The requests it admitted that hold no Permit yet, each ID with its
+    /// key, while its Run takes each Permit only once the request's
+    /// before-request Hooks returned ([`Admission::permit_after_hooks`]);
+    /// `None` while it takes each as it admits the request.
+    unpermitted: Option<BTreeMap<String, String>>,
     /// The keys held until a wake.
     waiting: BTreeSet<String>,
     /// The keys whose waiter turn its holder took since its last grant of
@@ -337,15 +361,19 @@ struct Shared {
 
 impl Shared {
     /// Whether the Permits its own requests in flight hold under `key`,
-    /// and `more` besides, reach its rule's concurrency, so a take could
-    /// grant nothing.
+    /// with those admitted that will ask for one and `more` besides, reach
+    /// its rule's concurrency, so a take could grant nothing.
     fn full_with(&self, key: &str, more: usize) -> bool {
         self.rule.concurrency().is_some_and(|cap| {
+            let unpermitted = self.unpermitted.as_ref().map_or(0, |unpermitted| {
+                unpermitted.values().filter(|under| *under == key).count()
+            });
             let held = self
                 .permits
                 .values()
                 .filter(|permit| permit.key() == key)
                 .count()
+                + unpermitted
                 + more;
             u64::try_from(held).unwrap_or(u64::MAX) >= cap
         })
@@ -419,6 +447,24 @@ impl fmt::Debug for Admission {
     }
 }
 
+/// What a request admitted with no Permit is answered as it asks for one
+/// ([`Admission::permit`]).
+#[derive(Debug)]
+pub enum PermitAnswer {
+    /// It holds its Permit: it is sent, at the moment its grant reserved
+    /// when it reserved one ([`Admission::reserved_send`]).
+    Granted(Option<SystemTime>),
+    /// It asks again at `until`, or at the wake of its key `wakes` receives
+    /// first, when a request's end is what makes room.
+    Wait {
+        until: Instant,
+        wakes: Option<Wakes>,
+    },
+    /// Its site asked for no request to its domain before this time, further
+    /// away than its Run waits (ADR 0118): it ends unsent.
+    Refused(SystemTime),
+}
+
 /// The wakes a Run's held keys receive, which its driver waits on beside
 /// its other events, and passes to [`Admission::wake`].
 #[derive(Debug)]
@@ -478,12 +524,35 @@ impl Admission {
                 rule,
                 clock,
                 permits: BTreeMap::new(),
+                unpermitted: None,
                 waiting: BTreeSet::new(),
                 turns: BTreeSet::new(),
                 wakes,
             });
         }
         self
+    }
+
+    /// Has its Run take each request's Permit only once the request's
+    /// before-request Hooks returned, in a second ask ([`Admission::permit`]),
+    /// as a Run with such a Hook does (#2905, the owner's decision of
+    /// 2026-11-07 on #1546): it admits a request, holding no Permit, only
+    /// while its key is free as the Run sees it, its own Permits and the
+    /// requests that will ask for one short of the rule's concurrency and
+    /// its gate holding it for nothing. Nothing changes when it shares no
+    /// Politeness.
+    pub fn permit_after_hooks(&mut self) {
+        if let Some(shared) = &mut self.shared {
+            shared.unpermitted.get_or_insert_with(BTreeMap::new);
+        }
+    }
+
+    /// Whether its Run takes each Permit after its request's Hooks
+    /// ([`Admission::permit_after_hooks`]).
+    pub fn permits_after_hooks(&self) -> bool {
+        self.shared
+            .as_ref()
+            .is_some_and(|shared| shared.unpermitted.is_some())
     }
 
     /// Whether its gate names a rule of shared Politeness under
@@ -523,11 +592,6 @@ impl Admission {
         self.gate.queued(now, sample)
     }
 
-    /// How many requests wait in its gate, as [`Gate::waiting`] says.
-    pub fn waiting(&self) -> usize {
-        self.gate.waiting()
-    }
-
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
@@ -553,6 +617,17 @@ impl Admission {
     /// admitted (see [`Gate::withdraw`]).
     pub fn withdraw(&mut self, key: &str, id: &str) {
         self.gate.withdraw(key, id);
+    }
+
+    /// Whether its rate cap holds at `now` the requests its gate would
+    /// admit, and until when: `None` when it has no rate cap or the cap
+    /// admits now (ADR 0102's `rate_cap` wait).
+    pub fn rate_held(&self, now: Instant) -> Option<RateHeld> {
+        let rate = (*lock(&self.rate))?;
+        match rate.ready_at(now) {
+            Some(ready) if ready <= now => None,
+            until => Some(RateHeld { until }),
+        }
     }
 
     /// When it next admits a request: at or before `now` when one may go
@@ -593,6 +668,24 @@ impl Admission {
                 return self.admit_from_gate(now);
             };
             let key = self.gate.next_key(now)?;
+            if shared.unpermitted.is_some() {
+                if shared.full_with(&key, 0) {
+                    // The key is not free: its next request waits for one
+                    // of the Run's own to end, whose ending wakes it.
+                    shared.waiting.insert(key.clone());
+                    self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
+                    continue;
+                }
+                let admitted = self.admit_from_gate(now)?;
+                if let Some(unpermitted) = self
+                    .shared
+                    .as_mut()
+                    .and_then(|shared| shared.unpermitted.as_mut())
+                {
+                    unpermitted.insert(admitted.id.clone(), admitted.key.clone());
+                }
+                return Some(admitted);
+            }
             if shared.full_with(&key, 0) && shared.turns.contains(&key) {
                 // Its own requests in flight fill the key and it already
                 // waits in turn for it: a take would grant nothing, so the
@@ -647,6 +740,70 @@ impl Admission {
                     tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a take; its key waits");
                     self.gate
                         .hold(&key, now + RECLAIM_CHECK, Held::PolitenessFile);
+                }
+            }
+        }
+    }
+
+    /// Takes the Permit of the request it admitted, `id` of `key`, at
+    /// `now`, once the request's before-request Hooks returned
+    /// ([`Admission::permit_after_hooks`]): the answer its request is sent,
+    /// waits or ends unsent on. A request that already holds its Permit,
+    /// one that already ended and one of a Run that takes its Permits as it
+    /// admits are granted at once, with no take.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Permit taken for no request, which
+    /// its Run's end or another engine's reclaim gives back.
+    pub async fn permit(&mut self, id: &str, key: &str, now: Instant) -> PermitAnswer {
+        if let Some(asked) = self.refused_at(key, now) {
+            return PermitAnswer::Refused(asked);
+        }
+        let Some(shared) = &mut self.shared else {
+            return PermitAnswer::Granted(None);
+        };
+        if let Some(permit) = shared.permits.get(id) {
+            return PermitAnswer::Granted(permit.send_at());
+        }
+        if !shared
+            .unpermitted
+            .as_ref()
+            .is_some_and(|unpermitted| unpermitted.contains_key(id))
+        {
+            return PermitAnswer::Granted(None);
+        }
+        // Subscribed before the take, so the wake of a give back that
+        // follows its refusal is never missed.
+        let wakes = Wakes {
+            run_id: shared.holder.run_id.clone(),
+            wakes: shared.politeness.wakes(),
+        };
+        let wall = shared.clock.wall();
+        match shared.take(key, wall, false).await {
+            Ok(Taken::Granted(permit)) => {
+                shared.turns.remove(key);
+                if let Some(unpermitted) = &mut shared.unpermitted {
+                    unpermitted.remove(id);
+                }
+                let send_at = permit.send_at();
+                shared.permits.insert(id.to_owned(), permit);
+                PermitAnswer::Granted(send_at)
+            }
+            Ok(Taken::Wait(Some((until, _)))) => PermitAnswer::Wait {
+                until: now + until.duration_since(wall).unwrap_or_default(),
+                wakes: None,
+            },
+            Ok(Taken::Wait(None)) => PermitAnswer::Wait {
+                until: now + RECLAIM_CHECK,
+                wakes: Some(wakes),
+            },
+            Ok(Taken::Refused(until)) => PermitAnswer::Refused(until),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a take; its request waits");
+                PermitAnswer::Wait {
+                    until: now + RECLAIM_CHECK,
+                    wakes: None,
                 }
             }
         }
@@ -710,8 +867,18 @@ impl Admission {
             .as_mut()
             .and_then(|shared| shared.permits.remove(id));
         let Some(permit) = permit else {
+            let unpermitted = self
+                .shared
+                .as_mut()
+                .and_then(|shared| shared.unpermitted.as_mut())
+                .and_then(|unpermitted| unpermitted.remove(id))
+                .is_some();
             self.gate
                 .ended(key, now, if refused { Ended::Done } else { ended });
+            // Its key's next request waited for it to end.
+            if unpermitted {
+                self.wake(Some(key));
+            }
             return;
         };
         let wall = self.wall();
@@ -751,6 +918,9 @@ impl Admission {
         let Some(shared) = &mut self.shared else {
             return;
         };
+        if let Some(unpermitted) = &mut shared.unpermitted {
+            unpermitted.clear();
+        }
         shared.turns.clear();
         if let Err(error) = shared.stop_waiting().await {
             tracing::warn!(%error, run_id = %shared.holder.run_id, "a stopped Run's waiters were not withdrawn");

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints the gate's plan for the checked-out head (`xtask gate plan`, ADR
-# 0135): `ci/gate-plan.sh <form> <layer>`, where the form is `all`, `quick`
-# or `docs` and the layer is the one that would run the plan's steps
+# 0135): `ci/gate-plan.sh <form> <layer>`, where the form is `all`, `quick`,
+# `batch`, `docs` or `preflight` and the layer is the one that would run the plan's steps
 # (`merge`, `preflight`, `backstop` or `hosted`). `just _gate-plan` runs it
 # on the owner's machine and the gate host; the hosted tier's plan job runs
 # it on its bare runner, which has no `just`.

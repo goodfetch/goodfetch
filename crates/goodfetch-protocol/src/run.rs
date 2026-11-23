@@ -34,6 +34,7 @@ use crate::settings::{ProjectSettings, SettingLimit};
 
 pub mod completeness;
 pub mod durability;
+mod filesystem;
 mod list;
 mod progress;
 mod report;
@@ -46,10 +47,13 @@ pub use self::durability::{
     RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC, RUN_STATE_COMMIT_INTERVAL,
     RUN_STATE_DURABILITY, RUN_STATE_MEMORY_BUDGET,
 };
+pub use self::filesystem::{
+    RUN_STATE_FILESYSTEM_UNSUPPORTED, RunStateFilesystem, RunStateFilesystemUnsupportedDetails,
+};
 pub use self::list::{
     CREATOR_TAG, OCCURRENCE_TAG, RECIPE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList,
-    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
-    WATCH_ROLE,
+    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SCHEDULER_TAGS, SortOrder, TRIGGER_TAG,
+    TimeRange, WATCH_ROLE,
 };
 pub use self::progress::{
     EngineStep, HumanPause, PauseOrigin, RUN_INTERRUPTED, RUN_PROGRESS, RUN_PROGRESS_READ,
@@ -62,8 +66,9 @@ pub use self::report::{
     RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
 };
 pub use self::starts::{
-    CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, RECIPE_START, RUN_TARGET_UNBUILT,
-    RecipeStartParams, Recording, RecordingMode, RunTargetUnbuiltDetails,
+    CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,
+    DetachUnsupportedDetails, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams, Recording,
+    RecordingMode, RunTargetUnbuiltDetails,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -422,6 +427,11 @@ pub enum StopReason {
         /// Who stopped it.
         #[schemars(extend("arrived_in" = "0.1"))]
         by: StoppedBy,
+        /// Whom the aborting Client acts for (ADR 0031), set when `by` is
+        /// `person`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        person: Option<String>,
     },
     /// It was paused: checkpointed and stopped, to be resumed by its Run ID
     /// (RT-11).
@@ -1433,10 +1443,12 @@ pub const ENTRIES: Entries = Entries {
         RUN_BUSY,
         RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
+        RUN_STATE_FILESYSTEM_UNSUPPORTED,
         RUN_LIVE,
         RESOURCES_EXHAUSTED,
         RUN_INTERRUPTED,
         RUN_TARGET_UNBUILT,
+        DETACH_UNSUPPORTED,
     ],
     plugin_kinds: &[],
     metrics: &[],

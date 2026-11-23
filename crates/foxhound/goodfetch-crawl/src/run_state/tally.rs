@@ -109,6 +109,13 @@ impl Tally {
         u64::try_from(self.left).unwrap_or(0)
     }
 
+    /// How many work items wait to be leased: those left to deliver less
+    /// the `leased` ones leased to an attempt.
+    pub(crate) fn pending(&self, leased: usize) -> u64 {
+        self.left()
+            .saturating_sub(u64::try_from(leased).unwrap_or(u64::MAX))
+    }
+
     /// The ended requests of `kind`, by what each counts under, in the
     /// order of those names, with how many there are of each: those that
     /// count at least one.

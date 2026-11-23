@@ -62,6 +62,14 @@ export interface FoxhoundSettings {
      */
     readonly serviceWorkers?: "allow" | "block";
   };
+  readonly browserCache?: {
+    /**
+     * Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+     *
+     * `browser_cache.read_only`.
+     */
+    readonly readOnly?: boolean;
+  };
   readonly checkpoint?: {
     /**
      * How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.
@@ -1048,6 +1056,12 @@ export interface FoxhoundSettings {
      */
     readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
   };
+  /**
+   * The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.
+   *
+   * `sinks`.
+   */
+  readonly sinks?: { readonly [key: string]: { readonly batch?: { readonly maxBytes?: number | null; readonly maxRecords?: number | null } | null; readonly datasets: readonly string[]; readonly deliver?: "records" | "files" | "both" | null; readonly destination?: string | null; readonly embedding?: { readonly chunkChars?: number | null; readonly fields?: readonly string[] | null; readonly model?: string | null } | null; readonly files?: { readonly compression?: "none" | "gzip" | "zstd" | null; readonly format?: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown" | "xml" | "parquet" | "avro" | "arrow_ipc" | "rss" | "atom" | null; readonly part?: { readonly maxAge?: number | null; readonly maxBytes?: number | null; readonly maxRecords?: number | null } | null } | null; readonly image?: string | null; readonly key?: readonly string[] | null; readonly mode?: "append" | "upsert" | "insert_only" | "replace" | "history" | null; readonly rate?: { readonly burst?: number | null; readonly perSecond?: number | null } | null; readonly schema?: { readonly contract?: "evolve" | "freeze" | "discard_row" | "discard_value" | null; readonly flatten?: boolean | null } | null; readonly target?: string | null; readonly type?: "postgres" | "pgvector" | "supabase" | "mysql" | "sqlserver" | "sqlite" | "mongodb" | "elasticsearch" | "opensearch" | "redis" | "snowflake" | "bigquery" | "redshift" | "clickhouse" | "databricks" | "iceberg" | "duckdb" | "motherduck" | "qdrant" | "pinecone" | "weaviate" | "milvus" | "chroma" | "lancedb" | "s3" | "gcs" | "azure_blob" | "sftp" | "ftp" | "google_drive" | "google_sheets" | "dropbox" | "onedrive" | "box" | "airtable" | "notion" | "kafka" | "sqs" | "sns" | "kinesis" | "firehose" | "pubsub" | "service_bus" | "event_hubs" | "rabbitmq" | "nats" | "redis_streams" | "smtp" | "ses" | "resend" | "postmark" | "sendgrid" | "mailgun" | "webhook" | "airbyte" | "singer" | null; readonly webhook?: { readonly maxBatchBytes?: number | null; readonly payload?: "batch" | "thin" | null; readonly signingSecret?: string | null } | null } };
   readonly sitePreferences?: {
     /**
      * Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: "ignored"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.
@@ -1152,7 +1166,7 @@ export interface FoxhoundSettings {
      */
     readonly ai?: number;
     /**
-     * How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+     * One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
      *
      * `timeout.close`.
      */
@@ -1313,6 +1327,14 @@ export interface CrawlSettings {
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+  };
+  readonly browserCache?: {
+    /**
+     * Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+     *
+     * `browser_cache.read_only`.
+     */
+    readonly readOnly?: boolean;
   };
   readonly checkpoint?: {
     /**
@@ -2280,6 +2302,12 @@ export interface CrawlSettings {
      */
     readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
   };
+  /**
+   * The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.
+   *
+   * `sinks`.
+   */
+  readonly sinks?: { readonly [key: string]: { readonly batch?: { readonly maxBytes?: number | null; readonly maxRecords?: number | null } | null; readonly datasets: readonly string[]; readonly deliver?: "records" | "files" | "both" | null; readonly destination?: string | null; readonly embedding?: { readonly chunkChars?: number | null; readonly fields?: readonly string[] | null; readonly model?: string | null } | null; readonly files?: { readonly compression?: "none" | "gzip" | "zstd" | null; readonly format?: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown" | "xml" | "parquet" | "avro" | "arrow_ipc" | "rss" | "atom" | null; readonly part?: { readonly maxAge?: number | null; readonly maxBytes?: number | null; readonly maxRecords?: number | null } | null } | null; readonly image?: string | null; readonly key?: readonly string[] | null; readonly mode?: "append" | "upsert" | "insert_only" | "replace" | "history" | null; readonly rate?: { readonly burst?: number | null; readonly perSecond?: number | null } | null; readonly schema?: { readonly contract?: "evolve" | "freeze" | "discard_row" | "discard_value" | null; readonly flatten?: boolean | null } | null; readonly target?: string | null; readonly type?: "postgres" | "pgvector" | "supabase" | "mysql" | "sqlserver" | "sqlite" | "mongodb" | "elasticsearch" | "opensearch" | "redis" | "snowflake" | "bigquery" | "redshift" | "clickhouse" | "databricks" | "iceberg" | "duckdb" | "motherduck" | "qdrant" | "pinecone" | "weaviate" | "milvus" | "chroma" | "lancedb" | "s3" | "gcs" | "azure_blob" | "sftp" | "ftp" | "google_drive" | "google_sheets" | "dropbox" | "onedrive" | "box" | "airtable" | "notion" | "kafka" | "sqs" | "sns" | "kinesis" | "firehose" | "pubsub" | "service_bus" | "event_hubs" | "rabbitmq" | "nats" | "redis_streams" | "smtp" | "ses" | "resend" | "postmark" | "sendgrid" | "mailgun" | "webhook" | "airbyte" | "singer" | null; readonly webhook?: { readonly maxBatchBytes?: number | null; readonly payload?: "batch" | "thin" | null; readonly signingSecret?: string | null } | null } };
   readonly sitePreferences?: {
     /**
      * Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: "ignored"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.
@@ -2384,7 +2412,7 @@ export interface CrawlSettings {
      */
     readonly ai?: number;
     /**
-     * How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+     * One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
      *
      * `timeout.close`.
      */
@@ -2600,6 +2628,7 @@ const SPELLING: Spelling = {
   }],
   browserCache: ["browser_cache", {
     maxUnusedAge: "max_unused_age",
+    readOnly: "read_only",
   }],
   checkpoint: ["checkpoint", {
     interval: "interval",
@@ -2850,6 +2879,7 @@ const SPELLING: Spelling = {
       max: "max",
     }],
     sharing: "sharing",
+    store: "store",
   }],
   provenance: ["provenance", {
     log: "log",
@@ -2937,6 +2967,7 @@ const SPELLING: Spelling = {
     }],
     source: { setting: "source", value: { fields: { "chromium_profile": "chromiumProfile" } } },
   }],
+  sinks: { setting: "sinks", value: { values: { fields: { "batch": ["batch", { fields: { "max_bytes": "maxBytes", "max_records": "maxRecords" } }], "embedding": ["embedding", { fields: { "chunk_chars": "chunkChars" } }], "files": ["files", { fields: { "part": ["part", { fields: { "max_age": "maxAge", "max_bytes": "maxBytes", "max_records": "maxRecords" } }] } }], "rate": ["rate", { fields: { "per_second": "perSecond" } }], "webhook": ["webhook", { fields: { "max_batch_bytes": "maxBatchBytes", "signing_secret": "signingSecret" } }] } } } },
   sitePreferences: ["site_preferences", {
     markRobotsTxtIgnored: "mark_robots_txt_ignored",
     maxCrawlDelay: "max_crawl_delay",

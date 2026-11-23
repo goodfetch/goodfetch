@@ -1,10 +1,15 @@
-// The project file `Collie.connect()` reads (ADR 0083; story 11-75), on the
-// Scripted engine (ADR 0069): `project` names it, `engine()` reports it,
-// `config.explain` and `run.start` carry it to the engine, whose script
-// expects exactly those params, and its `timeout.connect` bounds `hello`
-// unless the connection sets its own. A remote Daemon refuses a value the
-// project file has no authority for there with `setting_locked`.
-// `readProject`'s own tests cover how the file is found and refused.
+// The project file `Collie.connect()` reads (ADR 0083; story 11-75): the
+// `connect-reads-the-project-file` Client conformance case, on the Scripted
+// engine (ADR 0069). By default the file is found upward from the working
+// directory, shown in a program the test starts below it, so no test moves
+// its own; `project` names another and `null` reads none. `engine()`
+// reports it, and `config.explain` and `run.start` carry it to the engine,
+// whose script expects exactly those params. Its `timeout.connect` bounds
+// `hello` unless the connection sets its own. A remote Daemon refuses a
+// value the project file has no authority for there with `setting_locked`.
+// `readProject`'s own tests cover how the file is refused. Python's
+// `test_project_file.py` is its twin.
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Collie } from "@goodfetch/collie";
@@ -31,8 +36,16 @@ async function writeProject(folder: string, text: string): Promise<string> {
 describe("The project file Collie.connect() reads", () => {
   test(
     "reaches the engine on config.explain and run.start, and engine() reports it",
-    { tags: ["attached", "story:11-75", "operation:config.explain", "operation:run.start"] },
-    async ({ testEnv }) => {
+    {
+      tags: [
+        "client_case/connect-reads-the-project-file",
+        "attached",
+        "story:11-75",
+        "operation:config.explain",
+        "operation:run.start",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
       const project = await writeProject(
         join(testEnv.folder, "work"),
         'version = "0.1"\n\n[settings.timeout]\nnavigation = 45000\n',
@@ -51,7 +64,79 @@ describe("The project file Collie.connect() reads", () => {
       const report = await (await collie.start()).finish();
       await collie.close();
 
-      expect([collie.engine().projectFile, report.lifecycle]).toEqual([project, "finished"]);
+      await clientCase.check(
+        "the file project names reached the engine on config.explain and run.start, and the engine info reports it",
+        () =>
+          expect([collie.engine().projectFile, report.lifecycle]).toEqual([project, "finished"]),
+      );
+    },
+  );
+
+  test(
+    "is found upward from the working directory, and null reads none",
+    {
+      tags: [
+        "client_case/connect-reads-the-project-file",
+        "attached",
+        "story:11-75",
+        "operation:config.explain",
+        "operation:run.start",
+      ],
+    },
+    async ({ testEnv, processes, clientCase }) => {
+      const project = realpathSync(
+        await writeProject(
+          join(testEnv.folder, "project"),
+          'version = "0.1"\n\n[settings.timeout]\nnavigation = 45000\n',
+        ),
+      );
+      const deeper = join(testEnv.folder, "project", "src", "deeper");
+      await mkdir(deeper, { recursive: true });
+      const scripts = {
+        found: projectScript(testEnv, "run/project-file-carried.json", project),
+        none: "run/project-file-read-none.json",
+      };
+
+      // Each program runs alone: the second starts once the first has ended.
+      const seen: Record<string, unknown> = {};
+      for (const [chosen, script] of Object.entries(scripts)) {
+        const out = join(testEnv.folder, `${chosen}.json`);
+        const program = processes.spawn(
+          process.execPath,
+          [join(import.meta.dirname, "fixtures", "project.ts"), out, chosen],
+          {
+            env: scriptedEngineEnv(testEnv, "collie", script, join(testEnv.folder, chosen)),
+            cwd: deeper,
+          },
+        );
+        const stderr: Buffer[] = [];
+        program.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+        program.child.stdin.end();
+        const exit = await program.exit;
+        seen[chosen] = {
+          exit,
+          // The received `stderr` shows in the diff when the program failed.
+          stderr: Buffer.concat(stderr).toString(),
+          played: existsSync(out) ? (JSON.parse(readFileSync(out, "utf8")) as unknown) : undefined,
+        };
+      }
+
+      await clientCase.check(
+        "with no project, the file found upward from the working directory reached the engine, and the engine info reports it",
+        () =>
+          expect(seen["found"]).toEqual({
+            exit: { code: 0, signal: null },
+            stderr: expect.any(String),
+            played: { projectFile: project, lifecycle: "finished" },
+          }),
+      );
+      await clientCase.check("with project null, none reached the engine", () =>
+        expect(seen["none"]).toEqual({
+          exit: { code: 0, signal: null },
+          stderr: expect.any(String),
+          played: { projectFile: null, lifecycle: "finished" },
+        }),
+      );
     },
   );
 
@@ -70,8 +155,16 @@ describe("The project file Collie.connect() reads", () => {
     },
   ])(
     "$name",
-    { tags: ["attached", "story:11-75", "setting:timeout.connect", "error:deadline_exceeded"] },
-    async ({ inFile, timeout, limit }, { testEnv }) => {
+    {
+      tags: [
+        "client_case/connect-reads-the-project-file",
+        "attached",
+        "story:11-75",
+        "setting:timeout.connect",
+        "error:deadline_exceeded",
+      ],
+    },
+    async ({ inFile, timeout, limit }, { testEnv, clientCase }) => {
       const project = await writeProject(
         join(testEnv.folder, "work"),
         `version = "0.1"\n\n[settings.timeout]\nconnect = ${String(inFile)}\n`,
@@ -81,18 +174,30 @@ describe("The project file Collie.connect() reads", () => {
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const error = await failure(Collie.connect({ env, project, timeout }));
 
-      expect(error).toMatchObject({
-        code: "deadline_exceeded",
-        limit,
-        details: { waited_for: "hello" },
-      });
+      await clientCase.check(
+        "hello unanswered failed with deadline_exceeded, its limit naming the timeout.connect that bounded it",
+        () =>
+          expect(error).toMatchObject({
+            code: "deadline_exceeded",
+            limit,
+            details: { waited_for: "hello" },
+          }),
+      );
     },
   );
 
   test(
     "is refused by a remote Daemon when a value widens tls.trusted_cas, with setting_locked",
-    { tags: ["story:11-75", "error:setting_locked", "operation:run.start"] },
-    async ({ testEnv, processes }) => {
+    {
+      tags: [
+        "client_case/connect-reads-the-project-file",
+        "daemon",
+        "story:11-75",
+        "error:setting_locked",
+        "operation:run.start",
+      ],
+    },
+    async ({ testEnv, processes, clientCase }) => {
       const project = await writeProject(
         join(testEnv.folder, "work"),
         'version = "0.1"\n\n[settings.tls.trusted_cas]\n"intranet.example" = ["/etc/ssl/intranet-ca.pem"]\n',
@@ -114,11 +219,18 @@ describe("The project file Collie.connect() reads", () => {
       const refused = await failure(collie.start());
       await collie.close();
 
-      expect(await daemon.exit).toMatchObject({ code: 0 });
-      expect(refused).toMatchObject({
-        code: "setting_locked",
-        details: { key: "tls.trusted_cas", layer: "project_configuration" },
-      });
+      await clientCase.check(
+        "the remote Daemon read the project file on run.start and played its script",
+        async () => expect(await daemon.exit).toMatchObject({ code: 0 }),
+      );
+      await clientCase.check(
+        "the Run's start raised setting_locked on tls.trusted_cas at project_configuration",
+        () =>
+          expect(refused).toMatchObject({
+            code: "setting_locked",
+            details: { key: "tls.trusted_cas", layer: "project_configuration" },
+          }),
+      );
     },
   );
 });

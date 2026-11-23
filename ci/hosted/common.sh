@@ -13,6 +13,12 @@ CONTAINER=goodfetch-job
 hosted_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 CI_IMAGE="goodfetch-ci:$(sha256sum "$hosted_root/ci/image/Containerfile" | cut -c1-16)"
 
+# The image's compressed archive, which a `ci image` job saves into the
+# Actions cache on `main` and pull-request jobs restore before their
+# container starts (ci/hosted/image.sh, #3480). The workflows' cache steps
+# name its folder, ~/.cache/goodfetch/ci-image.
+CI_IMAGE_ARCHIVE="$HOME/.cache/goodfetch/ci-image/ci-image.tar.zst"
+
 # Written on the runner once ci/egress/egress.sh has denied the container's
 # outbound traffic, holding the job's name, so exec.sh runs later steps
 # offline and the end-of-job check knows the deny ran.
@@ -25,4 +31,4 @@ hosted_container_running() {
     [[ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" == true ]]
 }
 
-export CONTAINER CI_IMAGE EGRESS_STATE
+export CONTAINER CI_IMAGE CI_IMAGE_ARCHIVE EGRESS_STATE

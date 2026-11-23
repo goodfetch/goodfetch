@@ -1,22 +1,27 @@
 //! A Rust program's pages (issue 2803, Rust's part of issue 1236), on the
 //! linked engine, which launches the browser of the Browser cache in the
 //! test's Goodfetch home and reaches the test's own Proving ground through
-//! its user configuration: the `page` client conformance cases in Rust's
-//! mode, `linked` (Rust starts no Attached engine), and the Response
-//! `goto`, `go_back`, `go_forward`, `request` and
-//! `wait_for_request_finished` answer, whose body reads,
-//! decodes and fails as ADRs 0085, 0118 and 0119 say.
+//! its user configuration: the `page` and `page.request` client
+//! conformance cases in Rust's mode, `linked` (Rust starts no Attached
+//! engine), and the Response `goto`, `go_back`, `go_forward`, `request` and
+//! `wait_for_request_finished` answer, whose body reads, decodes and fails as
+//! ADRs 0085, 0118 and 0119 say.
 
 use std::collections::BTreeMap;
 
+use goodfetch_collie::settings::{Settings, proxy};
 use goodfetch_collie::{
     Collie, Error, ErrorCode, FieldLocator, FieldTransform, PageField, Response, UnreadField,
     UnreadReason, ValueField, blocking,
 };
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::page::route::UrlMatcher;
-use goodfetch_protocol::page::{FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions};
+use goodfetch_protocol::page::{
+    FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions, RedirectLimit,
+    TooManyRedirectsDetails,
+};
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::settings::SettingInvalidDetails;
 use goodfetch_test_support::{
     ProvingGround, TestEnv, ToolStatus, browser_cache_in_home, case_logs, real_time_runtime,
 };
@@ -187,6 +192,55 @@ fn goto_answers_the_response_of_a_404() {
     });
 }
 
+/// The `goto-skips-a-redirects-retry-after-and-answers-none-for-a-file`
+/// client conformance case, linked: a program's own `goto` is outside
+/// Politeness, so it follows a 302 whose `Retry-After` asks for an hour, far
+/// past `timeout.navigation`, at once (ADRs 0086, 0118); a `goto` to a PDF
+/// answers no response and the page keeps its document, which a reload
+/// loads again (ADR 0119).
+/// Covers: story:11-84, operation:page.goto
+#[test]
+fn goto_skips_a_redirects_retry_after_and_answers_none_for_a_file() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let redirect = proving_ground.url(FETCH_EDGE, "/retry-after/302/seconds/long");
+    let target = proving_ground.url(FETCH_EDGE, "/target");
+    let document = proving_ground.start_url("catalog/2").unwrap();
+    let file = url::Url::parse(&proving_ground.start_url("files/2").unwrap())
+        .unwrap()
+        .join("/files/report.pdf")
+        .unwrap()
+        .to_string();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+
+        let followed = page.goto(&redirect).await.unwrap();
+        page.goto(&document).await.unwrap();
+        let downloaded = page.goto(&file).await.unwrap();
+        let reloaded = page.reload().await.unwrap();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+
+        let head = |response: Option<Response>| {
+            response.map(|response| (response.status(), response.url().to_owned()))
+        };
+        assert_eq!(head(followed), Some((200, target)));
+        assert!(
+            downloaded.is_none(),
+            "a file the browser downloads answers no response"
+        );
+        assert_eq!(head(reloaded), Some((200, document)));
+    });
+}
+
 /// The `second-new-page-in-the-default-session` client conformance case,
 /// linked: a Run's second page shares the first's Session, its storage
 /// included, and a page of a new Session reads none of it.
@@ -346,6 +400,136 @@ fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
     });
 }
 
+/// The `page-request-sends-the-sessions-cookie-through-its-proxy` client
+/// conformance case, linked: on a Run whose `proxy.server` is the Proving
+/// ground's open proxy, `page.request` sends the cookie a page of its
+/// Session got, and leaves through that proxy, as the Proving ground's
+/// record shows (ADR 0085).
+/// Covers: story:11-87, operation:page.request
+#[test]
+fn page_request_sends_the_sessions_cookie_through_its_proxy() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "page-request-sends-the-sessions-cookie-through-its-proxy",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let open_proxy = &proving_ground.description().fixtures.proxies["open"];
+    let storage = proving_ground.url("scope.test", "/storage?mark=page-request");
+    let about = proving_ground.url("scope.test", "/about?by=page-request");
+    let status = real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie
+            .start()
+            .settings(Settings::new().set(proxy::SERVER, format!("http://{open_proxy}")))
+            .await
+            .unwrap();
+        let page = run.new_page().await.unwrap();
+        page.goto(&storage).await.unwrap();
+
+        let status = page.request(&about).await.unwrap().status();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+        status
+    });
+
+    assert_eq!(status, 200);
+    let sent: Vec<Vec<(String, String)>> = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| {
+            request.host == "scope.test" && request.target == "/about?by=page-request"
+        })
+        .map(|request| request.cookies.clone())
+        .collect();
+    assert_eq!(sent, [vec![("mark".to_owned(), "page-request".to_owned())]]);
+    let observations = proving_ground.observations().unwrap();
+    let relayed = observations["relays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|relay| {
+            relay["proxy"] == json!("open")
+                && relay["outcome"] == json!("relayed")
+                && relay["target"]
+                    .as_str()
+                    .is_some_and(|target| target.ends_with("/about?by=page-request"))
+        });
+    assert!(relayed, "{}", observations["relays"]);
+}
+
+/// The `page-request-follows-its-max-redirects-and-refuses-a-count-above-19`
+/// client conformance case, linked, on the Proving ground's chain of 5
+/// redirects: `max_redirects` 20 is refused with `setting_invalid` naming
+/// the option, 0 answers the 3xx itself, 5 answers the chain's end, and 3
+/// raises `too_many_redirects` naming the chain, its 3 hops and the option
+/// with its count (ADR 0118).
+/// Covers: story:11-87, operation:page.request, error:too_many_redirects, error:setting_invalid
+#[test]
+fn page_request_follows_its_max_redirects_and_refuses_a_count_above_19() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let chain = proving_ground.url(FETCH_EDGE, "/redirect/hops/5");
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+
+        let refused = page.request(&chain).max_redirects(20).await;
+        let unfollowed = page.request(&chain).max_redirects(0).await.unwrap();
+        let within = page.request(&chain).max_redirects(5).await.unwrap();
+        let past = page.request(&chain).max_redirects(3).await;
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+
+        let (code, refused) = failure(refused);
+        assert_eq!(code, "setting_invalid");
+        assert_eq!(
+            refused
+                .details::<SettingInvalidDetails>()
+                .map(|details| details.key),
+            Some("max_redirects".to_owned()),
+            "{refused:?}"
+        );
+        assert_eq!(unfollowed.status(), 302);
+        assert!(
+            unfollowed.url().ends_with("/redirect/hops/5"),
+            "{unfollowed:?}"
+        );
+        assert_eq!(
+            unfollowed.headers().get("location").map(String::as_str),
+            Some("/redirect/hops/4")
+        );
+        assert_eq!(within.status(), 200);
+        assert!(within.url().ends_with("/redirect/hops/0"), "{within:?}");
+        let (code, past) = failure(past);
+        assert_eq!(code, "too_many_redirects");
+        let details = past
+            .details::<TooManyRedirectsDetails>()
+            .expect("too_many_redirects details");
+        assert_eq!(
+            (details.url, details.hops.len(), details.limit),
+            (
+                chain,
+                3,
+                RedirectLimit::Option {
+                    name: "max_redirects".to_owned(),
+                    count: 3,
+                }
+            )
+        );
+    });
+}
+
 /// A navigation's Response gives its head, and its text decodes the
 /// document with the encoding the browser decoded it with; `ok` is true
 /// for a 200.
@@ -386,7 +570,7 @@ fn a_navigations_response_gives_its_head_and_its_documents_text() {
 /// `Content-Type`, and `json()` ignores a leading BOM, on the Responses
 /// `page.request` answers; `json()` of a body that is no JSON fails with
 /// `response_not_json`, naming the response's URL.
-/// Covers: story:11-85, operation:page.request, operation:response.body, error:response_not_json
+/// Covers: story:11-85, operation:page.request, operation:response.body
 #[test]
 fn text_honours_a_legacy_charset_and_json_ignores_a_bom() {
     let env = TestEnv::new();

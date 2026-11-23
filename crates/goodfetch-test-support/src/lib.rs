@@ -8,8 +8,9 @@
 //! paused runtime and the hold of its blocking pool, proptest's configuration, the
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
-//! Limits checkers, seeded kills of real processes and the crash VFS under
-//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
+//! Limits checkers, Fault plans with the generator that shrinks a failing
+//! one and writes it with its replay command, seeded kills of real processes, the crash VFS under
+//! SQLite and Toxiproxy's cuts, latency and partitions on loopback (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
 //! the lines of a Run trace's raw call log (ADR 0099), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
@@ -46,6 +47,7 @@ mod browsers;
 pub mod callgrind;
 mod canaries;
 mod cargo_consumer;
+mod claude_code;
 mod cli;
 mod colour;
 mod command_tree;
@@ -54,12 +56,14 @@ mod crash_dumps;
 mod crash_vfs;
 mod daemon;
 mod description;
+mod determinism;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
 mod endpoints;
 mod env;
 mod exercise;
 mod facts;
+mod fault_plan;
 mod fuzz;
 mod held_vfs;
 mod host_test;
@@ -70,6 +74,7 @@ mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -105,6 +110,7 @@ mod ssrf;
 mod strict_stdout;
 mod tmpfs;
 mod tools;
+mod toxiproxy;
 mod trace;
 mod transition_tables;
 mod unicode;
@@ -113,6 +119,8 @@ mod unicode;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod user_namespaces;
+#[cfg(target_os = "linux")]
+mod valkey;
 mod variables;
 
 #[cfg(unix)]
@@ -129,13 +137,17 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
-pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer};
+pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
+pub use claude_code::{
+    CLAUDE_CODE_DOWNLOADS_VARIABLE, ClaudeCodeError, PluginValidation, claude_code_copy,
+    validate_plugin,
+};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
 pub use colour::{ColourError, ColourProperty};
 pub use command_tree::{
-    certificate_verification_switches, command_help, command_paths, long_flags,
+    certificate_verification_switches, command_help, command_paths, long_flags, unknown_options,
 };
 pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
@@ -145,6 +157,7 @@ pub use crash_vfs::{
 };
 pub use daemon::{DAEMON_DEADLINE, Daemon, DaemonDescription, DaemonError};
 pub use description::{Description, schemas};
+pub use determinism::{Divergence, Replay, ReplayOutput, check_determinism};
 #[cfg(target_os = "linux")]
 pub use dns_namespace::{
     DNS_NAMESPACE_COMMAND, DnsNamespace, DnsNamespaceError, Inside, InsideUser, Mechanism,
@@ -157,6 +170,10 @@ pub use endpoints::{
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
 pub use facts::{CHROME_FOR_TESTING_BUILD, DISPATCH_TARGET, LIGHTPANDA_BUILD, OUTCOME_TARGET};
+pub use fault_plan::{
+    FAULT_PLAN_FILE, FAULT_PLAN_SOURCE_FILE, FaultPlan, FaultPlanAction, FaultPlanError,
+    FaultPlanFailure, FaultPlanGenerator, FaultPlanStep,
+};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use held_vfs::{HeldAccess, HeldVfs, LONGEST_HOLD};
 pub use host_test::{HOST_DEADLINE, HostRun, past_the_harness, run_host_test};
@@ -169,7 +186,10 @@ pub use hostile::{
 /// insta, for [`assert_cli_snapshot!`], whose expansion names it.
 #[doc(hidden)]
 pub use insta as __insta;
-pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
+pub use invariants::{
+    GuaranteeClass, Violation, ViolationKind, audit_chain, fencing, limits, liveness, one_lead,
+    partitions,
+};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
     journey_engine,
@@ -178,6 +198,7 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use model_trace::model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -250,8 +271,10 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
+pub use toxiproxy::{TOXIPROXY_DEADLINE, Toxiproxy, ToxiproxyError, toxiproxy_copy};
 pub use trace::{
-    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_writing_to,
+    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_unless_own,
+    subscriber_writing_to,
 };
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
@@ -262,9 +285,12 @@ pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
+#[cfg(target_os = "linux")]
+pub use valkey::Valkey;
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
-    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,
-    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, Variables, case_logs, current_test,
+    ENGINE_VARIABLE, FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
+    NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
+    Variables, case_logs, current_test,
 };

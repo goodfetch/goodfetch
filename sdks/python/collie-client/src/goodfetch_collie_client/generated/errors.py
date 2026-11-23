@@ -221,6 +221,14 @@ class ChallengeUnsolvedError(PageError):
         super().__init__(message, code="challenge_unsolved", group="page", retryable=False, **fields)
 
 
+class CheckpointBehindError(RefusedError):
+    """The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="checkpoint_behind", group="refused", retryable=False, **fields)
+
+
 class ClosedError(ProgramError):
     """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
 
@@ -275,6 +283,14 @@ class DaemonUnreachableError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="daemon_unreachable", group="unavailable", retryable=True, **fields)
+
+
+class DetachUnsupportedError(ProgramError):
+    """A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="detach_unsupported", group="program", retryable=False, **fields)
 
 
 class DialogAlreadyHandledError(ProgramError):
@@ -363,6 +379,14 @@ class EnginePanickedError(InternalError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="engine_panicked", group="internal", retryable=False, **fields)
+
+
+class EventLoopMismatchError(ProgramError):
+    """The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="event_loop_mismatch", group="program", retryable=False, **fields)
 
 
 class ExecutableBlockedBySmartAppControlError(RefusedError):
@@ -567,6 +591,14 @@ class PageMemoryExceededError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="page_memory_exceeded", group="unavailable", retryable=True, **fields)
+
+
+class PageNavigatedDuringCallError(PageError):
+    """The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="page_navigated_during_call", group="page", retryable=True, **fields)
 
 
 class PageValueInvalidError(ProgramError):
@@ -785,6 +817,14 @@ class RunNotOwnedError(RefusedError):
         super().__init__(message, code="run_not_owned", group="refused", retryable=False, **fields)
 
 
+class RunStateFilesystemUnsupportedError(UnavailableError):
+    """The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_state_filesystem_unsupported", group="unavailable", retryable=False, **fields)
+
+
 class RunStateUnavailableError(UnavailableError):
     """The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID."""
 
@@ -826,7 +866,7 @@ class SecretInputRefusedError(RefusedError):
 
 
 class SecretUnavailableError(UnavailableError):
-    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
+    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
@@ -887,6 +927,14 @@ class SitePreferencesRefusedError(RefusedError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="site_preferences_refused", group="refused", retryable=False, **fields)
+
+
+class SkillInstallRefusedError(RefusedError):
+    """`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="skill_install_refused", group="refused", retryable=False, **fields)
 
 
 class TargetNotUniqueError(PageError):
@@ -983,6 +1031,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "certificate_changed": CertificateChangedError,
     "certificate_invalid": CertificateInvalidError,
     "challenge_unsolved": ChallengeUnsolvedError,
+    "checkpoint_behind": CheckpointBehindError,
     "closed": ClosedError,
     "confinement_unavailable": ConfinementUnavailableError,
     "connection_forked": ConnectionForkedError,
@@ -990,6 +1039,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "connection_overloaded": ConnectionOverloadedError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
+    "detach_unsupported": DetachUnsupportedError,
     "dialog_already_handled": DialogAlreadyHandledError,
     "edge_handlers_unsupported": EdgeHandlersUnsupportedError,
     "effect_key_invalid": EffectKeyInvalidError,
@@ -1001,6 +1051,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,
     "engine_panicked": EnginePanickedError,
+    "event_loop_mismatch": EventLoopMismatchError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
@@ -1026,6 +1077,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "page_function_failed": PageFunctionFailedError,
     "page_handler_failed": PageHandlerFailedError,
     "page_memory_exceeded": PageMemoryExceededError,
+    "page_navigated_during_call": PageNavigatedDuringCallError,
     "page_value_invalid": PageValueInvalidError,
     "path_not_writable": PathNotWritableError,
     "path_unsafe": PathUnsafeError,
@@ -1053,6 +1105,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_live": RunLiveError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
+    "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
@@ -1066,6 +1119,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
     "site_preferences_refused": SitePreferencesRefusedError,
+    "skill_install_refused": SkillInstallRefusedError,
     "target_not_unique": TargetNotUniqueError,
     "too_many_calls": TooManyCallsError,
     "too_many_redirects": TooManyRedirectsError,

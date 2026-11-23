@@ -146,7 +146,14 @@ export interface EnqueueLinksOptions {
  * Once the attempt ends, or its Run is closed, each call fails.
  */
 export interface CrawlContext {
-  /** The work item's page: a Collie `Page`, on every fetch tier (ADR 0093). */
+  /**
+   * Already navigated. The handler runs once the request's navigation has
+   * happened, so a route set on this page applies from its next navigation.
+   * To keep a resource kind from loading on every request, set
+   * `browser.block_resources`, which acts before each navigation (ADR 0117).
+   *
+   * The work item's page: a Collie `Page`, on every fetch tier (ADR 0093).
+   */
   readonly page: Page;
   /**
    * Adds one request to a crawl from inside a handler's attempt, a handler

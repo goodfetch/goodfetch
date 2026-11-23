@@ -357,21 +357,26 @@ fn forgetting_an_executable_removes_its_one_entry_and_keeps_the_rest() {
 }
 
 /// The lowest Product version the Daemon's pick must meet is the highest
-/// lowest minor the major's shared stores record (ADR 0098).
+/// lowest minor the major's shared stores record, and the store that
+/// records it is named (ADR 0098).
 ///
 /// Covers: story:3-144
 #[rstest]
 #[case::no_store_raised(None, None, None)]
-#[case::the_run_index(Some(3), None, Some(ProtocolVersion { major: 2, minor: 3 }))]
+#[case::the_run_index(
+    Some(3),
+    None,
+    Some((ProtocolVersion { major: 2, minor: 3 }, "run-index"))
+)]
 #[case::user_configuration_above_the_run_index(
     Some(3),
     Some(5),
-    Some(ProtocolVersion { major: 2, minor: 5 })
+    Some((ProtocolVersion { major: 2, minor: 5 }, "user-configuration"))
 )]
 fn the_daemons_pick_meets_the_highest_lowest_minor_of_the_majors_stores(
     #[case] run_index: Option<u16>,
     #[case] user_configuration: Option<u16>,
-    #[case] floor: Option<ProtocolVersion>,
+    #[case] floor: Option<(ProtocolVersion, &str)>,
 ) {
     let folder = tempfile::tempdir().unwrap();
     let home = crate::home::Home::new(folder.path().to_owned());
@@ -401,5 +406,7 @@ fn the_daemons_pick_meets_the_highest_lowest_minor_of_the_majors_stores(
         .unwrap();
     }
 
-    assert_eq!(super::stores_floor(&home, &engine), floor);
+    let found = super::stores_floor(&home, &engine);
+
+    assert_eq!(found.map(|found| (found.version, found.format.name)), floor);
 }

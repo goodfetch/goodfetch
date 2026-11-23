@@ -56,6 +56,64 @@ pub fn long_flags(command: &clap::Command) -> Vec<String> {
         .collect()
 }
 
+/// Each option that a command of `command`'s executable, named in
+/// `markdown` on a `console` block's `$ ` line or in a code span, gives
+/// although its command takes none of that name, as `<path> --<option>`:
+/// what a skill names must exist (story 11-237).
+#[must_use]
+pub fn unknown_options(command: &clap::Command, markdown: &str) -> Vec<String> {
+    let mut built = command.clone();
+    built.build();
+    let mut unknown = Vec::new();
+    let mut fence: Option<&str> = None;
+    for line in markdown.lines() {
+        let trimmed = line.trim_start();
+        if let Some(info) = trimmed.strip_prefix("```") {
+            fence = match fence {
+                Some(_) => None,
+                None => Some(info.trim()),
+            };
+            continue;
+        }
+        let named: Vec<&str> = match fence {
+            Some("console") => trimmed.strip_prefix("$ ").into_iter().collect(),
+            Some(_) => Vec::new(),
+            None => line.split('`').skip(1).step_by(2).collect(),
+        };
+        for words in named {
+            unknown.extend(options_lacked(&built, words));
+        }
+    }
+    unknown
+}
+
+/// The options the command line `words` gives that its command lacks, when
+/// it starts with `executable`'s name.
+fn options_lacked(executable: &clap::Command, words: &str) -> Vec<String> {
+    let mut words = words.split_whitespace();
+    if words.next() != Some(executable.get_name()) {
+        return Vec::new();
+    }
+    let mut command = executable;
+    let mut path: Vec<&str> = Vec::new();
+    let mut lacked = Vec::new();
+    for word in words {
+        if let Some(option) = word.strip_prefix("--").filter(|option| !option.is_empty()) {
+            let name = option.split_once('=').map_or(option, |(name, _)| name);
+            let known = command
+                .get_arguments()
+                .any(|argument| argument.get_long() == Some(name));
+            if !known {
+                lacked.push(format!("{} --{name}", path.join(" ")));
+            }
+        } else if let Some(sub) = command.find_subcommand(word) {
+            command = sub;
+            path.push(word);
+        }
+    }
+    lacked
+}
+
 /// Those of `flags` whose name holds a word naming certificates or turning
 /// their checks off; not `verif` alone, which `--require-verified` (a
 /// Verdict's) holds.
@@ -79,3 +137,6 @@ pub fn certificate_verification_switches(flags: &[String]) -> Vec<String> {
         .cloned()
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

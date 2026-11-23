@@ -47,6 +47,7 @@ from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
 
+from goodfetch_foxhound.crawl_run import CrawlRuns
 from goodfetch_foxhound.generated.connection import (
     FOXHOUND_ENGINE_PATH_VARIABLE,
     FOXHOUND_EXECUTABLE,
@@ -55,7 +56,16 @@ from goodfetch_foxhound.generated.errors import (
     ERROR_CLASSES as FOXHOUND_ERROR_CLASSES,
 )
 from goodfetch_foxhound.generated.operations import (
+    DEPRECATED_OPERATIONS as FOXHOUND_DEPRECATED_OPERATIONS,
+)
+from goodfetch_foxhound.generated.operations import (
+    EXPERIMENTAL_OPERATIONS as FOXHOUND_EXPERIMENTAL_OPERATIONS,
+)
+from goodfetch_foxhound.generated.operations import (
     OPERATION_CLASSES as FOXHOUND_OPERATION_CLASSES,
+)
+from goodfetch_foxhound.generated.settings import (
+    DEPRECATED_SETTINGS as FOXHOUND_DEPRECATED_SETTINGS,
 )
 
 if TYPE_CHECKING:
@@ -76,7 +86,10 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
-    from goodfetch_foxhound.generated.settings import FoxhoundSettings
+    from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
+    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
 
 __all__ = [
     "AsyncFoxhound",
@@ -112,8 +125,9 @@ class AsyncFoxhound(AsyncConnection):
     """
 
     def __init__(self, connection: ClientConnection) -> None:
-        """Wraps an open Connection."""
+        """Wraps an open Connection, and serves its crawls' handlers."""
         self._connection = connection
+        self._crawls = CrawlRuns(connection)
 
     @staticmethod
     def connect(
@@ -169,7 +183,14 @@ class AsyncFoxhound(AsyncConnection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started, as `AsyncCollie.start`.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. It starts the Run as `AsyncCollie.start` does.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -184,9 +205,7 @@ class AsyncFoxhound(AsyncConnection):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. The Run is the Collie client package's own
-        `AsyncRun` (ADR 0095).
+        The Run is the Collie client package's own `AsyncRun` (ADR 0095).
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
@@ -263,6 +282,44 @@ class AsyncFoxhound(AsyncConnection):
             recording=recording,
             timeout=timeout,
             detached=detached,
+        )
+
+    async def start_crawl(
+        self,
+        crawl: AsyncCrawl,
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> AsyncCrawlRun:
+        """Starts `crawl` from `seeds`, at least one, and serves its handlers.
+
+        Starts a crawl from its seeds, and answers once its Run is started.
+        The engine then leases each work item to the program's handler as a
+        `crawl_request.handle` request, and the crawl's Run finishes once
+        every work item is done, or, with `crawl.keep_alive`, once
+        `run.finish` lets it and every work item is done. A Run ID works as
+        `run.start`'s.
+
+        Each work item goes to the handler of its Label, as a task beside
+        this Connection's (ADR 0093). Before anything is sent, a Label
+        without a handler fails with `label_unhandled`, and a seed whose
+        Label's name `crawl` does not declare with `label_unknown`, since a
+        seed carries its Label's name only. `settings` are the Run's own,
+        Collie's and Foxhound's, such as
+        `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry(
+            "crawl.start",
+            FOXHOUND_EXPERIMENTAL_OPERATIONS,
+            FOXHOUND_DEPRECATED_OPERATIONS,
+        )
+        warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
+        return await self._crawls.start(
+            crawl, seeds=seeds, run_id=run_id, tags=tags, settings=settings
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -343,6 +400,7 @@ class Foxhound(Connection):
         """Takes the private loop and the open Connection it drives there."""
         self._loop = loop
         self._connection = connection
+        self._crawls = CrawlRuns(connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
@@ -391,7 +449,14 @@ class Foxhound(Connection):
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> Run:
-        """Starts a Run and returns once it is started, as `Collie.start`.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. It starts the Run as `Collie.start` does.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -406,9 +471,7 @@ class Foxhound(Connection):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. The Run is the Collie client package's own `Run`
-        (ADR 0095).
+        The Run is the Collie client package's own `Run` (ADR 0095).
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
@@ -507,6 +570,52 @@ class Foxhound(Connection):
         except LoopStopped:
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
+
+    def start_crawl(
+        self,
+        crawl: Crawl,
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> CrawlRun:
+        """Starts `crawl` from `seeds`, at least one, and serves its handlers.
+
+        Starts a crawl from its seeds, and answers once its Run is started.
+        The engine then leases each work item to the program's handler as a
+        `crawl_request.handle` request, and the crawl's Run finishes once
+        every work item is done, or, with `crawl.keep_alive`, once
+        `run.finish` lets it and every work item is done. A Run ID works as
+        `run.start`'s.
+
+        As `AsyncFoxhound.start_crawl`, except that each work item's handler,
+        a plain function, runs on the Connection's thread pool, so a handler
+        that blocks holds no other handler back. Closing the Run cancels the
+        call each handler has in flight, which raises `closed`, and waits
+        for every handler to return (ADR 0093).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry(
+            "crawl.start",
+            FOXHOUND_EXPERIMENTAL_OPERATIONS,
+            FOXHOUND_DEPRECATED_OPERATIONS,
+        )
+        warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._crawls.start_threaded,
+            self._loop,
+            crawl,
+            seeds=list(seeds),
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            settings=settings,
+        )
+        try:
+            return self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("crawl.start") from None
 
     def open_run(self, run_id: str) -> RunView:
         """Opens a view of a Run by its ID, as `Collie.open_run`."""

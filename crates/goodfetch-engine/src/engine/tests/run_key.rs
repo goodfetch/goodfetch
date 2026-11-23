@@ -141,6 +141,7 @@ fn sealing() -> Contribution {
                             checkpoint_interval: None,
                             timeout: None,
                             settings,
+                            detached: false,
                         })
                         .await
                         .unwrap();

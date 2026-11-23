@@ -69,6 +69,9 @@ const RUN_START_CASES: &str = include_str!("../../../conformance/run-start/cases
 /// The start table's crawl rows, embedded the same way.
 const RUN_START_CRAWL_CASES: &str = include_str!("../../../conformance/run-start-crawl/cases.toml");
 
+/// The two-copies suite's case list, embedded the same way.
+const TWO_COPIES_CASES: &str = include_str!("../../../conformance/two-copies/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +130,14 @@ impl ProtocolSuite {
     /// Foxhound's executable.
     pub fn run_start_crawl() -> Self {
         Self::read(RUN_START_CRAWL_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/two-copies/cases.toml`: ADR 0003's fencing, a Run's
+    /// copy that another resumed at a later run epoch seeing its
+    /// Checkpoints and Exports refused by a destination that compares and
+    /// sets, on Foxhound's executable.
+    pub fn two_copies() -> Self {
+        Self::read(TWO_COPIES_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

@@ -25,7 +25,7 @@ mod transport_failures;
 mod tunnels;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
+use goodfetch_engine::dns::{HostMapping, ResolverSource};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{CertificateExceptions, Trust, read_certificates};
 use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
@@ -104,7 +104,7 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
             .unwrap(),
         resolve: HostMapping::new(resolve),
         clock: Clock::system(),
-        resolver: ResolverConfiguration::system().unwrap(),
+        resolver: ResolverSource::system(),
         local: None,
         delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }

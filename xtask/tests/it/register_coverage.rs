@@ -14,7 +14,6 @@ const TESTING: &str = "TESTING.md";
 const ISSUES: &str = "/repos/goodfetch/goodfetch/issues";
 const NEEDS_TRIAGE: &str =
     "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=all&per_page=100&page=1";
-const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1";
 
 /// A register whose `coverage.project` row holds `today`.
 fn register(today: &str) -> String {
@@ -77,10 +76,6 @@ fn workspace(today: &str, hit: u32, lines: u32) -> Workspace {
 fn github(issues: &str) -> GitHub {
     GitHub::serving(&[
         (NEEDS_TRIAGE, issues),
-        (
-            MILESTONES,
-            r#"[ { "number": 1, "open_issues": 3, "due_on": null } ]"#,
-        ),
         (&format!("POST {ISSUES}"), r#"{ "number": 41 }"#),
         (&format!("PATCH {ISSUES}/7"), r#"{ "number": 7 }"#),
     ])

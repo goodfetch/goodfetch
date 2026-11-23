@@ -44,3 +44,6 @@ pub(crate) fn resources() -> Vec<Resource> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

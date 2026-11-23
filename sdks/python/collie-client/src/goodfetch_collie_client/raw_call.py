@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
 
-__all__ = ["AsyncHandle", "Handle", "raw_params"]
+__all__ = ["AsyncHandle", "Handle", "carried_id", "raw_params"]
 
 _META = "_meta"
 """The member of a request's params that holds its envelope (ADR 0132)."""
@@ -181,3 +181,14 @@ class Handle:
             operation, params, timeout, (self._namespaces, self._param, host.id)
         )
         return host.raw(operation, sent)
+
+
+def carried_id(handle: AsyncHandle | Handle) -> object:
+    """The ID `handle`'s calls carry, for a Product's package whose own calls name it.
+
+    Such as Foxhound's `enqueue_links`, which sends the locator it is given
+    (ADR 0093); never for programs. TypeScript's `idOf<Name>` functions are
+    its twins.
+    """
+    # Python has no friend access: the handle's host is its own.
+    return handle._raw_host.id  # pyright: ignore[reportPrivateUsage]

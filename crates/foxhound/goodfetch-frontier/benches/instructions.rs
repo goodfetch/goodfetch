@@ -15,7 +15,7 @@ use goodfetch_frontier::Url;
 use gungraun::prelude::*;
 
 #[library_benchmark]
-#[bench::one_heavy_domain_and_a_thousand_small(scenarios::requests(64, 1_000))]
+#[bench::one_heavy_domain_and_a_thousand_small(scenarios::admission(64, 1_000))]
 fn admit(requests: Vec<(String, i64)>) -> (usize, usize) {
     black_box(scenarios::admit_all(black_box(requests)))
 }

@@ -112,6 +112,7 @@ fn every_hand_made_page_loads_the_shared_effect_script() {
 #[case::ambiguous_rerender("actionability/27", json!({ "event": "click", "target": "target", "trusted": true, "details": { "ready": "true" } }))]
 #[case::controlled("actionability/28", json!({ "event": "submit", "target": "save", "trusted": true, "details": { "state": "Goodfetch", "typed": "true" } }))]
 #[case::hover_menu("actionability/29", json!({ "event": "click", "target": "export", "trusted": true, "details": { "hovered": "true" } }))]
+#[case::skill_examples("actionability/30", json!({ "event": "search", "target": "q", "trusted": true, "details": { "next": "true", "query": "browser automation" } }))]
 #[case::spa("navigation/1", json!({ "event": "route", "target": "go", "trusted": true, "details": { "path": "/detail" } }))]
 #[case::history("navigation/2", json!({ "event": "back", "target": "page-a", "trusted": true }))]
 #[case::popup("navigation/3", json!({ "event": "click", "target": "confirm", "trusted": true, "details": { "window": "popup" } }))]

@@ -15,12 +15,14 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use goodfetch_protocol::audit::RUN_ROLLED_BACK;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::checkpoint::RunBinding;
+use goodfetch_protocol::checkpoint::{RunBinding, RunStatePosition};
 use goodfetch_protocol::run::{
     Lifecycle, Presence, ProgressMessage, RunAxes, RunId, RunIndexRow, RunKind, RunStarted,
     StartInput, StartedAs, StopReason,
 };
+use serde_json::json;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::folder::{
@@ -30,11 +32,12 @@ use super::folder::{
 use super::lifecycle::{self, Next, RunEvent};
 use super::writer::{retried, try_lock};
 use super::{
-    Command, ConnectionId, Ended, Keys, Limits, Live, Registry, Resume, Resumed, Run, RunError,
-    Start, StartError, Started, StorageExhausted, UncleanDiscard, critical_among, discard,
-    durability_of, joined_weakened, ledger_read_interval, periodic_checkpoints, progress,
-    warn_over_charged,
+    Behind, Command, ConnectionId, Ended, FromCheckpoint, Keys, Limits, Live, Registry,
+    ReopenCheck, Resume, Resumed, Run, RunError, Start, StartError, Started, StorageExhausted,
+    UncleanDiscard, applied, critical_among, discard, durability_of, ledger_read_interval,
+    periodic_checkpoints, progress, trace_changes, warn_over_charged,
 };
+use crate::audit::{AuditLog, Origin};
 use crate::checkpoint;
 use crate::clock::Clock;
 use crate::engine_context::CALLER;
@@ -372,40 +375,53 @@ impl Disk {
             .ok_or_else(|| RunError::NotFound(self.run_id.clone()))
     }
 
-    /// Takes the writer role of the Run, `held` as its state says: its
-    /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
-    /// given, then the next run epoch, under which `writer` opens it with
-    /// `options` and marks it running again.
-    async fn reopen(
+    /// Runs `check`, the check of a reopen of the Run its kind gives, on
+    /// the Checkpoint `checkpoint`, or else its run file here: the reopen
+    /// it refuses is refused before anything is done (ADR 0104's note of
+    /// #2912).
+    async fn may_reopen(
         &self,
-        entropy: &mut Entropy,
-        held: Lifecycle,
-        checkpoint: Option<PathBuf>,
+        check: ReopenCheck,
+        checkpoint: Option<&Path>,
+    ) -> Result<(), RunError> {
+        let (run_id, folder) = (&self.run_id, &self.folder);
+        let (path, vfs) = match checkpoint {
+            Some(checkpoint) => (checkpoint.to_owned(), None),
+            None => (folder.join(RUN_FILE), self.vfs.clone()),
+        };
+        let checked_id = run_id.clone();
+        self.owner
+            .blocking(move || {
+                let connection = run_state::open_reader(&path, vfs.as_deref())?;
+                check(&connection, &checked_id).map_err(|error| RunStateError::Sqlite {
+                    path,
+                    message: error.to_string(),
+                })
+            })
+            .await
+            .map_err(|error| RunError::of_state(run_id, folder, error))?
+            .map_err(|refused| RunError::ReopenRefused(Box::new(refused)))
+    }
+
+    /// Makes the Checkpoint at `path` the Run's run file.
+    async fn install(&self, path: PathBuf) -> Result<(), RunError> {
+        let (into, vfs) = (self.folder.join(RUN_FILE), self.vfs.clone());
+        self.owner
+            .blocking(move || checkpoint::install(&path, &into, vfs.as_deref()))
+            .await
+            .map_err(|error| RunError::of_write(&self.run_id, &self.folder, error))
+    }
+
+    /// Opens the Run's run file under the next run epoch past `after`,
+    /// with `writer` and `options`, and marks it running again.
+    async fn open_resumed(
+        &self,
+        after: u64,
         (options, tables): (&RunStateOptions, &[RunStateTables]),
         writer: &TaskOwner,
-    ) -> Result<(File, RunState), RunError> {
+    ) -> Result<RunState, RunError> {
         let (run_id, folder) = (&self.run_id, &self.folder);
         let file = folder.join(RUN_FILE);
-        let lock = self
-            .lock(entropy)
-            .await
-            .map_err(|error| writer_found(run_id, error, held))?;
-        let mut after = 0;
-        if let Some(checkpoint) = checkpoint {
-            // The run epoch of a run file of this Run already here, which the
-            // Checkpoint replaces: the resume's goes past it too.
-            if let Ok(Some(_)) = self.existing().await
-                && let Ok(here) = self.held(None).await
-            {
-                after = here.run_epoch;
-            }
-            let (into, vfs) = (file.clone(), self.vfs.clone());
-            self.owner
-                .blocking(move || checkpoint::install(&checkpoint, &into, vfs.as_deref()))
-                .await
-                .map_err(|error| RunError::of_write(run_id, folder, error))?;
-        }
         let (taking, opened, next) = (options.clone(), tables.to_vec(), file.clone());
         let epoch = self
             .owner
@@ -434,7 +450,7 @@ impl Disk {
             })
             .await
             .map_err(|error| RunError::of_state(run_id, folder, error))?;
-        Ok((lock, state))
+        Ok(state)
     }
 }
 
@@ -479,6 +495,7 @@ fn writer_found(run_id: &RunId, error: StartError, held: Lifecycle) -> RunError 
         | StartError::Draining { .. }
         | StartError::Secret(_)
         | StartError::Refused(_)
+        | StartError::FilesystemUnsupported(..)
         | StartError::Stopped => RunError::Stopped,
     }
 }
@@ -529,6 +546,8 @@ struct Opening {
     /// The owner its writer runs under.
     writer: Arc<TaskOwner>,
     events: Events,
+    /// The Audit log a resume's roll-back is recorded in first.
+    audit: AuditLog,
 }
 
 impl Registry {
@@ -571,6 +590,7 @@ impl Registry {
             tables: self.setup.tables.clone(),
             writer: Arc::new(self.owner.child_for(OwnerKind::Run)),
             events: self.setup.events.clone(),
+            audit: self.setup.engine.audit().clone(),
         }
     }
 
@@ -926,7 +946,12 @@ impl Opening {
             &self.writer,
         )
         .await
-        .map_err(|error| self.disk.unavailable(error.to_string()))?;
+        .map_err(|error| match error {
+            RunStateError::FilesystemUnsupported(refused) => {
+                StartError::FilesystemUnsupported(run_id.clone(), refused)
+            }
+            other => self.disk.unavailable(other.to_string()),
+        })?;
         let Start {
             kind,
             needs,
@@ -938,6 +963,7 @@ impl Opening {
             checkpoint_interval,
             timeout,
             settings,
+            detached,
             ..
         } = start;
         row.started_at = self.disk.clock.point_in_time();
@@ -985,7 +1011,9 @@ impl Opening {
                     report: watch::Sender::new(None),
                     writer,
                     lock: Arc::new(lock),
-                    connection,
+                    // A detached Run is no Connection's, so no Connection's
+                    // end stops it (ADR 0102).
+                    connection: connection.filter(|_| !detached),
                     checkpoint: None,
                     progress_message: None,
                     lifecycle: Lifecycle::Running,
@@ -1075,6 +1103,122 @@ impl Opening {
         Ok((decided?, held))
     }
 
+    /// Takes the writer role of the Run, `held` as its state, or the
+    /// Checkpoint `checkpoint` when given, says: its lock, which another
+    /// writer's holding refuses as the Run's table says (`WriterFound`),
+    /// then, once its kind's check of the reopen passed, unless a start
+    /// under its ID `redeclared` what the check reads, the Checkpoint made
+    /// its run file unless the run file here is past it, then the next run
+    /// epoch, under which its writer opens it and marks it running again.
+    async fn reopen(
+        &mut self,
+        held: &checkpoint::Held,
+        checkpoint: Option<FromCheckpoint>,
+        redeclared: bool,
+    ) -> Result<(File, RunState), RunError> {
+        let run_id = self.disk.run_id.clone();
+        let lock = self
+            .disk
+            .lock(&mut self.entropy)
+            .await
+            .map_err(|error| writer_found(&run_id, error, held.lifecycle))?;
+        let kind = held.kind;
+        let check = self
+            .decisions
+            .decide(move |registry| registry.driving(kind).reopen_check)
+            .await?;
+        if let Some(check) = check.filter(|_| !redeclared) {
+            self.disk
+                .may_reopen(check, checkpoint.as_ref().map(|from| from.path.as_path()))
+                .await?;
+        }
+        let after = match checkpoint {
+            Some(from) => self.install_checkpoint(held, from).await?,
+            None => 0,
+        };
+        let state = self
+            .disk
+            .open_resumed(after, (&self.options, &self.tables), &self.writer)
+            .await?;
+        Ok((lock, state))
+    }
+
+    /// Makes the Checkpoint `from`, `held` as it says, the Run's run file,
+    /// unless that file is past it or cannot be read and the resume did not
+    /// ask to roll back: the run epoch of the file it replaced, which the
+    /// resume's goes past too, or 0 with none.
+    async fn install_checkpoint(
+        &self,
+        held: &checkpoint::Held,
+        from: FromCheckpoint,
+    ) -> Result<u64, RunError> {
+        let here = match self.disk.existing().await {
+            Ok(None) => None,
+            Ok(Some(_)) => Some(self.disk.held(None).await),
+            Err(error) => Some(Err(RunError::Unavailable {
+                run_id: self.disk.run_id.clone(),
+                folder: self.disk.folder.clone(),
+                error,
+            })),
+        };
+        let after = match here {
+            None => 0,
+            Some(Ok(here)) if here.position <= held.position => here.position.run_epoch,
+            Some(here) => {
+                let here = here.map(|here| here.position);
+                let after = here.as_ref().map_or(0, |here| here.run_epoch);
+                self.roll_back(&from, held.position, here).await?;
+                after
+            }
+        };
+        self.disk.install(from.path).await?;
+        Ok(after)
+    }
+
+    /// Lets the Checkpoint `from`, at `checkpoint`, replace the Run's run
+    /// file, past it at `run_file` or unread for the error it gives, only
+    /// when the resume asked to roll back, as the Audit log records before
+    /// anything is replaced (ADR 0002's note of #2322).
+    async fn roll_back(
+        &self,
+        from: &FromCheckpoint,
+        checkpoint: RunStatePosition,
+        run_file: Result<RunStatePosition, RunError>,
+    ) -> Result<(), RunError> {
+        let run_id = &self.disk.run_id;
+        let Some(by) = &from.rollback else {
+            return Err(match run_file {
+                Ok(run_file) => RunError::Behind(Behind {
+                    run_id: run_id.clone(),
+                    checkpoint,
+                    run_file,
+                }),
+                Err(unread) => unread,
+            });
+        };
+        let origin = Origin {
+            actor: by.actor.clone(),
+            surface: Some(by.surface),
+            layer: None,
+            run_id: Some(run_id.clone()),
+        };
+        let run_file = run_file.ok();
+        self.audit
+            .record(
+                &origin,
+                &RUN_ROLLED_BACK,
+                json!({ "checkpoint": checkpoint, "run_file": run_file }),
+                self.disk.clock.timestamp(),
+            )
+            .await
+            .map(drop)
+            .map_err(|error| RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.disk.folder.clone(),
+                error: format!("the Audit log cannot record its roll-back: {error}"),
+            })
+    }
+
     /// The resume `resume` of an interrupted Run, its `fixed` settings
     /// compared, its Secret references resolved through `keys`, the data
     /// key its file holds being `stored`.
@@ -1092,10 +1236,11 @@ impl Opening {
             timeout,
             settings,
             retry_failed,
+            redeclared,
         } = resume;
         let (decided, held) = self
             .may_resume(
-                checkpoint.as_deref(),
+                checkpoint.as_ref().map(|from| from.path.as_path()),
                 (fixed, stored),
                 durability_of(settings.as_ref()),
                 Resume::event(retry_failed),
@@ -1104,16 +1249,7 @@ impl Opening {
         let Some(lifecycle) = decided else {
             return Ok(Resumed::unchanged(run_id, &held));
         };
-        let (lock, state) = self
-            .disk
-            .reopen(
-                &mut self.entropy,
-                held.lifecycle,
-                checkpoint,
-                (&self.options, &self.tables),
-                &self.writer,
-            )
-            .await?;
+        let (lock, state) = self.reopen(&held, checkpoint, redeclared).await?;
         let recorded = self.disk.recorded().await?;
         let id = run_id.clone();
         self.decisions
@@ -1128,7 +1264,7 @@ impl Opening {
             .and_then(ProgressMessage::parse);
         let listed = recorded.weakened.clone();
         let folder = self.disk.folder.clone();
-        let weakened = joined_weakened(&listed, settings.as_ref(), &state)
+        let (weakened, changed) = applied(&recorded, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let (id, kind, connection) = (run_id.clone(), recorded.kind, self.connection);
@@ -1136,6 +1272,7 @@ impl Opening {
             .decisions
             .decide(move |registry| registry.new_run(&id, kind, state, connection, settings, keys))
             .await?;
+        trace_changes(&run, &changed).await;
         run.shared.charging.read_limits(&self.disk.owner).await;
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;

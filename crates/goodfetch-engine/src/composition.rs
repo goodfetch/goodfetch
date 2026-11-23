@@ -5,8 +5,8 @@
 //! adds operation handlers and the drivers of its kinds of Run, the tables
 //! it keeps in every run file and the Politeness file, its gates in
 //! admission, its parts of a Run's report and progress, its Clean-up
-//! versions, its "Needs you" sources, its Secret providers and the
-//! controls and weakenings it records.
+//! versions, its send window, its "Needs you" sources, its Secret
+//! providers and the controls and weakenings it records.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
@@ -17,6 +17,7 @@
 //! [`CallContext`], so each addition lands in all four together.
 
 mod call_streams;
+mod closing;
 pub(crate) mod params;
 #[cfg(test)]
 mod tests;
@@ -48,7 +49,7 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
@@ -57,6 +58,7 @@ use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
 pub(crate) use call_streams::{CallNotifier, InputSender};
+pub(crate) use closing::Closing;
 pub use params::Params;
 
 /// What a handler is given beside its params: its Connection's handles,
@@ -107,6 +109,9 @@ pub(crate) struct ConnectionContext {
     /// engine accepted: the run layer at the connection scope, beneath
     /// each Run's own (ADR 0083); set with the surface.
     pub(crate) settings: OnceLock<Map<String, Value>>,
+    /// The run layer's `registered` values its `hello`'s SDK handlers give,
+    /// beneath every other run-layer value (ADR 0104); set with the surface.
+    pub(crate) registered: OnceLock<Map<String, Value>>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -141,10 +146,13 @@ pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// What a Daemon gives each of its Connections (ADRs 0024 and 0098): the
 /// token every `hello` carries, the count of its Clients, whether it hands
-/// over on a refusal, and its answers to `daemon.*`.
+/// over on a refusal, its answers to `daemon.*`, and how it closes the
+/// Connection.
 pub(crate) trait DaemonSide: Send + Sync {
     /// The per-launch token.
     fn token(&self) -> &str;
+    /// How the Daemon closes this Connection.
+    fn closing(&self) -> &Closing;
     /// A Client of `surface` opened; it counts until the value drops,
     /// toward the idle stop and a handover too as `holding` says (ADR
     /// 0141).
@@ -156,8 +164,10 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn status(&self) -> Answering<'_, DaemonState>;
     /// What `daemon.health` answers.
     fn health(&self) -> Answering<'_, DaemonHealth>;
-    /// Stops the Daemon once `daemon.stop` has answered what it says.
-    fn stop(&self) -> Answering<'_, DaemonStopping>;
+    /// Stops the Daemon once `daemon.stop` has answered what it says,
+    /// closing its other Connections with `closing`, which their calls in
+    /// flight raise.
+    fn stop(&self, closing: CallError) -> Answering<'_, DaemonStopping>;
 }
 
 impl CallContext {
@@ -254,6 +264,15 @@ impl CallContext {
     pub fn connection_settings(&self) -> &Map<String, Value> {
         self.connection
             .settings
+            .get()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The run layer's `registered` values the Connection's SDK handlers
+    /// give, by dotted key: empty when none has one (ADR 0104).
+    pub fn registered_settings(&self) -> &Map<String, Value> {
+        self.connection
+            .registered
             .get()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
@@ -619,6 +638,7 @@ pub struct Contribution {
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
+    send_window: Option<Arc<dyn SendWindow>>,
     needs_you_sources: Vec<NeedsYouSource>,
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
@@ -642,6 +662,7 @@ impl Contribution {
             report_parts: Vec::new(),
             progress_parts: Vec::new(),
             clean_up_versions: None,
+            send_window: None,
             needs_you_sources: Vec::new(),
             controls: Vec::new(),
         }
@@ -783,6 +804,14 @@ impl Contribution {
     #[must_use]
     pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
         self.admission_gates = Some(gates);
+        self
+    }
+
+    /// The same, passing in `window` as the send window each Run's
+    /// commands mark (ADR 0106): the engine's declared Effects.
+    #[must_use]
+    pub(crate) fn with_send_window(mut self, window: Arc<dyn SendWindow>) -> Self {
+        self.send_window = Some(window);
         self
     }
 
@@ -1006,6 +1035,13 @@ impl Composition {
             return Err(CompositionError::DuplicateCleanUpVersions { first, second });
         }
         Ok(first.map(|(_, versions)| versions))
+    }
+
+    /// The send window the engine's contribution, held once, passes in.
+    pub(crate) fn send_window(&self) -> Option<Arc<dyn SendWindow>> {
+        self.contributions
+            .iter()
+            .find_map(|each| each.send_window.clone())
     }
 
     /// Each operation's one handler.

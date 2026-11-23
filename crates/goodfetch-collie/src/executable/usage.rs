@@ -1,12 +1,15 @@
 //! `usage raise` (ADRs 0041 and 0069): raising a Limit is a person's
 //! answer, so the CLI offers it as a prompt only, never as a command
 //! generated from the catalog. It asks at the terminal and raises the
-//! Limit through `usage.raise` only when the person answers yes; when stdin
-//! is no terminal, as under a script, an agent or CI, it is refused with
-//! `person_required` before any engine call. It takes no `--json`. It
-//! raises the Limit on the Daemon when one runs or `--daemon` is given,
-//! else on an Attached engine, as any command whose value does not outlive
-//! it (ticket #1183).
+//! Limit through `usage.raise` only when the person answers yes; under
+//! `--json`, or when stdin is no terminal, as under a script, an agent or
+//! CI, it is refused with `person_required` before any engine call, its
+//! `fix` naming the command and the Kennel ([`prompts`]). It raises the
+//! Limit on the Daemon when one runs or `--daemon` is given, else on an
+//! Attached engine, as any command whose value does not outlive it (ticket
+//! #1183).
+//!
+//! [`prompts`]: super::prompts
 
 use std::process::ExitCode;
 
@@ -15,39 +18,40 @@ use super::engine_choice::{Choice, EngineChoice};
 use super::exit_codes;
 use super::operation::run_operation;
 use super::output::{self, Human};
+use super::prompts::Prompt;
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::connection::PERSON_REQUIRED;
 use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
+
+/// The Limit raise's prompt: a person also raises a Limit in the Kennel.
+const RAISE: Prompt = Prompt {
+    operation: &USAGE_RAISE,
+    elsewhere: Some("raise the Limit in the Kennel"),
+};
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
 /// raises it when they answer yes: on the engine that `choice` and the
 /// Daemon `machine` reaches choose for a command whose value does not
 /// outlive it ([`engine_choice`]), which is the Daemon or an Attached
-/// engine, `engine` on `dependencies`.
+/// engine, `engine` on `dependencies`. Under `--json`, `json`, it is
+/// refused.
 pub(super) fn raise(
     engine: &Engine,
     dependencies: Dependencies,
     (machine, choice): (&Machine<'_>, Choice),
-    params: &UsageRaiseParams,
+    (params, json): (&UsageRaiseParams, bool),
     human: &Human,
 ) -> ExitCode {
-    let Some(answer) = human.ask(&format!("{}? [y/N]", question(params))) else {
-        human.failure(
-            "`usage raise` is a person's answer, asked at a terminal: run it in one, or raise the Limit in the Kennel",
-            &[
-                ("code", PERSON_REQUIRED.name.to_owned()),
-                ("retryable", PERSON_REQUIRED.retryable.to_string()),
-            ],
-        );
-        return ExitCode::from(exit_codes::of_error(
-            PERSON_REQUIRED.name,
-            PERSON_REQUIRED.group,
-        ));
-    };
-    if !matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes") {
-        output::line("The Limit was not raised.");
-        return ExitCode::from(exit_codes::SUCCESS);
+    let asked = RAISE
+        .person_present(json, human)
+        .and_then(|()| RAISE.ask(&format!("{}?", question(params)), None, human));
+    match asked {
+        Ok(true) => {}
+        Ok(false) => {
+            output::line("The Limit was not raised.");
+            return ExitCode::from(exit_codes::SUCCESS);
+        }
+        Err(exit) => return exit,
     }
     let warn = |text: &str| human.warning(text);
     let reach = EngineChoice::passing(choice, machine, &warn);

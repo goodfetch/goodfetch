@@ -389,13 +389,15 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
 /// the Run's run file's write-ahead log as of its last commit (ADR 0138),
 /// `goodfetch.run_state.batch_rows` the rows of the run file's batches
 /// (ADR 0142), `goodfetch.run_state.blocked_checkpoints` has none, since no
-/// reader blocked a checkpoint, and [`INODES`] joins them only where the
-/// filesystem reports its inodes.
-const SAMPLED: [&str; 13] = [
+/// reader blocked a checkpoint, `goodfetch.daemon.heap` holds the live heap
+/// the executable's allocator counts (#1769), and [`INODES`] joins them
+/// only where the filesystem reports its inodes.
+const SAMPLED: [&str; 14] = [
     "goodfetch.browser.memory",
     "goodfetch.client.connected",
     "goodfetch.counted_work",
     "goodfetch.daemon.draining",
+    "goodfetch.daemon.heap",
     "goodfetch.governor.pressure_source",
     "goodfetch.governor.saturation",
     "goodfetch.governor.target",

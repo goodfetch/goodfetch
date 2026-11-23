@@ -30,6 +30,24 @@ pub struct RunCheckpointParams {
     pub run_id: RunId,
     /// Where to write the Checkpoint, a path on the engine's machine; by
     /// default where the engine keeps the Run's Checkpoints, its own folder.
+    /// The catalog's caller alone gives it, such as Goodfetch Cloud: an
+    /// SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    /// Goodfetch Cloud (ADR 0102).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1", "catalog_only" = true))]
+    pub location: Option<String>,
+}
+
+/// What `run.migrate` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunMigrateParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where to write the Checkpoint the Run is resumed from, a path on the
+    /// engine's machine; by default where the engine keeps the Run's
+    /// Checkpoints, its own folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub location: Option<String>,
@@ -48,6 +66,14 @@ pub struct RunResumeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub checkpoint: Option<String>,
+    /// Whether a `checkpoint` behind the Run's run file on this machine, or
+    /// given where that file cannot be read, replaces it all the same,
+    /// rolling the Run back to the Checkpoint, as the Audit log records; by
+    /// default such a Checkpoint is refused, with `checkpoint_behind` or the
+    /// error the file's read gave. Without `checkpoint` it changes nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rollback: bool,
     /// The Run's settings from the resume on, nested by key: the run layer
     /// (ADRs 0083 and 0102).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -81,7 +107,7 @@ pub enum RunBinding {
 /// `run.checkpoint`.
 pub const RUN_CHECKPOINT: Operation = Operation {
     name: "run.checkpoint",
-    description: "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+    description: "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -121,7 +147,7 @@ pub const RUN_MIGRATE: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunCheckpointParams>,
+    params: schema_of::<RunMigrateParams>,
     result: schema_of::<RunReport>,
     events: &[&RUN_MIGRATING, &RUN_CHECKPOINTING, &RUN_STOPPING],
     cancellable: false,
@@ -135,7 +161,7 @@ pub const RUN_MIGRATE: Operation = Operation {
 /// `run.resume`.
 pub const RUN_RESUME: Operation = Operation {
     name: "run.resume",
-    description: "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+    description: "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
@@ -349,6 +375,48 @@ pub struct SessionBoundToMachineDetails {
     pub run_id: RunId,
 }
 
+/// A Checkpoint behind the run file it would replace (ADR 0002's note of
+/// #2322).
+pub const CHECKPOINT_BEHIND: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "checkpoint_behind",
+    description: "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Where a Run's state stands: the run epoch of its last writer, then the
+/// journal position within it, compared in that order.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+pub struct RunStatePosition {
+    /// The run epoch of the writer whose commits it holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+    /// How many commits of the run file it holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub journal_position: u64,
+}
+
+/// What `checkpoint_behind` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckpointBehindDetails {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where the Checkpoint stands.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub checkpoint: RunStatePosition,
+    /// Where the run file on this machine stands, past the Checkpoint.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_file: RunStatePosition,
+    /// What to do: resume without `checkpoint`, or roll back.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 fn none() -> serde_json::Value {
     serde_json::Value::Null
 }
@@ -379,6 +447,7 @@ pub const ENTRIES: Entries = Entries {
         PATH_NOT_WRITABLE,
         FORMAT_VERSION_UNSUPPORTED,
         SESSION_BOUND_TO_MACHINE,
+        CHECKPOINT_BEHIND,
     ],
     plugin_kinds: &[],
     metrics: &[],
@@ -386,3 +455,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

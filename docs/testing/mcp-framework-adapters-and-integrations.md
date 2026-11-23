@@ -28,10 +28,10 @@ Decided in [ADR 0070](../adr/0070-mcp-adapters-and-integrations-are-tested-throu
 
 ### Framework adapters
 
-- **Drive each tool through the framework's own agent loop with its own scripted model**, never by calling the tool's `execute` alone: `MockLanguageModelV4` for the Vercel AI SDK and Mastra, `FakeListChatModel` or `FakeStreamingChatModel` for LangChain.js, `GenericFakeChatModel` through test support's `bind_tools` subclass for Python LangChain.
+- **Drive each tool through the framework's own agent loop with its own scripted model**, never by calling the tool's `execute` alone: `MockLanguageModelV4` for the Vercel AI SDK and Mastra, `FakeListChatModel` or `FakeStreamingChatModel` for LangChain.js, `GenericFakeChatModel` through test support's `bind_tools` subclass, `BindToolsChatModel` ([Shared helpers](shared-helpers.md)), for Python LangChain.
 - **Script a read, an Effect and a failing call** in each adapter's tests.
 - **Run `ToolsUnitTests` on every generated Python LangChain tool**, and `ToolsIntegrationTests` on one tool per operation class and every tool a Journey uses, from a pinned `langchain-tests`.
-- **Test the lowest and highest version of each declared peer range, and one of each major inside it**, in the Release suite. Pin the lowest in a test package (pnpm's `lowest-direct` never lowers peers); use uv's `--resolution lowest-direct` in Python.
+- **Test the lowest and highest version of each declared peer range, and one of each major inside it**, in the Release suite. Pin the lowest in a test package (pnpm's `lowest-direct` never lowers peers); use uv's `--resolution lowest-direct` in Python, through test support's `install_lowest_direct`, which passes the adapter's own requirements as direct ones.
 - **Give each framework that connects only through MCP a model-free test** of its docs example: its own MCP client connects, lists tools and calls one tool.
 - **Check Dataset loaders against the oracle's records**, including metadata and lazy streaming.
 

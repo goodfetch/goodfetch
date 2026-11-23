@@ -17,7 +17,9 @@ fn counted(limited: bool, planted: Option<&str>) -> Counted {
 /// no statement, a Slice is one transaction and one sync, and no charge
 /// opens the ledger, which the run opened as it started (#1886, #1888).
 /// Each of the 40 rounds charges `requests` and reserves proxy bytes ahead,
-/// each kind taking a Slice of its own Limit every tenth round (#2392).
+/// each kind taking a Slice of its own Limit every tenth round (#2392), and
+/// makes one paid call: a paid solve's worst case reserved, then settled at
+/// half of it, so its Slices of 10 worst cases last 19 calls (#2356).
 #[test]
 fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     let default = counted(true, None);
@@ -25,17 +27,18 @@ fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     assert_eq!(
         default,
         Counted {
-            covered: 72,
-            slices: 8,
+            covered: 109,
+            slices: 11,
             statements: 0,
-            transactions: 8,
-            syncs: 8,
+            transactions: 11,
+            syncs: 11,
             opens: 0,
         }
     );
 }
 
-/// Each row's plant adds one unit per its outcome, and nothing to the others'.
+/// Each row's plant adds one unit per its outcome, each paid call one
+/// charge, and nothing to the others'.
 #[test]
 fn a_plant_adds_one_unit_per_outcome_of_its_row() {
     let default = counted(true, None);
@@ -65,7 +68,7 @@ fn no_limit_takes_the_slices_work_away() {
     assert_eq!(
         off,
         Counted {
-            covered: 80,
+            covered: 120,
             slices: 0,
             statements: 0,
             transactions: 0,

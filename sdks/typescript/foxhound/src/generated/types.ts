@@ -265,6 +265,14 @@ export type EquivalentForm = "www" | "scheme" | "trailing_slash" | "index_html" 
  */
 export type LearnedRuleKind = "no_effect_parameter" | "trap_path" | "equivalent_form" | "cursor_pagination";
 /**
+ * What a Sink's probe proves of its destination (ADR 0026), from the
+ * strongest.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "GuaranteeClass".
+ */
+export type GuaranteeClass = "fenced" | "record_fenced" | "keyed" | "at_least_once";
+/**
  * A Sink's delivery status (ADRs 0026 and 0103).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -476,8 +484,10 @@ export type EnqueuedLink =
 export type ExportCompression = "none" | "gzip" | "zstd";
 /**
  * An Export of a Run, named by the engine when its file is whole:
- * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
- * hexadecimal, so two Exports of the same bytes are one file.
+ * `<run_id>.export-<run_epoch>-<sha256>`, the run epoch of the Run's
+ * state it was written from (ADR 0003) and the SHA-256 of its bytes in
+ * lowercase hexadecimal, so two Exports of the same bytes under one run
+ * epoch are one file.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportId".
@@ -1753,7 +1763,7 @@ export interface SinkReport {
   /**
    * Its Guarantee class.
    */
-  guaranteeClass: string;
+  guaranteeClass: GuaranteeClass;
   /**
    * Its name.
    */
@@ -1788,6 +1798,13 @@ export interface CrawlStartParams {
    * into these.
    */
   datasets?: DatasetDeclaration[];
+  /**
+   * Whether the Run outlives the Connection that started it (ADR 0102),
+   * as a Recipe's run does: only a code-free crawl with no Hook, started
+   * on a Daemon, detaches, and any other such start fails with
+   * `detach_unsupported`.
+   */
+  detached?: boolean;
   /**
    * What a crawl with no handler reads from each page (a code-free
    * crawl, ADR 0103): the engine handles each request itself and
@@ -2479,6 +2496,13 @@ export interface Export {
    */
   records: number;
   /**
+   * The run epoch of the Run's state it was written from, which its ID
+   * and its kept file's name carry too, so a destination that compares
+   * and sets refuses the Export of a copy an older run epoch fenced
+   * (ADR 0003).
+   */
+  runEpoch: number;
+  /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */
   sha256: string;
@@ -2513,6 +2537,10 @@ export interface ExportSaveAsParams {
  */
 export interface ExportSaved {
   /**
+   * The run epoch the Export was written under (ADR 0003).
+   */
+  runEpoch: number;
+  /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */
   sha256: string;
@@ -2546,6 +2574,10 @@ export interface ExportStreamParams {
  * via the `definition` "ExportStreamed".
  */
 export interface ExportStreamed {
+  /**
+   * The run epoch the Export was written under (ADR 0003).
+   */
+  runEpoch: number;
   /**
    * The SHA-256 of its bytes, in lowercase hexadecimal.
    */

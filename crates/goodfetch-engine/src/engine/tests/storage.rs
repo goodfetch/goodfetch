@@ -25,6 +25,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
+use super::checkpoint::notes;
 use super::disk_view::DiskView;
 use super::events::credit;
 use super::ops::series;
@@ -114,6 +115,65 @@ fn a_run_on_a_filesystem_past_critical_stops_resumably_and_resumes_once_space_is
             &json!({ "kind": "resources", "resource": "storage", "folder": folder }),
             &json!("resumed"),
             &json!("finished"),
+        ),
+        "{stopped}"
+    );
+}
+
+/// The clean stop at `critical` writes the Run's last Run-state batch into
+/// its run file, a note that rode it included, and no Checkpoint copy
+/// beside it (ADRs 0122 and 0142).
+///
+/// Covers: row:RT-03, story:3-35, setting:storage.critical_free, setting:run_state.batch.interval
+#[test]
+fn a_clean_stop_at_critical_writes_its_last_batch_and_no_checkpoint_copy() {
+    let env = TestEnv::new();
+    configure(
+        &env,
+        &format!("{LEVELS}run_state.durability = \"batch\"\nrun_state.batch.interval = \"none\"\n"),
+    );
+    let view = DiskView::default();
+    let disk = view.mount(env.home(), 100 * MB, 50 * MB);
+    let filled = view.clone();
+    let folder = run_folder(&env, "filled");
+    let file = folder.join("run.sqlite");
+    let read = file.clone();
+
+    let (before, stopped) = attached_on(
+        &engine_with(Product::Collie, Some(noting())).with_governor(view.system()),
+        &env,
+        |mut client| async move {
+            opened(&mut client).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "filled" })).await;
+            call(
+                &mut client,
+                2,
+                "test.note",
+                json!({ "run_id": "filled", "value": 1, "rides": true }),
+            )
+            .await;
+            let before = notes(&read);
+            filled.set_free(disk, MB / 2);
+            samples().await;
+            let stopped = call(&mut client, 3, "run.finish", json!({ "run_id": "filled" })).await;
+            (before, stopped)
+        },
+    );
+
+    assert_eq!(
+        (
+            before,
+            &stopped["result"]["stop_reason"]["resource"],
+            &stopped["result"]["checkpoint"],
+            notes(&file),
+            folder.join("checkpoint.sqlite").exists(),
+        ),
+        (
+            Vec::<i64>::new(),
+            &json!("storage"),
+            &Value::Null,
+            vec![1],
+            false
         ),
         "{stopped}"
     );
@@ -395,6 +455,7 @@ fn a_level_set_to_zero_is_listed_in_the_reports_weakened() {
 }
 
 /// Commits the note `value` into the run file of the live Run `run_id`,
+/// or, with `rides`, writes it into the writer's open Run-state batch,
 /// answering whether it was acknowledged.
 const NOTE: Operation = Operation {
     name: "test.note",
@@ -438,13 +499,16 @@ fn noting() -> Contribution {
                 let Ok(run) = context.runs().live(run_id).await else {
                     return Ok::<Value, CallError>(json!({ "acknowledged": false }));
                 };
-                let written = crate::runs::state(&run)
-                    .write(move |connection| {
-                        connection
-                            .execute("INSERT INTO notes (value) VALUES (?1)", [value])
-                            .map(drop)
-                    })
-                    .await;
+                let note = move |connection: &Connection| {
+                    connection
+                        .execute("INSERT INTO notes (value) VALUES (?1)", [value])
+                        .map(drop)
+                };
+                let written = if params["rides"] == json!(true) {
+                    crate::runs::state(&run).write_deferred(note).await
+                } else {
+                    crate::runs::state(&run).write(note).await
+                };
                 Ok(json!({ "acknowledged": written.is_ok() }))
             },
         ))

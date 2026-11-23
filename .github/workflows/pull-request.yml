@@ -6,16 +6,31 @@
 # in the job's container, from the tree's pinned Linux x86-64 CI image
 # (ci/hosted/, ci/image/Containerfile).
 #
-# The `plan` job runs the gate's planner for the quick form on the head
-# (ci/hosted/plan.sh): from the records the runs on the head's ancestors
-# uploaded, it schedules the quick form's hosted-owned steps the change
-# reaches, lint, the Quick suite, the Journey task lists and xtask's codegen
-# tests. The `lint` job runs lint, and the `quick` job each other scheduled
-# step, alone, through the gate itself (`just pre-merge quick`,
-# GOODFETCH_GATE_ONLY); each uploads the gate's records of its step for a
-# day. `just merge` reads those records under
-# ci/hosted-records.sh's rules, reuses the green units and ends red on a red
-# one; it never reads a fork's runs.
+# The `plan` job runs the gate's planner on the head (ci/hosted/plan.sh), in
+# the form `just merge` picks: the full form on the pull request that
+# finishes a spec (#3382), the batch form on a batch's branch and the quick
+# form otherwise. From the records the runs on the head's ancestors
+# uploaded, it schedules the form's hosted-owned steps the change reaches:
+# lint, the Quick suite, the Journey task lists and xtask's codegen tests; on
+# a batch's branch and in the full form the Pre-merge suite of every member
+# it reaches (issues 3378 and 3380); in the full form the proofs, the visual
+# tests, the feature tests, the Kennel's check and the MSRV build. The full
+# gate's other steps are `just merge`'s: no 4-vCPU job finishes them within
+# ADR 0061's 30-minute cap (ADR 0135's note of 2026-11-23 on the full gate's
+# hosted steps), and perf and the stress run are the quiet gate host's.
+# The `lint` job runs lint and the proofs, before the deny, and the `quick`
+# job each other scheduled step, each alone, through the gate itself (`just
+# pre-merge <form>`, GOODFETCH_GATE_ONLY); the `visual` job runs the visual
+# tests in the pinned Playwright image and records them
+# (ci/hosted/visual.sh, ci/hosted/record.sh); the `pre-merge-*` jobs build,
+# shard and record the Pre-merge suite (ci/hosted/pre-merge.sh). Each
+# uploads the gate's records of its step for a day. `just merge` reads those
+# records under ci/hosted-records.sh's rules, reuses the green units and
+# ends red on a red one; it never reads a fork's runs. It waits for a run
+# whose jobs are each within the 30-minute cap, up to a bound of five times
+# the cap, this workflow's longest chain of jobs one after another (plan,
+# pre-merge build, shard, record, all green; #3490): a longer chain, such as
+# a fourth wave of the `quick` matrix, raises `chain` there.
 #
 # A step whose name starts with "Test" is a test step: "all green" fails when
 # one failed in an earlier attempt of the run (ADR 0064).
@@ -24,16 +39,31 @@
 # step and runs the Egress canary right after (ADR 0043); every job is
 # declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
 # No job holds a secret, and the checkout persists no credential.
+#
+# On `main`, the `ci-image` job alone runs: after a push that changes what
+# the CI image is built from, or when dispatched by hand, it saves the image
+# into the Actions cache the jobs above restore (#3480). A cache saved by a
+# pull request's run serves only that pull request, so only `main` saves it.
 name: pull request
 
 on:
   pull_request:
+  push:
+    branches: [main]
+    paths:
+      - ci/image/**
+      - ci/hosted/common.sh
+      - ci/hosted/image.sh
+      - .github/workflows/pull-request.yml
+  # Saves the image again when GitHub dropped its entry, after 7 days unused.
+  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: pull-request-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: pull-request-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to a pull request cancels its run; a save on `main` ends.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:
@@ -41,19 +71,32 @@ jobs:
     # A batch's or a spec's branch (`spec/<n>`, never a ticket's
     # `spec/<n>-<ticket>`), or a fork's pull request.
     if: >-
+      github.event_name == 'pull_request' && (
       github.event.pull_request.head.repo.full_name != github.repository
       || startsWith(github.head_ref, 'batch/')
-      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
       # The records of the runs on the head's ancestors.
       actions: read
-    # Each a JSON list of the steps the job of its name runs.
+      # Whether the pull request finishes its spec: the spec's sub-issues
+      # and the pull request's closing issues (ci/spec-sub-issues.sh).
+      issues: read
+      pull-requests: read
+    # The gate's form the jobs plan with, the members whose Pre-merge suite
+    # the run holds, and for each job after it a JSON list named after the
+    # job, of the steps or shards it runs (ci/hosted/plan.sh).
     outputs:
+      form: ${{ steps.plan.outputs.form }}
+      pre_merge: ${{ steps.plan.outputs.pre_merge }}
       lint: ${{ steps.plan.outputs.lint }}
+      visual: ${{ steps.plan.outputs.visual }}
       quick: ${{ steps.plan.outputs.quick }}
+      pre-merge-build: ${{ steps.plan.outputs.pre-merge-build }}
+      pre-merge-shard: ${{ steps.plan.outputs.pre-merge-shard }}
+      pre-merge-record: ${{ steps.plan.outputs.pre-merge-record }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,17 +110,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.base_ref }}
           BRANCH: ${{ github.head_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
           GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           GOODFETCH_GATE_HOSTED_RECORDS: target/hosted-records
         run: >-
           GOODFETCH_GATE_RUNNER_IMAGE="$ImageVersion"
-          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" >>"$GITHUB_OUTPUT"
+          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" "$NUMBER" >>"$GITHUB_OUTPUT"
 
-  # Lint, when the plan schedules it. Its zizmor runs the online audits and
-  # its quarantine-list check reads GitHub's issues, so it runs no deny; it
-  # runs none of the product.
+  # Lint and the proofs, when the plan schedules them, each a job of its
+  # own. Lint's zizmor runs the online audits and its quarantine-list check
+  # reads GitHub's issues, and the proofs' audit downloads the pinned
+  # advisory snapshot (ci/proofs/run.sh), so neither runs a deny; neither
+  # runs the product.
   lint:
-    name: lint
+    name: ${{ matrix.step }}
     needs: plan
     if: needs.plan.outputs.lint != '[]'
     runs-on: ubuntu-24.04
@@ -88,9 +134,13 @@ jobs:
       actions: read
       # The quarantine-list check reads each entry's issue (ADR 0064).
       issues: read
+    strategy:
+      fail-fast: false
+      matrix:
+        step: ${{ fromJSON(needs.plan.outputs.lint) }}
     env:
       GOODFETCH_GATE_LAYER: hosted
-      GOODFETCH_GATE_ONLY: lint
+      GOODFETCH_GATE_ONLY: ${{ matrix.step }}
       GOODFETCH_GATE_RECORDS: /work/target/gate-records
       GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
       GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
@@ -110,26 +160,150 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
         run: ci/hosted/exec.sh ci/os-services.sh setup
-      - name: "Test: the gate's lint step"
+      - name: "Test: the gate's step"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ci/hosted/exec.sh just pre-merge quick
+          FORM: ${{ needs.plan.outputs.form }}
+        run: ci/hosted/exec.sh just pre-merge "$FORM"
       - name: List the parts the job skipped
-        if: always()
+        if: "!cancelled()"
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too, for the upload below.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gate-record-lint
+          name: gate-record-${{ matrix.step }}
+          path: target/gate-records/*.tsv
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # The visual tests, when the plan schedules them: in the pinned Playwright
+  # image, beside the job's container and in its network namespace, so the
+  # deny holds them too (ci/hosted/visual.sh). The gate cannot start that
+  # image from inside the job's container, so the job records the step
+  # itself, from the test step's outcome (ci/hosted/record.sh).
+  visual:
+    name: visual
+    needs: plan
+    if: needs.plan.outputs.visual != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+    env:
+      GOODFETCH_GATE_LAYER: hosted
+      GOODFETCH_GATE_RECORDS: /work/target/gate-records
+      GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
+      GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download the records of the runs on the head's ancestors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
+          ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
+            target/hosted-records "$GITHUB_RUN_ID"
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Install the visual projects' packages in the pinned image
+        run: ci/hosted/visual.sh install
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the visual projects in the pinned image"
+        id: test
+        run: ci/hosted/visual.sh test
+      # Only a test step that ended records the step, after a cancel too: one
+      # that never ran leaves it to `just merge`.
+      - name: Record the step's result
+        if: always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure')
+        env:
+          FORM: ${{ needs.plan.outputs.form }}
+          OUTCOME: ${{ steps.test.outcome }}
+        run: ci/hosted/exec.sh ci/hosted/record.sh "$FORM" visual "$OUTCOME"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: "!cancelled()"
+        run: ci/junit-summary.sh container
+      # After a cancel too, for the uploads below that run then.
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/ target/gate-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-visual-pull-request-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Upload the expected, actual and diff images
+        if: failure() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-differences-pull-request
+          path: |
+            target/junit/playwright/
+            target/vitest-attachments/
+          if-no-files-found: ignore
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
+      - name: Upload the gate's records of the step
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-record-visual
           path: target/gate-records/*.tsv
           if-no-files-found: ignore
           retention-days: 1
@@ -144,8 +318,10 @@ jobs:
       contents: read
       # The records of the runs on the head's ancestors.
       actions: read
+    # Two at once keep the run within 10 jobs at once (ci/hosted/plan.sh).
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         step: ${{ fromJSON(needs.plan.outputs.quick) }}
     env:
@@ -170,6 +346,13 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -179,23 +362,32 @@ jobs:
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: the gate's step"
-        run: ci/hosted/exec.sh just pre-merge quick
+        env:
+          FORM: ${{ needs.plan.outputs.form }}
+        run: ci/hosted/exec.sh just pre-merge "$FORM"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
       - name: List the parts the job skipped
-        if: always()
+        if: "!cancelled()"
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: always()
+        if: "!cancelled()"
         run: ci/junit-summary.sh container
+      # After a cancel too, for the uploads below.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/gate-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -204,7 +396,8 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
       # Green or red, the step's record reaches `just merge`, which reuses a
-      # green unit and ends red on a red one (ci/hosted-records.sh).
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -214,12 +407,285 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  # The Pre-merge suite of a batch's run (issues 3378 and 3380), over the
+  # members the plan holds it for (ci/hosted/pre-merge.sh): this job builds
+  # the crates' tests once into a nextest archive and runs their doctests,
+  # then Vitest, Playwright and pytest when the plan holds a member that is
+  # no crate; each `pre-merge-shard` job runs one hash partition of the
+  # archive, and `pre-merge-record` records the step's result for each
+  # member once every shard has ended. The jobs that run tests boot systemd
+  # in their container and start the OS services the gate host's suite uses,
+  # and restore the pinned Chrome for Testing build from the cache the
+  # Release suite saves on `main`. Nothing they upload outlives the day.
+  pre-merge-build:
+    name: pre-merge build
+    needs: plan
+    if: needs.plan.outputs.pre-merge-build != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # Whether the archive and the listing were built: the shards run then,
+    # even after a red doctest or runner, so the record judges each crate.
+    outputs:
+      built: ${{ steps.build.outcome }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Build the members' tests and list the suite's selection
+        id: build
+        env:
+          MEMBERS: ${{ needs.plan.outputs.pre_merge }}
+        run: |
+          read -ra members <<<"$MEMBERS"
+          ci/hosted/exec.sh ci/hosted/pre-merge.sh build "${members[@]}"
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        id: canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the members' doctests"
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh doctests
+      # Every Vitest, Playwright and pytest test, when the plan holds a
+      # member that is no crate, after red doctests too: the record judges
+      # the crates apart.
+      - name: "Test: Vitest, Playwright and pytest"
+        if: "!cancelled() && steps.canary.outcome == 'success'"
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh runners
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      # Only this run's shards and pre-merge record read the upload, and a
+      # cancel skips them.
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: "!cancelled()"
+        run: ci/hosted/exec.sh ci/leaks.sh target/pre-merge/
+      - name: Upload the archive, the listing and the doctests' status
+        if: "!cancelled() && steps.leaks.outcome == 'success'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pre-merge-build
+          path: target/pre-merge/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  pre-merge-shard:
+    name: pre-merge shard (${{ matrix.shard }})
+    needs: [plan, pre-merge-build]
+    # The shards run the crates' tests; a run that holds none starts none.
+    if: "!cancelled() && needs.plan.outputs.pre-merge-shard != '[]' && needs.pre-merge-build.outputs.built == 'success'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.pre-merge-shard) }}
+    # Each Product's plugin test validates its plugin with the pinned Claude
+    # Code, which `just fetch` downloads under CI only for a job that says
+    # so (ci/claude-code-fetch.sh): a shard of a run whose Pre-merge suite
+    # holds goodfetch-collie or goodfetch-foxhound, whichever shard its
+    # test lands in.
+    env:
+      GOODFETCH_FETCH_CLAUDE_CODE: >-
+        ${{ (contains(format(' {0} ', needs.plan.outputs.pre_merge), ' goodfetch-collie ')
+        || contains(format(' {0} ', needs.plan.outputs.pre_merge), ' goodfetch-foxhound ')) && 'yes' || 'no' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Download the archive and the listing
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pre-merge-build
+          path: target/pre-merge
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the shard's part of the Pre-merge suite"
+        env:
+          SHARD: ${{ matrix.shard }}
+          COUNT: ${{ strategy.job-total }}
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh shard "$SHARD" "$COUNT"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: List the parts the job skipped
+        if: "!cancelled()"
+        run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: "!cancelled()"
+        run: ci/junit-summary.sh container
+      # After a cancel too, for the JUnit files' upload.
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/pre-merge/shards/ target/test-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-pre-merge-pull-request-linux-x64-${{ matrix.shard }}
+          path: target/junit/
+          if-no-files-found: ignore
+      # Only this run's pre-merge record reads it, and a cancel skips that.
+      - name: Upload the shard's results for the record
+        if: "!cancelled() && steps.leaks.outcome == 'success'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pre-merge-shard-${{ matrix.shard }}
+          path: |
+            target/pre-merge/shards/
+            target/test-records/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # Records the Pre-merge suite's result for each member, green only when
+  # every shard ran its partition green and together they ran the listing's
+  # tests, each once (`xtask gate shards`). It runs none of the product's
+  # tests, so it runs no deny. It runs after a failed shard, to record it
+  # red, but not after a cancel, which would leave it nothing to record and
+  # hold the concurrency group while its container starts (#3526).
+  pre-merge-record:
+    name: pre-merge record
+    needs: [plan, pre-merge-build, pre-merge-shard]
+    if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.pre-merge-record != '[]'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+    env:
+      GOODFETCH_GATE_LAYER: hosted
+      GOODFETCH_GATE_RECORDS: /work/target/gate-records
+      GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
+      GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download the records of the runs on the head's ancestors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
+          ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
+            target/hosted-records "$GITHUB_RUN_ID"
+      - name: Download the listing and the doctests' status
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pre-merge-build
+          path: target/pre-merge
+      - name: Download the shards' results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pre-merge-shard-*
+          path: target
+          merge-multiple: true
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Judge the shards and record the step's result
+        env:
+          SHARDS: ${{ needs.plan.outputs.pre-merge-shard }}
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh record "$(jq length <<<"$SHARDS")"
+      # After a cancel too, for the upload below.
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
+      - name: Upload the gate's records of the step
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-record-pre-merge
+          path: target/gate-records/*.tsv
+          if-no-files-found: ignore
+          retention-days: 1
+
   chromium-build-gate:
     name: Chromium build gate
     if: >-
+      github.event_name == 'pull_request' && (
       github.event.pull_request.head.repo.full_name != github.repository
       || startsWith(github.head_ref, 'batch/')
-      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -227,10 +693,48 @@ jobs:
       - name: Pass until the gate's first build lands
         run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
 
+  # The CI image the jobs above restore (#3480), on `main` only: it looks up
+  # the cache entry keyed by the hash of the commit's ci/image/Containerfile
+  # and, when there is none, builds the image and saves it compressed
+  # (ci/hosted/image.sh save). A key the cache holds is looked up, never
+  # downloaded. Its `pull-request-…-Linux-…` key keeps it out of `xtask
+  # evict-caches`'s deletions. The Release suite's `ci-image` job does the
+  # same on its runs on `main`.
+  ci-image:
+    name: ci image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Look the CI image up in the cache
+        id: ci-image-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+          lookup-only: true
+      - name: Build the CI image and write its archive
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        run: ci/hosted/image.sh save
+      - name: Save the CI image
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+
+  # It judges a run that failed, but not a cancelled one: a newer run
+  # superseded it, or `just merge` runs what it left (#3526).
   all-green:
     name: all green
-    if: always() && needs.plan.result != 'skipped'
-    needs: [plan, lint, quick]
+    if: "!cancelled() && needs.plan.result != 'skipped'"
+    needs: [plan, lint, visual, quick, pre-merge-build, pre-merge-shard, pre-merge-record]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

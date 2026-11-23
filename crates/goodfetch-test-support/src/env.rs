@@ -760,12 +760,27 @@ fn key_of(line: &str) -> &str {
 /// LazyFS test's power cut after a write on its mounted home, such as the
 /// `log.level` each engine start sets, leaves the file as written, never
 /// empty.
+///
+/// The rename is the standard library's: on Windows it replaces a file an
+/// engine holds open, with POSIX semantics, where `persist`'s plain
+/// `MoveFileExW` is refused with Access denied (#2916). The temporary file
+/// is kept before the rename, since keeping it clears its Windows temporary
+/// attribute at its own path, and removed if the rename fails.
 fn replace(file: &Path, text: &str) -> io::Result<()> {
     let folder = file.parent().unwrap_or(Path::new("."));
     let mut replacement = tempfile::NamedTempFile::new_in(folder)?;
     io::Write::write_all(&mut replacement, text.as_bytes())?;
     replacement.as_file().sync_all()?;
-    replacement.persist(file).map_err(|error| error.error)?;
+    let replacement = replacement
+        .into_temp_path()
+        .keep()
+        .map_err(|error| error.error)?;
+    if let Err(error) = std::fs::rename(&replacement, file) {
+        // The rename's error is the one to report; a leftover temporary
+        // file in the test's folder goes with the folder.
+        let _ = std::fs::remove_file(&replacement);
+        return Err(error);
+    }
     #[cfg(unix)]
     std::fs::File::open(folder)?.sync_all()?;
     Ok(())

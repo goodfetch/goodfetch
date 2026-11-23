@@ -15,6 +15,7 @@ mod all_green;
 mod allure;
 mod api_baseline;
 mod api_check;
+mod artifacts;
 mod base_console;
 mod browser_releases;
 mod budgets;
@@ -133,6 +134,13 @@ enum Command {
     /// catalog entry or `--json` output type since the previous release's
     /// commit that `compat/api.toml` names, unless the file announces it.
     ApiCheck,
+    /// The released artifacts of `compat/releases.toml`, both Products'
+    /// files of each release, kept by digest with their verified attestation
+    /// for the skew and upgrade tests (ADR 0066).
+    Artifacts {
+        #[command(subcommand)]
+        command: artifacts::Command,
+    },
     /// Writes the release table the version check grades browser builds
     /// against, from Chromium Dash's milestone schedule and Mozilla's release
     /// calendar (ADR 0035).
@@ -630,6 +638,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::ApiCheck => api_check::run(root),
+        Command::Artifacts { command } => artifacts::run(&command, environment),
         Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),

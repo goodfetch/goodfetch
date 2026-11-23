@@ -197,6 +197,10 @@ fn second_copy(
 /// The target's twin on a Goodfetch home of its own, beside the
 /// target's, configured as the target's home is; none when the target is
 /// a Daemon, whose further Connections reach the same engine.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness is synchronous and runs no async worker"
+)]
 fn elsewhere(target: &EngineTarget) -> Option<EngineTarget> {
     if target.mode != EngineMode::Attached {
         return None;

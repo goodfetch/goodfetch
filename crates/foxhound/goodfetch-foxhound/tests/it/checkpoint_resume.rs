@@ -9,6 +9,10 @@
     clippy::disallowed_types,
     reason = "the program places its order on the Proving ground from outside the engine (ADR 0060)"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::io::{Read as _, Write as _};
 use std::path::Path;
@@ -82,6 +86,10 @@ pub(crate) fn orders(proving_ground: &ProvingGround) -> Vec<Value> {
 /// report lists it and needs review.
 /// Covers: story:3-34, operation:run.resume, operation:effect.open, error:effect_uncertain
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test copies the committed Checkpoint into its own folder"
+)]
 fn the_head_sets_checkpoint_resumes_against_the_proving_ground_and_never_repeats_an_effect() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();

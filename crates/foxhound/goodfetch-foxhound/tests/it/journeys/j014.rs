@@ -67,6 +67,10 @@ fn records(run: &JourneyRun<impl Sized>, through: Option<u64>) -> Vec<Value> {
 
 /// Covers: story:3-35, row:RT-11, command:run.pause, command:run.resume, command:daemon.restart
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a Journey variant reads as its file: each step, then each check, in order"
+)]
 fn cli() {
     let mut run = JourneyRun::start("J-014", "cli", Path::new(FOXHOUND), ResultDocument::journey)
         .expect("J-014's cli variant starts");

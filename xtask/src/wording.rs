@@ -95,6 +95,20 @@ enum Place<'a> {
     Field(&'a str, &'a str),
 }
 
+/// The findings in `text`, a Markdown file at `file` that is published
+/// though no walk reads it, such as a skill's rendering (ADR 0065).
+pub(crate) fn markdown(root: &Path, file: &str, text: &str) -> Result<Vec<Finding>> {
+    let terms = read_terms(root)?;
+    let mut findings = Vec::new();
+    scan(
+        &terms,
+        &markdown_prose(text),
+        &Place::Lines(file),
+        &mut findings,
+    );
+    Ok(findings)
+}
+
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let terms = read_terms(root)?;
     let mut findings = Vec::new();

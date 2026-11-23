@@ -57,6 +57,7 @@ mod python;
 mod refused;
 mod rust;
 mod settings_tree;
+mod skills;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -346,6 +347,7 @@ impl Plan {
             PROTOCOL_GENERATED,
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
+            skills::FOXHOUND_FOLDER,
             cdp::FOLDER,
             rust::FOLDER,
             rust::FOXHOUND_FOLDER,
@@ -411,6 +413,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
+    files.extend(skills::files(root, &catalog, command_lines.as_ref())?);
     let sources = features::Sources {
         root,
         catalog: &catalog,
